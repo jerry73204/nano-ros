@@ -1,0 +1,12 @@
+# editor
+*~
+.*~
+*.sw[op]
+\#*#
+
+# Python caches
+__pycache__/
+*.py[oc]
+
+# Rust
+/target/
