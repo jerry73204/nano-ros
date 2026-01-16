@@ -252,16 +252,21 @@ Example:
 
 ## Build Commands
 
+Use `just` for common tasks (default recipes use `no_std`):
+
 ```bash
-# Desktop (full std)
-cargo build --features std
-
-# Embedded with heap
-cargo build --no-default-features --features alloc --target thumbv7em-none-eabihf
-
-# Bare metal (static only)
-cargo build --no-default-features --target thumbv7em-none-eabihf
+just setup          # Install toolchains and tools
+just build          # Build with no_std (default)
+just build-embedded # Build for thumbv7em-none-eabihf
+just check          # Format + clippy with no_std
+just test           # Run tests (requires std)
+just format         # Format code (nightly)
+just quality        # Run check + test
+just doc            # Generate and open docs
+just clean          # Clean build artifacts
 ```
+
+**Toolchain**: `rust-toolchain.toml` configures stable + `thumbv7em-none-eabihf` target.
 
 ## Target Platform Notes
 
