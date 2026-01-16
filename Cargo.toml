@@ -8,6 +8,7 @@ members = [
     "crates/nano-ros-types",
     "crates/nano-ros-params",
     "crates/nano-ros-transport",
+    "crates/zenoh-pico-sys",
 ]
 
 [workspace.package]

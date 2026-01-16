@@ -1,0 +1,22 @@
+[package]
+name = "zenoh-pico-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Unsafe FFI bindings to zenoh-pico C library"
+links = "zenohpico"
+
+[lib]
+name = "zenoh_pico_sys"
+
+[dependencies]
+cty = { workspace = true }
+
+[build-dependencies]
+bindgen = "0.71"
+cc = "1.2"
+cmake = "0.1"
+
+[features]
+default = []
+std = []
