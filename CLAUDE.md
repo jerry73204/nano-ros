@@ -260,6 +260,8 @@ just build          # Build with no_std (default)
 just build-embedded # Build for thumbv7em-none-eabihf
 just check          # Format + clippy with no_std
 just test           # Run tests (requires std)
+just test-miri      # Run Miri for undefined behavior detection
+just test-all       # Run test + test-miri
 just format         # Format code (nightly)
 just quality        # Run check + test
 just doc            # Generate and open docs
@@ -298,8 +300,11 @@ pub enum Error {
 ## Testing Strategy
 
 - Unit tests with `#[cfg(test)]` (requires `std`)
+- Miri tests for undefined behavior detection
+- CDR format compatibility tests against Micro-CDR
+- QEMU tests for Cortex-M targets (Phase 2)
 - Integration tests against real zenoh router
-- Mock transport for isolated testing
+- Multi-node QEMU testing (Zephyr + native)
 - Consider `defmt` for embedded debugging
 
 ## Documentation
@@ -308,11 +313,20 @@ Development documentation lives in `docs/`:
 
 ```
 docs/
-├── roadmap/           # Development phases and milestones
-│   └── phase-N-*.md   # Individual phase documents
-├── architecture/      # Design documents and ADRs
-└── api/               # API documentation (if not rustdoc)
+├── roadmap/                       # Development phases and milestones
+│   ├── phase-1-foundation.md      # CDR, types, macros (COMPLETE)
+│   └── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (PLANNING)
+├── architecture/                  # Design documents and ADRs
+└── api/                           # API documentation (if not rustdoc)
 ```
+
+## Development Phases
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| Phase 1 | CDR serialization, types, proc macros | **Complete** |
+| Phase 2 | Zephyr integration, QEMU testing, transport | Planning |
+| Phase 3 | Services, parameters, safety certification | Future |
 
 ## References
 
@@ -321,3 +335,6 @@ docs/
 - Micro-CDR: `external/Pico-ROS-software/thirdparty/Micro-CDR/`
 - ROS 2 CDR spec: OMG DDS-XTypes
 - rmw_zenoh: https://github.com/ros2/rmw_zenoh
+- Zephyr Rust: https://github.com/zephyrproject-rtos/zephyr-lang-rust
+- Embassy: https://embassy.dev/
+- Ferrocene (deferred): https://ferrocene.dev/
