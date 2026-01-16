@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/nano-ros-core",
+    "crates/nano-ros-serdes",
+    "crates/nano-ros-macros",
+    "crates/nano-ros-types",
+    "crates/nano-ros-params",
+    "crates/nano-ros-transport",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/user/nano-ros"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Internal crates (default-features = false for no_std flexibility)
+nano-ros-core = { path = "crates/nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "crates/nano-ros-serdes", default-features = false }
+nano-ros-macros = { path = "crates/nano-ros-macros" }
+nano-ros-types = { path = "crates/nano-ros-types", default-features = false }
+nano-ros-params = { path = "crates/nano-ros-params", default-features = false }
+nano-ros-transport = { path = "crates/nano-ros-transport", default-features = false }
+
+# no_std compatible
+heapless = "0.8"
+embedded-io = "0.6"
+
+# Serialization
+byteorder = { version = "1.5", default-features = false }
+
+# Proc macros
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+# Optional std dependencies
+thiserror = "1"
+
+[profile.release]
+opt-level = "s"      # Optimize for size
+lto = true           # Link-time optimization
+codegen-units = 1    # Better optimization
+panic = "abort"      # Smaller binary, no unwinding
+
+[profile.dev]
+opt-level = 1        # Some optimization even in dev for embedded

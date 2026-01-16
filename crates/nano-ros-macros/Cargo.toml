@@ -1,0 +1,14 @@
+[package]
+name = "nano-ros-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Proc macros for nano-ros message type generation"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }

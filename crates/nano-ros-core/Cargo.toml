@@ -1,0 +1,15 @@
+[package]
+name = "nano-ros-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core types, traits, and node abstraction for nano-ros"
+
+[features]
+default = ["std"]
+std = ["nano-ros-serdes/std"]
+alloc = ["nano-ros-serdes/alloc"]
+
+[dependencies]
+nano-ros-serdes = { workspace = true, default-features = false }
+heapless = { workspace = true }

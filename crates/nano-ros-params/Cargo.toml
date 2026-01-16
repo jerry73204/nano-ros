@@ -1,0 +1,16 @@
+[package]
+name = "nano-ros-params"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ROS 2 parameter server for nano-ros"
+
+[features]
+default = ["std"]
+std = ["nano-ros-core/std"]
+alloc = ["nano-ros-core/alloc"]
+
+[dependencies]
+nano-ros-core = { workspace = true, default-features = false }
+nano-ros-serdes = { workspace = true, default-features = false }
+heapless = { workspace = true }
