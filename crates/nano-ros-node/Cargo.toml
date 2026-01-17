@@ -7,12 +7,16 @@ description = "Node abstraction for nano-ros"
 
 [features]
 default = ["std"]
-std = ["nano-ros-core/std", "nano-ros-serdes/std", "nano-ros-transport/std"]
+std = ["nano-ros-core/std", "nano-ros-serdes/std", "nano-ros-transport/std", "log"]
 alloc = ["nano-ros-core/alloc", "nano-ros-serdes/alloc"]
 zenoh = ["nano-ros-transport/zenoh", "alloc"]
+log = ["dep:log"]
+defmt = ["dep:defmt"]
 
 [dependencies]
 nano-ros-core = { workspace = true, default-features = false }
 nano-ros-serdes = { workspace = true, default-features = false }
 nano-ros-transport = { workspace = true, default-features = false }
 heapless = { workspace = true }
+log = { workspace = true, optional = true }
+defmt = { workspace = true, optional = true }

@@ -17,3 +17,5 @@ zenoh = ["nano-ros-node/zenoh"]
 nano-ros-core = { workspace = true }
 nano-ros-node = { workspace = true }
 nano-ros-types = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }

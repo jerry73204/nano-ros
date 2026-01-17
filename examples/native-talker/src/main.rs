@@ -15,16 +15,26 @@
 //! # Then run the talker:
 //! cargo run -p native-talker --features zenoh
 //! ```
+//!
+//! # Enabling debug logs:
+//! ```bash
+//! RUST_LOG=debug cargo run -p native-talker --features zenoh
+//! ```
 
+#[cfg(feature = "zenoh")]
+use log::warn;
+use log::{debug, error, info};
 use nano_ros_core::RosMessage;
 use nano_ros_types::std_msgs::Int32;
 
 #[cfg(feature = "zenoh")]
 fn main() {
+    env_logger::init();
+
     use nano_ros_node::{ConnectedNode, NodeConfig};
 
-    println!("nano-ros Native Talker (Zenoh Transport)");
-    println!("=========================================");
+    info!("nano-ros Native Talker (Zenoh Transport)");
+    info!("=========================================");
 
     // Create a connected node
     let config = NodeConfig::new("talker", "/demo");
@@ -32,46 +42,46 @@ fn main() {
     // Try to connect to zenoh router
     let mut node = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447") {
         Ok(node) => {
-            println!("Connected to zenoh router at tcp/127.0.0.1:7447");
+            info!("Connected to zenoh router at tcp/127.0.0.1:7447");
             node
         }
         Err(e) => {
-            eprintln!("Failed to connect to zenoh router: {:?}", e);
-            eprintln!("Trying peer mode...");
+            warn!("Failed to connect to zenoh router: {:?}", e);
+            warn!("Trying peer mode...");
 
             // Fall back to peer mode
             match ConnectedNode::connect_peer(config) {
                 Ok(node) => {
-                    println!("Connected in peer mode");
+                    info!("Connected in peer mode");
                     node
                 }
                 Err(e) => {
-                    eprintln!("Failed to connect in peer mode: {:?}", e);
+                    error!("Failed to connect in peer mode: {:?}", e);
                     std::process::exit(1);
                 }
             }
         }
     };
 
-    println!("Node: {}/{}", node.namespace(), node.name());
+    info!("Node: {}/{}", node.namespace(), node.name());
 
     // Create a publisher for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
     let publisher = match node.create_publisher::<Int32>("/chatter") {
         Ok(pub_) => {
-            println!("Publisher created for topic: /chatter");
-            println!("Message type: {}", Int32::TYPE_NAME);
+            info!("Publisher created for topic: /chatter");
+            debug!("Message type: {}", Int32::TYPE_NAME);
+            debug!("Type hash: {}", Int32::TYPE_HASH);
+            debug!("ZID: {}", node.zid().to_hex_string());
             pub_
         }
         Err(e) => {
-            eprintln!("Failed to create publisher: {:?}", e);
+            error!("Failed to create publisher: {:?}", e);
             std::process::exit(1);
         }
     };
 
-    println!();
-    println!("Publishing Int32 messages...");
-    println!();
+    info!("Publishing Int32 messages...");
 
     // Publishing loop
     let mut count: i32 = 0;
@@ -80,10 +90,10 @@ fn main() {
 
         match publisher.publish(&msg) {
             Ok(()) => {
-                println!("[{}] Published: data={}", count, msg.data);
+                info!("[{}] Published: data={}", count, msg.data);
             }
             Err(e) => {
-                eprintln!("Publish error: {:?}", e);
+                error!("Publish error: {:?}", e);
             }
         }
 
@@ -96,29 +106,28 @@ fn main() {
 
 #[cfg(not(feature = "zenoh"))]
 fn main() {
+    env_logger::init();
+
     use nano_ros_node::{Node, NodeConfig};
 
-    println!("nano-ros Native Talker (Simulation Mode)");
-    println!("=========================================");
-    println!();
-    println!("Note: Running without zenoh transport.");
-    println!("To use real transport, run with: --features zenoh");
-    println!();
+    info!("nano-ros Native Talker (Simulation Mode)");
+    info!("=========================================");
+    info!("Note: Running without zenoh transport.");
+    info!("To use real transport, run with: --features zenoh");
 
     // Create a node (without transport)
     let config = NodeConfig::new("talker", "/demo");
     let mut node = Node::<4, 4>::new(config);
 
-    println!("Node created: {}", node.fully_qualified_name());
+    info!("Node created: {}", node.fully_qualified_name());
 
     // Create a publisher for Int32 messages
     let publisher = node
         .create_publisher::<Int32>("/chatter")
         .expect("Failed to create publisher");
 
-    println!("Publisher created for topic: /chatter");
-    println!("Message type: {}", Int32::TYPE_NAME);
-    println!();
+    info!("Publisher created for topic: /chatter");
+    debug!("Message type: {}", Int32::TYPE_NAME);
 
     // Simulate publishing loop
     for i in 0..10 {
@@ -127,7 +136,7 @@ fn main() {
         // Serialize the message (but don't actually send it)
         match node.serialize_message(&publisher, &msg) {
             Ok(bytes) => {
-                println!(
+                info!(
                     "[{}] Serialized: data={}, {} bytes: {:02x?}...",
                     i,
                     msg.data,
@@ -136,13 +145,12 @@ fn main() {
                 );
             }
             Err(e) => {
-                eprintln!("Serialization error: {:?}", e);
+                error!("Serialization error: {:?}", e);
             }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    println!();
-    println!("Talker finished (simulation mode).");
+    info!("Talker finished (simulation mode).");
 }

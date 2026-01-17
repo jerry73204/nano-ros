@@ -268,6 +268,9 @@ impl ZenohPublisher {
         // Generate the topic key
         let key: heapless::String<256> = topic.to_key();
 
+        #[cfg(feature = "log")]
+        log::debug!("Publisher data keyexpr: {}", key.as_str());
+
         let keyexpr =
             KeyExpr::new(key.as_str()).map_err(|_| TransportError::PublisherCreationFailed)?;
 

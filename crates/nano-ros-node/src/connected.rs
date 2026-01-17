@@ -103,6 +103,8 @@ impl ConnectedNode {
 
         // Declare node liveliness token for ROS 2 discovery
         let node_keyexpr = Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
+        #[cfg(feature = "log")]
+        log::debug!("Node liveliness keyexpr: {}", node_keyexpr);
         let node_token = session.declare_liveliness(&node_keyexpr).ok();
 
         Ok(Self {
@@ -171,6 +173,8 @@ impl ConnectedNode {
         // Declare publisher liveliness token for ROS 2 discovery
         let pub_keyexpr =
             Ros2Liveliness::publisher_keyexpr(self.domain_id, &self.zid, &self.name, &topic_info);
+        #[cfg(feature = "log")]
+        log::debug!("Publisher liveliness keyexpr: {}", pub_keyexpr);
         if let Ok(token) = self.session.declare_liveliness(&pub_keyexpr) {
             self._entity_tokens.push(token);
         }

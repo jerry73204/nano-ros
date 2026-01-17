@@ -15,16 +15,26 @@
 //! # Then run the listener:
 //! cargo run -p native-listener --features zenoh
 //! ```
+//!
+//! # Enabling debug logs:
+//! ```bash
+//! RUST_LOG=debug cargo run -p native-listener --features zenoh
+//! ```
 
+#[cfg(feature = "zenoh")]
+use log::warn;
+use log::{debug, error, info};
 use nano_ros_core::RosMessage;
 use nano_ros_types::std_msgs::Int32;
 
 #[cfg(feature = "zenoh")]
 fn main() {
+    env_logger::init();
+
     use nano_ros_node::{ConnectedNode, NodeConfig};
 
-    println!("nano-ros Native Listener (Zenoh Transport)");
-    println!("==========================================");
+    info!("nano-ros Native Listener (Zenoh Transport)");
+    info!("==========================================");
 
     // Create a connected node
     let config = NodeConfig::new("listener", "/demo");
@@ -32,47 +42,45 @@ fn main() {
     // Try to connect to zenoh router
     let mut node = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447") {
         Ok(node) => {
-            println!("Connected to zenoh router at tcp/127.0.0.1:7447");
+            info!("Connected to zenoh router at tcp/127.0.0.1:7447");
             node
         }
         Err(e) => {
-            eprintln!("Failed to connect to zenoh router: {:?}", e);
-            eprintln!("Trying peer mode...");
+            warn!("Failed to connect to zenoh router: {:?}", e);
+            warn!("Trying peer mode...");
 
             // Fall back to peer mode
             match ConnectedNode::connect_peer(config) {
                 Ok(node) => {
-                    println!("Connected in peer mode");
+                    info!("Connected in peer mode");
                     node
                 }
                 Err(e) => {
-                    eprintln!("Failed to connect in peer mode: {:?}", e);
+                    error!("Failed to connect in peer mode: {:?}", e);
                     std::process::exit(1);
                 }
             }
         }
     };
 
-    println!("Node: {}/{}", node.namespace(), node.name());
+    info!("Node: {}/{}", node.namespace(), node.name());
 
     // Create a subscriber for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
     let mut subscriber = match node.create_subscriber::<Int32>("/chatter") {
         Ok(sub) => {
-            println!("Subscriber created for topic: /chatter");
-            println!("Message type: {}", Int32::TYPE_NAME);
+            info!("Subscriber created for topic: /chatter");
+            debug!("Message type: {}", Int32::TYPE_NAME);
             sub
         }
         Err(e) => {
-            eprintln!("Failed to create subscriber: {:?}", e);
+            error!("Failed to create subscriber: {:?}", e);
             std::process::exit(1);
         }
     };
 
-    println!();
-    println!("Waiting for Int32 messages on /chatter...");
-    println!("(Press Ctrl+C to exit)");
-    println!();
+    info!("Waiting for Int32 messages on /chatter...");
+    info!("(Press Ctrl+C to exit)");
 
     // Receiving loop
     let mut count: u64 = 0;
@@ -80,13 +88,13 @@ fn main() {
         match subscriber.try_recv() {
             Ok(Some(msg)) => {
                 count += 1;
-                println!("[{}] Received: data={}", count, msg.data);
+                info!("[{}] Received: data={}", count, msg.data);
             }
             Ok(None) => {
                 // No message available, sleep briefly
             }
             Err(e) => {
-                eprintln!("Receive error: {:?}", e);
+                error!("Receive error: {:?}", e);
             }
         }
 
@@ -97,34 +105,32 @@ fn main() {
 
 #[cfg(not(feature = "zenoh"))]
 fn main() {
+    env_logger::init();
+
     use nano_ros_node::{Node, NodeConfig};
 
-    println!("nano-ros Native Listener (Simulation Mode)");
-    println!("==========================================");
-    println!();
-    println!("Note: Running without zenoh transport.");
-    println!("To use real transport, run with: --features zenoh");
-    println!();
+    info!("nano-ros Native Listener (Simulation Mode)");
+    info!("==========================================");
+    info!("Note: Running without zenoh transport.");
+    info!("To use real transport, run with: --features zenoh");
 
     // Create a node (without transport)
     let config = NodeConfig::new("listener", "/demo");
     let mut node = Node::<4, 4>::new(config);
 
-    println!("Node created: {}", node.fully_qualified_name());
+    info!("Node created: {}", node.fully_qualified_name());
 
     // Create a subscriber for Int32 messages
     let subscriber = node
         .create_subscriber::<Int32>("/chatter")
         .expect("Failed to create subscriber");
 
-    println!("Subscriber created for topic: /chatter");
-    println!("Message type: {}", Int32::TYPE_NAME);
-    println!();
+    info!("Subscriber created for topic: /chatter");
+    debug!("Message type: {}", Int32::TYPE_NAME);
 
     // Simulate receiving messages (in real implementation, bytes come from transport)
     // Here we create some test CDR data to demonstrate deserialization
-    println!("Simulating received messages...");
-    println!();
+    info!("Simulating received messages...");
 
     for i in 0..10 {
         // Create test CDR data (header + i32)
@@ -137,7 +143,7 @@ fn main() {
         // Deserialize the message
         match node.deserialize_message::<Int32>(&subscriber, &test_data) {
             Ok(msg) => {
-                println!(
+                info!(
                     "[{}] Received (simulated): data={}, from {} bytes",
                     i,
                     msg.data,
@@ -145,13 +151,12 @@ fn main() {
                 );
             }
             Err(e) => {
-                eprintln!("Deserialization error: {:?}", e);
+                error!("Deserialization error: {:?}", e);
             }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    println!();
-    println!("Listener finished (simulation mode).");
+    info!("Listener finished (simulation mode).");
 }

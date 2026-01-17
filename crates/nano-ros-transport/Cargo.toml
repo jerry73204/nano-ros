@@ -7,12 +7,16 @@ description = "Transport abstraction layer for nano-ros"
 
 [features]
 default = ["std"]
-std = ["nano-ros-core/std", "zenoh-pico?/std"]
+std = ["nano-ros-core/std", "zenoh-pico?/std", "log"]
 alloc = ["nano-ros-core/alloc"]
 zenoh = ["dep:zenoh-pico", "dep:spin", "alloc"]  # Enable zenoh-pico backend (requires alloc for callback buffers)
+log = ["dep:log"]
+defmt = ["dep:defmt"]
 
 [dependencies]
 nano-ros-core = { workspace = true, default-features = false }
 heapless = { workspace = true }
 zenoh-pico = { path = "../zenoh-pico", optional = true, default-features = false }
 spin = { version = "0.9", optional = true, default-features = false, features = ["mutex", "spin_mutex"] }
+log = { workspace = true, optional = true }
+defmt = { workspace = true, optional = true }

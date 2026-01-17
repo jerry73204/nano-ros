@@ -56,6 +56,10 @@ panic-semihosting = { version = "0.6", features = ["exit"] }
 panic-halt = "1.0"
 qemu-exit = "3.0"
 
+# Logging
+log = { version = "0.4", default-features = false }
+env_logger = "0.11"
+
 # Embedded logging
 defmt = "0.3"
 defmt-rtt = "0.4"
