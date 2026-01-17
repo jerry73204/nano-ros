@@ -11,6 +11,9 @@ members = [
     "crates/nano-ros-node",
     "crates/zenoh-pico-sys",
     "crates/zenoh-pico",
+    "examples/qemu-test",
+    "examples/native-talker",
+    "examples/native-listener",
 ]
 
 [workspace.package]
@@ -28,6 +31,7 @@ nano-ros-macros = { path = "crates/nano-ros-macros" }
 nano-ros-types = { path = "crates/nano-ros-types", default-features = false }
 nano-ros-params = { path = "crates/nano-ros-params", default-features = false }
 nano-ros-transport = { path = "crates/nano-ros-transport", default-features = false }
+nano-ros-node = { path = "crates/nano-ros-node", default-features = false }
 
 # no_std compatible
 heapless = "0.8"
@@ -43,6 +47,21 @@ proc-macro2 = "1"
 
 # Optional std dependencies
 thiserror = "1"
+
+# Embedded runtime (QEMU testing)
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-semihosting = { version = "0.6", features = ["exit"] }
+panic-halt = "1.0"
+qemu-exit = "3.0"
+
+# Embedded logging
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+# FFI / C interop
+cty = "0.2"
 
 [profile.release]
 opt-level = "s"      # Optimize for size

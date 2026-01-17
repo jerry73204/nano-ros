@@ -1,0 +1,19 @@
+[package]
+name = "native-listener"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "listener"
+path = "src/main.rs"
+
+[features]
+default = []
+zenoh = ["nano-ros-node/zenoh"]
+
+[dependencies]
+nano-ros-core = { workspace = true }
+nano-ros-node = { workspace = true }
+nano-ros-types = { workspace = true }

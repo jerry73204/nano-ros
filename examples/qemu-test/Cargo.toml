@@ -1,0 +1,23 @@
+[package]
+name = "qemu-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "qemu-test"
+test = false
+bench = false
+
+[dependencies]
+nano-ros-core = { workspace = true }
+nano-ros-serdes = { workspace = true }
+nano-ros-types = { workspace = true }
+nano-ros-node = { workspace = true }
+
+cortex-m = { workspace = true }
+cortex-m-rt = { workspace = true }
+cortex-m-semihosting = { workspace = true }
+panic-semihosting = { workspace = true }
+heapless = { workspace = true }
