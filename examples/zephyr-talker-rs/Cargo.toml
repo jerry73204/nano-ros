@@ -1,0 +1,33 @@
+# nano-ros Zephyr Talker (Rust)
+#
+# A ROS 2 compatible publisher running on Zephyr RTOS.
+# Publishes std_msgs/Int32 messages via zenoh-pico transport.
+
+[package]
+name = "zephyr-talker"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# Zephyr Rust support
+zephyr = "3.7"
+
+# nano-ros crates (no_std)
+nano-ros-core = { path = "../../crates/nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes", default-features = false }
+nano-ros-types = { path = "../../crates/nano-ros-types", default-features = false }
+
+# Embedded utilities
+heapless = "0.8"
+
+[features]
+default = []
+
+[profile.release]
+opt-level = "s"
+lto = true
+debug = false
