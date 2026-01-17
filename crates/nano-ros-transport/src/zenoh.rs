@@ -29,27 +29,30 @@ use crate::traits::{
     TransportConfig, TransportError,
 };
 
-use zenoh_pico::{Config, KeyExpr, LivelinessToken, Sample, Session as ZenohPicoSession, ZenohId};
+use zenoh_pico::{
+    serialize_rmw_attachment, Config, KeyExpr, LivelinessToken, Sample, Session as ZenohPicoSession,
+    ZenohId,
+};
 
-/// RMW attachment structure required by rmw_zenoh
+/// RMW attachment data for rmw_zenoh
 ///
 /// This metadata is attached to each published message and is required
 /// for ROS 2 nodes using rmw_zenoh_cpp to receive messages.
-#[repr(C, packed)]
+///
+/// The actual serialization is done using zenoh's serializer to ensure
+/// compatibility with rmw_zenoh_cpp's deserializer.
 #[derive(Debug, Clone, Copy)]
 pub struct RmwAttachment {
     /// Message sequence number (incremented per publish)
     pub sequence_number: i64,
     /// Timestamp in nanoseconds
     pub timestamp: i64,
-    /// Size of RMW GID (always 16)
-    pub rmw_gid_size: u8,
     /// RMW Global Identifier (random, generated once per publisher)
     pub rmw_gid: [u8; 16],
 }
 
 impl RmwAttachment {
-    /// Size of the attachment in bytes
+    /// Size of the attachment in bytes (for reference only)
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
     /// Create a new attachment with a random GID
@@ -57,7 +60,6 @@ impl RmwAttachment {
         Self {
             sequence_number: 0,
             timestamp: 0,
-            rmw_gid_size: 16,
             rmw_gid: Self::generate_gid(),
         }
     }
@@ -79,11 +81,6 @@ impl RmwAttachment {
         gid
     }
 
-    /// Convert to bytes for transmission
-    pub fn as_bytes(&self) -> &[u8] {
-        // SAFETY: RmwAttachment is repr(C, packed) with known size
-        unsafe { core::slice::from_raw_parts(self as *const Self as *const u8, Self::SIZE) }
-    }
 }
 
 impl Default for RmwAttachment {
@@ -159,11 +156,11 @@ pub struct Ros2Liveliness;
 impl Ros2Liveliness {
     /// Build a node liveliness key expression
     ///
-    /// Format: `@ros2_lv/<domain_id>/<zid>/0/0/NN/%%/%%/<node_name>`
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/0/NN/%/%/<node_name>`
     pub fn node_keyexpr(domain_id: u32, zid: &ZenohId, node_name: &str) -> alloc::string::String {
         use alloc::format;
         format!(
-            "@ros2_lv/{}/{}/0/0/NN/%%/%%/{}",
+            "@ros2_lv/{}/{}/0/0/NN/%/%/{}",
             domain_id,
             zid.to_hex_string(),
             node_name
@@ -290,19 +287,24 @@ impl Publisher for ZenohPublisher {
 
     fn publish_raw(&self, data: &[u8]) -> Result<(), Self::Error> {
         // Update attachment with new sequence number and timestamp
-        let attachment_bytes = {
+        let (seq, ts, gid) = {
             let mut attachment = self.attachment.lock();
             attachment.sequence_number += 1;
             attachment.timestamp = Self::current_timestamp();
-            // Copy to local buffer while lock is held
-            let mut buf = [0u8; RmwAttachment::SIZE];
-            buf.copy_from_slice(attachment.as_bytes());
-            buf
+            (
+                attachment.sequence_number,
+                attachment.timestamp,
+                attachment.rmw_gid,
+            )
         };
 
-        // Publish with attachment for rmw_zenoh compatibility
+        // Serialize attachment using zenoh serializer for rmw_zenoh compatibility
+        let serialized_attachment = serialize_rmw_attachment(seq, ts, &gid)
+            .map_err(|_| TransportError::SerializationError)?;
+
+        // Publish with properly serialized attachment
         self.publisher
-            .put_with_attachment(data, &attachment_bytes)
+            .put_with_serialized_attachment(data, serialized_attachment)
             .map_err(|_| TransportError::PublishFailed)
     }
 

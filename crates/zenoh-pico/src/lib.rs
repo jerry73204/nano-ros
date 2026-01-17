@@ -31,6 +31,7 @@ mod error;
 mod keyexpr;
 mod liveliness;
 mod publisher;
+mod serializer;
 mod session;
 mod subscriber;
 
@@ -39,6 +40,7 @@ pub use error::{Error, Result};
 pub use keyexpr::KeyExpr;
 pub use liveliness::{LivelinessToken, ZenohId};
 pub use publisher::Publisher;
+pub use serializer::{serialize_rmw_attachment, SerializedBytes};
 pub use session::Session;
 pub use subscriber::{Sample, Subscriber};
 

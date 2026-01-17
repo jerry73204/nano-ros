@@ -1,6 +1,6 @@
 //! Publisher
 
-use crate::{Error, KeyExpr, Result, Session};
+use crate::{Error, KeyExpr, Result, SerializedBytes, Session};
 use core::ptr;
 use zenoh_pico_sys::*;
 
@@ -60,10 +60,13 @@ impl Publisher {
         }
     }
 
-    /// Publish data with an attachment
+    /// Publish data with an attachment (raw bytes)
     ///
     /// The attachment is sent alongside the payload and can be used for metadata
     /// like RMW sequence numbers, timestamps, and GIDs required by rmw_zenoh.
+    ///
+    /// Note: For rmw_zenoh compatibility, use `put_with_serialized_attachment` instead,
+    /// which uses proper zenoh serialization format.
     pub fn put_with_attachment(&self, data: &[u8], attachment: &[u8]) -> Result<()> {
         unsafe {
             // Create bytes from payload data
@@ -88,6 +91,53 @@ impl Publisher {
                 return Err(Error::PublishFailed);
             }
             let mut attachment_bytes = attachment_bytes.assume_init();
+
+            // Initialize options with default values
+            let mut options = core::mem::MaybeUninit::<z_publisher_put_options_t>::uninit();
+            z_publisher_put_options_default(options.as_mut_ptr());
+            let mut options = options.assume_init();
+
+            // Set the attachment
+            options.attachment = z_bytes_move(&mut attachment_bytes);
+
+            // Publish with options
+            let result = z_publisher_put(
+                z_publisher_loan(&self.inner),
+                z_bytes_move(&mut payload_bytes),
+                &options,
+            );
+
+            if result < 0 {
+                return Err(Error::PublishFailed);
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Publish data with a serialized attachment
+    ///
+    /// This method uses properly serialized bytes for the attachment,
+    /// ensuring compatibility with rmw_zenoh_cpp.
+    ///
+    /// Use `serialize_rmw_attachment()` to create the attachment.
+    pub fn put_with_serialized_attachment(
+        &self,
+        data: &[u8],
+        attachment: SerializedBytes,
+    ) -> Result<()> {
+        unsafe {
+            // Create bytes from payload data
+            let mut payload_bytes = core::mem::MaybeUninit::<z_owned_bytes_t>::uninit();
+            let result =
+                z_bytes_copy_from_buf(payload_bytes.as_mut_ptr(), data.as_ptr(), data.len());
+            if result < 0 {
+                return Err(Error::PublishFailed);
+            }
+            let mut payload_bytes = payload_bytes.assume_init();
+
+            // Get the serialized attachment bytes
+            let mut attachment_bytes = attachment.into_inner();
 
             // Initialize options with default values
             let mut options = core::mem::MaybeUninit::<z_publisher_put_options_t>::uninit();

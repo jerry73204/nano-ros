@@ -26,6 +26,8 @@ pub enum Error {
     TaskStartFailed,
     /// Buffer is too small
     BufferTooSmall,
+    /// Serialization failed
+    SerializationFailed,
     /// Generic error with zenoh-pico result code
     ZenohError(i8),
 }
@@ -42,6 +44,7 @@ impl fmt::Display for Error {
             Error::PublishFailed => write!(f, "Failed to publish data"),
             Error::TaskStartFailed => write!(f, "Failed to start background task"),
             Error::BufferTooSmall => write!(f, "Buffer is too small"),
+            Error::SerializationFailed => write!(f, "Serialization failed"),
             Error::ZenohError(code) => write!(f, "Zenoh error: {}", code),
         }
     }
