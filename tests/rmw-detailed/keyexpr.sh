@@ -30,13 +30,6 @@ if ! check_nano2nano_prerequisites; then
     exit 1
 fi
 
-# Check z_sub is available
-if [ ! -x "$Z_SUB" ]; then
-    log_error "z_sub required for this test"
-    log_info "Build zenoh-pico examples or install zenoh tools"
-    exit 1
-fi
-
 # Start zenohd
 if ! start_zenohd; then
     exit 1
@@ -44,144 +37,109 @@ fi
 
 RESULT=0
 
-# Test 1: Data keyexpr format
+# Test 1: Data keyexpr format (from talker debug output)
 test_data_keyexpr() {
     log_header "Test: Data Key Expression Format"
 
-    # Subscribe to all domain 0 topics
-    log_info "Subscribing to domain 0 topics..."
-    timeout 10 "$Z_SUB" -m client -e tcp/127.0.0.1:7447 -k "0/**" \
-        > /tmp/keyexpr_data.txt 2>&1 &
-    local zsub_pid=$!
-    register_pid $zsub_pid
-    sleep 1
-
-    # Start nano-ros talker
+    # Start nano-ros talker with debug logging
     log_info "Starting nano-ros talker..."
-    timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_keyexpr.txt 2>&1 &
+    RUST_LOG=debug timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_keyexpr.txt 2>&1 &
     register_pid $!
     sleep 4
 
-    # Analyze captured keyexprs
-    if [ ! -s /tmp/keyexpr_data.txt ]; then
-        log_error "No data captured"
+    # Check for data keyexpr in output
+    if grep -q "Publisher data keyexpr:" /tmp/talker_keyexpr.txt 2>/dev/null; then
+        local line keyexpr
+        line=$(grep "Publisher data keyexpr:" /tmp/talker_keyexpr.txt | head -1)
+        # Extract the keyexpr part after the colon
+        keyexpr=$(echo "$line" | sed 's/.*Publisher data keyexpr: //')
+
+        log_info "Captured keyexpr: $keyexpr"
+
+        # Parse components
+        local domain topic type_name type_hash
+        domain=$(echo "$keyexpr" | cut -d'/' -f1)
+        topic=$(echo "$keyexpr" | cut -d'/' -f2)
+        type_name=$(echo "$keyexpr" | cut -d'/' -f3)
+        type_hash=$(echo "$keyexpr" | cut -d'/' -f4)
+
+        # Validate domain
+        if [ "$domain" = "0" ]; then
+            log_success "Domain ID: 0 (correct)"
+        else
+            log_error "Domain ID: $domain (expected: 0)"
+            RESULT=1
+        fi
+
+        # Validate topic
+        if [ "$topic" = "chatter" ]; then
+            log_success "Topic name: chatter (correct)"
+        else
+            log_error "Topic name: $topic (expected: chatter)"
+            RESULT=1
+        fi
+
+        # Validate type name (DDS mangled format)
+        if echo "$type_name" | grep -q "std_msgs::msg::dds_::Int32_"; then
+            log_success "Type name: $type_name (correct DDS format)"
+        else
+            log_error "Type name: $type_name (expected DDS mangled format)"
+            RESULT=1
+        fi
+
+        # Validate type hash (Humble uses TypeHashNotSupported)
+        if [ "$type_hash" = "TypeHashNotSupported" ]; then
+            log_success "Type hash: TypeHashNotSupported (correct for Humble)"
+        elif echo "$type_hash" | grep -q "RIHS01_"; then
+            log_success "Type hash: $type_hash (RIHS01 format for Iron+)"
+        else
+            log_warn "Type hash: $type_hash (unexpected format)"
+        fi
+
+        if [ "$VERBOSE" = true ]; then
+            echo ""
+            echo "Full keyexpr: $keyexpr"
+        fi
+        return 0
+    else
+        log_error "Data keyexpr not found in output"
+        [ "$VERBOSE" = true ] && cat /tmp/talker_keyexpr.txt
         return 1
     fi
-
-    log_info "Analyzing captured key expressions..."
-
-    # Expected format: 0/chatter/std_msgs::msg::dds_::Int32_/TypeHashNotSupported
-    # Or with wildcards for subscriber: 0/chatter/std_msgs::msg::dds_::Int32_/*
-
-    local keyexpr
-    keyexpr=$(head -5 /tmp/keyexpr_data.txt | grep -o "0/[^']*" | head -1 || echo "")
-
-    if [ -z "$keyexpr" ]; then
-        log_error "Could not extract keyexpr from output"
-        [ "$VERBOSE" = true ] && cat /tmp/keyexpr_data.txt
-        return 1
-    fi
-
-    log_info "Captured keyexpr: $keyexpr"
-
-    # Parse components
-    local domain topic type_name type_hash
-    domain=$(echo "$keyexpr" | cut -d'/' -f1)
-    topic=$(echo "$keyexpr" | cut -d'/' -f2)
-    type_name=$(echo "$keyexpr" | cut -d'/' -f3)
-    type_hash=$(echo "$keyexpr" | cut -d'/' -f4)
-
-    # Validate domain
-    if [ "$domain" = "0" ]; then
-        log_success "Domain ID: 0 (correct)"
-    else
-        log_error "Domain ID: $domain (expected: 0)"
-        RESULT=1
-    fi
-
-    # Validate topic
-    if [ "$topic" = "chatter" ]; then
-        log_success "Topic name: chatter (correct)"
-    else
-        log_error "Topic name: $topic (expected: chatter)"
-        RESULT=1
-    fi
-
-    # Validate type name (DDS mangled format)
-    if echo "$type_name" | grep -q "std_msgs::msg::dds_::Int32_"; then
-        log_success "Type name: $type_name (correct DDS format)"
-    else
-        log_error "Type name: $type_name (expected DDS mangled format)"
-        RESULT=1
-    fi
-
-    # Validate type hash (Humble uses TypeHashNotSupported)
-    if [ "$type_hash" = "TypeHashNotSupported" ]; then
-        log_success "Type hash: TypeHashNotSupported (correct for Humble)"
-    elif echo "$type_hash" | grep -q "RIHS01_"; then
-        log_success "Type hash: $type_hash (RIHS01 format for Iron+)"
-    else
-        log_warn "Type hash: $type_hash (unexpected format)"
-    fi
-
-    if [ "$VERBOSE" = true ]; then
-        echo ""
-        echo "=== Full Output ==="
-        head -10 /tmp/keyexpr_data.txt
-    fi
-
-    return 0
 }
 
-# Test 2: Compare with ROS 2 keyexpr
-test_compare_ros2_keyexpr() {
-    log_header "Test: Compare with ROS 2 Key Expression"
+# Test 2: Keyexpr components validation
+test_keyexpr_components() {
+    log_header "Test: Key Expression Components"
 
-    setup_ros2_env "humble" 2>/dev/null || {
-        log_warn "ROS 2 not available, skipping comparison"
-        return 0
-    }
+    # The keyexpr should already be captured from test 1
+    if grep -q "Publisher data keyexpr:" /tmp/talker_keyexpr.txt 2>/dev/null; then
+        local keyexpr
+        keyexpr=$(grep "Publisher data keyexpr:" /tmp/talker_keyexpr.txt | head -1 | sed 's/.*Publisher data keyexpr: //')
 
-    # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
-    sleep 1
+        # Count components (should be 4: domain/topic/type/hash)
+        local count
+        count=$(echo "$keyexpr" | tr '/' '\n' | wc -l)
 
-    # Capture ROS 2 keyexpr
-    log_info "Subscribing to capture ROS 2 keyexpr..."
-    timeout 15 "$Z_SUB" -m client -e tcp/127.0.0.1:7447 -k "0/**" \
-        > /tmp/keyexpr_ros2.txt 2>&1 &
-    register_pid $!
-    sleep 1
-
-    # Start ROS 2 publisher
-    log_info "Starting ROS 2 publisher..."
-    timeout 10 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 123}" \
-        --qos-reliability best_effort > /tmp/ros2_pub_ke.txt 2>&1 &
-    register_pid $!
-    sleep 5
-
-    # Extract and compare
-    local ros2_keyexpr
-    ros2_keyexpr=$(head -10 /tmp/keyexpr_ros2.txt | grep -o "0/chatter[^']*" | head -1 || echo "")
-
-    if [ -n "$ros2_keyexpr" ]; then
-        log_info "ROS 2 keyexpr: $ros2_keyexpr"
-
-        # Compare type hash component
-        local ros2_hash
-        ros2_hash=$(echo "$ros2_keyexpr" | cut -d'/' -f4)
-        log_info "ROS 2 type hash: $ros2_hash"
-
-        if [ "$ros2_hash" = "TypeHashNotSupported" ]; then
-            log_success "ROS 2 Humble also uses TypeHashNotSupported"
+        if [ "$count" -eq 4 ]; then
+            log_success "Keyexpr has 4 components (domain/topic/type/hash)"
         else
-            log_info "ROS 2 uses hash: $ros2_hash"
+            log_error "Keyexpr has $count components (expected 4)"
+            return 1
         fi
-    else
-        log_warn "Could not capture ROS 2 keyexpr"
-    fi
 
-    return 0
+        # Check no leading slash on topic
+        if echo "$keyexpr" | grep -q "^0/chatter/"; then
+            log_success "Topic has no leading slash"
+        else
+            log_warn "Topic format may be incorrect"
+        fi
+
+        return 0
+    else
+        log_error "No keyexpr data available"
+        return 1
+    fi
 }
 
 # Test 3: Wildcard subscriber compatibility
@@ -190,20 +148,41 @@ test_wildcard_subscriber() {
 
     # Clear previous
     pkill -f "target/release" 2>/dev/null || true
-    sleep 1
+    sleep 2
 
     # nano-ros uses wildcard subscriber: 0/chatter/std_msgs::msg::dds_::Int32_/*
     # This should match any type hash
 
     log_info "Testing wildcard matching..."
 
-    # Start nano-ros listener (uses wildcard for type hash)
+    # Start nano-ros listener
     timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/wildcard_test.txt 2>&1 &
     register_pid $!
     sleep 2
 
     # Setup ROS 2 and publish
-    setup_ros2_env "humble" 2>/dev/null || {
+    if setup_ros2_env "humble" 2>/dev/null; then
+        # ROS 2 publisher
+        timeout 10 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 555}" \
+            --qos-reliability best_effort > /tmp/ros2_wc.txt 2>&1 &
+        register_pid $!
+        sleep 6
+
+        if grep -q "Received:" /tmp/wildcard_test.txt 2>/dev/null; then
+            log_success "Wildcard subscriber receives ROS 2 messages"
+
+            if grep -q "data=555" /tmp/wildcard_test.txt 2>/dev/null; then
+                log_success "Data integrity verified (data=555)"
+            fi
+
+            [ "$VERBOSE" = true ] && head -10 /tmp/wildcard_test.txt
+            return 0
+        else
+            log_error "Wildcard subscriber did not receive messages"
+            [ "$VERBOSE" = true ] && cat /tmp/wildcard_test.txt
+            return 1
+        fi
+    else
         log_warn "ROS 2 not available, testing with nano-ros only"
 
         # Test with nano-ros talker instead
@@ -216,32 +195,12 @@ test_wildcard_subscriber() {
             return 0
         fi
         return 1
-    }
-
-    # ROS 2 publisher
-    timeout 10 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 555}" \
-        --qos-reliability best_effort > /tmp/ros2_wc.txt 2>&1 &
-    register_pid $!
-    sleep 6
-
-    if grep -q "Received:" /tmp/wildcard_test.txt 2>/dev/null; then
-        log_success "Wildcard subscriber receives ROS 2 messages"
-
-        if grep -q "data=555" /tmp/wildcard_test.txt 2>/dev/null; then
-            log_success "Data integrity verified"
-        fi
-        return 0
-    else
-        log_error "Wildcard subscriber did not receive messages"
-        [ "$VERBOSE" = true ] && cat /tmp/wildcard_test.txt
-        return 1
     fi
 }
 
 # Run tests
 test_data_keyexpr || RESULT=1
-sleep 2
-test_compare_ros2_keyexpr || true  # Don't fail if ROS 2 not available
+test_keyexpr_components || RESULT=1
 sleep 2
 test_wildcard_subscriber || RESULT=1
 

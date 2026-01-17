@@ -182,45 +182,44 @@ test_qos_in_liveliness() {
     pkill -f "target/release/talker" 2>/dev/null || true
     sleep 1
 
-    if [ ! -x "$Z_SUB" ]; then
-        log_warn "z_sub not available, skipping liveliness token check"
-        return 0
-    fi
-
-    # Subscribe to liveliness tokens
-    timeout 10 "$Z_SUB" -m client -e tcp/127.0.0.1:7447 -k "@ros2_lv/**" \
-        > /tmp/qos_liveliness.txt 2>&1 &
-    register_pid $!
-    sleep 1
-
-    # Start nano-ros talker
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker3.txt 2>&1 &
+    # Start nano-ros talker with debug output
+    log_info "Starting nano-ros talker..."
+    RUST_LOG=debug "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker3.txt 2>&1 &
     register_pid $!
     sleep 3
 
-    # Check QoS format in liveliness token
+    # Check QoS format in liveliness token from debug output
     # Expected: .../RIHS01_<hash>/2:2:1,1:,:,:,,
     # 2:2:1,1 = BEST_EFFORT(2):VOLATILE(2):KEEP_LAST(1),depth(1)
 
-    if grep -q "2:2:1,1" /tmp/qos_liveliness.txt 2>/dev/null; then
-        log_success "QoS string found in liveliness token: 2:2:1,1..."
+    if grep -q "Publisher liveliness keyexpr:" /tmp/qos_talker3.txt 2>/dev/null; then
+        local token
+        token=$(grep "Publisher liveliness keyexpr:" /tmp/qos_talker3.txt | head -1)
 
-        if [ "$VERBOSE" = true ]; then
-            echo "Token with QoS:"
-            grep "MP/%/%/talker" /tmp/qos_liveliness.txt | head -1
+        if echo "$token" | grep -q "2:2:1,1"; then
+            log_success "QoS string found in liveliness token: 2:2:1,1..."
+
+            if [ "$VERBOSE" = true ]; then
+                echo "Token with QoS:"
+                echo "$token"
+            fi
+
+            # Decode QoS values
+            log_info "QoS decoded:"
+            log_info "  Reliability: 2 (BEST_EFFORT)"
+            log_info "  Durability: 2 (VOLATILE)"
+            log_info "  History: 1 (KEEP_LAST)"
+            log_info "  Depth: 1"
+
+            return 0
+        else
+            log_warn "QoS string not found in token"
+            [ "$VERBOSE" = true ] && echo "Token: $token"
+            return 1
         fi
-
-        # Decode QoS values
-        log_info "QoS decoded:"
-        log_info "  Reliability: 2 (BEST_EFFORT)"
-        log_info "  Durability: 2 (VOLATILE)"
-        log_info "  History: 1 (KEEP_LAST)"
-        log_info "  Depth: 1"
-
-        return 0
     else
-        log_warn "QoS string not found in expected format"
-        [ "$VERBOSE" = true ] && cat /tmp/qos_liveliness.txt
+        log_warn "Publisher liveliness token not found in output"
+        [ "$VERBOSE" = true ] && cat /tmp/qos_talker3.txt
         return 1
     fi
 }

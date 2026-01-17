@@ -63,6 +63,13 @@ run_suite() {
     local name="$1"
     local script="$2"
 
+    # Cleanup before starting each suite
+    pkill -x zenohd 2>/dev/null || true
+    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "ros2 topic" 2>/dev/null || true
+    sleep 2
+
     log_header "Running: $name"
     TOTAL_SUITES=$((TOTAL_SUITES + 1))
 
@@ -79,7 +86,7 @@ run_suite() {
     fi
 
     # Give time for cleanup between suites
-    sleep 3
+    sleep 2
 }
 
 # Main
