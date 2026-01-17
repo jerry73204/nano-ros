@@ -34,7 +34,7 @@ impl Publisher {
         }
     }
 
-    /// Publish data
+    /// Publish data without attachment
     pub fn put(&self, data: &[u8]) -> Result<()> {
         unsafe {
             // Create bytes from data
@@ -50,6 +50,58 @@ impl Publisher {
                 z_publisher_loan(&self.inner),
                 z_bytes_move(&mut bytes),
                 ptr::null(),
+            );
+
+            if result < 0 {
+                return Err(Error::PublishFailed);
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Publish data with an attachment
+    ///
+    /// The attachment is sent alongside the payload and can be used for metadata
+    /// like RMW sequence numbers, timestamps, and GIDs required by rmw_zenoh.
+    pub fn put_with_attachment(&self, data: &[u8], attachment: &[u8]) -> Result<()> {
+        unsafe {
+            // Create bytes from payload data
+            let mut payload_bytes = core::mem::MaybeUninit::<z_owned_bytes_t>::uninit();
+            let result =
+                z_bytes_copy_from_buf(payload_bytes.as_mut_ptr(), data.as_ptr(), data.len());
+            if result < 0 {
+                return Err(Error::PublishFailed);
+            }
+            let mut payload_bytes = payload_bytes.assume_init();
+
+            // Create bytes from attachment data
+            let mut attachment_bytes = core::mem::MaybeUninit::<z_owned_bytes_t>::uninit();
+            let result = z_bytes_copy_from_buf(
+                attachment_bytes.as_mut_ptr(),
+                attachment.as_ptr(),
+                attachment.len(),
+            );
+            if result < 0 {
+                // Clean up payload bytes
+                z_bytes_drop(z_bytes_move(&mut payload_bytes));
+                return Err(Error::PublishFailed);
+            }
+            let mut attachment_bytes = attachment_bytes.assume_init();
+
+            // Initialize options with default values
+            let mut options = core::mem::MaybeUninit::<z_publisher_put_options_t>::uninit();
+            z_publisher_put_options_default(options.as_mut_ptr());
+            let mut options = options.assume_init();
+
+            // Set the attachment
+            options.attachment = z_bytes_move(&mut attachment_bytes);
+
+            // Publish with options
+            let result = z_publisher_put(
+                z_publisher_loan(&self.inner),
+                z_bytes_move(&mut payload_bytes),
+                &options,
             );
 
             if result < 0 {

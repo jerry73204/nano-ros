@@ -8,8 +8,12 @@ use zenoh_pico_sys::*;
 /// A received sample (message)
 #[derive(Debug)]
 pub struct Sample {
+    /// The key expression this sample was received on
+    pub keyexpr: alloc::string::String,
     /// The payload data
     pub payload: alloc::vec::Vec<u8>,
+    /// Optional attachment data (used by rmw_zenoh for metadata)
+    pub attachment: Option<alloc::vec::Vec<u8>>,
 }
 
 /// Context for subscriber callback
@@ -111,8 +115,40 @@ where
     let mut reader = z_bytes_get_reader(payload as *const _z_bytes_t as *const z_loaned_bytes_t);
     z_bytes_reader_read(&mut reader, data.as_mut_ptr(), len);
 
+    // Get attachment if present
+    let attachment_bytes = &sample_ref.attachment;
+    let attachment_len =
+        z_bytes_len(attachment_bytes as *const _z_bytes_t as *const z_loaned_bytes_t);
+
+    let attachment = if attachment_len > 0 {
+        let mut attachment_data = alloc::vec![0u8; attachment_len];
+        let mut attachment_reader =
+            z_bytes_get_reader(attachment_bytes as *const _z_bytes_t as *const z_loaned_bytes_t);
+        z_bytes_reader_read(
+            &mut attachment_reader,
+            attachment_data.as_mut_ptr(),
+            attachment_len,
+        );
+        Some(attachment_data)
+    } else {
+        None
+    };
+
+    // Extract key expression from sample
+    let keyexpr_slice = &sample_ref.keyexpr._suffix._slice;
+    let keyexpr_str = if keyexpr_slice.len > 0 && !keyexpr_slice.start.is_null() {
+        let bytes = core::slice::from_raw_parts(keyexpr_slice.start, keyexpr_slice.len);
+        alloc::string::String::from_utf8_lossy(bytes).into_owned()
+    } else {
+        alloc::string::String::new()
+    };
+
     // Call the user callback
-    let sample = Sample { payload: data };
+    let sample = Sample {
+        keyexpr: keyexpr_str,
+        payload: data,
+        attachment,
+    };
     (ctx.callback)(sample);
 }
 

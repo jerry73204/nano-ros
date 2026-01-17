@@ -238,6 +238,7 @@ fn test_keyexpr_empty() {
 fn test_sample_debug() {
     let sample = Sample {
         payload: vec![1, 2, 3, 4, 5],
+        attachment: None,
     };
     let debug = format!("{:?}", sample);
     assert!(debug.contains("Sample"));
@@ -247,7 +248,10 @@ fn test_sample_debug() {
 /// Test Sample with empty payload
 #[test]
 fn test_sample_empty_payload() {
-    let sample = Sample { payload: vec![] };
+    let sample = Sample {
+        payload: vec![],
+        attachment: None,
+    };
     assert_eq!(sample.payload.len(), 0);
     let debug = format!("{:?}", sample);
     assert!(debug.contains("Sample"));
@@ -259,9 +263,12 @@ fn test_sample_payload_access() {
     let data = b"Hello, Zenoh!".to_vec();
     let sample = Sample {
         payload: data.clone(),
+        attachment: Some(vec![0x01, 0x02, 0x03]),
     };
     assert_eq!(sample.payload, data);
     assert_eq!(sample.payload.len(), 13);
+    assert!(sample.attachment.is_some());
+    assert_eq!(sample.attachment.unwrap().len(), 3);
 }
 
 // ============================================================================

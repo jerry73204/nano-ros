@@ -30,4 +30,10 @@ pub use traits::{
 
 // Re-export zenoh types when feature is enabled
 #[cfg(feature = "zenoh")]
-pub use zenoh::{ZenohPublisher, ZenohSession, ZenohSubscriber, ZenohTransport};
+pub use zenoh::{
+    RmwAttachment, Ros2Liveliness, ZenohPublisher, ZenohSession, ZenohSubscriber, ZenohTransport,
+};
+
+// Re-export zenoh-pico types for liveliness support
+#[cfg(feature = "zenoh")]
+pub use zenoh_pico::{LivelinessToken, ZenohId};

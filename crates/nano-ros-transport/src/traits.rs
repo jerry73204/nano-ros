@@ -36,15 +36,31 @@ impl<'a> TopicInfo<'a> {
 
     /// Generate the full topic key in rmw_zenoh format
     /// Format: `<domain_id>/<topic_name>/<type_name>/RIHS01_<hash>`
+    /// Note: Leading/trailing slashes are stripped from topic name
     pub fn to_key<const N: usize>(&self) -> heapless::String<N> {
         let mut key = heapless::String::new();
+        // Strip leading/trailing slashes from topic name (matching rmw_zenoh's strip_slashes)
+        let topic_stripped = self.name.trim_matches('/');
         // Best effort - ignore errors if key is too long
         let _ = core::fmt::write(
             &mut key,
             format_args!(
                 "{}/{}/{}/RIHS01_{}",
-                self.domain_id, self.name, self.type_name, self.type_hash
+                self.domain_id, topic_stripped, self.type_name, self.type_hash
             ),
+        );
+        key
+    }
+
+    /// Generate a wildcard topic key for subscribing
+    /// Format: `<domain_id>/<topic_name>/<type_name>/*`
+    /// This matches any type hash, allowing interop with ROS 2 nodes using different hashes
+    pub fn to_key_wildcard<const N: usize>(&self) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let topic_stripped = self.name.trim_matches('/');
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!("{}/{}/{}/*", self.domain_id, topic_stripped, self.type_name),
         );
         key
     }
