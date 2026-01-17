@@ -84,12 +84,12 @@ run_test() {
 # Test 1: nano-ros talker → nano-ros listener
 test_nano_to_nano() {
     log_info "Starting nano-ros listener..."
-    timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener.txt 2>&1 &
     register_pid $!
     sleep 2
 
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker.txt 2>&1 &
     register_pid $!
 
     sleep 8
@@ -115,7 +115,7 @@ test_nano_to_ros2() {
     sleep 3
 
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker2.txt 2>&1 &
     register_pid $!
 
     sleep 10
@@ -135,7 +135,7 @@ test_ros2_to_nano() {
     setup_ros2_env "$ROS_DISTRO"
 
     log_info "Starting nano-ros listener..."
-    timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener2.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener2.txt 2>&1 &
     register_pid $!
     sleep 2
 

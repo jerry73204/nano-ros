@@ -52,7 +52,7 @@ test_with_topic_pub() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    timeout 25 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 25 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener.txt 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
     sleep 3
@@ -111,7 +111,7 @@ test_with_python_publisher() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    timeout 20 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener2.txt 2>&1 &
+    RUST_LOG=info timeout 20 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener2.txt 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
     sleep 2

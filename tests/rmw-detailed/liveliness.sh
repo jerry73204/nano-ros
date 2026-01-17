@@ -131,7 +131,7 @@ test_ros2_discovery() {
 
     # Start talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_disc.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_disc.txt 2>&1 &
     register_pid $!
     sleep 3
 

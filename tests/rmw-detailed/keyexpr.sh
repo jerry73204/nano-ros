@@ -156,7 +156,7 @@ test_wildcard_subscriber() {
     log_info "Testing wildcard matching..."
 
     # Start nano-ros listener
-    timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/wildcard_test.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/wildcard_test.txt 2>&1 &
     register_pid $!
     sleep 2
 
@@ -186,7 +186,7 @@ test_wildcard_subscriber() {
         log_warn "ROS 2 not available, testing with nano-ros only"
 
         # Test with nano-ros talker instead
-        timeout 10 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_wc.txt 2>&1 &
+        RUST_LOG=info timeout 10 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_wc.txt 2>&1 &
         register_pid $!
         sleep 5
 

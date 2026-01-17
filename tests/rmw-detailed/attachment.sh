@@ -50,7 +50,7 @@ test_attachment_via_ros2() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/attach_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/attach_talker.txt 2>&1 &
     register_pid $!
     sleep 2
 
@@ -87,7 +87,7 @@ test_sequence_numbers() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/seq_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/seq_talker.txt 2>&1 &
     register_pid $!
     sleep 2
 
@@ -167,7 +167,7 @@ test_gid_consistency() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/gid_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/gid_talker.txt 2>&1 &
     register_pid $!
     sleep 3
 
@@ -210,7 +210,7 @@ test_timestamp() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker (1 Hz)..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/ts_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/ts_talker.txt 2>&1 &
     register_pid $!
     sleep 2
 

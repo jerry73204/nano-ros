@@ -45,7 +45,7 @@ test_best_effort_match() {
 
     # Start nano-ros talker (BEST_EFFORT)
     log_info "Starting nano-ros talker (BEST_EFFORT)..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker.txt 2>&1 &
     register_pid $!
     sleep 2
 
@@ -115,7 +115,7 @@ test_best_effort_to_reliable() {
 
     # Start nano-ros talker (BEST_EFFORT)
     log_info "Starting nano-ros talker (BEST_EFFORT)..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker2.txt 2>&1 &
     register_pid $!
     sleep 2
 
@@ -236,7 +236,7 @@ test_qos_combinations() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_nano_listener.txt 2>&1 &
     register_pid $!
     sleep 2
 

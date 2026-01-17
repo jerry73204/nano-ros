@@ -54,14 +54,14 @@ test_basic_pubsub() {
 
     # Start talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" $CONNECT_ARGS > /tmp/nano_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" $CONNECT_ARGS > /tmp/nano_talker.txt 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
     sleep 2
 
     # Start listener
     log_info "Starting nano-ros listener..."
-    timeout "$TEST_TIMEOUT" "$LISTENER_BIN" $CONNECT_ARGS > /tmp/nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout "$TEST_TIMEOUT" "$LISTENER_BIN" $CONNECT_ARGS > /tmp/nano_listener.txt 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
 
@@ -104,14 +104,14 @@ test_multiple_messages() {
 
     # Start listener first this time
     log_info "Starting listener..."
-    timeout 20 "$LISTENER_BIN" $CONNECT_ARGS > /tmp/nano_listener2.txt 2>&1 &
+    RUST_LOG=info timeout 20 "$LISTENER_BIN" $CONNECT_ARGS > /tmp/nano_listener2.txt 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
     sleep 2
 
     # Start talker
     log_info "Starting talker..."
-    "$TALKER_BIN" $CONNECT_ARGS > /tmp/nano_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" $CONNECT_ARGS > /tmp/nano_talker2.txt 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
 

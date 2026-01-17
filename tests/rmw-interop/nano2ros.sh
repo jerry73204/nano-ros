@@ -60,7 +60,7 @@ test_with_topic_echo() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker.txt 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
 
@@ -106,7 +106,7 @@ test_with_python_subscriber() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker2.txt 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
     sleep 2
