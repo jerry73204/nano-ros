@@ -35,7 +35,7 @@ impl<const N: usize> Header<N> {
 /// String message (std_msgs/msg/String)
 #[derive(Debug, Clone, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::String_")]
-#[ros(hash = "29a56a95b9b36afe786aef48f5fae37c5e6aa2e1b6a309c5c1e7c8dc0c8d6e7f")]
+#[ros(hash = "df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18")]
 pub struct String<const N: usize = 256> {
     /// String data
     pub data: heapless::String<N>,
@@ -53,7 +53,7 @@ impl<const N: usize> String<N> {
 /// Bool message (std_msgs/msg/Bool)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Bool_")]
-#[ros(hash = "4b8c86e9f7d3e0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5")]
+#[ros(hash = "feb91e995ff9ebd09c0cb3d2aed18b11077585839fb5db80193b62d74528f6c9")]
 pub struct Bool {
     /// Boolean data
     pub data: bool,
@@ -62,7 +62,7 @@ pub struct Bool {
 /// Byte message (std_msgs/msg/Byte)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Byte_")]
-#[ros(hash = "5c9d87f0e8f4e1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6")]
+#[ros(hash = "41e1a3345f73fe93ede006da826a6ee274af23dd4653976ff249b0f44e3e798f")]
 pub struct Byte {
     /// Byte data
     pub data: u8,
@@ -71,7 +71,7 @@ pub struct Byte {
 /// Char message (std_msgs/msg/Char)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Char_")]
-#[ros(hash = "6d0e98f1f9f5f2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7")]
+#[ros(hash = "8914cecc0520f475fc3f8767a9f9e529341a75440e1b184a7e152195b2ffce5f")]
 pub struct Char {
     /// Char data (single byte)
     pub data: u8,
@@ -80,7 +80,7 @@ pub struct Char {
 /// Int8 message (std_msgs/msg/Int8)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Int8_")]
-#[ros(hash = "7e1fa9f2faf6f3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8")]
+#[ros(hash = "26525065a403d972cb672f0777e333f0c799ad444ae5fcd79e43d1e73bd0f440")]
 pub struct Int8 {
     /// Int8 data
     pub data: i8,
@@ -89,7 +89,7 @@ pub struct Int8 {
 /// Int16 message (std_msgs/msg/Int16)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Int16_")]
-#[ros(hash = "8f2fbaf3fbf7f4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9")]
+#[ros(hash = "1dcc3464e47c288a55f943a389d337cdb06804de3f5cd7a266b0de718eee17e5")]
 pub struct Int16 {
     /// Int16 data
     pub data: i16,
@@ -98,7 +98,7 @@ pub struct Int16 {
 /// Int32 message (std_msgs/msg/Int32)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Int32_")]
-#[ros(hash = "903fcbf4fcf8f5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fa")]
+#[ros(hash = "b6578ded3c58c626cfe8d1a6fb6e04f706f97e9f03d2727c9ff4e74b1cef0deb")]
 pub struct Int32 {
     /// Int32 data
     pub data: i32,
@@ -107,7 +107,7 @@ pub struct Int32 {
 /// Int64 message (std_msgs/msg/Int64)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Int64_")]
-#[ros(hash = "a14fdcf5fdf9f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafb")]
+#[ros(hash = "8cd1048c2f186b6bd9a92472dc1ce51723c0833a221e2b7aecfff111774f4b49")]
 pub struct Int64 {
     /// Int64 data
     pub data: i64,
@@ -116,7 +116,7 @@ pub struct Int64 {
 /// UInt8 message (std_msgs/msg/UInt8)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::UInt8_")]
-#[ros(hash = "b25fedf6fefaf7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfc")]
+#[ros(hash = "6138bd83d8c3569cb80a667db03cfc1629f529fee79d944c39c34e352e72f010")]
 pub struct UInt8 {
     /// UInt8 data
     pub data: u8,
@@ -125,7 +125,7 @@ pub struct UInt8 {
 /// UInt16 message (std_msgs/msg/UInt16)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::UInt16_")]
-#[ros(hash = "c36ffef7fffbf8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfd")]
+#[ros(hash = "08a406e4b022bc22e907f985d6a9e9dd1d4fbecae573549cf49350113e7757b1")]
 pub struct UInt16 {
     /// UInt16 data
     pub data: u16,
@@ -134,7 +134,7 @@ pub struct UInt16 {
 /// UInt32 message (std_msgs/msg/UInt32)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::UInt32_")]
-#[ros(hash = "d47ffff8fffcf9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfdfe")]
+#[ros(hash = "a5c874829b752bc5fa190024b0ad76f578cc278271e855c7d02a818b3516fb4a")]
 pub struct UInt32 {
     /// UInt32 data
     pub data: u32,
@@ -143,7 +143,7 @@ pub struct UInt32 {
 /// UInt64 message (std_msgs/msg/UInt64)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::UInt64_")]
-#[ros(hash = "e58ffff9fffdfa0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfdfeff")]
+#[ros(hash = "fbdc52018fc13755dce18024d1a671c856aa8b4aaf63adfb095b608f98e8c943")]
 pub struct UInt64 {
     /// UInt64 data
     pub data: u64,
@@ -152,7 +152,7 @@ pub struct UInt64 {
 /// Float32 message (std_msgs/msg/Float32)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Float32_")]
-#[ros(hash = "f69ffff0fffefbf1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfdfeff")]
+#[ros(hash = "7170d3d8f841f7be3172ce5f4f59f3a4d7f63b0447e8b33327601ad64d83d6e2")]
 pub struct Float32 {
     /// Float32 data
     pub data: f32,
@@ -161,7 +161,7 @@ pub struct Float32 {
 /// Float64 message (std_msgs/msg/Float64)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Float64_")]
-#[ros(hash = "07afffff1ffffcf2f3a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfdfeff")]
+#[ros(hash = "705ba9c3d1a09df43737eb67095534de36fd426c0587779bda2bc51fe790182a")]
 pub struct Float64 {
     /// Float64 data
     pub data: f64,
@@ -170,7 +170,7 @@ pub struct Float64 {
 /// Empty message (std_msgs/msg/Empty)
 #[derive(Debug, Clone, Copy, Default, RosMessage)]
 #[ros(type_name = "std_msgs::msg::dds_::Empty_")]
-#[ros(hash = "18bfffff2ffffdf3f4a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9fafbfcfdfeff")]
+#[ros(hash = "af191b259a9f5d32af085f8bc5b730e66d31196fa3297ff03bc458c3705ecf5e")]
 pub struct Empty {}
 
 #[cfg(test)]

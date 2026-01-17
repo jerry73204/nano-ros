@@ -14,7 +14,7 @@ use nano_ros_macros::RosMessage;
 /// Represents a point in time as seconds since epoch plus nanoseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, RosMessage)]
 #[ros(type_name = "builtin_interfaces::msg::dds_::Time_")]
-#[ros(hash = "2a7e58fae8c3d029ca13feb70bdf0e71f11a9e9935f53c29e3b29a8ce548327f")]
+#[ros(hash = "b106235e25a4c5ed35098aa0a61a3ee9c9b18d197f398b0e4206cea9acf9c197")]
 pub struct Time {
     /// Seconds since epoch
     pub sec: i32,
@@ -39,7 +39,7 @@ impl Time {
 /// Represents a time duration as seconds plus nanoseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, RosMessage)]
 #[ros(type_name = "builtin_interfaces::msg::dds_::Duration_")]
-#[ros(hash = "8e3d03a1ae1b9524ed3e0c0f2a3c5c74c14a674eb8c68ece2c91e5c7e8d5c67e")]
+#[ros(hash = "e8d009f659816f758b75334ee1a9ca5b5c0b859843261f14c7f937349599d93b")]
 pub struct Duration {
     /// Seconds
     pub sec: i32,
