@@ -30,8 +30,8 @@ use crate::traits::{
 };
 
 use zenoh_pico::{
-    serialize_rmw_attachment, Config, KeyExpr, LivelinessToken, Sample, Session as ZenohPicoSession,
-    ZenohId,
+    serialize_rmw_attachment, Config, KeyExpr, LivelinessToken, Sample,
+    Session as ZenohPicoSession, ZenohId, RMW_GID_SIZE,
 };
 
 /// RMW attachment data for rmw_zenoh
@@ -48,7 +48,8 @@ pub struct RmwAttachment {
     /// Timestamp in nanoseconds
     pub timestamp: i64,
     /// RMW Global Identifier (random, generated once per publisher)
-    pub rmw_gid: [u8; 16],
+    /// 16 bytes for humble compatibility
+    pub rmw_gid: [u8; RMW_GID_SIZE],
 }
 
 impl RmwAttachment {
@@ -64,9 +65,9 @@ impl RmwAttachment {
         }
     }
 
-    /// Generate a random GID using zenoh's random function
-    fn generate_gid() -> [u8; 16] {
-        let mut gid = [0u8; 16];
+    /// Generate a random GID
+    fn generate_gid() -> [u8; RMW_GID_SIZE] {
+        let mut gid = [0u8; RMW_GID_SIZE];
         // Use a simple pseudo-random based on memory address and counter
         // In production, this should use zenoh's z_random_u8() or a proper RNG
         static COUNTER: AtomicI64 = AtomicI64::new(0);
@@ -80,7 +81,6 @@ impl RmwAttachment {
         }
         gid
     }
-
 }
 
 impl Default for RmwAttachment {
@@ -169,7 +169,10 @@ impl Ros2Liveliness {
 
     /// Build a publisher liveliness key expression
     ///
-    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/::,:,:,:,,`
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    ///
+    /// QoS format: `reliability:durability:history,depth:deadline_sec,deadline_nsec:lifespan_sec,lifespan_nsec:liveliness,liveliness_sec,liveliness_nsec`
+    /// Values: reliability=2 (BEST_EFFORT), durability=1 (VOLATILE), history=1 (KEEP_LAST), depth=1
     pub fn publisher_keyexpr(
         domain_id: u32,
         zid: &ZenohId,
@@ -181,8 +184,9 @@ impl Ros2Liveliness {
         // rmw_zenoh's mangle_name replaces '/' with '%'
         // e.g., "/chatter" -> "%chatter"
         let topic_mangled = topic.name.replace('/', "%");
+        // QoS: BEST_EFFORT (2), VOLATILE (2), KEEP_LAST (1), depth=1
         format!(
-            "@ros2_lv/{}/{}/0/11/MP/%/%/{}/{}/{}/RIHS01_{}/::,:,:,:,,",
+            "@ros2_lv/{}/{}/0/11/MP/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
             domain_id,
             zid.to_hex_string(),
             node_name,
@@ -194,7 +198,10 @@ impl Ros2Liveliness {
 
     /// Build a subscriber liveliness key expression
     ///
-    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/::,:,:,:,,`
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    ///
+    /// QoS format: `reliability:durability:history,depth:deadline_sec,deadline_nsec:lifespan_sec,lifespan_nsec:liveliness,liveliness_sec,liveliness_nsec`
+    /// Values: reliability=2 (BEST_EFFORT), durability=1 (VOLATILE), history=1 (KEEP_LAST), depth=1
     pub fn subscriber_keyexpr(
         domain_id: u32,
         zid: &ZenohId,
@@ -204,8 +211,9 @@ impl Ros2Liveliness {
         use alloc::format;
         // Mangle topic name: replace slashes with percent signs
         let topic_mangled = topic.name.replace('/', "%");
+        // QoS: BEST_EFFORT (2), VOLATILE (2), KEEP_LAST (1), depth=1
         format!(
-            "@ros2_lv/{}/{}/0/11/MS/%/%/{}/{}/{}/RIHS01_{}/::,:,:,:,,",
+            "@ros2_lv/{}/{}/0/11/MS/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
             domain_id,
             zid.to_hex_string(),
             node_name,

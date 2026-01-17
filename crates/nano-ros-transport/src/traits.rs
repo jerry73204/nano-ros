@@ -35,8 +35,10 @@ impl<'a> TopicInfo<'a> {
     }
 
     /// Generate the full topic key in rmw_zenoh format
-    /// Format: `<domain_id>/<topic_name>/<type_name>/RIHS01_<hash>`
+    /// Format: `<domain_id>/<topic_name>/<type_name>/<hash>`
     /// Note: Leading/trailing slashes are stripped from topic name
+    /// Note: For Humble, the hash is `TypeHashNotSupported` (no RIHS01_ prefix)
+    /// Note: For newer versions (Iron+), use `RIHS01_<hash>` format
     pub fn to_key<const N: usize>(&self) -> heapless::String<N> {
         let mut key = heapless::String::new();
         // Strip leading/trailing slashes from topic name (matching rmw_zenoh's strip_slashes)
@@ -45,7 +47,7 @@ impl<'a> TopicInfo<'a> {
         let _ = core::fmt::write(
             &mut key,
             format_args!(
-                "{}/{}/{}/RIHS01_{}",
+                "{}/{}/{}/{}",
                 self.domain_id, topic_stripped, self.type_name, self.type_hash
             ),
         );
@@ -252,8 +254,8 @@ mod tests {
 
         let key: heapless::String<128> = topic.to_key();
         assert!(key.contains("42"));
-        assert!(key.contains("/chatter"));
-        assert!(key.contains("RIHS01_abc123"));
+        assert!(key.contains("chatter")); // Leading slash stripped
+        assert!(key.contains("/abc123")); // Type hash at the end (no RIHS01_ prefix for Humble)
     }
 
     #[test]

@@ -44,13 +44,13 @@ fn test_topic_info_key_generation() {
 
     let key: heapless::String<256> = topic.to_key();
 
-    assert!(key.contains("/chatter"), "Key should contain topic name");
+    assert!(key.contains("chatter"), "Key should contain topic name");
     assert!(
         key.contains("std_msgs::msg::dds_::Int32_"),
         "Key should contain type name"
     );
-    assert!(key.contains("RIHS01_"), "Key should contain hash prefix");
     assert!(key.contains("abc123def456"), "Key should contain hash");
+    // Note: For Humble, no RIHS01_ prefix in data keyexprs
 }
 
 /// Test CDR message format for Int32
