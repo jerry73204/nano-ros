@@ -451,8 +451,13 @@ docs/
 |-------|-------|--------|
 | Phase 1 | CDR serialization, types, proc macros | **Complete** |
 | Phase 2A | ROS 2 Interoperability | **Complete** |
-| Phase 2B | Zephyr integration, QEMU testing | Pending |
+| Phase 2B | Zephyr integration | **In Progress** |
 | Phase 3 | Services, parameters, safety certification | Future |
+
+**Deployment Model:**
+- ROS 2 nodes run on Linux host using `rmw_zenoh_cpp`
+- nano-ros nodes run on Zephyr RTOS (embedded targets)
+- Communication via zenoh router on host
 
 ### Phase 2A Progress (ROS 2 Interoperability) - COMPLETE
 - [x] `zenoh-pico-sys` - FFI bindings with static linking
@@ -465,10 +470,16 @@ docs/
 - [x] nano-ros ↔ nano-ros communication tested and working
 - [x] ROS 2 → nano-ros communication working (via wildcard subscriber)
 - [x] nano-ros → ROS 2 communication working (Humble)
+- [x] Integration test suite (`tests/`) with full communication matrix
 
-### Phase 2B Progress (Zephyr/QEMU)
-- [ ] Zephyr QEMU testing environment
-- [ ] Multi-node testing (Zephyr + native)
+### Phase 2B Progress (Zephyr Integration) - IN PROGRESS
+- [x] All core crates no_std compatible
+- [x] QEMU semihosting tests (Cortex-M3)
+- [x] Zephyr example stubs (C)
+- [ ] zephyr-lang-rust toolchain setup
+- [ ] Convert Zephyr examples to Rust
+- [ ] QEMU networking with zenoh-pico
+- [ ] Hardware validation (STM32, nRF52)
 
 ## ROS 2 rmw_zenoh Interoperability
 
