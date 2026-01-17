@@ -303,14 +303,18 @@ typedef struct __attribute__((__packed__)) {
 
 ## Topic Naming Convention (rmw_zenoh compatible)
 
+**Data key expression format (for ROS 2 Humble):**
 ```
-<domain_id>/<topic_name>/<message_type>_/RIHS01_<hash>
+<domain_id>/<topic_name>/<message_type>/<type_hash>
 ```
 
 Example:
 ```
-0/chatter/std_msgs::msg::dds_::String_/RIHS01_abc123...
+0/chatter/std_msgs::msg::dds_::Int32_/TypeHashNotSupported
 ```
+
+**Note:** For Humble, use `TypeHashNotSupported` as the type hash (no `RIHS01_` prefix).
+Newer ROS 2 versions (Iron+) use `RIHS01_<sha256>` format.
 
 ## Service Naming Convention
 
@@ -320,9 +324,26 @@ Example:
 
 ## Liveliness Token Format
 
+**Node:**
 ```
-@ros2_lv/<domain_id>/<zid>/<entity_type>/%%/<node_name>_<guid>/%<topic_name>/<type>_/RIHS01_<hash>/:,:,:,,
+@ros2_lv/<domain_id>/<zid>/0/0/NN/%/%/<node_name>
 ```
+
+**Publisher:**
+```
+@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/%<topic>/<type>/RIHS01_<hash>/<qos>
+```
+
+**Subscriber:**
+```
+@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/%<topic>/<type>/RIHS01_<hash>/<qos>
+```
+
+Key points:
+- ZenohId must be LSB-first hex format
+- Topic names use `%` prefix (e.g., `%chatter`)
+- Liveliness tokens **do** use `RIHS01_` prefix (unlike data keyexprs)
+- QoS format: `reliability:durability:history,depth:...` (e.g., `2:2:1,1:,:,:,,` for BEST_EFFORT)
 
 ## Build Commands
 
@@ -416,6 +437,7 @@ Development documentation lives in `docs/`:
 
 ```
 docs/
+├── rmw_zenoh_interop.md           # ROS 2 rmw_zenoh protocol documentation
 ├── roadmap/                       # Development phases and milestones
 │   ├── phase-1-foundation.md      # CDR, types, macros (COMPLETE)
 │   └── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (PLANNING)
@@ -428,11 +450,11 @@ docs/
 | Phase | Focus | Status |
 |-------|-------|--------|
 | Phase 1 | CDR serialization, types, proc macros | **Complete** |
-| Phase 2A | ROS 2 Interoperability | **Mostly Complete** |
+| Phase 2A | ROS 2 Interoperability | **Complete** |
 | Phase 2B | Zephyr integration, QEMU testing | Pending |
 | Phase 3 | Services, parameters, safety certification | Future |
 
-### Phase 2A Progress (ROS 2 Interoperability)
+### Phase 2A Progress (ROS 2 Interoperability) - COMPLETE
 - [x] `zenoh-pico-sys` - FFI bindings with static linking
 - [x] `zenoh-pico` - Safe wrapper (Config, Session, Publisher, Subscriber, Liveliness)
 - [x] `nano-ros-transport` - ZenohTransport backend with RMW Attachment support
@@ -441,35 +463,51 @@ docs/
 - [x] Liveliness tokens - Node/publisher/subscriber discovery
 - [x] Native examples updated - talker/listener use real zenoh transport
 - [x] nano-ros ↔ nano-ros communication tested and working
-- [ ] ROS 2 rmw_zenoh interop testing - Requires sourcing ROS 2 environment
+- [x] ROS 2 → nano-ros communication working (via wildcard subscriber)
+- [x] nano-ros → ROS 2 communication working (Humble)
 
 ### Phase 2B Progress (Zephyr/QEMU)
 - [ ] Zephyr QEMU testing environment
 - [ ] Multi-node testing (Zephyr + native)
 
-## Ongoing Task
+## ROS 2 rmw_zenoh Interoperability
 
-**Test nano-ros ↔ ROS 2 rmw_zenoh interoperability**
+See `docs/rmw_zenoh_interop.md` for detailed protocol documentation.
 
-nano-ros to nano-ros communication works (`scripts/test-pubsub.sh` passes).
-Next step is testing with ROS 2:
+### Current Status - WORKING
+
+| Direction | Status | Notes |
+|-----------|--------|-------|
+| nano-ros ↔ nano-ros | ✅ Working | Full pub/sub communication |
+| ROS 2 → nano-ros | ✅ Working | Uses wildcard subscriber to match any type hash |
+| nano-ros → ROS 2 | ✅ Working | Tested with ROS 2 Humble + rmw_zenoh_cpp |
+
+### Key Implementation Details
+
+1. **Data keyexpr format**: For Humble, use `TypeHashNotSupported` without `RIHS01_` prefix
+2. **Liveliness tokens**: Use `RIHS01_` prefix, `%` for topic names, LSB-first ZenohId
+3. **QoS string**: Use explicit values `2:2:1,1:,:,:,,` (BEST_EFFORT/VOLATILE)
+4. **RMW Attachment**: 33 bytes (8+8+1+16) using zenoh serializer for compatibility
+
+### Test Commands
 
 ```bash
-# Source ROS 2 (use .envrc or manual source)
-source /opt/ros/humble/setup.bash
-
 # Terminal 1: Start zenoh router
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: Run nano-ros talker
-cargo run -p native-talker --features zenoh
+cargo run -p native-talker --features zenoh -- --tcp 127.0.0.1:7447
 
 # Terminal 3: Run ROS 2 listener
-RMW_IMPLEMENTATION=rmw_zenoh_cpp ros2 run demo_nodes_cpp listener
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 ```
 
 Test scripts available:
-- `scripts/test-pubsub.sh` - Test nano-ros to nano-ros (requires zenohd)
+- `scripts/test-qos.sh` - Test nano-ros → ROS 2 communication
+- `scripts/test-pubsub.sh` - Test nano-ros ↔ nano-ros (requires zenohd)
 - `scripts/test-pubsub-peer.sh` - Test peer mode (no router)
 
 ## References
