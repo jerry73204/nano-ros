@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-zenoh = ["nano-ros-node/zenoh"]
+zenoh = ["nano-ros-node/zenoh", "nano-ros-node/std"]
 
 [dependencies]
 nano-ros-core = { workspace = true }
