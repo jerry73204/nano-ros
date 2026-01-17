@@ -8,6 +8,7 @@ members = [
     "crates/nano-ros-types",
     "crates/nano-ros-params",
     "crates/nano-ros-transport",
+    "crates/nano-ros-node",
     "crates/zenoh-pico-sys",
     "crates/zenoh-pico",
 ]

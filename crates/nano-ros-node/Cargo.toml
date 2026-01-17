@@ -1,0 +1,18 @@
+[package]
+name = "nano-ros-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Node abstraction for nano-ros"
+
+[features]
+default = ["std"]
+std = ["nano-ros-core/std", "nano-ros-serdes/std", "nano-ros-transport/std"]
+alloc = ["nano-ros-core/alloc", "nano-ros-serdes/alloc"]
+zenoh = ["nano-ros-transport/zenoh", "alloc"]
+
+[dependencies]
+nano-ros-core = { workspace = true, default-features = false }
+nano-ros-serdes = { workspace = true, default-features = false }
+nano-ros-transport = { workspace = true, default-features = false }
+heapless = { workspace = true }
