@@ -237,6 +237,7 @@ fn test_keyexpr_empty() {
 #[test]
 fn test_sample_debug() {
     let sample = Sample {
+        keyexpr: "test/topic".to_string(),
         payload: vec![1, 2, 3, 4, 5],
         attachment: None,
     };
@@ -249,6 +250,7 @@ fn test_sample_debug() {
 #[test]
 fn test_sample_empty_payload() {
     let sample = Sample {
+        keyexpr: "test/empty".to_string(),
         payload: vec![],
         attachment: None,
     };
@@ -262,6 +264,7 @@ fn test_sample_empty_payload() {
 fn test_sample_payload_access() {
     let data = b"Hello, Zenoh!".to_vec();
     let sample = Sample {
+        keyexpr: "test/hello".to_string(),
         payload: data.clone(),
         attachment: Some(vec![0x01, 0x02, 0x03]),
     };

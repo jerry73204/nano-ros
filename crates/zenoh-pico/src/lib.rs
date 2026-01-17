@@ -40,7 +40,7 @@ pub use error::{Error, Result};
 pub use keyexpr::KeyExpr;
 pub use liveliness::{LivelinessToken, ZenohId};
 pub use publisher::Publisher;
-pub use serializer::{serialize_rmw_attachment, SerializedBytes};
+pub use serializer::{serialize_rmw_attachment, SerializedBytes, RMW_GID_SIZE};
 pub use session::Session;
 pub use subscriber::{Sample, Subscriber};
 
