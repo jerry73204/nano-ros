@@ -1,210 +1,189 @@
 # Phase 2: Transport, Interoperability & Zephyr Integration
 
-**Status: IN PROGRESS** (Phase 2A nearly complete, Phase 2B pending)
+**Status: Phase 2A COMPLETE, Phase 2B IN PROGRESS**
 
 ## Executive Summary
 
-Phase 2 focuses on three main areas:
-1. **Transport Layer** - zenoh-pico integration (COMPLETE)
-2. **ROS 2 Interoperability** - rmw_zenoh compatibility (MOSTLY COMPLETE)
-3. **Zephyr Integration** - Embedded testing (PENDING)
+Phase 2 focuses on two main areas:
+1. **ROS 2 Interoperability** - rmw_zenoh compatibility (COMPLETE)
+2. **Zephyr Integration** - nano-ros on real RTOS (IN PROGRESS)
 
-## Current Progress
+**Deployment Model:**
+- ROS 2 nodes run on Linux host using `rmw_zenoh_cpp`
+- nano-ros nodes run on Zephyr RTOS (embedded targets)
+- Communication via zenoh router on host
 
-### Completed ✅
+---
+
+## Phase 2A: ROS 2 Interoperability ✅ COMPLETE
+
+### Summary
+
+All ROS 2 interoperability features are implemented and tested. nano-ros can communicate bidirectionally with ROS 2 nodes using rmw_zenoh.
 
 | Component | Status | Tests |
 |-----------|--------|-------|
-| `zenoh-pico-sys` | FFI bindings with static linking | 1 |
-| `zenoh-pico` | Safe Rust wrapper (Config, Session, Publisher, Subscriber, Liveliness) | 38 |
-| `nano-ros-transport` | Transport traits + ZenohTransport backend + RMW Attachment | 7 |
-| `nano-ros-node` | Node API + ConnectedNode with transport integration | 5 |
-| `nano-ros-serdes` | CDR serialization with header | 30+ |
-| QEMU test harness | Cortex-M3 semihosting tests | 9 |
-| Native examples | talker/listener with zenoh transport | - |
+| `zenoh-pico-sys` | ✅ Complete | FFI bindings with static linking |
+| `zenoh-pico` | ✅ Complete | Safe wrapper (Session, Publisher, Subscriber, Liveliness) |
+| `nano-ros-transport` | ✅ Complete | ZenohTransport + RMW Attachment |
+| `nano-ros-node` | ✅ Complete | ConnectedNode with transport integration |
+| Native examples | ✅ Complete | talker/listener with zenoh transport |
+| Integration tests | ✅ Complete | Full test suite in `tests/` |
 
-**Total: 92 tests passing**
+### Acceptance Criteria (All Met)
 
-### Phase 2A: ROS 2 Interoperability ✅ (MOSTLY COMPLETE)
+- [x] RMW attachment included with published messages
+- [x] Liveliness tokens declared for nodes/publishers/subscribers
+- [x] Native examples use real transport
+- [x] nano-ros talker → ROS 2 listener works
+- [x] ROS 2 talker → nano-ros listener works
+- [x] Full communication matrix tested (nano↔nano, nano↔ROS2, ROS2↔ROS2)
 
-| Task | Status | Notes |
-|------|--------|-------|
-| RMW Attachment support | ✅ Complete | `put_with_attachment()` in zenoh-pico |
-| Node↔Transport integration | ✅ Complete | `ConnectedNode` with publishers/subscribers |
-| Liveliness tokens | ✅ Complete | Node, publisher, subscriber tokens |
-| Native examples updated | ✅ Complete | talker/listener use real transport |
-| Type hash computation | ⚠️ Hardcoded | Future improvement |
-| Testing with ROS 2 | 🔄 In Progress | Manual testing needed |
+### Test Suite
 
-See [docs/rmw_zenoh_interop.md](../rmw_zenoh_interop.md) for detailed analysis.
+Integration tests are organized in `tests/`:
 
-### Pending: Phase 2B - Zephyr Integration
+```
+tests/
+├── run-all.sh              # Main test runner
+├── common/
+│   ├── utils.sh            # Shared utilities
+│   └── prerequisites.sh    # Prerequisite checks
+├── nano2nano/
+│   └── run.sh              # nano-ros ↔ nano-ros tests
+├── rmw-interop/
+│   ├── nano2ros.sh         # nano-ros → ROS 2 tests
+│   ├── ros2nano.sh         # ROS 2 → nano-ros tests
+│   └── matrix.sh           # Full 4x4 communication matrix
+└── rmw-detailed/
+    ├── liveliness.sh       # Liveliness token format tests
+    ├── keyexpr.sh          # Key expression format tests
+    ├── qos.sh              # QoS compatibility tests
+    └── attachment.sh       # RMW attachment format tests
+```
 
-| Task | Status |
-|------|--------|
-| Zephyr Rust examples | C stubs only |
-| QEMU networking | Scripts exist, untested |
-| Multi-node testing | Planned |
+Run tests:
+```bash
+./tests/run-all.sh              # Full suite
+./tests/run-all.sh --quick      # Quick subset
+./tests/run-all.sh rmw-interop  # Only RMW interop tests
+```
+
+See [docs/rmw_zenoh_interop.md](../rmw_zenoh_interop.md) for protocol details.
 
 ---
 
-## Phase 2A Details (IMPLEMENTED)
-
-### RMW Attachment Support ✅
-
-rmw_zenoh requires metadata with each published message. Implemented in:
-- `crates/zenoh-pico/src/publisher.rs` - `put_with_attachment()` method
-- `crates/nano-ros-transport/src/zenoh.rs` - `RmwAttachment` struct
-
-```rust
-#[repr(C, packed)]
-pub struct RmwAttachment {
-    pub sequence_number: i64,  // Incremented per publish
-    pub timestamp: i64,        // nanoseconds since epoch
-    pub rmw_gid_size: u8,      // Always 16
-    pub rmw_gid: [u8; 16],     // Random GID per publisher
-}
-```
-
-### Node↔Transport Integration ✅
-
-Created `ConnectedNode` type that wraps zenoh transport:
-- `crates/nano-ros-node/src/connected.rs` - ConnectedNode, ConnectedPublisher, ConnectedSubscriber
-- Automatic serialization/deserialization with CDR header
-- QoS settings support
-
-```rust
-// Example usage
-let config = NodeConfig::new("talker", "/demo");
-let mut node = ConnectedNode::connect(config, "tcp/127.0.0.1:7447")?;
-let publisher = node.create_publisher::<Int32>("/chatter")?;
-publisher.publish(&Int32 { data: 42 })?;
-```
-
-### Liveliness Token Support ✅
-
-ROS 2 discovery via liveliness tokens:
-- `crates/zenoh-pico/src/liveliness.rs` - LivelinessToken, ZenohId
-- `crates/nano-ros-transport/src/zenoh.rs` - Ros2Liveliness key expression builder
-
-Token formats:
-```
-# Node
-@ros2_lv/<domain>/<zid>/0/0/NN/%%/%%/<node_name>
-
-# Publisher
-@ros2_lv/<domain>/<zid>/0/11/MP/%%/%%/<node_name>/%<topic>/<type>_/RIHS01_<hash>/:,:,:,,
-
-# Subscriber
-@ros2_lv/<domain>/<zid>/0/11/MS/%%/%%/<node_name>/%<topic>/<type>_/RIHS01_<hash>/:,:,:,,
-```
-
-### Updated Examples ✅
-
-Both native examples now support real zenoh transport:
-
-**With zenoh (real transport):**
-```bash
-# Start zenoh router
-zenohd --listen tcp/127.0.0.1:7447
-
-# Run talker
-cargo run -p native-talker --features zenoh
-
-# Run listener
-cargo run -p native-listener --features zenoh
-```
-
-**Without zenoh (simulation mode):**
-```bash
-cargo run -p native-talker
-cargo run -p native-listener
-```
-
----
-
-## Phase 2A Testing (IN PROGRESS)
-
-### Test with ROS 2 rmw_zenoh
-
-```bash
-# Terminal 1: Zenoh router
-zenohd --listen tcp/127.0.0.1:7447
-
-# Terminal 2: ROS 2 listener (requires ROS 2 with rmw_zenoh)
-RMW_IMPLEMENTATION=rmw_zenoh_cpp ros2 run demo_nodes_cpp listener
-
-# Terminal 3: nano-ros talker
-cargo run -p native-talker --features zenoh
-```
-
-### Test nano-ros to nano-ros
-
-```bash
-# Terminal 1: Zenoh router
-zenohd --listen tcp/127.0.0.1:7447
-
-# Terminal 2: Listener
-cargo run -p native-listener --features zenoh
-
-# Terminal 3: Talker
-cargo run -p native-talker --features zenoh
-```
-
-### Acceptance Criteria
-
-1. [x] RMW attachment included with published messages
-2. [x] Liveliness tokens declared for nodes/publishers/subscribers
-3. [x] Native examples use real transport
-4. [ ] nano-ros talker → ROS 2 listener works
-5. [ ] ROS 2 talker → nano-ros listener works
-6. [ ] `ros2 topic list` shows nano-ros topics
-
----
-
-## Phase 2B: Zephyr & QEMU Integration (PENDING)
+## Phase 2B: Zephyr Integration 🔄 IN PROGRESS
 
 ### Goal
-Run nano-ros on Zephyr RTOS in QEMU, communicate with native x86 node.
 
-### Architecture
+Run nano-ros on Zephyr RTOS, communicating with ROS 2 nodes on Linux host.
+
+### Target Architecture
+
 ```
-┌─────────────────┐     ┌─────────────────┐
-│  QEMU (ARM)     │     │  Native (x86)   │
-│  ┌───────────┐  │     │  ┌───────────┐  │
-│  │  Talker   │  │     │  │ Listener  │  │
-│  │  nano-ros │  │     │  │ nano-ros  │  │
-│  └─────┬─────┘  │     │  └─────┬─────┘  │
-│        │        │     │        │        │
-│  ┌─────┴─────┐  │     │  ┌─────┴─────┐  │
-│  │zenoh-pico │  │     │  │zenoh-pico │  │
-│  └─────┬─────┘  │     │  └─────┴─────┘  │
-└────────┼────────┘     └────────┼────────┘
-         │    tap0          eth0 │
-         └──────────┬────────────┘
-                    │
-              ┌─────┴─────┐
-              │   br0     │
-              │ (bridge)  │
-              └───────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Linux Host                               │
+│  ┌─────────────────┐     ┌─────────────────┐                   │
+│  │   ROS 2 Node    │     │   zenohd        │                   │
+│  │  (rmw_zenoh)    │     │   (router)      │                   │
+│  │                 │     │                 │                   │
+│  │  ros2 topic pub │     │ tcp/0.0.0.0:7447│                   │
+│  │  ros2 topic echo│     │                 │                   │
+│  └────────┬────────┘     └────────┬────────┘                   │
+│           │                       │                             │
+│           └───────────┬───────────┘                             │
+│                       │ zenoh protocol                          │
+└───────────────────────┼─────────────────────────────────────────┘
+                        │
+          ┌─────────────┴─────────────┐
+          │      Network (Ethernet)    │
+          └─────────────┬─────────────┘
+                        │
+┌───────────────────────┼─────────────────────────────────────────┐
+│                       │         Zephyr Device                   │
+│  ┌────────────────────┴────────────────────┐                   │
+│  │              zenoh-pico                  │                   │
+│  │         (client mode → router)          │                   │
+│  └────────────────────┬────────────────────┘                   │
+│                       │                                         │
+│  ┌────────────────────┴────────────────────┐                   │
+│  │            nano-ros node                 │                   │
+│  │                                          │                   │
+│  │   Publisher: /sensor_data               │                   │
+│  │   Subscriber: /commands                  │                   │
+│  └──────────────────────────────────────────┘                   │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### Current Progress
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Core crates no_std | ✅ Complete | All crates build for `thumbv7em-none-eabihf` |
+| QEMU semihosting tests | ✅ Complete | 9 tests validating core functionality |
+| Zephyr example stubs | ✅ Exists | C stubs in `examples/zephyr-*/` |
+| QEMU network scripts | ✅ Exists | `scripts/qemu/` (untested) |
+| zephyr-lang-rust setup | ⏳ Pending | Need to integrate Rust into Zephyr build |
+| Zephyr talker example | ⏳ Pending | Convert C stub to Rust |
+| Zephyr listener example | ⏳ Pending | Convert C stub to Rust |
+| Hardware testing | ⏳ Pending | Target: STM32, nRF52, or similar |
 
 ### Work Items
 
-#### 2B.1 Zephyr Rust Examples
-- [ ] Convert C stubs to Rust
-- [ ] Integrate with zephyr-lang-rust
-- [ ] Build with west
+#### 2B.1 Zephyr Rust Toolchain Setup
+- [ ] Install zephyr-lang-rust
+- [ ] Configure west manifest for Rust support
+- [ ] Verify Zephyr SDK + Rust toolchain integration
+- [ ] Test minimal "hello world" Rust app on Zephyr
 
-#### 2B.2 QEMU Networking
-- [ ] Test network bridge setup
-- [ ] Verify TAP interface configuration
-- [ ] Test cross-QEMU communication
+**Reference:** https://github.com/zephyrproject-rtos/zephyr-lang-rust
 
-#### 2B.3 Multi-Node Testing
-- [ ] Create automated test script
-- [ ] Add CI pipeline for QEMU tests
-- [ ] Document setup process
+#### 2B.2 Convert Zephyr Examples to Rust
+- [ ] Port `examples/zephyr-talker/` from C to Rust
+- [ ] Port `examples/zephyr-listener/` from C to Rust
+- [ ] Integrate nano-ros crates into Zephyr build
+- [ ] Configure zenoh-pico for Zephyr target
+
+#### 2B.3 QEMU Integration Testing
+- [ ] Test QEMU with Zephyr networking (qemu_cortex_m3 or qemu_x86)
+- [ ] Verify zenoh-pico client connects to host router
+- [ ] Test nano-ros ↔ ROS 2 communication through QEMU
+- [ ] Automate QEMU test in CI
+
+#### 2B.4 Hardware Validation
+- [ ] Select target board (STM32F4, nRF52840, or similar)
+- [ ] Flash and test on real hardware
+- [ ] Verify Ethernet/WiFi connectivity to zenoh router
+- [ ] Performance benchmarking (latency, throughput)
+
+### Target Boards
+
+| Board | MCU | Network | Priority |
+|-------|-----|---------|----------|
+| NUCLEO-F429ZI | STM32F429 | Ethernet | High |
+| nRF52840-DK | nRF52840 | BLE/Thread | Medium |
+| ESP32-DevKitC | ESP32 | WiFi | Medium |
+| QEMU Cortex-M3 | Emulated | TAP/Bridge | Testing |
+
+### Zephyr Configuration
+
+Required Kconfig options for nano-ros:
+```
+# Networking
+CONFIG_NETWORKING=y
+CONFIG_NET_IPV4=y
+CONFIG_NET_TCP=y
+CONFIG_NET_SOCKETS=y
+
+# Zenoh-pico requirements
+CONFIG_POSIX_API=y
+CONFIG_HEAP_MEM_POOL_SIZE=32768
+CONFIG_MAIN_STACK_SIZE=4096
+
+# For Rust (zephyr-lang-rust)
+CONFIG_RUST=y
+```
 
 ---
 
@@ -212,30 +191,67 @@ Run nano-ros on Zephyr RTOS in QEMU, communicate with native x86 node.
 
 ### Build Commands
 ```bash
-just build          # Build all crates (no_std)
-just build-zenoh    # Build with zenoh feature
-just test           # Run all tests
-just quality        # Format + clippy + tests
+just build              # Build all crates (no_std)
+just build-embedded     # Build for thumbv7em-none-eabihf
+just qemu-test          # Run QEMU semihosting tests
+just test               # Run all tests (requires std)
+just quality            # Format + clippy + tests
 ```
 
-### Run Examples
+### Run Native Examples
 ```bash
-# Simulation mode (no router needed)
-cargo run -p native-talker
-cargo run -p native-listener
-
-# Real transport (requires zenohd)
+# Start zenoh router
 zenohd --listen tcp/127.0.0.1:7447
-cargo run -p native-talker --features zenoh
-cargo run -p native-listener --features zenoh
+
+# Run nano-ros talker
+cargo run -p native-talker --release --features zenoh -- --tcp 127.0.0.1:7447
+
+# Run nano-ros listener
+cargo run -p native-listener --release --features zenoh -- --tcp 127.0.0.1:7447
 ```
+
+### Test with ROS 2
+```bash
+# Terminal 1: Zenoh router
+zenohd --listen tcp/127.0.0.1:7447
+
+# Terminal 2: nano-ros talker
+cargo run -p native-talker --release --features zenoh -- --tcp 127.0.0.1:7447
+
+# Terminal 3: ROS 2 listener
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+```
+
+### Run Integration Tests
+```bash
+./tests/run-all.sh              # All tests
+./tests/run-all.sh --quick      # Quick smoke test
+./tests/run-all.sh rmw-detailed # Detailed protocol tests
+```
+
+---
+
+## File Locations
+
+| Component | Path |
+|-----------|------|
+| Core crates | `crates/` |
+| Native examples | `examples/native-talker/`, `examples/native-listener/` |
+| Zephyr stubs | `examples/zephyr-talker/`, `examples/zephyr-listener/` |
+| QEMU test | `examples/qemu-test/` |
+| Integration tests | `tests/` |
+| QEMU scripts | `scripts/qemu/` |
+| Protocol docs | `docs/rmw_zenoh_interop.md` |
 
 ---
 
 ## References
 
 - [ROS 2 rmw_zenoh Interop Analysis](../rmw_zenoh_interop.md)
-- [Original Pico-ROS](../../external/Pico-ROS-software/)
 - [zenoh-pico GitHub](https://github.com/eclipse-zenoh/zenoh-pico)
 - [rmw_zenoh](https://github.com/ros2/rmw_zenoh)
 - [Zephyr Rust](https://github.com/zephyrproject-rtos/zephyr-lang-rust)
+- [Zephyr Networking](https://docs.zephyrproject.org/latest/connectivity/networking/index.html)
