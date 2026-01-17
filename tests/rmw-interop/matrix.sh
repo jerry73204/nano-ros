@@ -54,13 +54,14 @@ PASSED_TESTS=0
 
 run_test() {
     local name="$1"
+    shift  # Remove name, leaving just the test function
     local result=0
 
     log_header "Test: $name"
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
     # Run the test function
-    if "$@" 2>/dev/null; then
+    if "$@"; then
         result=0
         PASSED_TESTS=$((PASSED_TESTS + 1))
         log_success "$name"
