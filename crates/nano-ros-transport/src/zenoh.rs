@@ -3,6 +3,15 @@
 //! Provides a transport backend using the safe zenoh-pico wrapper.
 //! Requires the `zenoh` feature flag.
 //!
+//! # Executor Support
+//!
+//! This module supports different executor backends via feature flags:
+//!
+//! - Default: Background threads for read/lease tasks (requires OS support)
+//! - `rtic` or `polling`: No background threads, manual polling required
+//!
+//! For RTIC applications, also enable `sync-critical-section` for proper mutex handling.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -23,6 +32,8 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+
+use crate::sync::Mutex;
 
 use crate::traits::{
     Publisher, QosSettings, ServiceClientTrait, ServiceInfo, ServiceRequest, ServiceServerTrait,
@@ -108,6 +119,9 @@ pub struct ZenohSession {
 
 impl ZenohSession {
     /// Create a new Zenoh session with the given configuration
+    ///
+    /// This starts background threads for read and lease tasks.
+    /// For RTIC or single-threaded executors, use `new_without_tasks()` instead.
     pub fn new(config: &TransportConfig) -> Result<Self, TransportError> {
         let zconfig = match (&config.mode, config.locator) {
             (SessionMode::Client, Some(locator)) => {
@@ -126,9 +140,114 @@ impl ZenohSession {
         Ok(Self { session })
     }
 
+    /// Create a new Zenoh session without starting background tasks
+    ///
+    /// Use this for RTIC or other single-threaded executors where you need
+    /// manual control over when network I/O occurs.
+    ///
+    /// After opening, you must periodically call:
+    /// - `poll_read()` to process incoming messages (recommended: every 10ms)
+    /// - `send_keepalive()` to maintain the session (recommended: every 1s)
+    ///
+    /// Optionally, you can later call `start_tasks()` to switch to background threads.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn new_without_tasks(config: &TransportConfig) -> Result<Self, TransportError> {
+        let zconfig = match (&config.mode, config.locator) {
+            (SessionMode::Client, Some(locator)) => {
+                Config::client(locator).map_err(|_| TransportError::InvalidConfig)?
+            }
+            (SessionMode::Client, None) => {
+                return Err(TransportError::InvalidConfig);
+            }
+            (SessionMode::Peer, _) => Config::peer().map_err(|_| TransportError::InvalidConfig)?,
+        };
+
+        let session = ZenohPicoSession::open_without_tasks(zconfig)
+            .map_err(|_| TransportError::ConnectionFailed)?;
+
+        Ok(Self { session })
+    }
+
+    /// Start background read and lease tasks
+    ///
+    /// This is called automatically by `new()`. Only call this manually if you
+    /// used `new_without_tasks()` and later want to switch to background threads.
+    ///
+    /// Returns an error if tasks are already started.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn start_tasks(&mut self) -> Result<(), TransportError> {
+        self.session
+            .start_tasks()
+            .map_err(|_| TransportError::TaskStartFailed)
+    }
+
+    /// Stop background tasks
+    ///
+    /// After stopping, you must manually call `poll_read()` and `send_keepalive()`.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn stop_tasks(&mut self) {
+        self.session.stop_tasks();
+    }
+
+    /// Poll for incoming messages and events
+    ///
+    /// Call this periodically (recommended: every 10ms) when not using background tasks.
+    /// This processes any pending network data and dispatches callbacks.
+    ///
+    /// For RTIC applications, call this from a periodic software task.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn poll_read(&mut self) -> Result<(), TransportError> {
+        self.session
+            .poll_read()
+            .map_err(|_| TransportError::PollFailed)
+    }
+
+    /// Send keepalive to maintain the session
+    ///
+    /// Call this periodically (recommended: every 1s) when not using background tasks.
+    /// This sends keepalive messages to prevent the session from timing out.
+    ///
+    /// For RTIC applications, call this from a periodic software task.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn send_keepalive(&mut self) -> Result<(), TransportError> {
+        self.session
+            .send_keepalive()
+            .map_err(|_| TransportError::KeepaliveFailed)
+    }
+
+    /// Send join message for peer discovery
+    ///
+    /// Call this periodically in peer mode to announce presence to other peers.
+    /// Not needed in client mode.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn send_join(&mut self) -> Result<(), TransportError> {
+        self.session
+            .send_join()
+            .map_err(|_| TransportError::JoinFailed)
+    }
+
+    /// Check if background read task is running
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn is_read_task_running(&self) -> bool {
+        self.session.is_read_task_running()
+    }
+
+    /// Check if background lease task is running
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn is_lease_task_running(&self) -> bool {
+        self.session.is_lease_task_running()
+    }
+
     /// Get a reference to the underlying zenoh-pico session
     pub fn inner(&self) -> &ZenohPicoSession {
         &self.session
+    }
+
+    /// Get a mutable reference to the underlying zenoh-pico session
+    ///
+    /// Use this for manual polling operations when background tasks are stopped.
+    pub fn inner_mut(&mut self) -> &mut ZenohPicoSession {
+        &mut self.session
     }
 
     /// Get the session's Zenoh ID
@@ -275,7 +394,7 @@ impl Session for ZenohSession {
 pub struct ZenohPublisher {
     publisher: zenoh_pico::Publisher,
     /// RMW attachment with GID and sequence counter
-    attachment: spin::Mutex<RmwAttachment>,
+    attachment: Mutex<RmwAttachment>,
 }
 
 impl ZenohPublisher {
@@ -296,7 +415,7 @@ impl ZenohPublisher {
 
         Ok(Self {
             publisher,
-            attachment: spin::Mutex::new(RmwAttachment::new()),
+            attachment: Mutex::new(RmwAttachment::new()),
         })
     }
 
@@ -347,7 +466,7 @@ impl Publisher for ZenohPublisher {
 /// Shared buffer for subscriber callbacks
 struct SubscriberBuffer {
     /// Buffer for received data
-    data: spin::Mutex<Vec<u8>>,
+    data: Mutex<Vec<u8>>,
     /// Flag indicating new data is available
     has_data: AtomicBool,
     /// Length of valid data
@@ -357,7 +476,7 @@ struct SubscriberBuffer {
 impl SubscriberBuffer {
     fn new() -> Self {
         Self {
-            data: spin::Mutex::new(Vec::with_capacity(1024)),
+            data: Mutex::new(Vec::with_capacity(1024)),
             has_data: AtomicBool::new(false),
             len: AtomicUsize::new(0),
         }
@@ -450,7 +569,7 @@ impl Subscriber for ZenohSubscriber {
 /// Shared buffer for service server callbacks
 struct ServiceServerBuffer {
     /// Buffer for received request data
-    data: spin::Mutex<Vec<u8>>,
+    data: Mutex<Vec<u8>>,
     /// Flag indicating new request is available
     has_request: AtomicBool,
     /// Length of valid data
@@ -458,17 +577,17 @@ struct ServiceServerBuffer {
     /// Sequence number from attachment
     sequence_number: AtomicI64,
     /// The keyexpr to reply on
-    reply_keyexpr: spin::Mutex<alloc::string::String>,
+    reply_keyexpr: Mutex<alloc::string::String>,
 }
 
 impl ServiceServerBuffer {
     fn new() -> Self {
         Self {
-            data: spin::Mutex::new(Vec::with_capacity(1024)),
+            data: Mutex::new(Vec::with_capacity(1024)),
             has_request: AtomicBool::new(false),
             len: AtomicUsize::new(0),
             sequence_number: AtomicI64::new(0),
-            reply_keyexpr: spin::Mutex::new(alloc::string::String::new()),
+            reply_keyexpr: Mutex::new(alloc::string::String::new()),
         }
     }
 

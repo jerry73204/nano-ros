@@ -9,7 +9,24 @@ description = "Transport abstraction layer for nano-ros"
 default = ["std"]
 std = ["nano-ros-core/std", "zenoh-pico?/std", "log"]
 alloc = ["nano-ros-core/alloc"]
-zenoh = ["dep:zenoh-pico", "dep:spin", "alloc"]  # Enable zenoh-pico backend (requires alloc for callback buffers)
+
+# Transport backend
+zenoh = ["dep:zenoh-pico", "alloc"]  # Enable zenoh-pico backend (requires alloc for callback buffers)
+
+# Executor backends (informational - affects sync primitive choice)
+rtic = []       # RTIC executor - uses critical sections, no background threads
+embassy = []    # Embassy executor - uses embassy-sync primitives
+polling = []    # Simple polling mode - no background threads, manual poll required
+
+# Synchronization backends (mutually exclusive for mutex implementation)
+# Default: spin::Mutex (works everywhere, but not RTIC-compatible)
+sync-spin = ["dep:spin"]
+# Critical section: uses cortex_m::interrupt::free (RTIC-compatible)
+sync-critical-section = ["dep:critical-section"]
+# Portable atomic: uses portable-atomic for broader platform support
+sync-portable-atomic = ["dep:portable-atomic"]
+
+# Logging
 log = ["dep:log"]
 defmt = ["dep:defmt"]
 
@@ -17,6 +34,12 @@ defmt = ["dep:defmt"]
 nano-ros-core = { workspace = true, default-features = false }
 heapless = { workspace = true }
 zenoh-pico = { path = "../zenoh-pico", optional = true, default-features = false }
+
+# Synchronization backends (optional)
 spin = { version = "0.9", optional = true, default-features = false, features = ["mutex", "spin_mutex"] }
+critical-section = { version = "1.1", optional = true }
+portable-atomic = { version = "1.6", optional = true, default-features = false }
+
+# Logging
 log = { workspace = true, optional = true }
 defmt = { workspace = true, optional = true }

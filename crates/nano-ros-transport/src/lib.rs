@@ -8,6 +8,19 @@
 //! - `std` - Enable standard library support
 //! - `alloc` - Enable heap allocation
 //! - `zenoh` - Enable zenoh-pico backend
+//!
+//! # Executor Support
+//!
+//! - `rtic` - RTIC executor support (uses critical sections, no background threads)
+//! - `embassy` - Embassy executor support
+//! - `polling` - Simple polling mode without background threads
+//!
+//! # Synchronization Backends
+//!
+//! - `sync-spin` - Use spin::Mutex (default, works everywhere)
+//! - `sync-critical-section` - Use critical sections (RTIC/Embassy compatible)
+//!
+//! For RTIC applications, enable `rtic` and `sync-critical-section` features.
 
 #![no_std]
 
@@ -17,6 +30,7 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub mod sync;
 pub mod traits;
 
 #[cfg(feature = "zenoh")]

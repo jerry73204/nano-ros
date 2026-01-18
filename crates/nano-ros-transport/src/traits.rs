@@ -145,6 +145,14 @@ pub enum TransportError {
     Timeout,
     /// Invalid configuration
     InvalidConfig,
+    /// Failed to start background tasks
+    TaskStartFailed,
+    /// Failed to poll for incoming messages
+    PollFailed,
+    /// Failed to send keepalive
+    KeepaliveFailed,
+    /// Failed to send join message
+    JoinFailed,
 }
 
 /// QoS (Quality of Service) settings
