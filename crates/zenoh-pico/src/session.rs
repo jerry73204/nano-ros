@@ -1,6 +1,6 @@
 //! Zenoh session
 
-use crate::{Config, Error, KeyExpr, Publisher, Result, Subscriber};
+use crate::{Config, Error, KeyExpr, Publisher, Query, Queryable, Result, Subscriber};
 use core::ptr;
 use zenoh_pico_sys::*;
 
@@ -95,9 +95,37 @@ impl Session {
         Subscriber::new(self, keyexpr, callback)
     }
 
-    /// Get the loaned session pointer
+    /// Declare a queryable for the given key expression
+    ///
+    /// Queryables receive queries and can send replies. Used for ROS 2 services.
+    pub fn declare_queryable<F>(&self, keyexpr: &KeyExpr, callback: F) -> Result<Queryable<F>>
+    where
+        F: FnMut(Query) + Send + 'static,
+    {
+        Queryable::new(self, keyexpr, callback)
+    }
+
+    /// Get the loaned session pointer (internal use)
     pub(crate) fn as_loaned(&self) -> *const z_loaned_session_t {
         unsafe { z_session_loan(&self.inner) }
+    }
+
+    /// Get a pointer to the owned session (for FFI use)
+    ///
+    /// # Safety
+    /// The returned pointer is only valid while the session is alive.
+    pub fn as_owned_ptr(&self) -> *const z_owned_session_t {
+        &self.inner
+    }
+
+    /// Get a loaned session pointer for FFI operations
+    pub fn loan(&self) -> *const z_loaned_session_t {
+        unsafe { z_session_loan(&self.inner) }
+    }
+
+    /// Get access to the inner owned session
+    pub fn inner(&self) -> &z_owned_session_t {
+        &self.inner
     }
 
     /// Close the session

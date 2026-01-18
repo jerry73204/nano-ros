@@ -20,8 +20,12 @@ pub enum Error {
     PublisherDeclarationFailed,
     /// Failed to declare a subscriber
     SubscriberDeclarationFailed,
+    /// Failed to declare a queryable
+    QueryableDeclarationFailed,
     /// Failed to publish data
     PublishFailed,
+    /// Failed to reply to a query
+    QueryReplyFailed,
     /// Failed to start background task
     TaskStartFailed,
     /// Buffer is too small
@@ -41,7 +45,9 @@ impl fmt::Display for Error {
             Error::InvalidKeyExpr => write!(f, "Invalid key expression"),
             Error::PublisherDeclarationFailed => write!(f, "Failed to declare publisher"),
             Error::SubscriberDeclarationFailed => write!(f, "Failed to declare subscriber"),
+            Error::QueryableDeclarationFailed => write!(f, "Failed to declare queryable"),
             Error::PublishFailed => write!(f, "Failed to publish data"),
+            Error::QueryReplyFailed => write!(f, "Failed to reply to query"),
             Error::TaskStartFailed => write!(f, "Failed to start background task"),
             Error::BufferTooSmall => write!(f, "Buffer is too small"),
             Error::SerializationFailed => write!(f, "Serialization failed"),
