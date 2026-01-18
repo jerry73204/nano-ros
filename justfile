@@ -19,6 +19,16 @@ build:
 build-embedded:
     cargo build --workspace --exclude qemu-test --no-default-features --target thumbv7em-none-eabihf
 
+# Check no-alloc build works (catches accidental alloc usage)
+check-no-alloc:
+    @echo "Checking no-alloc build for transport layer..."
+    cargo clippy -p nano-ros-transport --no-default-features --target thumbv7em-none-eabihf
+    @echo "Checking no-alloc build with RTIC features..."
+    cargo clippy -p nano-ros-transport --no-default-features --features "rtic,sync-critical-section" --target thumbv7em-none-eabihf
+    @echo "Checking no-alloc build for node layer..."
+    cargo clippy -p nano-ros-node --no-default-features --target thumbv7em-none-eabihf
+    @echo "All no-alloc checks passed!"
+
 format:
     cargo +nightly fmt
 
