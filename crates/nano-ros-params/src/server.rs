@@ -59,6 +59,7 @@ impl Default for ParameterServer {
 
 impl ParameterServer {
     /// Create a new empty parameter server
+    #[allow(clippy::large_stack_arrays)] // Intentional: static allocation for embedded use
     pub const fn new() -> Self {
         // Initialize with None values
         Self {
