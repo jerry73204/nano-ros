@@ -87,10 +87,14 @@ run-talker:
 run-listener:
     cargo run -p native-listener
 
-# Build all examples
-build-examples:
+# Build native examples (requires std)
+build-native-examples:
     cargo build -p native-talker -p native-listener
+
+# Build all examples (native + QEMU + embedded)
+build-examples: build-native-examples build-embedded-examples
     cd examples/qemu-test && cargo build --release
+    @echo "All examples built!"
 
 # Run all tests including QEMU
 test-full: test qemu-test
@@ -121,6 +125,74 @@ build-zenoh-pico:
     @echo "Building zenoh-pico..."
     cd crates/zenoh-pico-sys/zenoh-pico && mkdir -p build && cd build && cmake .. -DBUILD_SHARED_LIBS=OFF && make
     @echo "zenoh-pico built at: crates/zenoh-pico-sys/zenoh-pico/build"
+
+# =============================================================================
+# Embedded Examples (STM32F4)
+# =============================================================================
+
+# Build RTIC example for STM32F4 (thumbv7em-none-eabihf)
+build-rtic:
+    @echo "Building RTIC example for STM32F429..."
+    cd examples/rtic-stm32f4 && cargo build --release
+    @echo "Binary: examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example"
+
+# Build Embassy example for STM32F4 (thumbv7em-none-eabihf)
+build-embassy:
+    @echo "Building Embassy example for STM32F429..."
+    cd examples/embassy-stm32f4 && cargo build --release
+    @echo "Binary: examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example"
+
+# Build polling example for STM32F4 (thumbv7em-none-eabihf)
+build-polling:
+    @echo "Building polling example for STM32F429..."
+    cd examples/polling-stm32f4 && cargo build --release
+    @echo "Binary: examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example"
+
+# Build all embedded examples
+build-embedded-examples: build-rtic build-embassy build-polling
+    @echo "All embedded examples built successfully!"
+
+# Check all embedded examples compile (without full build)
+check-embedded-examples:
+    @echo "Checking RTIC example..."
+    cd examples/rtic-stm32f4 && cargo check --release
+    @echo "Checking Embassy example..."
+    cd examples/embassy-stm32f4 && cargo check --release
+    @echo "Checking polling example..."
+    cd examples/polling-stm32f4 && cargo check --release
+    @echo "All embedded examples check passed!"
+
+# Clean embedded example build artifacts
+clean-embedded-examples:
+    rm -rf examples/rtic-stm32f4/target
+    rm -rf examples/embassy-stm32f4/target
+    rm -rf examples/polling-stm32f4/target
+    @echo "Embedded example build artifacts cleaned"
+
+# Show embedded example binary sizes
+size-embedded-examples: build-embedded-examples
+    @echo ""
+    @echo "Binary sizes (release, stripped):"
+    @echo "================================="
+    @size examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example 2>/dev/null || echo "RTIC: run 'just build-rtic' first"
+    @size examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example 2>/dev/null || echo "Embassy: run 'just build-embassy' first"
+    @size examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example 2>/dev/null || echo "Polling: run 'just build-polling' first"
+
+# Flash RTIC example to STM32F4 (requires probe-rs)
+flash-rtic:
+    cd examples/rtic-stm32f4 && cargo run --release
+
+# Flash Embassy example to STM32F4 (requires probe-rs)
+flash-embassy:
+    cd examples/embassy-stm32f4 && cargo run --release
+
+# Flash polling example to STM32F4 (requires probe-rs)
+flash-polling:
+    cd examples/polling-stm32f4 && cargo run --release
+
+# =============================================================================
+# Zephyr Examples
+# =============================================================================
 
 # Show Zephyr example build instructions
 zephyr-help:

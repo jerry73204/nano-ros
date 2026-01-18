@@ -1,0 +1,73 @@
+# nano-ros Embassy Template for STM32F4
+#
+# Copy this file to your project as Cargo.toml and update:
+# - Package name and metadata
+# - Paths to nano-ros crates (or use git dependency)
+#
+# Required files:
+# - .cargo/config.toml (copy from examples/embassy-stm32f4/.cargo/)
+#
+# Note: Embassy's stm32 crate includes memory.x generation
+
+[package]
+name = "my-embassy-project"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "nano-ros Embassy project"
+
+[[bin]]
+name = "my-embassy-project"
+path = "src/main.rs"
+
+[dependencies]
+# Embassy runtime
+embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.4", features = ["tick-hz-1_000"] }
+embassy-stm32 = { version = "0.2", features = ["stm32f429zi", "time-driver-any", "memory-x"] }
+embassy-sync = "0.6"
+
+# Cortex-M runtime
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+panic-halt = "0.2"
+
+# nano-ros with RTIC support (works for Embassy too)
+# Option 1: Local paths (development)
+nano-ros-node = { path = "../crates/nano-ros-node", default-features = false, features = ["rtic"] }
+nano-ros-transport = { path = "../crates/nano-ros-transport", default-features = false, features = ["rtic", "sync-critical-section"] }
+nano-ros-types = { path = "../crates/nano-ros-types", default-features = false }
+
+# Option 2: Git dependency (recommended for external projects)
+# nano-ros-node = { git = "https://github.com/user/nano-ros", default-features = false, features = ["rtic"] }
+# nano-ros-transport = { git = "https://github.com/user/nano-ros", default-features = false, features = ["rtic", "sync-critical-section"] }
+
+# Logging (optional)
+defmt = "0.3"
+defmt-rtt = "0.4"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+
+# Heapless collections
+heapless = "0.8"
+
+# Static cell for shared state
+static_cell = "2"
+
+[features]
+default = ["defmt"]
+defmt = []
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 3
+overflow-checks = false
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+incremental = false
+opt-level = 1

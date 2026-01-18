@@ -1,0 +1,49 @@
+# nano-ros Zephyr Template
+#
+# This template is for Zephyr RTOS projects using west.
+# It should be placed in your Zephyr application directory.
+#
+# Prerequisites:
+# - Zephyr workspace with nano-ros as a west module
+# - See examples/zephyr-talker-rs/ for complete example
+
+[package]
+name = "my-zephyr-project"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "nano-ros Zephyr project"
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# nano-ros core crates (no_std, no_alloc)
+nano-ros-core = { path = "../../nano-ros/crates/nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "../../nano-ros/crates/nano-ros-serdes", default-features = false }
+
+# Zephyr-specific features (no zenoh - use C shim)
+# The zenoh-pico FFI is handled through a C shim layer because
+# Rust's placeholder types don't match zenoh-pico's actual struct sizes.
+
+# Heapless collections for no_std
+heapless = "0.8"
+
+[features]
+default = []
+
+[profile.release]
+codegen-units = 1
+debug = false
+incremental = false
+lto = "fat"
+opt-level = "z"  # Optimize for size
+panic = "abort"
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+incremental = false
+opt-level = 1
+panic = "abort"
