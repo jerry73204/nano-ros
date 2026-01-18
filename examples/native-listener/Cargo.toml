@@ -11,11 +11,9 @@ path = "src/main.rs"
 
 [features]
 default = []
-zenoh = ["nano-ros-node/zenoh"]
+zenoh = ["nano-ros/zenoh"]
 
 [dependencies]
-nano-ros-core = { workspace = true }
-nano-ros-node = { workspace = true }
-nano-ros-types = { workspace = true }
+nano-ros = { path = "../../crates/nano-ros", default-features = false, features = ["std"] }
 log = { workspace = true }
 env_logger = { workspace = true }

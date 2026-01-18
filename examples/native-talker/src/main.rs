@@ -21,17 +21,16 @@
 //! RUST_LOG=debug cargo run -p native-talker --features zenoh
 //! ```
 
-#[cfg(feature = "zenoh")]
-use log::warn;
+#[cfg(not(feature = "zenoh"))]
 use log::{debug, error, info};
-use nano_ros_core::RosMessage;
-use nano_ros_types::std_msgs::Int32;
+#[cfg(feature = "zenoh")]
+use log::{debug, error, info, warn};
+use nano_ros::prelude::*;
+use nano_ros::types::std_msgs::Int32;
 
 #[cfg(feature = "zenoh")]
 fn main() {
     env_logger::init();
-
-    use nano_ros_node::{ConnectedNode, NodeConfig};
 
     info!("nano-ros Native Talker (Zenoh Transport)");
     info!("=========================================");
@@ -107,8 +106,6 @@ fn main() {
 #[cfg(not(feature = "zenoh"))]
 fn main() {
     env_logger::init();
-
-    use nano_ros_node::{Node, NodeConfig};
 
     info!("nano-ros Native Talker (Simulation Mode)");
     info!("=========================================");

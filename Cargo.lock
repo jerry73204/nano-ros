@@ -519,9 +519,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger 0.11.8",
  "log",
- "nano-ros-core",
- "nano-ros-node",
- "nano-ros-types",
+ "nano-ros",
 ]
 
 [[package]]
@@ -548,9 +546,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger 0.11.8",
  "log",
- "nano-ros-core",
- "nano-ros-node",
- "nano-ros-types",
+ "nano-ros",
 ]
 
 [[package]]
