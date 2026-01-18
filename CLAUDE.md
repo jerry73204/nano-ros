@@ -31,12 +31,20 @@ nano-ros/
 ├── Cargo.toml                 # Workspace root
 ├── CLAUDE.md
 ├── crates/
+│   ├── nano-ros/              # [PLANNED] Unified API crate (like rclcpp/rclpy)
+│   │   ├── Cargo.toml         # Re-exports all sub-crates
+│   │   └── src/
+│   │       ├── lib.rs         # Main entry point
+│   │       ├── prelude.rs     # Common imports
+│   │       ├── msg.rs         # Message type re-exports
+│   │       └── srv.rs         # Service type re-exports
+│   │
 │   ├── nano-ros-core/         # Core types, traits, node abstraction
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── node.rs        # Node, Publisher, Subscriber
-│   │       ├── service.rs     # Service server/client
+│   │       ├── service.rs     # [PLANNED] Service server/client
 │   │       ├── error.rs       # Error types
 │   │       └── types.rs       # Core ROS type traits
 │   │
@@ -61,7 +69,7 @@ nano-ros/
 │   │       ├── geometry_msgs.rs
 │   │       └── sensor_msgs.rs
 │   │
-│   ├── nano-ros-params/       # Parameter server (optional)
+│   ├── nano-ros-params/       # Parameter server [PLANNED]
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -487,7 +495,8 @@ docs/
 ├── rmw_zenoh_interop.md           # ROS 2 rmw_zenoh protocol documentation
 ├── roadmap/                       # Development phases and milestones
 │   ├── phase-1-foundation.md      # CDR, types, macros (COMPLETE)
-│   └── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (COMPLETE)
+│   ├── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (COMPLETE)
+│   └── phase-3-services-params.md # Services, parameters, hardware (PLANNING)
 ├── architecture/                  # Design documents and ADRs
 └── api/                           # API documentation (if not rustdoc)
 ```
@@ -499,7 +508,9 @@ docs/
 | Phase 1 | CDR serialization, types, proc macros | **Complete** |
 | Phase 2A | ROS 2 Interoperability (native) | **Complete** |
 | Phase 2B | Zephyr integration + QEMU testing | **Complete** |
-| Phase 3 | Services, parameters, safety certification | Future |
+| Phase 3 | Services, parameters, hardware validation | Planning |
+
+See `docs/roadmap/phase-3-services-params.md` for detailed Phase 3 work items.
 
 **Deployment Model:**
 - ROS 2 nodes run on Linux host using `rmw_zenoh_cpp`
@@ -529,6 +540,40 @@ docs/
 - [x] Network setup script (`scripts/setup-zephyr-network.sh`)
 - [x] End-to-end test: Zephyr native_sim → zenoh router → native subscriber
 - [ ] Hardware validation (deferred to Phase 3)
+
+### Phase 3 Work Items (Services, Parameters, Unified API, Hardware) - PLANNING
+
+**3.1 ROS 2 Services:**
+- [ ] Service traits (`RosService` with Request/Response types)
+- [ ] zenoh-pico queryable support (for service servers)
+- [ ] Transport layer service client/server
+- [ ] Node API: `create_service()`, `create_client()`
+- [ ] `#[derive(RosService)]` proc macro
+- [ ] Service examples and ROS 2 interop tests
+
+**3.2 ROS 2 Parameters:**
+- [ ] Complete `nano-ros-params` implementation
+- [ ] Parameter storage (`StaticParameterStore<N>`)
+- [ ] `rcl_interfaces` message/service types
+- [ ] Parameter service handlers (`~/get_parameters`, `~/set_parameters`, etc.)
+- [ ] Node API: `declare_parameter()`, `get_parameter()`, `set_parameter()`
+- [ ] ROS 2 CLI interop (`ros2 param list/get/set`)
+
+**3.3 Hardware Validation:**
+- [ ] NUCLEO-F429ZI (STM32F429, Ethernet)
+- [ ] Performance benchmarks (latency, throughput, memory)
+- [ ] Reliability testing
+
+**3.4 Unified `nano-ros` Crate (like rclcpp/rclpy):**
+- [ ] Create `crates/nano-ros/` as main entry point
+- [ ] Re-export all sub-crate types (`nano_ros::prelude::*`)
+- [ ] Unified error handling (`nano_ros::Error`)
+- [ ] Builder pattern for node creation
+- [ ] Feature flags: `std`, `alloc`, `zenoh`, `params`, `services`
+- [ ] Update all examples to use unified API
+- [ ] `no_std` compatible
+
+**Note:** Services → Parameters → Unified Crate → Hardware (in order).
 
 ## ROS 2 rmw_zenoh Interoperability
 
