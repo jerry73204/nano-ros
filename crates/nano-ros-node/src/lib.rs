@@ -66,7 +66,10 @@ pub use nano_ros_transport::{QosSettings, TopicInfo, TransportConfig, TransportE
 
 // Re-export connected types when zenoh feature is enabled
 #[cfg(feature = "zenoh")]
-pub use connected::{ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedSubscriber};
+pub use connected::{
+    ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedServiceClient,
+    ConnectedServiceServer, ConnectedSubscriber,
+};
 
 // Re-export zenoh transport types for convenience
 #[cfg(feature = "zenoh")]

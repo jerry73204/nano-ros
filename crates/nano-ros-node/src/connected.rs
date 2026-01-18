@@ -3,16 +3,17 @@
 //! This module provides types that integrate the Node API with actual
 //! transport backends (like zenoh-pico) for sending and receiving messages.
 
-use nano_ros_core::RosMessage;
+use nano_ros_core::{RosMessage, RosService};
 use nano_ros_transport::{
-    Publisher as PublisherTrait, QosSettings, Session, SessionMode, Subscriber as SubscriberTrait,
-    TopicInfo, Transport, TransportConfig, TransportError,
+    Publisher as PublisherTrait, QosSettings, ServiceClientTrait, ServiceInfo, ServiceServerTrait,
+    Session, SessionMode, Subscriber as SubscriberTrait, TopicInfo, Transport, TransportConfig,
+    TransportError,
 };
 
 #[cfg(feature = "zenoh")]
 use nano_ros_transport::{
-    LivelinessToken, Ros2Liveliness, ZenohId, ZenohPublisher, ZenohSession, ZenohSubscriber,
-    ZenohTransport,
+    LivelinessToken, Ros2Liveliness, ZenohId, ZenohPublisher, ZenohServiceClient,
+    ZenohServiceServer, ZenohSession, ZenohSubscriber, ZenohTransport,
 };
 
 #[cfg(feature = "zenoh")]
@@ -31,6 +32,10 @@ pub enum ConnectedNodeError {
     PublisherCreationFailed,
     /// Failed to create subscriber
     SubscriberCreationFailed,
+    /// Failed to create service server
+    ServiceServerCreationFailed,
+    /// Failed to create service client
+    ServiceClientCreationFailed,
     /// Failed to publish message
     PublishFailed,
     /// Serialization failed
@@ -41,6 +46,10 @@ pub enum ConnectedNodeError {
     BufferTooSmall,
     /// No message available
     NoMessage,
+    /// Service request failed
+    ServiceRequestFailed,
+    /// Service reply failed
+    ServiceReplyFailed,
 }
 
 impl From<TransportError> for ConnectedNodeError {
@@ -51,10 +60,18 @@ impl From<TransportError> for ConnectedNodeError {
             TransportError::SubscriberCreationFailed => {
                 ConnectedNodeError::SubscriberCreationFailed
             }
+            TransportError::ServiceServerCreationFailed => {
+                ConnectedNodeError::ServiceServerCreationFailed
+            }
+            TransportError::ServiceClientCreationFailed => {
+                ConnectedNodeError::ServiceClientCreationFailed
+            }
             TransportError::PublishFailed => ConnectedNodeError::PublishFailed,
             TransportError::SerializationError => ConnectedNodeError::SerializationFailed,
             TransportError::DeserializationError => ConnectedNodeError::DeserializationFailed,
             TransportError::BufferTooSmall => ConnectedNodeError::BufferTooSmall,
+            TransportError::ServiceRequestFailed => ConnectedNodeError::ServiceRequestFailed,
+            TransportError::ServiceReplyFailed => ConnectedNodeError::ServiceReplyFailed,
             _ => ConnectedNodeError::ConnectionFailed,
         }
     }
@@ -222,6 +239,48 @@ impl ConnectedNode {
     pub fn zid(&self) -> &ZenohId {
         &self.zid
     }
+
+    /// Create a service server for the given service
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name (e.g., "/add_two_ints")
+    pub fn create_service<S: RosService>(
+        &mut self,
+        service_name: &str,
+    ) -> Result<ConnectedServiceServer<S>, ConnectedNodeError> {
+        let service_info = ServiceInfo::new(service_name, S::SERVICE_NAME, S::SERVICE_HASH)
+            .with_domain(self.domain_id);
+
+        let server = self.session.create_service_server(&service_info)?;
+
+        Ok(ConnectedServiceServer {
+            server,
+            req_buffer: [0u8; 1024],
+            reply_buffer: [0u8; 1024],
+            _marker: core::marker::PhantomData,
+        })
+    }
+
+    /// Create a service client for the given service
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name (e.g., "/add_two_ints")
+    pub fn create_client<S: RosService>(
+        &mut self,
+        service_name: &str,
+    ) -> Result<ConnectedServiceClient<S>, ConnectedNodeError> {
+        let service_info = ServiceInfo::new(service_name, S::SERVICE_NAME, S::SERVICE_HASH)
+            .with_domain(self.domain_id);
+
+        let client = self.session.create_service_client(&service_info)?;
+
+        Ok(ConnectedServiceClient {
+            client,
+            req_buffer: [0u8; 1024],
+            reply_buffer: [0u8; 1024],
+            _marker: core::marker::PhantomData,
+        })
+    }
 }
 
 /// A connected publisher that can send messages via transport
@@ -291,10 +350,72 @@ impl<M: RosMessage> ConnectedSubscriber<M> {
     }
 }
 
+/// A connected service server that can handle service requests
+#[cfg(feature = "zenoh")]
+pub struct ConnectedServiceServer<S: RosService> {
+    server: ZenohServiceServer,
+    req_buffer: [u8; 1024],
+    reply_buffer: [u8; 1024],
+    _marker: core::marker::PhantomData<S>,
+}
+
+#[cfg(feature = "zenoh")]
+impl<S: RosService> ConnectedServiceServer<S> {
+    /// Handle a single service request if one is available
+    ///
+    /// Returns `Ok(true)` if a request was handled, `Ok(false)` if no request was available.
+    pub fn handle_request(
+        &mut self,
+        handler: impl FnOnce(&S::Request) -> S::Reply,
+    ) -> Result<bool, ConnectedNodeError> {
+        self.server
+            .handle_request::<S>(&mut self.req_buffer, &mut self.reply_buffer, handler)
+            .map_err(ConnectedNodeError::from)
+    }
+
+    /// Try to receive a raw service request (non-blocking)
+    ///
+    /// Returns the request data and sequence number if available.
+    pub fn try_recv_request(&mut self) -> Result<Option<(usize, i64)>, ConnectedNodeError> {
+        match self.server.try_recv_request(&mut self.req_buffer)? {
+            Some(request) => Ok(Some((request.data.len(), request.sequence_number))),
+            None => Ok(None),
+        }
+    }
+}
+
+/// A connected service client that can send service requests
+#[cfg(feature = "zenoh")]
+pub struct ConnectedServiceClient<S: RosService> {
+    client: ZenohServiceClient,
+    req_buffer: [u8; 1024],
+    reply_buffer: [u8; 1024],
+    _marker: core::marker::PhantomData<S>,
+}
+
+#[cfg(feature = "zenoh")]
+impl<S: RosService> ConnectedServiceClient<S> {
+    /// Call the service with a request
+    ///
+    /// Blocks until a reply is received or an error occurs.
+    pub fn call(&mut self, request: &S::Request) -> Result<S::Reply, ConnectedNodeError> {
+        self.client
+            .call::<S>(request, &mut self.req_buffer, &mut self.reply_buffer)
+            .map_err(ConnectedNodeError::from)
+    }
+
+    /// Call the service with raw data
+    ///
+    /// Returns the number of bytes received in the reply.
+    pub fn call_raw(&mut self, request: &[u8]) -> Result<usize, ConnectedNodeError> {
+        self.client
+            .call_raw(request, &mut self.reply_buffer)
+            .map_err(ConnectedNodeError::from)
+    }
+}
+
 #[cfg(all(test, feature = "zenoh"))]
 mod tests {
-    use super::*;
-
     // Tests require a running zenoh router or peer mode
     // They are in the integration test file
 }

@@ -2,7 +2,7 @@
 //!
 //! These traits define the interface for transport backends (zenoh-pico, etc.)
 
-use nano_ros_core::RosMessage;
+use nano_ros_core::{Deserialize, RosMessage, RosService, Serialize};
 
 /// Topic information for pub/sub
 #[derive(Debug, Clone)]
@@ -68,6 +68,52 @@ impl<'a> TopicInfo<'a> {
     }
 }
 
+/// Service information for service client/server
+#[derive(Debug, Clone)]
+pub struct ServiceInfo<'a> {
+    /// Service name (e.g., "/add_two_ints")
+    pub name: &'a str,
+    /// ROS service type name (e.g., "example_interfaces::srv::dds_::AddTwoInts_")
+    pub type_name: &'a str,
+    /// Type hash for compatibility checking
+    pub type_hash: &'a str,
+    /// Domain ID (default: 0)
+    pub domain_id: u32,
+}
+
+impl<'a> ServiceInfo<'a> {
+    /// Create new service info
+    pub const fn new(name: &'a str, type_name: &'a str, type_hash: &'a str) -> Self {
+        Self {
+            name,
+            type_name,
+            type_hash,
+            domain_id: 0,
+        }
+    }
+
+    /// Create service info with custom domain ID
+    pub const fn with_domain(mut self, domain_id: u32) -> Self {
+        self.domain_id = domain_id;
+        self
+    }
+
+    /// Generate the service key in rmw_zenoh format
+    /// Format: `<domain_id>/<service_name>/<type_name>/RIHS01_<hash>`
+    pub fn to_key<const N: usize>(&self) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let service_stripped = self.name.trim_matches('/');
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "{}/{}/{}/RIHS01_{}",
+                self.domain_id, service_stripped, self.type_name, self.type_hash
+            ),
+        );
+        key
+    }
+}
+
 /// Transport error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {
@@ -79,8 +125,16 @@ pub enum TransportError {
     PublisherCreationFailed,
     /// Failed to create subscriber
     SubscriberCreationFailed,
+    /// Failed to create service server
+    ServiceServerCreationFailed,
+    /// Failed to create service client
+    ServiceClientCreationFailed,
     /// Failed to publish message
     PublishFailed,
+    /// Failed to send service request
+    ServiceRequestFailed,
+    /// Failed to send service reply
+    ServiceReplyFailed,
     /// Serialization error
     SerializationError,
     /// Deserialization error
@@ -152,6 +206,10 @@ pub trait Session {
     type PublisherHandle;
     /// Subscriber handle type
     type SubscriberHandle;
+    /// Service server handle type
+    type ServiceServerHandle;
+    /// Service client handle type
+    type ServiceClientHandle;
 
     /// Create a publisher for a topic
     fn create_publisher(
@@ -166,6 +224,18 @@ pub trait Session {
         topic: &TopicInfo,
         qos: QosSettings,
     ) -> Result<Self::SubscriberHandle, Self::Error>;
+
+    /// Create a service server
+    fn create_service_server(
+        &mut self,
+        service: &ServiceInfo,
+    ) -> Result<Self::ServiceServerHandle, Self::Error>;
+
+    /// Create a service client
+    fn create_service_client(
+        &mut self,
+        service: &ServiceInfo,
+    ) -> Result<Self::ServiceClientHandle, Self::Error>;
 
     /// Close the session
     fn close(&mut self) -> Result<(), Self::Error>;
@@ -223,6 +293,112 @@ pub trait Subscriber {
 
     /// Return a deserialization error (implementation specific)
     fn deserialization_error(&self) -> Self::Error;
+}
+
+/// Service request from a client
+pub struct ServiceRequest<'a> {
+    /// Raw request data (CDR encoded)
+    pub data: &'a [u8],
+    /// Sequence number for request/response matching
+    pub sequence_number: i64,
+}
+
+/// Service server trait for handling requests
+pub trait ServiceServerTrait {
+    /// Error type for service operations
+    type Error;
+
+    /// Try to receive a service request (non-blocking)
+    /// The returned ServiceRequest references data in the provided buffer
+    fn try_recv_request<'a>(
+        &mut self,
+        buf: &'a mut [u8],
+    ) -> Result<Option<ServiceRequest<'a>>, Self::Error>;
+
+    /// Send a reply to a service request
+    fn send_reply(&mut self, sequence_number: i64, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Handle a service request with typed messages
+    fn handle_request<S: RosService>(
+        &mut self,
+        req_buf: &mut [u8],
+        reply_buf: &mut [u8],
+        handler: impl FnOnce(&S::Request) -> S::Reply,
+    ) -> Result<bool, Self::Error>
+    where
+        Self::Error: From<TransportError>,
+    {
+        use nano_ros_core::{CdrReader, CdrWriter};
+
+        // First, try to receive a request and extract necessary data
+        let (data_len, sequence_number) = match self.try_recv_request(req_buf)? {
+            Some(request) => (request.data.len(), request.sequence_number),
+            None => return Ok(false),
+        };
+
+        // Now we can work with req_buf directly since ServiceRequest has been dropped
+        // Deserialize request
+        let mut reader = CdrReader::new_with_header(&req_buf[..data_len])
+            .map_err(|_| TransportError::DeserializationError)?;
+        let req = S::Request::deserialize(&mut reader)
+            .map_err(|_| TransportError::DeserializationError)?;
+
+        // Call handler
+        let reply = handler(&req);
+
+        // Serialize reply
+        let mut writer =
+            CdrWriter::new_with_header(reply_buf).map_err(|_| TransportError::BufferTooSmall)?;
+        reply
+            .serialize(&mut writer)
+            .map_err(|_| TransportError::SerializationError)?;
+        let len = writer.position();
+
+        // Send reply (now we can borrow self mutably again)
+        self.send_reply(sequence_number, &reply_buf[..len])?;
+        Ok(true)
+    }
+}
+
+/// Service client trait for sending requests
+pub trait ServiceClientTrait {
+    /// Error type for service operations
+    type Error;
+
+    /// Send a service request and wait for reply
+    fn call_raw(&mut self, request: &[u8], reply_buf: &mut [u8]) -> Result<usize, Self::Error>;
+
+    /// Call a service with typed messages
+    fn call<S: RosService>(
+        &mut self,
+        request: &S::Request,
+        req_buf: &mut [u8],
+        reply_buf: &mut [u8],
+    ) -> Result<S::Reply, Self::Error>
+    where
+        Self::Error: From<TransportError>,
+    {
+        use nano_ros_core::{CdrReader, CdrWriter};
+
+        // Serialize request
+        let mut writer =
+            CdrWriter::new_with_header(req_buf).map_err(|_| TransportError::BufferTooSmall)?;
+        request
+            .serialize(&mut writer)
+            .map_err(|_| TransportError::SerializationError)?;
+        let req_len = writer.position();
+
+        // Send request and wait for reply
+        let reply_len = self.call_raw(&req_buf[..req_len], reply_buf)?;
+
+        // Deserialize reply
+        let mut reader = CdrReader::new_with_header(&reply_buf[..reply_len])
+            .map_err(|_| TransportError::DeserializationError)?;
+        let reply =
+            S::Reply::deserialize(&mut reader).map_err(|_| TransportError::DeserializationError)?;
+
+        Ok(reply)
+    }
 }
 
 /// Transport backend trait

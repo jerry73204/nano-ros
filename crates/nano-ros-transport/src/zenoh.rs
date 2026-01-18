@@ -25,12 +25,12 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 
 use crate::traits::{
-    Publisher, QosSettings, Session, SessionMode, Subscriber, TopicInfo, Transport,
-    TransportConfig, TransportError,
+    Publisher, QosSettings, ServiceClientTrait, ServiceInfo, ServiceRequest, ServiceServerTrait,
+    Session, SessionMode, Subscriber, TopicInfo, Transport, TransportConfig, TransportError,
 };
 
 use zenoh_pico::{
-    serialize_rmw_attachment, Config, KeyExpr, LivelinessToken, Sample,
+    serialize_rmw_attachment, Config, KeyExpr, LivelinessToken, Query, Queryable, Sample,
     Session as ZenohPicoSession, ZenohId, RMW_GID_SIZE,
 };
 
@@ -228,6 +228,8 @@ impl Session for ZenohSession {
     type Error = TransportError;
     type PublisherHandle = ZenohPublisher;
     type SubscriberHandle = ZenohSubscriber;
+    type ServiceServerHandle = ZenohServiceServer;
+    type ServiceClientHandle = ZenohServiceClient;
 
     fn create_publisher(
         &mut self,
@@ -243,6 +245,20 @@ impl Session for ZenohSession {
         _qos: QosSettings,
     ) -> Result<Self::SubscriberHandle, Self::Error> {
         ZenohSubscriber::new(&self.session, topic)
+    }
+
+    fn create_service_server(
+        &mut self,
+        service: &ServiceInfo,
+    ) -> Result<Self::ServiceServerHandle, Self::Error> {
+        ZenohServiceServer::new(&self.session, service)
+    }
+
+    fn create_service_client(
+        &mut self,
+        service: &ServiceInfo,
+    ) -> Result<Self::ServiceClientHandle, Self::Error> {
+        ZenohServiceClient::new(&self.session, service)
     }
 
     fn close(&mut self) -> Result<(), Self::Error> {
@@ -428,6 +444,200 @@ impl Subscriber for ZenohSubscriber {
 
     fn deserialization_error(&self) -> Self::Error {
         TransportError::DeserializationError
+    }
+}
+
+/// Shared buffer for service server callbacks
+struct ServiceServerBuffer {
+    /// Buffer for received request data
+    data: spin::Mutex<Vec<u8>>,
+    /// Flag indicating new request is available
+    has_request: AtomicBool,
+    /// Length of valid data
+    len: AtomicUsize,
+    /// Sequence number from attachment
+    sequence_number: AtomicI64,
+    /// The keyexpr to reply on
+    reply_keyexpr: spin::Mutex<alloc::string::String>,
+}
+
+impl ServiceServerBuffer {
+    fn new() -> Self {
+        Self {
+            data: spin::Mutex::new(Vec::with_capacity(1024)),
+            has_request: AtomicBool::new(false),
+            len: AtomicUsize::new(0),
+            sequence_number: AtomicI64::new(0),
+            reply_keyexpr: spin::Mutex::new(alloc::string::String::new()),
+        }
+    }
+
+    fn store(&self, query: &Query) {
+        let mut data = self.data.lock();
+        data.clear();
+        data.extend_from_slice(&query.payload);
+        self.len.store(query.payload.len(), Ordering::Release);
+
+        // Store reply keyexpr
+        {
+            let mut keyexpr = self.reply_keyexpr.lock();
+            keyexpr.clear();
+            keyexpr.push_str(&query.keyexpr);
+        }
+
+        // Parse sequence number from attachment if present
+        // For now, use a counter since attachment parsing is complex
+        static SEQ_COUNTER: AtomicI64 = AtomicI64::new(0);
+        self.sequence_number.store(
+            SEQ_COUNTER.fetch_add(1, Ordering::Relaxed),
+            Ordering::Release,
+        );
+
+        self.has_request.store(true, Ordering::Release);
+    }
+
+    fn take(&self, buf: &mut [u8]) -> Option<(usize, i64)> {
+        if !self.has_request.load(Ordering::Acquire) {
+            return None;
+        }
+
+        let len = self.len.load(Ordering::Acquire);
+        if len > buf.len() {
+            return None; // Buffer too small
+        }
+
+        let data = self.data.lock();
+        buf[..len].copy_from_slice(&data[..len]);
+        drop(data);
+
+        let seq = self.sequence_number.load(Ordering::Acquire);
+        self.has_request.store(false, Ordering::Release);
+        Some((len, seq))
+    }
+}
+
+/// Type alias for the service server callback
+type ServiceCallback = Box<dyn FnMut(Query) + Send + 'static>;
+
+/// Zenoh service server using queryable
+pub struct ZenohServiceServer {
+    /// Keep the queryable alive
+    _queryable: Queryable<ServiceCallback>,
+    /// Shared buffer for received requests
+    buffer: Arc<ServiceServerBuffer>,
+    /// Key expression for replies (will be used when reply is implemented)
+    #[allow(dead_code)]
+    keyexpr: KeyExpr,
+}
+
+impl ZenohServiceServer {
+    /// Create a new service server for the given service
+    pub fn new(session: &ZenohPicoSession, service: &ServiceInfo) -> Result<Self, TransportError> {
+        // Generate the service key (request key)
+        let key: heapless::String<256> = service.to_key();
+
+        #[cfg(feature = "log")]
+        log::debug!("Service server keyexpr: {}", key.as_str());
+
+        let keyexpr =
+            KeyExpr::new(key.as_str()).map_err(|_| TransportError::ServiceServerCreationFailed)?;
+
+        // Create shared buffer
+        let buffer = Arc::new(ServiceServerBuffer::new());
+        let buffer_clone = buffer.clone();
+
+        // Create callback that stores query data in the shared buffer
+        let callback: ServiceCallback = Box::new(move |query: Query| {
+            buffer_clone.store(&query);
+            // Note: The actual reply needs to be sent from send_reply
+            // For now, store the query data and let send_reply handle it
+        });
+
+        let queryable = session
+            .declare_queryable(&keyexpr, callback)
+            .map_err(|_| TransportError::ServiceServerCreationFailed)?;
+
+        Ok(Self {
+            _queryable: queryable,
+            buffer,
+            keyexpr,
+        })
+    }
+}
+
+impl ServiceServerTrait for ZenohServiceServer {
+    type Error = TransportError;
+
+    fn try_recv_request<'a>(
+        &mut self,
+        buf: &'a mut [u8],
+    ) -> Result<Option<ServiceRequest<'a>>, Self::Error> {
+        match self.buffer.take(buf) {
+            Some((len, seq)) => Ok(Some(ServiceRequest {
+                data: &buf[..len],
+                sequence_number: seq,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    fn send_reply(&mut self, _sequence_number: i64, _data: &[u8]) -> Result<(), Self::Error> {
+        // TODO: Implement proper reply using zenoh query reply mechanism
+        // This requires keeping the Query object alive or using a different approach
+        // For now, return an error since the callback-based approach needs rework
+        #[cfg(feature = "log")]
+        log::warn!("Service reply not yet implemented in callback model");
+        Err(TransportError::ServiceReplyFailed)
+    }
+}
+
+/// Zenoh service client using z_get
+pub struct ZenohServiceClient {
+    /// Service key expression (will be used when call_raw is implemented)
+    #[allow(dead_code)]
+    keyexpr: KeyExpr,
+    /// Session reference for making queries
+    /// Note: This is unsafe because we store a raw pointer to the session
+    /// The session must outlive the client
+    #[allow(dead_code)]
+    session_ptr: *const zenoh_pico::ffi::z_loaned_session_t,
+}
+
+impl ZenohServiceClient {
+    /// Create a new service client for the given service
+    pub fn new(session: &ZenohPicoSession, service: &ServiceInfo) -> Result<Self, TransportError> {
+        // Generate the service key
+        let key: heapless::String<256> = service.to_key();
+
+        #[cfg(feature = "log")]
+        log::debug!("Service client keyexpr: {}", key.as_str());
+
+        let keyexpr =
+            KeyExpr::new(key.as_str()).map_err(|_| TransportError::ServiceClientCreationFailed)?;
+
+        // Store a reference to the session (this is safe as long as client doesn't outlive session)
+        let session_ptr = session.loan();
+
+        Ok(Self {
+            keyexpr,
+            session_ptr,
+        })
+    }
+}
+
+// Safety: ZenohServiceClient is Send as long as session outlives it
+unsafe impl Send for ZenohServiceClient {}
+
+impl ServiceClientTrait for ZenohServiceClient {
+    type Error = TransportError;
+
+    fn call_raw(&mut self, _request: &[u8], _reply_buf: &mut [u8]) -> Result<usize, Self::Error> {
+        // TODO: Implement z_get call to send request and receive reply
+        // This is complex because z_get is callback-based in zenoh-pico
+        // Need to use z_closure_reply and wait for the reply
+        #[cfg(feature = "log")]
+        log::warn!("Service client call not yet implemented");
+        Err(TransportError::ServiceRequestFailed)
     }
 }
 
