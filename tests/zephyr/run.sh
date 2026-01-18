@@ -1,13 +1,12 @@
 #!/bin/bash
-# Test: Zephyr QEMU Integration
+# Test: Zephyr native_sim Integration
 #
-# This test verifies that nano-ros running on Zephyr RTOS (in QEMU)
-# can communicate with ROS 2 nodes on the host via zenoh.
+# This test verifies that nano-ros running on Zephyr RTOS (native_sim)
+# can communicate with native Rust subscribers via zenoh.
 #
 # Prerequisites:
 #   - Zephyr workspace set up (./zephyr/setup.sh)
-#   - QEMU network configured (sudo ./scripts/qemu/setup-qemu-network.sh)
-#   - ROS 2 Humble + rmw_zenoh installed
+#   - TAP network configured (sudo ./scripts/setup-zephyr-network.sh)
 #   - zenohd installed
 #
 # Usage:
@@ -35,13 +34,94 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration
-ZEPHYR_WORKSPACE="${ZEPHYR_NANO_ROS:-$HOME/zephyr-nano-ros}"
-QEMU_TIMEOUT=30
-BRIDGE="br-nano"
+ZEPHYR_WORKSPACE="${ZEPHYR_NANO_ROS:-$HOME/nano-ros-workspace}"
+# Fallback to zephyr-nano-ros if nano-ros-workspace doesn't exist
+if [ ! -d "$ZEPHYR_WORKSPACE" ]; then
+    ZEPHYR_WORKSPACE="$HOME/zephyr-nano-ros"
+fi
+TAP_INTERFACE="zeth"
+HOST_IP="192.0.2.2"
+ZEPHYR_IP="192.0.2.1"
+TEST_TIMEOUT=15
 
 setup_cleanup
 
-log_header "Zephyr QEMU Integration Test"
+log_header "Zephyr native_sim Integration Test"
+
+# =============================================================================
+# Network Device Status Check
+# =============================================================================
+
+check_network_device() {
+    log_header "Checking Network Device Status"
+
+    local status=0
+
+    # Check if TAP interface exists
+    if ! ip link show "$TAP_INTERFACE" &>/dev/null; then
+        log_error "TAP interface '$TAP_INTERFACE' does not exist"
+        log_info "Run: sudo ./scripts/setup-zephyr-network.sh"
+        return 1
+    fi
+    log_success "TAP interface '$TAP_INTERFACE' exists"
+
+    # Check interface state (UP flag)
+    local flags
+    flags=$(ip link show "$TAP_INTERFACE" | head -1)
+    if echo "$flags" | grep -q "UP"; then
+        log_success "Interface is UP"
+    else
+        log_error "Interface is DOWN"
+        log_info "Run: sudo ip link set $TAP_INTERFACE up"
+        status=1
+    fi
+
+    # Check IP address configuration
+    local ip_addr
+    ip_addr=$(ip -4 addr show "$TAP_INTERFACE" 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+    if [ "$ip_addr" = "$HOST_IP" ]; then
+        log_success "IP address configured: $ip_addr"
+    elif [ -n "$ip_addr" ]; then
+        log_warn "Unexpected IP address: $ip_addr (expected $HOST_IP)"
+    else
+        log_error "No IP address configured on $TAP_INTERFACE"
+        log_info "Run: sudo ip addr add $HOST_IP/24 dev $TAP_INTERFACE"
+        status=1
+    fi
+
+    # Check interface ownership (should be owned by current user)
+    local owner_file="/sys/class/net/$TAP_INTERFACE/owner"
+    if [ -f "$owner_file" ]; then
+        local owner_uid
+        owner_uid=$(cat "$owner_file")
+        local my_uid
+        my_uid=$(id -u)
+        if [ "$owner_uid" = "$my_uid" ]; then
+            log_success "Interface owned by current user (UID: $my_uid)"
+        else
+            log_warn "Interface owned by UID $owner_uid (current: $my_uid)"
+        fi
+    fi
+
+    # Check carrier state
+    local carrier_state
+    carrier_state=$(cat "/sys/class/net/$TAP_INTERFACE/carrier" 2>/dev/null || echo "0")
+    if [ "$carrier_state" = "1" ]; then
+        log_success "Carrier detected (link up)"
+    else
+        log_info "No carrier (expected when Zephyr not running)"
+    fi
+
+    # Show full interface info in verbose mode
+    if [ "$VERBOSE" = true ]; then
+        echo ""
+        echo "=== Interface Details ==="
+        ip addr show "$TAP_INTERFACE"
+        echo ""
+    fi
+
+    return $status
+}
 
 # =============================================================================
 # Prerequisites Check
@@ -53,8 +133,16 @@ check_zephyr_prerequisites() {
     local missing=0
 
     # Check Zephyr workspace
-    if [ -d "$ZEPHYR_WORKSPACE" ] && [ -f "$ZEPHYR_WORKSPACE/zephyr/zephyr-env.sh" ]; then
+    if [ -d "$ZEPHYR_WORKSPACE" ]; then
         log_success "Zephyr workspace found: $ZEPHYR_WORKSPACE"
+
+        # Check for zephyr subdirectory
+        if [ -d "$ZEPHYR_WORKSPACE/zephyr" ]; then
+            log_success "Zephyr SDK found"
+        else
+            log_error "Zephyr SDK not found in workspace"
+            missing=1
+        fi
     else
         log_error "Zephyr workspace not found at $ZEPHYR_WORKSPACE"
         log_info "Run: ./zephyr/setup.sh"
@@ -69,24 +157,6 @@ check_zephyr_prerequisites() {
         missing=1
     fi
 
-    # Check QEMU
-    if command -v qemu-system-x86_64 &>/dev/null || command -v qemu-system-arm &>/dev/null; then
-        log_success "QEMU found"
-    else
-        log_error "QEMU not found"
-        log_info "Install: sudo apt install qemu-system-x86 qemu-system-arm"
-        missing=1
-    fi
-
-    # Check network bridge
-    if ip link show "$BRIDGE" &>/dev/null; then
-        log_success "Network bridge $BRIDGE configured"
-    else
-        log_warn "Network bridge $BRIDGE not found"
-        log_info "Run: sudo ./scripts/qemu/setup-qemu-network.sh"
-        # Don't fail - might work with user-mode networking
-    fi
-
     # Check zenohd
     if command -v zenohd &>/dev/null; then
         log_success "zenohd found: $(which zenohd)"
@@ -95,11 +165,11 @@ check_zephyr_prerequisites() {
         missing=1
     fi
 
-    # Check ROS 2
-    if [ -f "/opt/ros/humble/setup.bash" ]; then
-        log_success "ROS 2 Humble found"
+    # Check for existing build
+    if [ -f "$ZEPHYR_WORKSPACE/build/zephyr/zephyr.exe" ]; then
+        log_success "Zephyr executable found"
     else
-        log_warn "ROS 2 Humble not found at /opt/ros/humble"
+        log_info "Zephyr executable not found (will build)"
     fi
 
     return $missing
@@ -113,25 +183,23 @@ build_zephyr_examples() {
     log_header "Building Zephyr Examples"
 
     cd "$ZEPHYR_WORKSPACE"
-    source zephyr/zephyr-env.sh
 
-    # Build talker
-    log_info "Building zephyr-talker-rs for qemu_x86..."
-    if west build -b qemu_x86 nano-ros/examples/zephyr-talker-rs -d build-talker 2>&1 | tee /tmp/zephyr_build_talker.txt; then
+    # Source environment
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+    fi
+    if [ -f "zephyr/zephyr-env.sh" ]; then
+        source zephyr/zephyr-env.sh
+    fi
+    export ZEPHYR_BASE="$ZEPHYR_WORKSPACE/zephyr"
+
+    # Build talker for native_sim/native/64
+    log_info "Building zephyr-talker-rs for native_sim/native/64..."
+    if west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -p auto 2>&1 | tee /tmp/zephyr_build.txt | tail -10; then
         log_success "Talker build complete"
     else
         log_error "Talker build failed"
-        [ "$VERBOSE" = true ] && cat /tmp/zephyr_build_talker.txt
-        return 1
-    fi
-
-    # Build listener
-    log_info "Building zephyr-listener-rs for qemu_x86..."
-    if west build -b qemu_x86 nano-ros/examples/zephyr-listener-rs -d build-listener 2>&1 | tee /tmp/zephyr_build_listener.txt; then
-        log_success "Listener build complete"
-    else
-        log_error "Listener build failed"
-        [ "$VERBOSE" = true ] && cat /tmp/zephyr_build_listener.txt
+        [ "$VERBOSE" = true ] && cat /tmp/zephyr_build.txt
         return 1
     fi
 
@@ -139,138 +207,86 @@ build_zephyr_examples() {
 }
 
 # =============================================================================
-# Test: Zephyr Talker → ROS 2 Listener
+# Test: Zephyr Talker -> Native Subscriber
 # =============================================================================
 
-test_zephyr_to_ros2() {
-    log_header "Test: Zephyr Talker → ROS 2 Listener"
-
-    cd "$ZEPHYR_WORKSPACE"
-    source zephyr/zephyr-env.sh
+test_zephyr_to_native() {
+    log_header "Test: Zephyr Talker -> Native Subscriber"
 
     # Start zenoh router
     log_info "Starting zenoh router..."
+    pkill -x zenohd 2>/dev/null || true
+    sleep 1
     zenohd --listen tcp/0.0.0.0:7447 > /tmp/zephyr_zenohd.txt 2>&1 &
     local zenohd_pid=$!
     register_pid $zenohd_pid
     sleep 2
 
-    # Setup ROS 2
-    source /opt/ros/humble/setup.bash
-    export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-    export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
-
-    # Start ROS 2 listener
-    log_info "Starting ROS 2 listener..."
-    timeout 25 ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort \
-        > /tmp/zephyr_ros2_listener.txt 2>&1 &
-    local ros2_pid=$!
-    register_pid $ros2_pid
-    sleep 3
-
-    # Start Zephyr talker in QEMU
-    log_info "Starting Zephyr talker in QEMU..."
-    cd build-talker
-    timeout "$QEMU_TIMEOUT" west build -t run > /tmp/zephyr_qemu_talker.txt 2>&1 &
-    local qemu_pid=$!
-    register_pid $qemu_pid
-
-    # Wait for communication
-    log_info "Waiting for messages..."
-    sleep 15
-
-    # Check results
-    if grep -q "data:" /tmp/zephyr_ros2_listener.txt 2>/dev/null; then
-        local count
-        count=$(grep -c "data:" /tmp/zephyr_ros2_listener.txt 2>/dev/null || echo 0)
-        log_success "ROS 2 received $count messages from Zephyr!"
-
-        if [ "$VERBOSE" = true ]; then
-            echo ""
-            echo "=== ROS 2 Output ==="
-            head -20 /tmp/zephyr_ros2_listener.txt
-            echo ""
-            echo "=== QEMU Output ==="
-            head -30 /tmp/zephyr_qemu_talker.txt
-        fi
-        return 0
-    else
-        log_error "ROS 2 did not receive messages from Zephyr"
-        echo ""
-        echo "=== QEMU Output ==="
-        cat /tmp/zephyr_qemu_talker.txt 2>/dev/null | head -50
-        echo ""
-        echo "=== ROS 2 Output ==="
-        cat /tmp/zephyr_ros2_listener.txt 2>/dev/null
+    if ! kill -0 $zenohd_pid 2>/dev/null; then
+        log_error "Failed to start zenohd"
+        cat /tmp/zephyr_zenohd.txt
         return 1
     fi
-}
+    log_success "zenohd started (PID: $zenohd_pid)"
 
-# =============================================================================
-# Test: ROS 2 Talker → Zephyr Listener
-# =============================================================================
-
-test_ros2_to_zephyr() {
-    log_header "Test: ROS 2 Talker → Zephyr Listener"
-
-    # Cleanup previous
-    pkill -f "west build" 2>/dev/null || true
-    pkill -f "qemu" 2>/dev/null || true
+    # Start native subscriber
+    log_info "Starting native subscriber..."
+    cd "$PROJECT_ROOT"
+    timeout "$TEST_TIMEOUT" cargo run -p zenoh-pico --example sub_test --features std \
+        > /tmp/zephyr_native_sub.txt 2>&1 &
+    local sub_pid=$!
+    register_pid $sub_pid
     sleep 2
 
+    # Start Zephyr talker
+    log_info "Starting Zephyr talker..."
     cd "$ZEPHYR_WORKSPACE"
-    source zephyr/zephyr-env.sh
-
-    # Start zenoh router (if not running)
-    if ! pgrep -x zenohd > /dev/null; then
-        log_info "Starting zenoh router..."
-        zenohd --listen tcp/0.0.0.0:7447 > /tmp/zephyr_zenohd2.txt 2>&1 &
-        register_pid $!
-        sleep 2
-    fi
-
-    # Start Zephyr listener in QEMU
-    log_info "Starting Zephyr listener in QEMU..."
-    cd build-listener
-    timeout "$QEMU_TIMEOUT" west build -t run > /tmp/zephyr_qemu_listener.txt 2>&1 &
-    local qemu_pid=$!
-    register_pid $qemu_pid
-    sleep 5
-
-    # Setup ROS 2 and publish
-    source /opt/ros/humble/setup.bash
-    export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-    export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
-
-    log_info "Starting ROS 2 publisher..."
-    timeout 15 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 999}" \
-        --qos-reliability best_effort > /tmp/zephyr_ros2_pub.txt 2>&1 &
-    register_pid $!
+    timeout "$TEST_TIMEOUT" ./build/zephyr/zephyr.exe > /tmp/zephyr_talker.txt 2>&1 &
+    local zephyr_pid=$!
+    register_pid $zephyr_pid
 
     # Wait for communication
-    sleep 12
+    log_info "Waiting for messages (timeout: ${TEST_TIMEOUT}s)..."
+
+    # Wait for subscriber to receive messages or timeout
+    local elapsed=0
+    while [ $elapsed -lt $TEST_TIMEOUT ]; do
+        if grep -q "SUCCESS" /tmp/zephyr_native_sub.txt 2>/dev/null; then
+            break
+        fi
+        if grep -q "TIMEOUT" /tmp/zephyr_native_sub.txt 2>/dev/null; then
+            break
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
 
     # Check results
-    if grep -q "Received:" /tmp/zephyr_qemu_listener.txt 2>/dev/null; then
+    if grep -q "SUCCESS" /tmp/zephyr_native_sub.txt 2>/dev/null; then
         local count
-        count=$(grep -c "Received:" /tmp/zephyr_qemu_listener.txt 2>/dev/null || echo 0)
-        log_success "Zephyr received $count messages from ROS 2!"
-
-        if grep -q "data=999" /tmp/zephyr_qemu_listener.txt 2>/dev/null; then
-            log_success "Data integrity verified (data=999)"
-        fi
+        count=$(grep -c "Received Int32:" /tmp/zephyr_native_sub.txt 2>/dev/null || echo 0)
+        log_success "Native subscriber received $count messages from Zephyr!"
 
         if [ "$VERBOSE" = true ]; then
             echo ""
-            echo "=== QEMU Output ==="
-            cat /tmp/zephyr_qemu_listener.txt
+            echo "=== Subscriber Output ==="
+            cat /tmp/zephyr_native_sub.txt
+            echo ""
+            echo "=== Zephyr Output ==="
+            head -25 /tmp/zephyr_talker.txt
         fi
         return 0
     else
-        log_error "Zephyr did not receive messages from ROS 2"
+        log_error "Native subscriber did not receive messages from Zephyr"
         echo ""
-        echo "=== QEMU Output ==="
-        cat /tmp/zephyr_qemu_listener.txt 2>/dev/null
+        echo "=== Subscriber Output ==="
+        cat /tmp/zephyr_native_sub.txt 2>/dev/null || echo "(empty)"
+        echo ""
+        echo "=== Zephyr Output ==="
+        cat /tmp/zephyr_talker.txt 2>/dev/null | head -30
+        echo ""
+        echo "=== zenohd Output ==="
+        cat /tmp/zephyr_zenohd.txt 2>/dev/null | tail -10
         return 1
     fi
 }
@@ -281,15 +297,24 @@ test_ros2_to_zephyr() {
 
 RESULT=0
 
+# Check network device first
+if ! check_network_device; then
+    log_error "Network device not properly configured"
+    log_info ""
+    log_info "To set up TAP networking:"
+    log_info "  sudo ./scripts/setup-zephyr-network.sh"
+    log_info ""
+    log_info "To check network status manually:"
+    log_info "  ip addr show $TAP_INTERFACE"
+    exit 1
+fi
+
 # Check prerequisites
 if ! check_zephyr_prerequisites; then
     log_error "Prerequisites not met"
     log_info ""
     log_info "To set up the Zephyr workspace:"
     log_info "  ./zephyr/setup.sh"
-    log_info ""
-    log_info "To configure QEMU networking:"
-    log_info "  sudo ./scripts/qemu/setup-qemu-network.sh"
     exit 1
 fi
 
@@ -301,17 +326,21 @@ if [ "$SKIP_BUILD" = false ]; then
     fi
 fi
 
-# Run tests
-test_zephyr_to_ros2 || RESULT=1
-sleep 3
-test_ros2_to_zephyr || RESULT=1
+# Run test
+test_zephyr_to_native || RESULT=1
 
 # Summary
 log_header "Test Summary"
 if [ $RESULT -eq 0 ]; then
-    log_success "All Zephyr QEMU tests passed!"
+    log_success "Zephyr native_sim test passed!"
 else
-    log_error "Some tests failed"
+    log_error "Test failed"
+    log_info ""
+    log_info "Troubleshooting:"
+    log_info "  1. Check TAP interface: ip addr show $TAP_INTERFACE"
+    log_info "  2. Check zenohd is accessible: zenohd --listen tcp/0.0.0.0:7447"
+    log_info "  3. Check Zephyr can reach host: ping $HOST_IP (from Zephyr)"
+    log_info "  4. Run with --verbose for detailed output"
 fi
 
 exit $RESULT
