@@ -24,6 +24,10 @@
 
 #![no_std]
 
+// Compile-time check: zenoh requires alloc
+#[cfg(all(feature = "zenoh", not(feature = "alloc")))]
+compile_error!("The `zenoh` feature requires `alloc`. Enable the `alloc` feature or use `zenoh` feature which implies `alloc`.");
+
 #[cfg(feature = "std")]
 extern crate std;
 
