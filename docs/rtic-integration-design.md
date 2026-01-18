@@ -18,14 +18,14 @@ RTIC is a hardware-accelerated RTOS for Rust that leverages the ARM Cortex-M NVI
 
 ### RTIC vs Embassy
 
-| Feature | RTIC | Embassy |
-|---------|------|---------|
-| Scheduling | Preemptive (hardware NVIC) | Cooperative + priority executors |
-| Stack model | Single shared stack (SRP) | Per-task stacks |
-| Deadlock freedom | Compile-time proof | Not guaranteed |
-| WCET analysis | RAUK, Symex/EASY | Limited tooling |
-| Platform support | ARM Cortex-M only | Multi-platform |
-| Async model | Required in v2 | Native |
+| Feature          | RTIC                       | Embassy                          |
+|------------------|----------------------------|----------------------------------|
+| Scheduling       | Preemptive (hardware NVIC) | Cooperative + priority executors |
+| Stack model      | Single shared stack (SRP)  | Per-task stacks                  |
+| Deadlock freedom | Compile-time proof         | Not guaranteed                   |
+| WCET analysis    | RAUK, Symex/EASY           | Limited tooling                  |
+| Platform support | ARM Cortex-M only          | Multi-platform                   |
+| Async model      | Required in v2             | Native                           |
 
 ### Why RTIC for nano-ros?
 
@@ -58,13 +58,13 @@ For autonomous vehicle and safety-critical applications:
 
 ### Compatibility Assessment
 
-| Component | RTIC Compatible | Notes |
-|-----------|-----------------|-------|
-| nano-ros-core | Yes | Trait-based, no runtime deps |
-| nano-ros-serdes | Yes | Pure CDR serialization |
-| nano-ros-macros | Yes | Compile-time only |
-| nano-ros-transport | **No** | Uses spin::Mutex (8 instances) |
-| zenoh-pico | **Partial** | Spawns background threads |
+| Component          | RTIC Compatible | Notes                          |
+|--------------------|-----------------|--------------------------------|
+| nano-ros-core      | Yes             | Trait-based, no runtime deps   |
+| nano-ros-serdes    | Yes             | Pure CDR serialization         |
+| nano-ros-macros    | Yes             | Compile-time only              |
+| nano-ros-transport | **No**          | Uses spin::Mutex (8 instances) |
+| zenoh-pico         | **Partial**     | Spawns background threads      |
 
 ## Proposed Architecture
 
@@ -409,13 +409,13 @@ easy analyze --arch armv7em ./examples/rtic-sensor-node
 
 ## Platform Support Matrix
 
-| Platform | Executor | WCET Analysis | Real-Time | Use Case |
-|----------|----------|---------------|-----------|----------|
-| ARM Cortex-M | RTIC | RAUK/Symex | Hard | Safety-critical control |
-| ARM Cortex-M | Embassy | Limited | Soft | General embedded |
-| RISC-V | Embassy | None | Soft | IoT devices |
-| Zephyr (any) | Native | None | Depends | RTOS integration |
-| Linux | Tokio | None | None | Development |
+| Platform     | Executor | WCET Analysis | Real-Time | Use Case                |
+|--------------|----------|---------------|-----------|-------------------------|
+| ARM Cortex-M | RTIC     | RAUK/Symex    | Hard      | Safety-critical control |
+| ARM Cortex-M | Embassy  | Limited       | Soft      | General embedded        |
+| RISC-V       | Embassy  | None          | Soft      | IoT devices             |
+| Zephyr (any) | Native   | None          | Depends   | RTOS integration        |
+| Linux        | Tokio    | None          | None      | Development             |
 
 ## Memory Layout
 
