@@ -404,6 +404,17 @@ just quality        # Run check + test
 just doc            # Generate and open docs
 just clean          # Clean build artifacts
 
+# Embedded examples (STM32F4)
+just build-embedded-examples  # Build RTIC, Embassy, polling examples
+just check-embedded-examples  # Check without full build
+just size-embedded-examples   # Show binary sizes
+
+# Real-time static analysis
+just check-realtime    # Clippy with RT safety lints
+just check-miri        # Miri UB detection
+just analyze-stack     # Stack usage analysis (nightly)
+just static-analysis   # Run all static analysis
+
 # zenoh-pico specific
 cargo test -p zenoh-pico  # Run zenoh-pico tests (no router needed for most)
 ```
@@ -525,7 +536,36 @@ See `docs/memory-requirements.md` for detailed memory calculations.
 
 ### WCET Analysis
 
-See `docs/wcet-analysis.md` for Worst-Case Execution Time analysis workflow.
+See `docs/wcet-analysis.md` for Worst-Case Execution Time analysis workflow including:
+- RTIC-Scope integration for hardware tracing
+- DWT cycle counter measurement
+- Task-specific WCET characteristics
+
+### Schedulability Analysis
+
+See `docs/schedulability-analysis.md` for Rate-Monotonic Analysis (RMA) and response time analysis:
+- Utilization bound tests
+- Response time calculation with worked examples
+- Priority Ceiling Protocol blocking analysis
+- Python script for automated analysis
+
+### Real-Time Static Analysis
+
+See `docs/realtime-lint-guide.md` for detecting anti-patterns that violate real-time guarantees:
+
+| Anti-Pattern | Detection Method |
+|--------------|------------------|
+| Unbounded loops | Clippy: `infinite_iter`, `while_immutable_condition` |
+| Recursion | Clippy: `unconditional_recursion` + cargo-call-stack |
+| Large stack arrays | Clippy: `large_stack_arrays` |
+| Heap allocation | `no_std` + `heapless` crate |
+| Missing timeouts | Custom Dylint lints |
+
+**Quick check:**
+```bash
+just check-realtime     # Clippy with RT safety lints
+just static-analysis    # Full analysis suite (includes Miri)
+```
 
 ### Zenoh-Pico Heap Requirements
 
@@ -636,6 +676,11 @@ Development documentation lives in `docs/`:
 ```
 docs/
 ├── rmw_zenoh_interop.md           # ROS 2 rmw_zenoh protocol documentation
+├── embedded-integration.md        # Embedded integration guide (RTIC, Embassy, Zephyr)
+├── wcet-analysis.md               # WCET measurement and analysis workflow
+├── schedulability-analysis.md     # RMA and response time analysis
+├── realtime-lint-guide.md         # Static analysis for RT anti-patterns
+├── memory-requirements.md         # Memory budgeting for embedded
 ├── roadmap/                       # Development phases and milestones
 │   ├── phase-1-foundation.md      # CDR, types, macros (COMPLETE)
 │   ├── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (COMPLETE)
