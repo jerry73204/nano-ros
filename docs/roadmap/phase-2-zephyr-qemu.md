@@ -1,12 +1,12 @@
 # Phase 2: Transport, Interoperability & Zephyr Integration
 
-**Status: Phase 2A COMPLETE, Phase 2B IN PROGRESS**
+**Status: COMPLETE ✅**
 
 ## Executive Summary
 
 Phase 2 focuses on two main areas:
 1. **ROS 2 Interoperability** - rmw_zenoh compatibility (COMPLETE)
-2. **Zephyr Integration** - nano-ros on real RTOS (IN PROGRESS)
+2. **Zephyr Integration** - nano-ros on real RTOS (COMPLETE)
 
 **Deployment Model:**
 - ROS 2 nodes run on Linux host using `rmw_zenoh_cpp`
@@ -73,11 +73,16 @@ See [docs/rmw_zenoh_interop.md](../rmw_zenoh_interop.md) for protocol details.
 
 ---
 
-## Phase 2B: Zephyr Integration 🔄 IN PROGRESS
+## Phase 2B: Zephyr Integration ✅ COMPLETE
 
 ### Goal
 
 Run nano-ros on Zephyr RTOS, communicating with ROS 2 nodes on Linux host.
+
+### Achievement Summary
+
+nano-ros running on Zephyr native_sim successfully publishes messages via zenoh-pico
+to a zenoh router, where they can be received by native Rust subscribers or ROS 2 nodes.
 
 ### Target Architecture
 
@@ -124,12 +129,13 @@ Run nano-ros on Zephyr RTOS, communicating with ROS 2 nodes on Linux host.
 | QEMU semihosting tests | ✅ Complete | 9 tests validating core functionality |
 | Zephyr workspace setup | ✅ Complete | `zephyr/setup.sh` (installs SDK, west, Rust targets) |
 | zephyr-lang-rust | ✅ Complete | Integrated at `modules/lang/rust` |
-| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-talker-rs/` - runs on native_sim/64 |
-| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-listener-rs/` - runs on native_sim/64 |
+| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-talker-rs/` with zenoh-pico transport |
+| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-listener-rs/` with zenoh-pico transport |
 | nano-ros CDR on Zephyr | ✅ Complete | Serialization/deserialization working |
-| zenoh-pico integration | 🔄 Pending | Needs Zephyr module setup |
-| QEMU network scripts | ✅ Complete | `scripts/qemu/` with TAP/bridge setup |
-| Hardware testing | ⏸️ Deferred | Focus on native_sim/QEMU for now |
+| zenoh-pico integration | ✅ Complete | v1.5.1 via west manifest + C shim for FFI |
+| TAP network setup | ✅ Complete | `scripts/setup-zephyr-network.sh` |
+| End-to-end test | ✅ Complete | Zephyr → zenohd → native subscriber working |
+| Hardware testing | ⏸️ Deferred | Phase 3 milestone |
 
 ### Quick Start: Building Zephyr Examples
 
@@ -139,34 +145,99 @@ Run nano-ros on Zephyr RTOS, communicating with ROS 2 nodes on Linux host.
 
 # 2. Source environment
 source ~/zephyr-nano-ros/env.sh
+# Or if using nano-ros-workspace:
+source ~/nano-ros-workspace/.venv/bin/activate
+export ZEPHYR_BASE=~/nano-ros-workspace/zephyr
 
 # 3. Build talker for native_sim (64-bit, supports Rust)
-cd ~/zephyr-nano-ros
-west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -d build-talker
+cd ~/nano-ros-workspace  # or ~/zephyr-nano-ros
+west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs
 
-# 4. Run
-./build-talker/zephyr/zephyr.exe
-
-# Expected output:
-# *** Booting Zephyr OS build v3.7.0 ***
-# <inf> rust: rustapp: nano-ros Zephyr Talker (Rust) Starting
-# <inf> rust: rustapp: Board: native_sim
-# <inf> rust: rustapp: [0] Would publish: data=0 (CDR 4 bytes)
-# <inf> rust: rustapp: [1] Would publish: data=1 (CDR 4 bytes)
-# ...
+# 4. Run (see E2E Test below for full networking test)
+./build/zephyr/zephyr.exe
 ```
 
 **Supported Boards for Rust:**
 - `native_sim/native/64` - Linux host simulation (64-bit, best for development)
-- Cortex-M boards (e.g., `nucleo_f429zi`) - requires zenoh-pico integration
+- Cortex-M boards (e.g., `nucleo_f429zi`) - future hardware validation
+
+### End-to-End Test Procedure
+
+This test verifies Zephyr talker → zenoh router → native subscriber communication.
+
+**Prerequisites:**
+- Zephyr workspace set up (`./zephyr/setup.sh`)
+- zenohd installed and accessible
+- Zephyr example built
+
+**Step 1: Set up TAP networking (one-time, requires root)**
+```bash
+sudo ./scripts/setup-zephyr-network.sh
+```
+This creates a TAP interface `zeth` with:
+- Host IP: 192.0.2.2
+- Zephyr IP: 192.0.2.1 (configured in prj.conf)
+- User ownership for non-root Zephyr execution
+
+**Step 2: Start zenoh router**
+```bash
+zenohd --listen tcp/0.0.0.0:7447
+```
+
+**Step 3: Start native subscriber**
+```bash
+cd ~/repos/rusty-ros
+cargo run -p zenoh-pico --example sub_test --features std
+```
+
+Expected output:
+```
+[sub] Connected to zenoh router
+[sub] Waiting for messages on demo/chatter...
+```
+
+**Step 4: Run Zephyr talker**
+```bash
+cd ~/nano-ros-workspace
+./build/zephyr/zephyr.exe
+```
+
+Expected output:
+```
+*** Booting Zephyr OS build v3.7.0 ***
+<inf> net_config: IPv4 address: 192.0.2.1
+<inf> rust: rustapp: nano-ros Zephyr Talker (Rust) Starting
+<inf> rust: rustapp: Connecting to zenoh router at tcp/192.0.2.2:7447
+<inf> rust: rustapp: Session opened
+<inf> rust: rustapp: Publisher declared
+<inf> rust: rustapp: [0] Published: data=0 (4 bytes)
+<inf> rust: rustapp: [1] Published: data=1 (4 bytes)
+...
+```
+
+**Step 5: Verify subscriber receives messages**
+The native subscriber should show:
+```
+[sub] #0 Received Int32: 0 (4 bytes)
+[sub] #1 Received Int32: 1 (4 bytes)
+[sub] #2 Received Int32: 2 (4 bytes)
+[sub] SUCCESS: received messages from Zephyr!
+```
+
+### Teardown
+
+To remove the TAP interface:
+```bash
+sudo ./scripts/setup-zephyr-network.sh --down
+```
 
 ### Work Items
 
 #### 2B.1 Zephyr Rust Toolchain Setup ✅ COMPLETE
-- [x] Create west manifest (`zephyr/west.yml`)
+- [x] Create west manifest (`west.yml` at repo root)
 - [x] Setup script (`zephyr/setup.sh`)
 - [x] Configure zephyr-lang-rust module
-- [x] Configure zenoh-pico module
+- [x] Configure zenoh-pico module (v1.5.1)
 
 **Reference:** https://github.com/zephyrproject-rtos/zephyr-lang-rust
 
@@ -174,15 +245,17 @@ west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -d build-t
 - [x] Port `examples/zephyr-talker/` to Rust (`examples/zephyr-talker-rs/`)
 - [x] Port `examples/zephyr-listener/` to Rust (`examples/zephyr-listener-rs/`)
 - [x] Integrate nano-ros crates (CDR serialization)
-- [x] Configure zenoh-pico FFI bindings for Zephyr
+- [x] C shim for zenoh-pico FFI (avoids struct size mismatch issues)
+- [x] Kconfig options for zenoh-pico in prj.conf
 
-#### 2B.3 QEMU Integration Testing ✅ COMPLETE
-- [x] QEMU networking scripts (`scripts/qemu/setup-qemu-network.sh`)
-- [x] Configure static IPs (talker: 192.0.2.1, listener: 192.0.2.3)
-- [x] Test script for Zephyr ↔ ROS 2 (`tests/zephyr/run.sh`)
-- [x] Integrated into test runner (`./tests/run-all.sh zephyr`)
+#### 2B.3 Network Integration Testing ✅ COMPLETE
+- [x] TAP networking script (`scripts/setup-zephyr-network.sh`)
+- [x] Configure static IPs (Zephyr: 192.0.2.1, Host: 192.0.2.2)
+- [x] User-owned TAP device (non-root Zephyr execution)
+- [x] Native subscriber test (`crates/zenoh-pico/examples/sub_test.rs`)
+- [x] End-to-end test verified: Zephyr → zenohd → native Rust
 
-#### 2B.4 Hardware Validation ⏸️ DEFERRED
+#### 2B.4 Hardware Validation ⏸️ DEFERRED TO PHASE 3
 - [ ] Select target board (STM32F4, nRF52840, or similar)
 - [ ] Flash and test on real hardware
 - [ ] Verify Ethernet/WiFi connectivity to zenoh router
@@ -271,11 +344,15 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 |-----------|------|
 | Core crates | `crates/` |
 | Native examples | `examples/native-talker/`, `examples/native-listener/` |
-| Zephyr stubs | `examples/zephyr-talker/`, `examples/zephyr-listener/` |
+| Zephyr Rust examples | `examples/zephyr-talker-rs/`, `examples/zephyr-listener-rs/` |
+| Zephyr C stubs | `examples/zephyr-talker/`, `examples/zephyr-listener/` |
 | QEMU test | `examples/qemu-test/` |
 | Integration tests | `tests/` |
-| QEMU scripts | `scripts/qemu/` |
+| Network setup | `scripts/setup-zephyr-network.sh` |
+| West manifest | `west.yml` |
+| Zephyr module config | `zephyr/module.yml` |
 | Protocol docs | `docs/rmw_zenoh_interop.md` |
+| Zenoh subscriber test | `crates/zenoh-pico/examples/sub_test.rs` |
 
 ---
 
@@ -295,12 +372,39 @@ Key requirements for Rust Zephyr applications:
 4. CONFIG_RUST=y and CONFIG_RUST_ALLOC=y in prj.conf
 5. Rust is only supported on: Cortex-M, RISC-V, or POSIX-64 platforms
 
-### zenoh-pico Integration (TODO)
+### zenoh-pico Integration ✅ COMPLETE
 
-For actual network communication, zenoh-pico needs to be added as a Zephyr module.
-Options being evaluated:
-1. zenoh-pico as west module with Kconfig integration
-2. Pre-built zenoh-pico library linked into Zephyr
+zenoh-pico is integrated as a Zephyr module via west manifest:
+
+**west.yml configuration:**
+```yaml
+- name: zenoh-pico
+  remote: eclipse-zenoh
+  revision: 1.5.1
+  path: modules/lib/zenoh-pico
+```
+
+**prj.conf options:**
+```
+CONFIG_ZENOH_PICO=y
+CONFIG_ZENOH_PICO_PUBLICATION=y
+CONFIG_ZENOH_PICO_LINK_TCP=y
+CONFIG_ZENOH_PICO_MULTI_THREAD=y
+```
+
+**C Shim Pattern:**
+To avoid struct size mismatches between Rust FFI and zenoh-pico C structs,
+a C shim layer is used (`examples/zephyr-talker-rs/src/zenoh_shim.c`):
+```c
+// C shim handles zenoh-pico types internally
+int zenoh_init_config(const char *locator);
+int zenoh_open_session(void);
+int zenoh_declare_publisher(const char *keyexpr);
+int zenoh_publish(const uint8_t *data, size_t len);
+void zenoh_close(void);
+```
+
+The Rust code calls these simple C functions instead of using raw FFI bindings.
 
 ## References
 
