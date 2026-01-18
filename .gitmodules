@@ -1,3 +1,6 @@
 [submodule "crates/zenoh-pico-sys/zenoh-pico"]
 	path = crates/zenoh-pico-sys/zenoh-pico
 	url = https://github.com/eclipse-zenoh/zenoh-pico.git
+[submodule "colcon-cargo-ros2"]
+	path = colcon-nano-ros
+	url = https://github.com/jerry73204/colcon-cargo-ros2.git
