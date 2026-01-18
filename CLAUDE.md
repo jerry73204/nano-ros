@@ -422,6 +422,144 @@ cargo test -p zenoh-pico  # Run zenoh-pico tests (no router needed for most)
 - Can use `std` with NuttX's libc
 - `zenoh-pico` has NuttX support
 
+## RTIC and Embedded Support
+
+nano-ros supports RTIC (Real-Time Interrupt-driven Concurrency) and other embedded
+real-time frameworks through the `rtic` feature flag.
+
+### Feature Flags
+
+```toml
+# For RTIC/Embassy applications
+[dependencies]
+nano-ros-node = { path = "...", default-features = false, features = ["rtic"] }
+nano-ros-transport = { path = "...", default-features = false, features = ["rtic", "sync-critical-section"] }
+```
+
+### Static Buffer Allocation
+
+The `rtic` feature enables static buffer allocation via const generics:
+
+```rust
+use nano_ros_node::{ConnectedNode, ConnectedSubscriber, DEFAULT_MAX_TOKENS};
+
+// Node with custom token limit
+let node: ConnectedNode<8> = ...;
+
+// Subscriber with custom buffer size
+let subscriber: ConnectedSubscriber<MyMsg, 512> =
+    node.create_subscriber_sized("/topic")?;
+
+// Service with custom request/reply buffers
+let server: ConnectedServiceServer<MyService, 256, 256> =
+    node.create_service_sized("/service")?;
+```
+
+### Default Buffer Sizes
+
+| Constant | Default | Purpose |
+|----------|---------|---------|
+| `DEFAULT_MAX_TOKENS` | 16 | Max liveliness tokens (publishers + subscribers) |
+| `DEFAULT_RX_BUFFER_SIZE` | 1024 | Subscriber receive buffer |
+| `DEFAULT_REQ_BUFFER_SIZE` | 1024 | Service request buffer |
+| `DEFAULT_REPLY_BUFFER_SIZE` | 1024 | Service reply buffer |
+
+### Timing Constants
+
+For manual polling (without background threads):
+
+```rust
+use nano_ros_node::rtic::{POLL_INTERVAL_MS, KEEPALIVE_INTERVAL_MS};
+
+// POLL_INTERVAL_MS = 10ms - How often to poll for incoming messages
+// KEEPALIVE_INTERVAL_MS = 1000ms - How often to send keepalive
+```
+
+### Example Patterns
+
+**RTIC Example** (`examples/rtic-stm32f4/`):
+```rust
+#[task(priority = 2)]
+async fn zenoh_poll(_cx: zenoh_poll::Context) {
+    loop {
+        // Poll for incoming messages
+        Mono::delay(POLL_INTERVAL_MS.millis()).await;
+    }
+}
+
+#[task(priority = 1)]
+async fn zenoh_keepalive(_cx: zenoh_keepalive::Context) {
+    loop {
+        // Send keepalive
+        Mono::delay(KEEPALIVE_INTERVAL_MS.millis()).await;
+    }
+}
+```
+
+**Embassy Example** (`examples/embassy-stm32f4/`):
+```rust
+#[embassy_executor::task]
+async fn zenoh_poll_task() {
+    loop {
+        Timer::after(Duration::from_millis(POLL_INTERVAL_MS as u64)).await;
+    }
+}
+```
+
+**Polling Example** (`examples/polling-stm32f4/`):
+```rust
+// Simple main loop without executor
+loop {
+    if poll_timer.elapsed_ms(POLL_INTERVAL_MS) {
+        // Poll zenoh
+    }
+    if keepalive_timer.elapsed_ms(KEEPALIVE_INTERVAL_MS) {
+        // Send keepalive
+    }
+}
+```
+
+### Memory Requirements
+
+See `docs/memory-requirements.md` for detailed memory calculations.
+
+### WCET Analysis
+
+See `docs/wcet-analysis.md` for Worst-Case Execution Time analysis workflow.
+
+### Zenoh-Pico Heap Requirements
+
+**Important:** Zenoh-pico requires heap allocation via `z_malloc`/`z_free` for:
+- Session creation and management
+- Publishers and subscribers (state objects)
+- I/O buffers for network packets
+- Message samples and internal collections
+
+This means:
+- The Rust `zenoh` feature implies `alloc`
+- Pure `no_std` without allocator cannot use zenoh directly
+- Embedded systems need RTOS heap support (FreeRTOS, Zephyr)
+
+**Recommended pattern for embedded:** Use the C shim approach (see `examples/zephyr-talker-rs/`).
+The C shim manages zenoh-pico's heap allocations while keeping Rust code simple.
+
+### Embedded Integration Guide
+
+See `docs/embedded-integration.md` for comprehensive embedded integration documentation including:
+- C shim pattern for Zephyr/FreeRTOS
+- RTIC, Embassy, and polling examples
+- Memory budgeting
+- Hardware requirements
+
+### Build Verification
+
+```bash
+# Verify no-alloc build compiles
+just check-no-alloc
+```
+
+This checks that the RTIC features work without heap allocation.
+
 ## Error Handling
 
 Use `Result<T, E>` throughout:
