@@ -155,6 +155,35 @@ let subscriber = session.declare_subscriber(&keyexpr, |sample| {
 - Double-free SIGSEGV in subscriber error handling path
 - Double-free SIGSEGV when storing context in both Rust struct and closure
 
+### Zephyr C Shim Pattern
+
+For Zephyr integration, direct Rust FFI to zenoh-pico causes struct size mismatches
+(Rust's placeholder types don't match the actual C struct sizes). The solution is a
+thin C shim layer that handles zenoh-pico types internally:
+
+```c
+// examples/zephyr-talker-rs/src/zenoh_shim.c
+static z_owned_session_t g_session;
+static z_owned_publisher_t g_publisher;
+
+int zenoh_init_config(const char *locator);
+int zenoh_open_session(void);
+int zenoh_declare_publisher(const char *keyexpr);
+int zenoh_publish(const uint8_t *data, size_t len);
+void zenoh_close(void);
+```
+
+Rust code calls these simple C functions:
+```rust
+extern "C" {
+    fn zenoh_init_config(locator: *const c_char) -> i32;
+    fn zenoh_open_session() -> i32;
+    fn zenoh_publish(data: *const u8, len: usize) -> i32;
+}
+```
+
+This pattern avoids FFI struct layout issues while keeping the Rust code clean.
+
 ## Key Design Decisions
 
 ### 1. `no_std` Support
@@ -422,6 +451,24 @@ Please run: sudo apt install qemu-system-arm
 
 This ensures the user maintains control over their system and is aware of all dependencies being installed.
 
+### Privileged Commands (sudo)
+
+**Never execute sudo commands directly.** When root privileges are needed:
+1. Explain what needs to be done and why it requires root
+2. Provide the exact command(s) for the user to run
+3. Wait for user confirmation before continuing
+
+Example:
+```
+TAP interface setup requires root privileges.
+Please run: sudo ./scripts/setup-zephyr-network.sh
+
+This creates a TAP device owned by your user, allowing
+Zephyr to run without sudo afterward.
+```
+
+This ensures users maintain control over privileged operations.
+
 ### Quality Checks
 
 **Always run `just quality` after completing a task.** This runs:
@@ -440,7 +487,7 @@ docs/
 ├── rmw_zenoh_interop.md           # ROS 2 rmw_zenoh protocol documentation
 ├── roadmap/                       # Development phases and milestones
 │   ├── phase-1-foundation.md      # CDR, types, macros (COMPLETE)
-│   └── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (PLANNING)
+│   └── phase-2-zephyr-qemu.md     # Zephyr, QEMU, transport (COMPLETE)
 ├── architecture/                  # Design documents and ADRs
 └── api/                           # API documentation (if not rustdoc)
 ```
@@ -450,8 +497,8 @@ docs/
 | Phase | Focus | Status |
 |-------|-------|--------|
 | Phase 1 | CDR serialization, types, proc macros | **Complete** |
-| Phase 2A | ROS 2 Interoperability | **Complete** |
-| Phase 2B | Zephyr integration | **In Progress** |
+| Phase 2A | ROS 2 Interoperability (native) | **Complete** |
+| Phase 2B | Zephyr integration + QEMU testing | **Complete** |
 | Phase 3 | Services, parameters, safety certification | Future |
 
 **Deployment Model:**
@@ -470,16 +517,18 @@ docs/
 - [x] nano-ros ↔ nano-ros communication tested and working
 - [x] ROS 2 → nano-ros communication working (via wildcard subscriber)
 - [x] nano-ros → ROS 2 communication working (Humble)
-- [x] Integration test suite (`tests/`) with full communication matrix
 
-### Phase 2B Progress (Zephyr Integration) - IN PROGRESS
+### Phase 2B Progress (Zephyr Integration) - COMPLETE
 - [x] All core crates no_std compatible
-- [x] QEMU semihosting tests (Cortex-M3)
-- [x] Zephyr example stubs (C)
-- [ ] zephyr-lang-rust toolchain setup
-- [ ] Convert Zephyr examples to Rust
-- [ ] QEMU networking with zenoh-pico
-- [ ] Hardware validation (STM32, nRF52)
+- [x] West manifest workflow (`west.yml`, `zephyr/module.yml`)
+- [x] Zephyr workspace setup script (`zephyr/setup.sh`)
+- [x] zenoh-pico added to west manifest (v1.5.1)
+- [x] Zephyr talker with zenoh-pico transport (`examples/zephyr-talker-rs/`)
+- [x] Zephyr listener with zenoh-pico transport (`examples/zephyr-listener-rs/`)
+- [x] C shim for zenoh-pico FFI (avoids struct size issues)
+- [x] Network setup script (`scripts/setup-zephyr-network.sh`)
+- [x] End-to-end test: Zephyr native_sim → zenoh router → native subscriber
+- [ ] Hardware validation (deferred to Phase 3)
 
 ## ROS 2 rmw_zenoh Interoperability
 
@@ -520,6 +569,28 @@ Test scripts available:
 - `scripts/test-qos.sh` - Test nano-ros → ROS 2 communication
 - `scripts/test-pubsub.sh` - Test nano-ros ↔ nano-ros (requires zenohd)
 - `scripts/test-pubsub-peer.sh` - Test peer mode (no router)
+
+### Zephyr E2E Test (native_sim)
+
+```bash
+# One-time setup: Create TAP interface for Zephyr networking
+sudo ./scripts/setup-zephyr-network.sh
+
+# Terminal 1: Start zenoh router
+zenohd --listen tcp/0.0.0.0:7447
+
+# Terminal 2: Run native subscriber
+cargo run -p zenoh-pico --example sub_test --features std
+
+# Terminal 3: Build and run Zephyr talker (from zephyr workspace)
+cd ~/nano-ros-workspace
+west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs
+./build/zephyr/zephyr.exe
+```
+
+The Zephyr talker connects to the host at 192.0.2.2:7447 and publishes
+Int32 messages to `demo/chatter`. The native subscriber receives and
+decodes the messages.
 
 ## References
 
