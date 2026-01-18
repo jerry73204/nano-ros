@@ -57,6 +57,9 @@ mod subscriber;
 #[cfg(feature = "zenoh")]
 mod connected;
 
+#[cfg(all(feature = "zenoh", feature = "rtic"))]
+pub mod rtic;
+
 pub use node::{Node, NodeConfig, NodeError};
 pub use publisher::PublisherHandle;
 pub use subscriber::SubscriberHandle;

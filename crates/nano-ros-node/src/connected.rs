@@ -50,6 +50,14 @@ pub enum ConnectedNodeError {
     ServiceRequestFailed,
     /// Service reply failed
     ServiceReplyFailed,
+    /// Failed to start background tasks
+    TaskStartFailed,
+    /// Failed to poll for incoming messages
+    PollFailed,
+    /// Failed to send keepalive
+    KeepaliveFailed,
+    /// Failed to send join message
+    JoinFailed,
 }
 
 impl From<TransportError> for ConnectedNodeError {
@@ -72,6 +80,10 @@ impl From<TransportError> for ConnectedNodeError {
             TransportError::BufferTooSmall => ConnectedNodeError::BufferTooSmall,
             TransportError::ServiceRequestFailed => ConnectedNodeError::ServiceRequestFailed,
             TransportError::ServiceReplyFailed => ConnectedNodeError::ServiceReplyFailed,
+            TransportError::TaskStartFailed => ConnectedNodeError::TaskStartFailed,
+            TransportError::PollFailed => ConnectedNodeError::PollFailed,
+            TransportError::KeepaliveFailed => ConnectedNodeError::KeepaliveFailed,
+            TransportError::JoinFailed => ConnectedNodeError::JoinFailed,
             _ => ConnectedNodeError::ConnectionFailed,
         }
     }
@@ -151,6 +163,136 @@ impl ConnectedNode {
             mode: SessionMode::Peer,
         };
         Self::new(config, &transport_config)
+    }
+
+    /// Create a new connected node without starting background tasks
+    ///
+    /// Use this for RTIC or other single-threaded executors where you need
+    /// manual control over when network I/O occurs.
+    ///
+    /// After creating, you must periodically call:
+    /// - `poll_read()` to process incoming messages (recommended: every 10ms)
+    /// - `send_keepalive()` to maintain the session (recommended: every 1s)
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn new_without_tasks(
+        config: NodeConfig,
+        transport_config: &TransportConfig,
+    ) -> Result<Self, ConnectedNodeError> {
+        let session = ZenohSession::new_without_tasks(transport_config)?;
+
+        let mut name = heapless::String::new();
+        let _ = name.push_str(config.name);
+
+        let mut namespace = heapless::String::new();
+        let _ = namespace.push_str(config.namespace);
+
+        // Get session ID for liveliness tokens
+        let zid = session.zid();
+
+        // Declare node liveliness token for ROS 2 discovery
+        let node_keyexpr = Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
+        #[cfg(feature = "log")]
+        log::debug!("Node liveliness keyexpr: {}", node_keyexpr);
+        let node_token = session.declare_liveliness(&node_keyexpr).ok();
+
+        Ok(Self {
+            name,
+            namespace,
+            domain_id: config.domain_id,
+            session,
+            zid,
+            _node_token: node_token,
+            _entity_tokens: Vec::new(),
+        })
+    }
+
+    /// Connect to a zenoh router without starting background tasks
+    ///
+    /// Use this for RTIC or other single-threaded executors.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn connect_without_tasks(
+        config: NodeConfig,
+        locator: &str,
+    ) -> Result<Self, ConnectedNodeError> {
+        let transport_config = TransportConfig {
+            locator: Some(locator),
+            mode: SessionMode::Client,
+        };
+        Self::new_without_tasks(config, &transport_config)
+    }
+
+    /// Connect in peer mode without starting background tasks
+    ///
+    /// Use this for RTIC or other single-threaded executors.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn connect_peer_without_tasks(config: NodeConfig) -> Result<Self, ConnectedNodeError> {
+        let transport_config = TransportConfig {
+            locator: None,
+            mode: SessionMode::Peer,
+        };
+        Self::new_without_tasks(config, &transport_config)
+    }
+
+    /// Start background read and lease tasks
+    ///
+    /// Only call this if you used `new_without_tasks()` and later want to
+    /// switch to background threads.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn start_tasks(&mut self) -> Result<(), ConnectedNodeError> {
+        self.session.start_tasks().map_err(ConnectedNodeError::from)
+    }
+
+    /// Stop background tasks
+    ///
+    /// After stopping, you must manually call `poll_read()` and `send_keepalive()`.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn stop_tasks(&mut self) {
+        self.session.stop_tasks();
+    }
+
+    /// Poll for incoming messages and events
+    ///
+    /// Call this periodically (recommended: every 10ms) when not using background tasks.
+    /// This processes any pending network data and dispatches callbacks.
+    ///
+    /// For RTIC applications, call this from a periodic software task.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn poll_read(&mut self) -> Result<(), ConnectedNodeError> {
+        self.session.poll_read().map_err(ConnectedNodeError::from)
+    }
+
+    /// Send keepalive to maintain the session
+    ///
+    /// Call this periodically (recommended: every 1s) when not using background tasks.
+    /// This sends keepalive messages to prevent the session from timing out.
+    ///
+    /// For RTIC applications, call this from a periodic software task.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn send_keepalive(&mut self) -> Result<(), ConnectedNodeError> {
+        self.session
+            .send_keepalive()
+            .map_err(ConnectedNodeError::from)
+    }
+
+    /// Send join message for peer discovery
+    ///
+    /// Call this periodically in peer mode to announce presence to other peers.
+    /// Not needed in client mode.
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn send_join(&mut self) -> Result<(), ConnectedNodeError> {
+        self.session.send_join().map_err(ConnectedNodeError::from)
+    }
+
+    /// Check if background read task is running
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn is_read_task_running(&self) -> bool {
+        self.session.is_read_task_running()
+    }
+
+    /// Check if background lease task is running
+    #[cfg(any(feature = "rtic", feature = "polling"))]
+    pub fn is_lease_task_running(&self) -> bool {
+        self.session.is_lease_task_running()
     }
 
     /// Get the node name
