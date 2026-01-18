@@ -31,20 +31,17 @@ nano-ros/
 ├── Cargo.toml                 # Workspace root
 ├── CLAUDE.md
 ├── crates/
-│   ├── nano-ros/              # [PLANNED] Unified API crate (like rclcpp/rclpy)
+│   ├── nano-ros/              # Unified API crate (like rclcpp/rclpy)
 │   │   ├── Cargo.toml         # Re-exports all sub-crates
 │   │   └── src/
-│   │       ├── lib.rs         # Main entry point
-│   │       ├── prelude.rs     # Common imports
-│   │       ├── msg.rs         # Message type re-exports
-│   │       └── srv.rs         # Service type re-exports
+│   │       └── lib.rs         # Main entry point with prelude
 │   │
 │   ├── nano-ros-core/         # Core types, traits, node abstraction
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── node.rs        # Node, Publisher, Subscriber
-│   │       ├── service.rs     # [PLANNED] Service server/client
+│   │       ├── service.rs     # Service traits (RosService, Request/Response)
 │   │       ├── error.rs       # Error types
 │   │       └── types.rs       # Core ROS type traits
 │   │
@@ -69,12 +66,12 @@ nano-ros/
 │   │       ├── geometry_msgs.rs
 │   │       └── sensor_msgs.rs
 │   │
-│   ├── nano-ros-params/       # Parameter server [PLANNED]
+│   ├── nano-ros-params/       # Parameter server (ROS 2 compatible)
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── server.rs
-│   │       └── types.rs
+│   │       ├── server.rs      # ParameterServer with static storage
+│   │       └── types.rs       # ParameterValue, ParameterDescriptor, etc.
 │   │
 │   ├── nano-ros-transport/    # Transport abstraction (zenoh backend)
 │   │   ├── Cargo.toml
@@ -508,7 +505,7 @@ docs/
 | Phase 1 | CDR serialization, types, proc macros | **Complete** |
 | Phase 2A | ROS 2 Interoperability (native) | **Complete** |
 | Phase 2B | Zephyr integration + QEMU testing | **Complete** |
-| Phase 3 | Services, parameters, hardware validation | Planning |
+| Phase 3 | Services, parameters, unified API | **In Progress** |
 
 See `docs/roadmap/phase-3-services-params.md` for detailed Phase 3 work items.
 
@@ -541,39 +538,42 @@ See `docs/roadmap/phase-3-services-params.md` for detailed Phase 3 work items.
 - [x] End-to-end test: Zephyr native_sim → zenoh router → native subscriber
 - [ ] Hardware validation (deferred to Phase 3)
 
-### Phase 3 Work Items (Services, Parameters, Unified API, Hardware) - PLANNING
+### Phase 3 Progress (Services, Parameters, Unified API, Hardware) - IN PROGRESS
 
-**3.1 ROS 2 Services:**
-- [ ] Service traits (`RosService` with Request/Response types)
-- [ ] zenoh-pico queryable support (for service servers)
-- [ ] Transport layer service client/server
-- [ ] Node API: `create_service()`, `create_client()`
+**3.1 ROS 2 Services - Infrastructure Complete:**
+- [x] Service traits (`RosService` with Request/Response types)
+- [x] zenoh-pico queryable support (for service servers)
+- [x] Transport layer service client/server (`ServiceInfo`, transport traits)
+- [x] Node API: `create_service()`, `create_client()` (in ConnectedNode)
 - [ ] `#[derive(RosService)]` proc macro
 - [ ] Service examples and ROS 2 interop tests
+- [ ] `rcl_interfaces` service types for parameters
 
-**3.2 ROS 2 Parameters:**
-- [ ] Complete `nano-ros-params` implementation
-- [ ] Parameter storage (`StaticParameterStore<N>`)
+**3.2 ROS 2 Parameters - Core Complete:**
+- [x] Complete `nano-ros-params` implementation
+- [x] Parameter types (`ParameterValue`, `ParameterType`, `ParameterDescriptor`)
+- [x] Parameter server with static storage (`ParameterServer`, MAX_PARAMETERS=32)
+- [x] Constraint validation (read-only, type checking, range constraints)
+- [x] Fluent API via `ParameterBuilder`
 - [ ] `rcl_interfaces` message/service types
 - [ ] Parameter service handlers (`~/get_parameters`, `~/set_parameters`, etc.)
-- [ ] Node API: `declare_parameter()`, `get_parameter()`, `set_parameter()`
 - [ ] ROS 2 CLI interop (`ros2 param list/get/set`)
 
-**3.3 Hardware Validation:**
+**3.3 Unified `nano-ros` Crate - Complete:**
+- [x] Create `crates/nano-ros/` as main entry point
+- [x] Re-export all sub-crate types (`nano_ros::prelude::*`)
+- [x] Feature flags: `std`, `alloc`, `zenoh`
+- [x] `no_std` compatible
+- [x] Parameter types integrated
+- [x] Service types integrated
+- [ ] Update all examples to use unified API
+
+**3.4 Hardware Validation:**
 - [ ] NUCLEO-F429ZI (STM32F429, Ethernet)
 - [ ] Performance benchmarks (latency, throughput, memory)
 - [ ] Reliability testing
 
-**3.4 Unified `nano-ros` Crate (like rclcpp/rclpy):**
-- [ ] Create `crates/nano-ros/` as main entry point
-- [ ] Re-export all sub-crate types (`nano_ros::prelude::*`)
-- [ ] Unified error handling (`nano_ros::Error`)
-- [ ] Builder pattern for node creation
-- [ ] Feature flags: `std`, `alloc`, `zenoh`, `params`, `services`
-- [ ] Update all examples to use unified API
-- [ ] `no_std` compatible
-
-**Note:** Services → Parameters → Unified Crate → Hardware (in order).
+**Next Steps:** Service proc macro, rcl_interfaces types, parameter services.
 
 ## ROS 2 rmw_zenoh Interoperability
 
