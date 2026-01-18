@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "src/talker",
+    "src/listener",
+    "generated/builtin_interfaces",
+    "generated/std_msgs",
+]
+
+# Generated bindings are included as workspace members
+# This avoids multiple workspace root conflicts

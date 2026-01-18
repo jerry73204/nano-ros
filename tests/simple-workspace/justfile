@@ -1,0 +1,42 @@
+# nano-ros test workspace justfile
+#
+# This workspace tests nano-ros integration with generated message bindings.
+# Uses colcon build with colcon-nano-ros for automatic bindgen + compilation.
+#
+# Prerequisites:
+#   - direnv installed and `direnv allow` run in this directory
+#   - OR manually source the .envrc file
+
+# Default recipe
+default: build
+
+# Build all packages using colcon
+build:
+    colcon build --symlink-install
+
+# Clean build artifacts (keeps generated bindings)
+clean:
+    rm -rf build install log
+
+# Run tests
+test: build
+    colcon test
+    colcon test-result --verbose
+
+# Show what packages will be built
+list:
+    colcon list
+
+# Verbose build with full output
+build-verbose:
+    colcon build --symlink-install --event-handlers console_direct+
+
+# Rebuild everything from scratch
+rebuild: clean build
+
+# Run a package executable (use bash to avoid zsh environment issues)
+run package:
+    #!/usr/bin/env bash
+    source /opt/ros/humble/setup.bash
+    source install/local_setup.bash
+    ros2 run {{package}} {{package}}

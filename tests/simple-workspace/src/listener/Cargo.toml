@@ -1,0 +1,25 @@
+[package]
+name = "listener"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "listener"
+path = "src/main.rs"
+
+[lib]
+name = "listener"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = ["nano-ros-core/std", "nano-ros-serdes/std", "std_msgs/std"]
+
+[dependencies]
+# Generated message bindings (from tests/generated/)
+std_msgs = { path = "../../generated/std_msgs", default-features = false }
+
+# nano-ros runtime (path dependency for development)
+nano-ros-core = { path = "../../../../crates/nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "../../../../crates/nano-ros-serdes", default-features = false }
+heapless = "0.8"
