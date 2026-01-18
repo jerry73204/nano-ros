@@ -1,0 +1,49 @@
+[package]
+name = "nano-ros"
+version = "0.1.0"
+edition = "2021"
+description = "Unified ROS 2 client library for embedded systems"
+license = "Apache-2.0"
+keywords = ["ros", "ros2", "embedded", "no_std"]
+categories = ["embedded", "no-std", "robotics"]
+
+[features]
+default = ["std", "zenoh"]
+std = [
+    "nano-ros-core/std",
+    "nano-ros-serdes/std",
+    "nano-ros-node/std",
+    "nano-ros-transport/std",
+    "nano-ros-types/std",
+]
+alloc = [
+    "nano-ros-core/alloc",
+    "nano-ros-serdes/alloc",
+    "nano-ros-node/alloc",
+    "nano-ros-transport/alloc",
+    "nano-ros-types/alloc",
+]
+zenoh = [
+    "nano-ros-node/zenoh",
+    "nano-ros-transport/zenoh",
+]
+# Enable all message types
+all-types = ["std-msgs", "geometry-msgs", "sensor-msgs", "builtin-interfaces"]
+std-msgs = []
+geometry-msgs = []
+sensor-msgs = []
+builtin-interfaces = []
+
+[dependencies]
+# Core functionality
+nano-ros-core = { path = "../nano-ros-core" }
+nano-ros-serdes = { path = "../nano-ros-serdes" }
+nano-ros-macros = { path = "../nano-ros-macros" }
+nano-ros-node = { path = "../nano-ros-node" }
+nano-ros-transport = { path = "../nano-ros-transport" }
+nano-ros-types = { path = "../nano-ros-types" }
+
+[dev-dependencies]
+
+[package.metadata.docs.rs]
+all-features = true

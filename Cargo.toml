@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "crates/nano-ros",
     "crates/nano-ros-core",
     "crates/nano-ros-serdes",
     "crates/nano-ros-macros",
