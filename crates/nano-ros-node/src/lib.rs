@@ -70,8 +70,17 @@ pub use nano_ros_transport::{QosSettings, TopicInfo, TransportConfig, TransportE
 // Re-export connected types when zenoh feature is enabled
 #[cfg(feature = "zenoh")]
 pub use connected::{
-    ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedServiceClient,
-    ConnectedServiceServer, ConnectedSubscriber,
+    ConnectedNode,
+    ConnectedNodeError,
+    ConnectedPublisher,
+    ConnectedServiceClient,
+    ConnectedServiceServer,
+    ConnectedSubscriber,
+    // Buffer size constants
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REPLY_BUFFER_SIZE,
+    DEFAULT_REQ_BUFFER_SIZE,
+    DEFAULT_RX_BUFFER_SIZE,
 };
 
 // Re-export zenoh transport types for convenience

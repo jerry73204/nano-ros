@@ -2,6 +2,23 @@
 //!
 //! This module provides types that integrate the Node API with actual
 //! transport backends (like zenoh-pico) for sending and receiving messages.
+//!
+//! # Buffer Sizes
+//!
+//! All types use const generics for configurable buffer sizes:
+//!
+//! - `ConnectedNode<MAX_TOKENS>` - Maximum liveliness tokens (default: 16)
+//! - `ConnectedSubscriber<M, RX_BUF>` - Receive buffer size (default: 1024)
+//! - `ConnectedServiceServer<S, REQ_BUF, REPLY_BUF>` - Request/reply buffers (default: 1024)
+//! - `ConnectedServiceClient<S, REQ_BUF, REPLY_BUF>` - Request/reply buffers (default: 1024)
+//!
+//! # Memory Usage
+//!
+//! For embedded systems, calculate memory as:
+//! - ConnectedNode: ~256 bytes + (MAX_TOKENS * sizeof(LivelinessToken))
+//! - ConnectedSubscriber: RX_BUF bytes + ~64 bytes overhead
+//! - ConnectedServiceServer: REQ_BUF + REPLY_BUF bytes + ~64 bytes overhead
+//! - ConnectedServiceClient: REQ_BUF + REPLY_BUF bytes + ~64 bytes overhead
 
 use nano_ros_core::{RosMessage, RosService};
 use nano_ros_transport::{
@@ -16,12 +33,16 @@ use nano_ros_transport::{
     ZenohServiceServer, ZenohSession, ZenohSubscriber, ZenohTransport,
 };
 
-#[cfg(feature = "zenoh")]
-extern crate alloc;
-#[cfg(feature = "zenoh")]
-use alloc::vec::Vec;
-
 use crate::NodeConfig;
+
+/// Default receive buffer size for subscribers
+pub const DEFAULT_RX_BUFFER_SIZE: usize = 1024;
+
+/// Default request buffer size for services
+pub const DEFAULT_REQ_BUFFER_SIZE: usize = 1024;
+
+/// Default reply buffer size for services
+pub const DEFAULT_REPLY_BUFFER_SIZE: usize = 1024;
 
 /// Error type for connected node operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,9 +110,18 @@ impl From<TransportError> for ConnectedNodeError {
     }
 }
 
+/// Default maximum number of liveliness tokens (publishers + subscribers)
+pub const DEFAULT_MAX_TOKENS: usize = 16;
+
 /// A connected node that can publish and subscribe via zenoh transport
+///
+/// # Type Parameters
+///
+/// - `MAX_TOKENS`: Maximum number of liveliness tokens (publishers + subscribers).
+///   Each publisher and subscriber requires one token for ROS 2 discovery.
+///   Default is 16, allowing up to 16 combined publishers and subscribers.
 #[cfg(feature = "zenoh")]
-pub struct ConnectedNode {
+pub struct ConnectedNode<const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS> {
     /// Node name
     name: heapless::String<64>,
     /// Node namespace
@@ -104,12 +134,12 @@ pub struct ConnectedNode {
     zid: ZenohId,
     /// Node liveliness token (for ROS 2 discovery)
     _node_token: Option<LivelinessToken>,
-    /// Publisher/subscriber liveliness tokens
-    _entity_tokens: Vec<LivelinessToken>,
+    /// Publisher/subscriber liveliness tokens (static allocation)
+    _entity_tokens: heapless::Vec<LivelinessToken, MAX_TOKENS>,
 }
 
 #[cfg(feature = "zenoh")]
-impl ConnectedNode {
+impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
     /// Create a new connected node
     ///
     /// # Arguments
@@ -143,7 +173,7 @@ impl ConnectedNode {
             session,
             zid,
             _node_token: node_token,
-            _entity_tokens: Vec::new(),
+            _entity_tokens: heapless::Vec::new(),
         })
     }
 
@@ -202,7 +232,7 @@ impl ConnectedNode {
             session,
             zid,
             _node_token: node_token,
-            _entity_tokens: Vec::new(),
+            _entity_tokens: heapless::Vec::new(),
         })
     }
 
@@ -335,7 +365,8 @@ impl ConnectedNode {
         #[cfg(feature = "log")]
         log::debug!("Publisher liveliness keyexpr: {}", pub_keyexpr);
         if let Ok(token) = self.session.declare_liveliness(&pub_keyexpr) {
-            self._entity_tokens.push(token);
+            // Silently ignore if token storage is full (MAX_TOKENS exceeded)
+            let _ = self._entity_tokens.push(token);
         }
 
         Ok(ConnectedPublisher {
@@ -345,19 +376,46 @@ impl ConnectedNode {
     }
 
     /// Create a subscriber for the given topic
+    ///
+    /// Uses the default receive buffer size (1024 bytes).
+    /// For larger messages, use `create_subscriber_sized`.
     pub fn create_subscriber<M: RosMessage>(
         &mut self,
         topic: &str,
-    ) -> Result<ConnectedSubscriber<M>, ConnectedNodeError> {
-        self.create_subscriber_with_qos(topic, QosSettings::BEST_EFFORT)
+    ) -> Result<ConnectedSubscriber<M, DEFAULT_RX_BUFFER_SIZE>, ConnectedNodeError> {
+        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(topic, QosSettings::BEST_EFFORT)
     }
 
     /// Create a subscriber with custom QoS settings
+    ///
+    /// Uses the default receive buffer size (1024 bytes).
+    /// For larger messages, use `create_subscriber_sized`.
     pub fn create_subscriber_with_qos<M: RosMessage>(
         &mut self,
         topic: &str,
         qos: QosSettings,
-    ) -> Result<ConnectedSubscriber<M>, ConnectedNodeError> {
+    ) -> Result<ConnectedSubscriber<M, DEFAULT_RX_BUFFER_SIZE>, ConnectedNodeError> {
+        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(topic, qos)
+    }
+
+    /// Create a subscriber with custom buffer size
+    ///
+    /// # Type Parameters
+    ///
+    /// - `M`: The ROS message type
+    /// - `RX_BUF`: Receive buffer size in bytes
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create subscriber with 4KB buffer for large messages
+    /// let sub = node.create_subscriber_sized::<LargeMsg, 4096>("/large_topic", QosSettings::BEST_EFFORT)?;
+    /// ```
+    pub fn create_subscriber_sized<M: RosMessage, const RX_BUF: usize>(
+        &mut self,
+        topic: &str,
+        qos: QosSettings,
+    ) -> Result<ConnectedSubscriber<M, RX_BUF>, ConnectedNodeError> {
         let topic_info =
             TopicInfo::new(topic, M::TYPE_NAME, M::TYPE_HASH).with_domain(self.domain_id);
 
@@ -367,12 +425,13 @@ impl ConnectedNode {
         let sub_keyexpr =
             Ros2Liveliness::subscriber_keyexpr(self.domain_id, &self.zid, &self.name, &topic_info);
         if let Ok(token) = self.session.declare_liveliness(&sub_keyexpr) {
-            self._entity_tokens.push(token);
+            // Silently ignore if token storage is full (MAX_TOKENS exceeded)
+            let _ = self._entity_tokens.push(token);
         }
 
         Ok(ConnectedSubscriber {
             subscriber,
-            rx_buffer: [0u8; 1024],
+            rx_buffer: [0u8; RX_BUF],
             _marker: core::marker::PhantomData,
         })
     }
@@ -389,7 +448,33 @@ impl ConnectedNode {
     pub fn create_service<S: RosService>(
         &mut self,
         service_name: &str,
-    ) -> Result<ConnectedServiceServer<S>, ConnectedNodeError> {
+    ) -> Result<
+        ConnectedServiceServer<S, DEFAULT_REQ_BUFFER_SIZE, DEFAULT_REPLY_BUFFER_SIZE>,
+        ConnectedNodeError,
+    > {
+        self.create_service_sized::<S, DEFAULT_REQ_BUFFER_SIZE, DEFAULT_REPLY_BUFFER_SIZE>(
+            service_name,
+        )
+    }
+
+    /// Create a service server with custom buffer sizes
+    ///
+    /// # Type Parameters
+    ///
+    /// - `S`: The ROS service type
+    /// - `REQ_BUF`: Request buffer size in bytes
+    /// - `REPLY_BUF`: Reply buffer size in bytes
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create service with 4KB buffers for large messages
+    /// let server = node.create_service_sized::<MyService, 4096, 4096>("/my_service")?;
+    /// ```
+    pub fn create_service_sized<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>(
+        &mut self,
+        service_name: &str,
+    ) -> Result<ConnectedServiceServer<S, REQ_BUF, REPLY_BUF>, ConnectedNodeError> {
         let service_info = ServiceInfo::new(service_name, S::SERVICE_NAME, S::SERVICE_HASH)
             .with_domain(self.domain_id);
 
@@ -397,8 +482,8 @@ impl ConnectedNode {
 
         Ok(ConnectedServiceServer {
             server,
-            req_buffer: [0u8; 1024],
-            reply_buffer: [0u8; 1024],
+            req_buffer: [0u8; REQ_BUF],
+            reply_buffer: [0u8; REPLY_BUF],
             _marker: core::marker::PhantomData,
         })
     }
@@ -410,7 +495,33 @@ impl ConnectedNode {
     pub fn create_client<S: RosService>(
         &mut self,
         service_name: &str,
-    ) -> Result<ConnectedServiceClient<S>, ConnectedNodeError> {
+    ) -> Result<
+        ConnectedServiceClient<S, DEFAULT_REQ_BUFFER_SIZE, DEFAULT_REPLY_BUFFER_SIZE>,
+        ConnectedNodeError,
+    > {
+        self.create_client_sized::<S, DEFAULT_REQ_BUFFER_SIZE, DEFAULT_REPLY_BUFFER_SIZE>(
+            service_name,
+        )
+    }
+
+    /// Create a service client with custom buffer sizes
+    ///
+    /// # Type Parameters
+    ///
+    /// - `S`: The ROS service type
+    /// - `REQ_BUF`: Request buffer size in bytes
+    /// - `REPLY_BUF`: Reply buffer size in bytes
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create client with 4KB buffers for large messages
+    /// let client = node.create_client_sized::<MyService, 4096, 4096>("/my_service")?;
+    /// ```
+    pub fn create_client_sized<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>(
+        &mut self,
+        service_name: &str,
+    ) -> Result<ConnectedServiceClient<S, REQ_BUF, REPLY_BUF>, ConnectedNodeError> {
         let service_info = ServiceInfo::new(service_name, S::SERVICE_NAME, S::SERVICE_HASH)
             .with_domain(self.domain_id);
 
@@ -418,8 +529,8 @@ impl ConnectedNode {
 
         Ok(ConnectedServiceClient {
             client,
-            req_buffer: [0u8; 1024],
-            reply_buffer: [0u8; 1024],
+            req_buffer: [0u8; REQ_BUF],
+            reply_buffer: [0u8; REPLY_BUF],
             _marker: core::marker::PhantomData,
         })
     }
@@ -462,15 +573,20 @@ impl<M: RosMessage> ConnectedPublisher<M> {
 }
 
 /// A connected subscriber that can receive messages via transport
+///
+/// # Type Parameters
+///
+/// - `M`: The ROS message type to receive
+/// - `RX_BUF`: Receive buffer size in bytes (default: 1024)
 #[cfg(feature = "zenoh")]
-pub struct ConnectedSubscriber<M> {
+pub struct ConnectedSubscriber<M, const RX_BUF: usize = DEFAULT_RX_BUFFER_SIZE> {
     subscriber: ZenohSubscriber,
-    rx_buffer: [u8; 1024],
+    rx_buffer: [u8; RX_BUF],
     _marker: core::marker::PhantomData<M>,
 }
 
 #[cfg(feature = "zenoh")]
-impl<M: RosMessage> ConnectedSubscriber<M> {
+impl<M: RosMessage, const RX_BUF: usize> ConnectedSubscriber<M, RX_BUF> {
     /// Try to receive a message (non-blocking)
     ///
     /// Returns `Ok(Some(msg))` if a message was received,
@@ -490,19 +606,36 @@ impl<M: RosMessage> ConnectedSubscriber<M> {
             .try_recv_raw(buf)
             .map_err(|_| ConnectedNodeError::DeserializationFailed)
     }
+
+    /// Get the buffer size
+    pub const fn buffer_size(&self) -> usize {
+        RX_BUF
+    }
 }
 
 /// A connected service server that can handle service requests
+///
+/// # Type Parameters
+///
+/// - `S`: The ROS service type
+/// - `REQ_BUF`: Request buffer size in bytes (default: 1024)
+/// - `REPLY_BUF`: Reply buffer size in bytes (default: 1024)
 #[cfg(feature = "zenoh")]
-pub struct ConnectedServiceServer<S: RosService> {
+pub struct ConnectedServiceServer<
+    S: RosService,
+    const REQ_BUF: usize = DEFAULT_REQ_BUFFER_SIZE,
+    const REPLY_BUF: usize = DEFAULT_REPLY_BUFFER_SIZE,
+> {
     server: ZenohServiceServer,
-    req_buffer: [u8; 1024],
-    reply_buffer: [u8; 1024],
+    req_buffer: [u8; REQ_BUF],
+    reply_buffer: [u8; REPLY_BUF],
     _marker: core::marker::PhantomData<S>,
 }
 
 #[cfg(feature = "zenoh")]
-impl<S: RosService> ConnectedServiceServer<S> {
+impl<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
+    ConnectedServiceServer<S, REQ_BUF, REPLY_BUF>
+{
     /// Handle a single service request if one is available
     ///
     /// Returns `Ok(true)` if a request was handled, `Ok(false)` if no request was available.
@@ -524,19 +657,41 @@ impl<S: RosService> ConnectedServiceServer<S> {
             None => Ok(None),
         }
     }
+
+    /// Get the request buffer size
+    pub const fn request_buffer_size(&self) -> usize {
+        REQ_BUF
+    }
+
+    /// Get the reply buffer size
+    pub const fn reply_buffer_size(&self) -> usize {
+        REPLY_BUF
+    }
 }
 
 /// A connected service client that can send service requests
+///
+/// # Type Parameters
+///
+/// - `S`: The ROS service type
+/// - `REQ_BUF`: Request buffer size in bytes (default: 1024)
+/// - `REPLY_BUF`: Reply buffer size in bytes (default: 1024)
 #[cfg(feature = "zenoh")]
-pub struct ConnectedServiceClient<S: RosService> {
+pub struct ConnectedServiceClient<
+    S: RosService,
+    const REQ_BUF: usize = DEFAULT_REQ_BUFFER_SIZE,
+    const REPLY_BUF: usize = DEFAULT_REPLY_BUFFER_SIZE,
+> {
     client: ZenohServiceClient,
-    req_buffer: [u8; 1024],
-    reply_buffer: [u8; 1024],
+    req_buffer: [u8; REQ_BUF],
+    reply_buffer: [u8; REPLY_BUF],
     _marker: core::marker::PhantomData<S>,
 }
 
 #[cfg(feature = "zenoh")]
-impl<S: RosService> ConnectedServiceClient<S> {
+impl<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
+    ConnectedServiceClient<S, REQ_BUF, REPLY_BUF>
+{
     /// Call the service with a request
     ///
     /// Blocks until a reply is received or an error occurs.
@@ -553,6 +708,16 @@ impl<S: RosService> ConnectedServiceClient<S> {
         self.client
             .call_raw(request, &mut self.reply_buffer)
             .map_err(ConnectedNodeError::from)
+    }
+
+    /// Get the request buffer size
+    pub const fn request_buffer_size(&self) -> usize {
+        REQ_BUF
+    }
+
+    /// Get the reply buffer size
+    pub const fn reply_buffer_size(&self) -> usize {
+        REPLY_BUF
     }
 }
 
