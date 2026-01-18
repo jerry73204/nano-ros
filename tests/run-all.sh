@@ -21,7 +21,7 @@ QUICK=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        nano2nano|rmw-interop|rmw-detailed)
+        nano2nano|rmw-interop|rmw-detailed|zephyr)
             TEST_SUITE="$1"
             shift
             ;;
@@ -40,6 +40,7 @@ while [[ $# -gt 0 ]]; do
             echo "  nano2nano     - nano-ros to nano-ros tests"
             echo "  rmw-interop   - RMW interop tests (nano-ros <-> ROS 2)"
             echo "  rmw-detailed  - Detailed RMW protocol tests"
+            echo "  zephyr        - Zephyr QEMU integration tests (requires setup)"
             echo ""
             echo "Options:"
             echo "  --quick, -q   - Run quick subset of tests"
@@ -133,6 +134,12 @@ case "$TEST_SUITE" in
             run_suite "rmw-detailed/qos" "$SCRIPT_DIR/rmw-detailed/qos.sh"
             run_suite "rmw-detailed/attachment" "$SCRIPT_DIR/rmw-detailed/attachment.sh"
         fi
+        ;;
+    zephyr)
+        # Zephyr tests require separate setup
+        log_info "Running Zephyr QEMU tests..."
+        log_info "Note: Requires Zephyr workspace setup (./zephyr/setup.sh)"
+        run_suite "zephyr" "$SCRIPT_DIR/zephyr/run.sh"
         ;;
     "")
         # Run all tests
