@@ -1,0 +1,55 @@
+# nano-ros West Manifest
+#
+# This manifest defines the nano-ros Zephyr workspace.
+# Users initialize a workspace with:
+#
+#   west init -m https://github.com/user/nano-ros ~/nano-ros-workspace
+#   cd ~/nano-ros-workspace
+#   west update
+#
+# Or for local development:
+#
+#   west init -l /path/to/nano-ros ~/nano-ros-workspace
+#   cd ~/nano-ros-workspace
+#   west update
+
+manifest:
+  version: "1.0"
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    # Zephyr RTOS
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v3.7.0
+      import:
+        # Import Zephyr's modules, filtered to essentials
+        name-allowlist:
+          # Core
+          - cmsis
+          - picolibc
+          # Crypto
+          - mbedtls
+          - tinycrypt
+          # HALs (add more as needed for your boards)
+          - hal_stm32
+          - hal_nordic
+          - hal_espressif
+          - hal_nxp
+          # Bootloader
+          - mcuboot
+          # Tools
+          - net-tools
+
+    # Rust language support for Zephyr
+    - name: zephyr-lang-rust
+      remote: zephyrproject-rtos
+      revision: main
+      path: modules/lang/rust
+
+  self:
+    # nano-ros is the manifest repository
+    path: nano-ros
