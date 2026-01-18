@@ -122,12 +122,43 @@ Run nano-ros on Zephyr RTOS, communicating with ROS 2 nodes on Linux host.
 |------|--------|-------|
 | Core crates no_std | ✅ Complete | All crates build for `thumbv7em-none-eabihf` |
 | QEMU semihosting tests | ✅ Complete | 9 tests validating core functionality |
-| Zephyr workspace setup | ✅ Complete | `zephyr/setup.sh` + `west.yml` manifest |
-| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-talker-rs/` |
-| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-listener-rs/` |
+| Zephyr workspace setup | ✅ Complete | `zephyr/setup.sh` (installs SDK, west, Rust targets) |
+| zephyr-lang-rust | ✅ Complete | Integrated at `modules/lang/rust` |
+| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-talker-rs/` - runs on native_sim/64 |
+| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-listener-rs/` - runs on native_sim/64 |
+| nano-ros CDR on Zephyr | ✅ Complete | Serialization/deserialization working |
+| zenoh-pico integration | 🔄 Pending | Needs Zephyr module setup |
 | QEMU network scripts | ✅ Complete | `scripts/qemu/` with TAP/bridge setup |
-| Integration test script | ✅ Complete | `tests/zephyr/run.sh` |
-| Hardware testing | ⏸️ Skipped | Focus on QEMU for now |
+| Hardware testing | ⏸️ Deferred | Focus on native_sim/QEMU for now |
+
+### Quick Start: Building Zephyr Examples
+
+```bash
+# 1. Set up Zephyr workspace (one-time)
+./zephyr/setup.sh
+
+# 2. Source environment
+source ~/zephyr-nano-ros/env.sh
+
+# 3. Build talker for native_sim (64-bit, supports Rust)
+cd ~/zephyr-nano-ros
+west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -d build-talker
+
+# 4. Run
+./build-talker/zephyr/zephyr.exe
+
+# Expected output:
+# *** Booting Zephyr OS build v3.7.0 ***
+# <inf> rust: rustapp: nano-ros Zephyr Talker (Rust) Starting
+# <inf> rust: rustapp: Board: native_sim
+# <inf> rust: rustapp: [0] Would publish: data=0 (CDR 4 bytes)
+# <inf> rust: rustapp: [1] Would publish: data=1 (CDR 4 bytes)
+# ...
+```
+
+**Supported Boards for Rust:**
+- `native_sim/native/64` - Linux host simulation (64-bit, best for development)
+- Cortex-M boards (e.g., `nucleo_f429zi`) - requires zenoh-pico integration
 
 ### Work Items
 
@@ -248,10 +279,33 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 
 ---
 
+## Implementation Notes
+
+### zephyr-lang-rust Integration
+
+The Zephyr Rust examples use `zephyr-lang-rust` module which provides:
+- Rust build integration via `rust_cargo_application()` CMake function
+- `zephyr` crate with Zephyr kernel bindings (time, logging, etc.)
+- Automatic linking of Rust static library into Zephyr image
+
+Key requirements for Rust Zephyr applications:
+1. Package name must be `rustapp` in Cargo.toml
+2. Entry point is `rust_main()` function (not `main`)
+3. CMakeLists.txt must set `ZEPHYR_EXTRA_MODULES` before `find_package(Zephyr)`
+4. CONFIG_RUST=y and CONFIG_RUST_ALLOC=y in prj.conf
+5. Rust is only supported on: Cortex-M, RISC-V, or POSIX-64 platforms
+
+### zenoh-pico Integration (TODO)
+
+For actual network communication, zenoh-pico needs to be added as a Zephyr module.
+Options being evaluated:
+1. zenoh-pico as west module with Kconfig integration
+2. Pre-built zenoh-pico library linked into Zephyr
+
 ## References
 
 - [ROS 2 rmw_zenoh Interop Analysis](../rmw_zenoh_interop.md)
 - [zenoh-pico GitHub](https://github.com/eclipse-zenoh/zenoh-pico)
 - [rmw_zenoh](https://github.com/ros2/rmw_zenoh)
-- [Zephyr Rust](https://github.com/zephyrproject-rtos/zephyr-lang-rust)
+- [Zephyr Rust](https://github.com/zephyrproject-rtos/zephyr-lang-rust) - integrated at `modules/lang/rust`
 - [Zephyr Networking](https://docs.zephyrproject.org/latest/connectivity/networking/index.html)

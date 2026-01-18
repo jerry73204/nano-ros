@@ -19,6 +19,8 @@ manifest:
   remotes:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
+    - name: eclipse-zenoh
+      url-base: https://github.com/eclipse-zenoh
 
   projects:
     # Zephyr RTOS
@@ -49,6 +51,12 @@ manifest:
       remote: zephyrproject-rtos
       revision: main
       path: modules/lang/rust
+
+    # zenoh-pico - lightweight zenoh client for embedded systems
+    - name: zenoh-pico
+      remote: eclipse-zenoh
+      revision: 1.5.1
+      path: modules/lib/zenoh-pico
 
   self:
     # nano-ros is the manifest repository

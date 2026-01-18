@@ -16,6 +16,12 @@ members = [
     "examples/native-listener",
 ]
 
+# Zephyr examples use separate build system (west/CMake with zephyr-lang-rust)
+exclude = [
+    "examples/zephyr-talker-rs",
+    "examples/zephyr-listener-rs",
+]
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
