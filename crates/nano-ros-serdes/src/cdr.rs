@@ -81,6 +81,18 @@ impl<'a> CdrWriter<'a> {
         Ok(())
     }
 
+    /// Write a boolean (serialized as a single byte: 0 = false, 1 = true)
+    #[inline]
+    pub fn write_bool(&mut self, value: bool) -> Result<(), SerError> {
+        self.write_u8(value as u8)
+    }
+
+    /// Write i8 without alignment
+    #[inline]
+    pub fn write_i8(&mut self, value: i8) -> Result<(), SerError> {
+        self.write_u8(value as u8)
+    }
+
     /// Write bytes without alignment
     #[inline]
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), SerError> {
@@ -256,6 +268,18 @@ impl<'a> CdrReader<'a> {
         let value = self.buf[self.pos];
         self.pos += 1;
         Ok(value)
+    }
+
+    /// Read a boolean (deserialized from a single byte: 0 = false, non-zero = true)
+    #[inline]
+    pub fn read_bool(&mut self) -> Result<bool, DeserError> {
+        Ok(self.read_u8()? != 0)
+    }
+
+    /// Read i8 without alignment
+    #[inline]
+    pub fn read_i8(&mut self) -> Result<i8, DeserError> {
+        Ok(self.read_u8()? as i8)
     }
 
     /// Read bytes without alignment
