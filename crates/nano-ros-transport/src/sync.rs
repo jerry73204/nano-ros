@@ -233,7 +233,7 @@ pub use nosync_impl::Mutex;
 
 /// Helper functions for atomic operations used in buffers
 pub mod atomic {
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     /// Atomically load a boolean value
     #[inline]
@@ -259,19 +259,28 @@ pub mod atomic {
         val.store(new, Ordering::Release);
     }
 
+    // AtomicI64 functions are only available on platforms with 64-bit atomics
+    // (e.g., x86_64, aarch64). On 32-bit platforms like thumbv7em, these are
+    // not available. The zenoh module uses these but requires alloc/std anyway.
+    #[cfg(target_has_atomic = "64")]
+    use core::sync::atomic::AtomicI64;
+
     /// Atomically load an i64 value
+    #[cfg(target_has_atomic = "64")]
     #[inline]
     pub fn load_i64(val: &AtomicI64) -> i64 {
         val.load(Ordering::Acquire)
     }
 
     /// Atomically store an i64 value
+    #[cfg(target_has_atomic = "64")]
     #[inline]
     pub fn store_i64(val: &AtomicI64, new: i64) {
         val.store(new, Ordering::Release);
     }
 
     /// Atomically increment i64 and return new value
+    #[cfg(target_has_atomic = "64")]
     #[inline]
     pub fn fetch_add_i64(val: &AtomicI64, add: i64) -> i64 {
         val.fetch_add(add, Ordering::AcqRel)
