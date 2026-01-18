@@ -1,8 +1,8 @@
 [package]
 name = "native-talker"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [[bin]]
@@ -15,5 +15,6 @@ zenoh = ["nano-ros/zenoh"]
 
 [dependencies]
 nano-ros = { path = "../../crates/nano-ros", default-features = false, features = ["std"] }
-log = { workspace = true }
-env_logger = { workspace = true }
+std_msgs = { version = "*", default-features = false }
+log = "0.4"
+env_logger = "0.11"

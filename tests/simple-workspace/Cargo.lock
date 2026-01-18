@@ -87,11 +87,3 @@ dependencies = [
  "nano-ros-serdes",
  "std_msgs",
 ]
-
-[[patch.unused]]
-name = "builtin_interfaces"
-version = "1.2.1"
-
-[[patch.unused]]
-name = "std_msgs"
-version = "4.2.4"

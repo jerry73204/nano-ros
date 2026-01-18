@@ -26,7 +26,7 @@ use log::{debug, error, info};
 #[cfg(feature = "zenoh")]
 use log::{debug, error, info, warn};
 use nano_ros::prelude::*;
-use nano_ros::types::std_msgs::Int32;
+use std_msgs::msg::Int32;
 
 #[cfg(feature = "zenoh")]
 fn main() {

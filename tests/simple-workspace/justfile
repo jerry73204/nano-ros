@@ -1,14 +1,27 @@
 # nano-ros test workspace justfile
 #
 # This workspace tests nano-ros integration with generated message bindings.
-# Uses colcon build with colcon-nano-ros for automatic bindgen + compilation.
+# Supports two build modes:
+#   1. colcon mode: Uses colcon-nano-ros for automatic bindgen + compilation
+#   2. standalone mode: Uses cargo nano-ros generate + cargo build (for RTOS)
 #
-# Prerequisites:
+# Prerequisites (colcon mode):
 #   - direnv installed and `direnv allow` run in this directory
 #   - OR manually source the .envrc file
+#
+# Prerequisites (standalone mode):
+#   - cargo-nano-ros installed: cargo install --path ../../colcon-nano-ros/packages/cargo-nano-ros
+#   - ROS 2 sourced: source /opt/ros/humble/setup.bash
+
+# Path to cargo-nano-ros (absolute, resolved at runtime)
+cargo_nano_ros := `realpath ../../colcon-nano-ros/packages/target/release/cargo-nano-ros 2>/dev/null || echo cargo-nano-ros`
 
 # Default recipe
 default: build
+
+# =============================================================================
+# COLCON MODE (for ROS 2 desktop development)
+# =============================================================================
 
 # Build all packages using colcon
 build:
@@ -40,3 +53,46 @@ run package:
     source /opt/ros/humble/setup.bash
     source install/local_setup.bash
     ros2 run {{package}} {{package}}
+
+# =============================================================================
+# STANDALONE MODE (for Zephyr/RTOS builds without colcon)
+# =============================================================================
+
+# Build cargo-nano-ros tool
+build-tool:
+    cargo build --release -p cargo-nano-ros --manifest-path ../../colcon-nano-ros/packages/Cargo.toml
+
+# Path to nano-ros crates (for patching in config.toml)
+nano_ros_crates := `realpath ../../crates 2>/dev/null || echo ""`
+
+# Generate bindings for a package using cargo nano-ros
+generate package:
+    #!/usr/bin/env bash
+    source /opt/ros/humble/setup.bash
+    cd src/{{package}}
+    {{cargo_nano_ros}} nano-ros generate -v --output generated --config --nano-ros-path "{{nano_ros_crates}}"
+
+# Clean generated bindings for a package
+clean-generated package:
+    rm -rf src/{{package}}/generated src/{{package}}/.cargo/config.toml
+
+# Generate bindings for all packages
+generate-all: build-tool
+    #!/usr/bin/env bash
+    source /opt/ros/humble/setup.bash
+    NANO_ROS_CRATES="{{nano_ros_crates}}"
+    for pkg in src/*/; do
+        if [ -f "$pkg/package.xml" ]; then
+            echo "=== Generating bindings for $(basename $pkg) ==="
+            cd "$pkg"
+            {{cargo_nano_ros}} nano-ros generate -v --output generated --config --nano-ros-path "$NANO_ROS_CRATES"
+            cd ../..
+        fi
+    done
+
+# Build a package in standalone mode (after generating bindings)
+build-standalone package:
+    cd src/{{package}} && cargo build
+
+# Full standalone workflow: generate + build
+standalone package: build-tool (generate package) (build-standalone package)

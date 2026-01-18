@@ -23,7 +23,7 @@ use log::{error, info};
 #[cfg(feature = "zenoh")]
 use nano_ros::prelude::*;
 #[cfg(feature = "zenoh")]
-use nano_ros::types::example_interfaces::{AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse};
+use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse};
 
 #[cfg(feature = "zenoh")]
 fn main() {

@@ -14,9 +14,12 @@
 //!
 //! ## Quick Start
 //!
-//! ```no_run
+//! Message types are generated from ROS 2 interface packages using `cargo nano-ros generate`.
+//! See the examples for how to set up bindings.
+//!
+//! ```ignore
 //! use nano_ros::prelude::*;
-//! use nano_ros::types::std_msgs::Int32;
+//! use std_msgs::msg::Int32;  // Generated bindings
 //!
 //! // Create a node
 //! let config = NodeConfig::new("my_node");
@@ -37,7 +40,6 @@
 //! - `std` (default) - Enable standard library support
 //! - `alloc` - Enable heap allocation without full std
 //! - `zenoh` (default) - Enable zenoh-pico transport backend
-//! - `all-types` - Enable all message type modules
 
 #![no_std]
 
@@ -79,24 +81,6 @@ pub use nano_ros_params::{
     Parameter, ParameterDescriptor, ParameterServer, ParameterType, ParameterValue,
     SetParameterResult,
 };
-
-/// Standard message types
-///
-/// This module provides commonly used ROS 2 message types.
-pub mod types {
-    pub use nano_ros_types::builtin_interfaces;
-    pub use nano_ros_types::example_interfaces;
-    pub use nano_ros_types::geometry_msgs;
-    pub use nano_ros_types::std_msgs;
-
-    // Re-export commonly used types at the top level
-    pub use nano_ros_types::std_msgs::{Bool, Float32, Float64, Int32, Int64, String};
-
-    // Re-export service types
-    pub use nano_ros_types::example_interfaces::{
-        AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse,
-    };
-}
 
 /// Prelude module for convenient imports
 ///
@@ -141,13 +125,5 @@ mod tests {
 
         let _ = NodeConfig::new("test_node", "/");
         let _ = QosSettings::BEST_EFFORT;
-    }
-
-    #[test]
-    fn test_types_module() {
-        use crate::types::std_msgs::Int32;
-
-        let msg = Int32 { data: 42 };
-        assert_eq!(msg.data, 42);
     }
 }

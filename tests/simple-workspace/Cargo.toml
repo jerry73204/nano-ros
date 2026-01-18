@@ -3,9 +3,9 @@ resolver = "2"
 members = [
     "src/talker",
     "src/listener",
-    "generated/builtin_interfaces",
-    "generated/std_msgs",
 ]
 
-# Generated bindings are included as workspace members
-# This avoids multiple workspace root conflicts
+# In standalone mode, each package generates its own bindings via:
+#   cargo nano-ros generate --config --nano-ros-path <path>
+# This creates a .cargo/config.toml with [patch.crates-io] entries
+# pointing to the package-local generated/ directory.

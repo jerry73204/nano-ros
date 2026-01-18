@@ -6,23 +6,23 @@ members = [
     "crates/nano-ros-core",
     "crates/nano-ros-serdes",
     "crates/nano-ros-macros",
-    "crates/nano-ros-types",
     "crates/nano-ros-params",
     "crates/nano-ros-transport",
     "crates/nano-ros-node",
     "crates/zenoh-pico-sys",
     "crates/zenoh-pico",
+]
+
+# Examples are excluded from workspace - they are standalone packages
+# that generate their own bindings via `cargo nano-ros generate`
+exclude = [
+    "examples/zephyr-talker-rs",
+    "examples/zephyr-listener-rs",
     "examples/qemu-test",
     "examples/native-talker",
     "examples/native-listener",
     "examples/native-service-server",
     "examples/native-service-client",
-]
-
-# Zephyr examples use separate build system (west/CMake with zephyr-lang-rust)
-exclude = [
-    "examples/zephyr-talker-rs",
-    "examples/zephyr-listener-rs",
 ]
 
 [workspace.package]
@@ -37,7 +37,6 @@ rust-version = "1.75"
 nano-ros-core = { path = "crates/nano-ros-core", default-features = false }
 nano-ros-serdes = { path = "crates/nano-ros-serdes", default-features = false }
 nano-ros-macros = { path = "crates/nano-ros-macros" }
-nano-ros-types = { path = "crates/nano-ros-types", default-features = false }
 nano-ros-params = { path = "crates/nano-ros-params", default-features = false }
 nano-ros-transport = { path = "crates/nano-ros-transport", default-features = false }
 nano-ros-node = { path = "crates/nano-ros-node", default-features = false }

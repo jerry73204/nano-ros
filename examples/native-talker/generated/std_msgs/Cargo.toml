@@ -1,0 +1,15 @@
+[package]
+name = "std_msgs"
+version = "4.2.4"
+edition = "2021"
+
+[features]
+default = []
+std = ["nano-ros-core/std", "nano-ros-serdes/std", "builtin_interfaces/std"]
+
+[dependencies]
+# nano-ros crates (patched to local via .cargo/config.toml during development)
+nano-ros-core = { version = "*", default-features = false }
+nano-ros-serdes = { version = "*", default-features = false }
+heapless = "0.8"
+builtin_interfaces = { path = "../builtin_interfaces", default-features = false }

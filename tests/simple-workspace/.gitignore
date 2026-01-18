@@ -1,5 +1,6 @@
 /target/
 /build/
 /install/
-/generated/
+/src/talker/generated/
+/src/listener/generated/
 /log/

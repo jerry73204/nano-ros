@@ -14,7 +14,6 @@ std = [
     "nano-ros-serdes/std",
     "nano-ros-node/std",
     "nano-ros-transport/std",
-    "nano-ros-types/std",
     "nano-ros-params/std",
 ]
 alloc = [
@@ -22,19 +21,12 @@ alloc = [
     "nano-ros-serdes/alloc",
     "nano-ros-node/alloc",
     "nano-ros-transport/alloc",
-    "nano-ros-types/alloc",
     "nano-ros-params/alloc",
 ]
 zenoh = [
     "nano-ros-node/zenoh",
     "nano-ros-transport/zenoh",
 ]
-# Enable all message types
-all-types = ["std-msgs", "geometry-msgs", "sensor-msgs", "builtin-interfaces"]
-std-msgs = []
-geometry-msgs = []
-sensor-msgs = []
-builtin-interfaces = []
 
 [dependencies]
 # Core functionality
@@ -43,7 +35,6 @@ nano-ros-serdes = { path = "../nano-ros-serdes" }
 nano-ros-macros = { path = "../nano-ros-macros" }
 nano-ros-node = { path = "../nano-ros-node" }
 nano-ros-transport = { path = "../nano-ros-transport" }
-nano-ros-types = { path = "../nano-ros-types" }
 nano-ros-params = { path = "../nano-ros-params" }
 
 [dev-dependencies]

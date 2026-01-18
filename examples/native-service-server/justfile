@@ -1,0 +1,28 @@
+# justfile for native-service-server example
+
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Generate bindings from package.xml dependencies
+generate:
+    cargo nano-ros generate --force
+
+# Build the crate
+build:
+    cargo build
+
+# Generate bindings and build
+all: generate build
+
+# Run the example (pass args after --)
+run *ARGS:
+    cargo run -- {{ARGS}}
+
+# Clean generated bindings and build artifacts
+clean:
+    rm -rf generated .cargo/config.toml target
+
+# Clean only generated bindings (keep build cache)
+clean-bindings:
+    rm -rf generated .cargo/config.toml
