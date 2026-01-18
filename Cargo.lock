@@ -403,6 +403,7 @@ dependencies = [
  "nano-ros-core",
  "nano-ros-macros",
  "nano-ros-node",
+ "nano-ros-params",
  "nano-ros-serdes",
  "nano-ros-transport",
  "nano-ros-types",

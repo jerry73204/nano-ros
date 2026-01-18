@@ -15,6 +15,7 @@ std = [
     "nano-ros-node/std",
     "nano-ros-transport/std",
     "nano-ros-types/std",
+    "nano-ros-params/std",
 ]
 alloc = [
     "nano-ros-core/alloc",
@@ -22,6 +23,7 @@ alloc = [
     "nano-ros-node/alloc",
     "nano-ros-transport/alloc",
     "nano-ros-types/alloc",
+    "nano-ros-params/alloc",
 ]
 zenoh = [
     "nano-ros-node/zenoh",
@@ -42,6 +44,7 @@ nano-ros-macros = { path = "../nano-ros-macros" }
 nano-ros-node = { path = "../nano-ros-node" }
 nano-ros-transport = { path = "../nano-ros-transport" }
 nano-ros-types = { path = "../nano-ros-types" }
+nano-ros-params = { path = "../nano-ros-params" }
 
 [dev-dependencies]
 

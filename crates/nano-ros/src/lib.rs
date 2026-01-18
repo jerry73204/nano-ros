@@ -74,6 +74,12 @@ pub use nano_ros_transport::{Ros2Liveliness, ZenohSession, ZenohTransport};
 // Re-export service types
 pub use nano_ros_core::{ServiceClient, ServiceServer};
 
+// Re-export parameter types
+pub use nano_ros_params::{
+    Parameter, ParameterDescriptor, ParameterServer, ParameterType, ParameterValue,
+    SetParameterResult,
+};
+
 /// Standard message types
 ///
 /// This module provides commonly used ROS 2 message types.
@@ -103,6 +109,9 @@ pub mod prelude {
         ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedServiceClient,
         ConnectedServiceServer, ConnectedSubscriber, SessionMode,
     };
+
+    // Re-export parameter types
+    pub use crate::{ParameterServer, ParameterType, ParameterValue};
 
     // Re-export Time from core
     pub use nano_ros_core::Time;
