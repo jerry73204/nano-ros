@@ -85,11 +85,17 @@ pub use nano_ros_params::{
 /// This module provides commonly used ROS 2 message types.
 pub mod types {
     pub use nano_ros_types::builtin_interfaces;
+    pub use nano_ros_types::example_interfaces;
     pub use nano_ros_types::geometry_msgs;
     pub use nano_ros_types::std_msgs;
 
     // Re-export commonly used types at the top level
     pub use nano_ros_types::std_msgs::{Bool, Float32, Float64, Int32, Int64, String};
+
+    // Re-export service types
+    pub use nano_ros_types::example_interfaces::{
+        AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse,
+    };
 }
 
 /// Prelude module for convenient imports
