@@ -205,3 +205,44 @@ zephyr-help:
     @echo "Quick start (assuming Zephyr is installed):"
     @echo "  west build -b qemu_cortex_m3 examples/zephyr-talker"
     @echo "  west build -t run"
+
+# =============================================================================
+# Real-Time Static Analysis
+# =============================================================================
+
+# Run Clippy with real-time safety lints
+check-realtime:
+    @echo "Running Clippy with real-time safety lints..."
+    cargo clippy --workspace --exclude qemu-test --no-default-features -- \
+        -D warnings \
+        -D clippy::infinite_iter \
+        -D clippy::while_immutable_condition \
+        -D clippy::never_loop \
+        -D clippy::empty_loop \
+        -D clippy::unconditional_recursion \
+        -W clippy::large_stack_arrays \
+        -W clippy::large_types_passed_by_value
+    @echo "Real-time lint checks passed!"
+
+# Run Miri for undefined behavior detection
+check-miri:
+    @echo "Running Miri on safe crates..."
+    cargo +nightly miri test -p nano-ros-serdes
+    cargo +nightly miri test -p nano-ros-core
+    cargo +nightly miri test -p nano-ros-types
+    @echo "Miri checks passed!"
+
+# Analyze stack usage for embedded examples (requires nightly)
+analyze-stack:
+    @echo "Analyzing stack usage for RTIC example..."
+    cd examples/rtic-stm32f4 && \
+        RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release 2>&1 | head -20
+    @echo ""
+    @echo "Note: For full call graph analysis, install cargo-call-stack:"
+    @echo "  cargo +nightly install cargo-call-stack"
+    @echo "  cd examples/rtic-stm32f4 && cargo +nightly call-stack --release"
+
+# Run all static analysis checks
+static-analysis: check-realtime check-miri
+    @echo ""
+    @echo "All static analysis checks passed!"
