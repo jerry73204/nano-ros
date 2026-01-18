@@ -397,6 +397,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "nano-ros"
+version = "0.1.0"
+dependencies = [
+ "nano-ros-core",
+ "nano-ros-macros",
+ "nano-ros-node",
+ "nano-ros-serdes",
+ "nano-ros-transport",
+ "nano-ros-types",
+]
+
+[[package]]
 name = "nano-ros-core"
 version = "0.1.0"
 dependencies = [
