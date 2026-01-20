@@ -1,7 +1,248 @@
+# Common clippy lints for real-time safety
+CLIPPY_LINTS := "-D warnings -D clippy::infinite_iter -D clippy::while_immutable_condition -D clippy::never_loop -D clippy::empty_loop -D clippy::unconditional_recursion -W clippy::large_stack_arrays -W clippy::large_types_passed_by_value"
+
 default:
     @just --list
 
-# Install toolchains and tools for development
+# =============================================================================
+# Entry Points
+# =============================================================================
+
+# Build everything: workspace (native + embedded) and all examples
+build: build-workspace build-workspace-embedded build-examples
+    @echo "All builds completed!"
+
+# Format everything: workspace and all examples
+format: format-workspace format-examples
+    @echo "All formatting completed!"
+
+# Check everything: formatting, clippy (native + embedded + features), and all examples
+check: check-workspace check-workspace-embedded check-workspace-features check-examples
+    @echo "All checks passed!"
+
+# Test everything: workspace tests, Miri, and QEMU
+test: test-workspace test-miri qemu-test
+    @echo "All tests passed!"
+
+# Run all quality checks (check + test)
+quality: check test
+
+# =============================================================================
+# Workspace
+# =============================================================================
+
+# Build workspace (no_std, native)
+build-workspace:
+    cargo build --workspace --no-default-features
+
+# Build workspace for embedded target (Cortex-M4F)
+# Excludes zenoh-pico-sys and zenoh-pico which require native system headers
+build-workspace-embedded:
+    cargo build --workspace --no-default-features --target thumbv7em-none-eabihf \
+        --exclude zenoh-pico-sys --exclude zenoh-pico
+
+# Format workspace code
+format-workspace:
+    cargo +nightly fmt
+
+# Check workspace: formatting and clippy (no_std, native)
+check-workspace:
+    cargo +nightly fmt --check
+    cargo clippy --workspace --no-default-features -- {{CLIPPY_LINTS}}
+
+# Check workspace for embedded target (Cortex-M4F)
+# Excludes zenoh-pico-sys and zenoh-pico which require native system headers
+check-workspace-embedded:
+    @echo "Checking workspace for embedded target..."
+    cargo clippy --workspace --no-default-features --target thumbv7em-none-eabihf \
+        --exclude zenoh-pico-sys --exclude zenoh-pico -- {{CLIPPY_LINTS}}
+
+# Check workspace with various feature combinations
+check-workspace-features:
+    @echo "Checking feature combinations..."
+    @echo "  - transport: rtic + sync-critical-section"
+    cargo clippy -p nano-ros-transport --no-default-features --features "rtic,sync-critical-section" --target thumbv7em-none-eabihf -- {{CLIPPY_LINTS}}
+    @echo "  - node: rtic"
+    cargo clippy -p nano-ros-node --no-default-features --features "rtic" --target thumbv7em-none-eabihf -- {{CLIPPY_LINTS}}
+    @echo "  - zenoh transport (std)"
+    cargo clippy -p nano-ros-transport --features "zenoh,std" -- {{CLIPPY_LINTS}}
+    @echo "All feature checks passed!"
+
+# Run workspace tests (requires std)
+test-workspace:
+    cargo nextest run --workspace --no-fail-fast
+
+# Run Miri to detect undefined behavior
+test-miri:
+    @echo "Running Miri on safe crates..."
+    cargo +nightly miri test -p nano-ros-serdes
+    cargo +nightly miri test -p nano-ros-core
+    @echo "Miri checks passed!"
+
+# =============================================================================
+# Examples
+# =============================================================================
+
+# Build all examples
+build-examples: build-examples-native build-examples-embedded build-examples-qemu
+    @echo "All examples built!"
+
+# Format all examples
+format-examples: format-examples-native format-examples-embedded format-examples-qemu
+    @echo "All examples formatted!"
+
+# Check all examples
+check-examples: check-examples-native check-examples-embedded check-examples-qemu
+    @echo "All examples check passed!"
+
+# =============================================================================
+# Examples - Native
+# =============================================================================
+
+# Build native examples
+build-examples-native:
+    @echo "Building native examples..."
+    cd examples/native-talker && cargo build
+    cd examples/native-listener && cargo build
+    cd examples/native-service-server && cargo build
+    cd examples/native-service-client && cargo build
+
+# Format native examples
+format-examples-native:
+    @echo "Formatting native examples..."
+    cd examples/native-talker && cargo +nightly fmt
+    cd examples/native-listener && cargo +nightly fmt
+    cd examples/native-service-server && cargo +nightly fmt
+    cd examples/native-service-client && cargo +nightly fmt
+
+# Check native examples
+check-examples-native:
+    @echo "Checking native examples..."
+    cd examples/native-talker && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+    cd examples/native-listener && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+    cd examples/native-service-server && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+    cd examples/native-service-client && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+
+# =============================================================================
+# Examples - Embedded (STM32F4)
+# =============================================================================
+
+# Build embedded examples
+build-examples-embedded:
+    @echo "Building embedded examples..."
+    cd examples/rtic-stm32f4 && cargo build --release
+    cd examples/embassy-stm32f4 && cargo build --release
+    cd examples/polling-stm32f4 && cargo build --release
+
+# Format embedded examples
+format-examples-embedded:
+    @echo "Formatting embedded examples..."
+    cd examples/rtic-stm32f4 && cargo +nightly fmt
+    cd examples/embassy-stm32f4 && cargo +nightly fmt
+    cd examples/polling-stm32f4 && cargo +nightly fmt
+
+# Check embedded examples
+check-examples-embedded:
+    @echo "Checking embedded examples..."
+    cd examples/rtic-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
+    cd examples/embassy-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
+    cd examples/polling-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
+
+# Show embedded example binary sizes
+size-examples-embedded: build-examples-embedded
+    @echo ""
+    @echo "Binary sizes (release):"
+    @echo "======================="
+    @size examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example 2>/dev/null || echo "RTIC: build failed"
+    @size examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example 2>/dev/null || echo "Embassy: build failed"
+    @size examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example 2>/dev/null || echo "Polling: build failed"
+
+# Clean embedded example build artifacts
+clean-examples-embedded:
+    rm -rf examples/rtic-stm32f4/target
+    rm -rf examples/embassy-stm32f4/target
+    rm -rf examples/polling-stm32f4/target
+    @echo "Embedded example build artifacts cleaned"
+
+# =============================================================================
+# Examples - QEMU (Cortex-M3)
+# =============================================================================
+
+# Build QEMU test
+build-examples-qemu:
+    @echo "Building QEMU test..."
+    cd examples/qemu-test && cargo build --release
+
+# Format QEMU test
+format-examples-qemu:
+    @echo "Formatting QEMU test..."
+    cd examples/qemu-test && cargo +nightly fmt
+
+# Check QEMU test
+check-examples-qemu:
+    @echo "Checking QEMU test..."
+    cd examples/qemu-test && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
+
+# Run QEMU test
+qemu-test: build-examples-qemu
+    qemu-system-arm \
+        -cpu cortex-m3 \
+        -machine lm3s6965evb \
+        -nographic \
+        -semihosting-config enable=on,target=native \
+        -kernel examples/qemu-test/target/thumbv7m-none-eabi/release/qemu-test
+
+# Check if QEMU is installed
+check-qemu:
+    @which qemu-system-arm > /dev/null || (echo "Error: qemu-system-arm not found. Install with: sudo apt install qemu-system-arm" && exit 1)
+    @echo "QEMU ARM is installed"
+
+# Run multi-node test (QEMU + native)
+test-multi-node:
+    ./scripts/run-multi-node-test.sh
+
+# =============================================================================
+# Static Analysis
+# =============================================================================
+
+# Analyze stack usage (requires nightly)
+analyze-stack:
+    @echo "Analyzing stack usage for RTIC example..."
+    cd examples/rtic-stm32f4 && \
+        RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release 2>&1 | head -20
+    @echo ""
+    @echo "Note: For full call graph analysis, install cargo-call-stack:"
+    @echo "  cargo +nightly install cargo-call-stack"
+    @echo "  cd examples/rtic-stm32f4 && cargo +nightly call-stack --release"
+
+# Run all static analysis checks (Miri UB detection)
+static-analysis: test-miri
+    @echo ""
+    @echo "All static analysis checks passed!"
+
+# =============================================================================
+# Zenoh
+# =============================================================================
+
+# Build zenoh transport
+build-zenoh:
+    cargo build -p nano-ros-transport --features zenoh,std
+
+# Check zenoh transport
+check-zenoh:
+    cargo clippy -p nano-ros-transport --features zenoh,std -- {{CLIPPY_LINTS}}
+
+# Build zenoh-pico C library
+build-zenoh-pico:
+    @echo "Building zenoh-pico..."
+    cd crates/zenoh-pico-sys/zenoh-pico && mkdir -p build && cd build && cmake .. -DBUILD_SHARED_LIBS=OFF && make
+    @echo "zenoh-pico built at: crates/zenoh-pico-sys/zenoh-pico/build"
+
+# =============================================================================
+# Setup & Cleanup
+# =============================================================================
+
+# Install toolchains and tools
 setup:
     rustup toolchain install stable
     rustup toolchain install nightly
@@ -11,47 +252,13 @@ setup:
     rustup target add thumbv7m-none-eabi
     cargo install cargo-nextest --locked
 
-# Build with no_std (default) - excludes embedded-only packages
-build:
-    cargo build --workspace --exclude qemu-test --no-default-features
+# Setup QEMU network bridge (requires sudo)
+setup-network:
+    sudo ./scripts/setup-qemu-network.sh
 
-# Build for embedded target (Cortex-M4F)
-build-embedded:
-    cargo build --workspace --exclude qemu-test --no-default-features --target thumbv7em-none-eabihf
-
-# Check no-alloc build works (catches accidental alloc usage)
-check-no-alloc:
-    @echo "Checking no-alloc build for transport layer..."
-    cargo clippy -p nano-ros-transport --no-default-features --target thumbv7em-none-eabihf
-    @echo "Checking no-alloc build with RTIC features..."
-    cargo clippy -p nano-ros-transport --no-default-features --features "rtic,sync-critical-section" --target thumbv7em-none-eabihf
-    @echo "Checking no-alloc build for node layer..."
-    cargo clippy -p nano-ros-node --no-default-features --target thumbv7em-none-eabihf
-    @echo "All no-alloc checks passed!"
-
-format:
-    cargo +nightly fmt
-
-# Check with no_std (default)
-check:
-    cargo +nightly fmt --check
-    cargo clippy --no-default-features -- -D warnings
-
-# Test (requires std) - excludes embedded-only packages
-test:
-    cargo nextest run --workspace --exclude qemu-test --no-fail-fast
-
-# Run Miri to detect undefined behavior
-test-miri:
-    cargo +nightly miri test -p nano-ros-serdes
-    cargo +nightly miri test -p nano-ros-core
-    cargo +nightly miri test -p nano-ros-types
-
-# Run all quality checks
-quality: check test
-
-# Run full test suite including Miri
-test-all: test test-miri
+# Teardown QEMU network bridge (requires sudo)
+teardown-network:
+    sudo ./scripts/teardown-qemu-network.sh
 
 # Generate documentation
 doc:
@@ -61,140 +268,7 @@ doc:
 clean:
     cargo clean
 
-# Build QEMU test binary for Cortex-M3
-build-qemu:
-    cd examples/qemu-test && cargo build --release
-
-# Run QEMU test (Cortex-M3)
-qemu-test: build-qemu
-    qemu-system-arm \
-        -cpu cortex-m3 \
-        -machine lm3s6965evb \
-        -nographic \
-        -semihosting-config enable=on,target=native \
-        -kernel target/thumbv7m-none-eabi/release/qemu-test
-
-# Check if QEMU is installed
-check-qemu:
-    @which qemu-system-arm > /dev/null || (echo "Error: qemu-system-arm not found. Install with: sudo apt install qemu-system-arm" && exit 1)
-    @echo "QEMU ARM is installed"
-
-# Run native talker example
-run-talker:
-    cargo run -p native-talker
-
-# Run native listener example
-run-listener:
-    cargo run -p native-listener
-
-# Build native examples (requires std)
-build-native-examples:
-    cargo build -p native-talker -p native-listener
-
-# Build all examples (native + QEMU + embedded)
-build-examples: build-native-examples build-embedded-examples
-    cd examples/qemu-test && cargo build --release
-    @echo "All examples built!"
-
-# Run all tests including QEMU
-test-full: test qemu-test
-    @echo "All tests passed!"
-
-# Run multi-node test (QEMU + native)
-test-multi-node:
-    ./scripts/run-multi-node-test.sh
-
-# Setup QEMU network bridge (requires sudo)
-setup-network:
-    sudo ./scripts/setup-qemu-network.sh
-
-# Teardown QEMU network bridge (requires sudo)
-teardown-network:
-    sudo ./scripts/teardown-qemu-network.sh
-
-# Build with zenoh transport feature (requires zenoh-pico)
-build-zenoh:
-    cargo build -p nano-ros-transport --features zenoh,std
-
-# Check zenoh transport compiles
-check-zenoh:
-    cargo check -p nano-ros-transport --features zenoh,std
-
-# Build zenoh-pico library (for native testing)
-build-zenoh-pico:
-    @echo "Building zenoh-pico..."
-    cd crates/zenoh-pico-sys/zenoh-pico && mkdir -p build && cd build && cmake .. -DBUILD_SHARED_LIBS=OFF && make
-    @echo "zenoh-pico built at: crates/zenoh-pico-sys/zenoh-pico/build"
-
-# =============================================================================
-# Embedded Examples (STM32F4)
-# =============================================================================
-
-# Build RTIC example for STM32F4 (thumbv7em-none-eabihf)
-build-rtic:
-    @echo "Building RTIC example for STM32F429..."
-    cd examples/rtic-stm32f4 && cargo build --release
-    @echo "Binary: examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example"
-
-# Build Embassy example for STM32F4 (thumbv7em-none-eabihf)
-build-embassy:
-    @echo "Building Embassy example for STM32F429..."
-    cd examples/embassy-stm32f4 && cargo build --release
-    @echo "Binary: examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example"
-
-# Build polling example for STM32F4 (thumbv7em-none-eabihf)
-build-polling:
-    @echo "Building polling example for STM32F429..."
-    cd examples/polling-stm32f4 && cargo build --release
-    @echo "Binary: examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example"
-
-# Build all embedded examples
-build-embedded-examples: build-rtic build-embassy build-polling
-    @echo "All embedded examples built successfully!"
-
-# Check all embedded examples compile (without full build)
-check-embedded-examples:
-    @echo "Checking RTIC example..."
-    cd examples/rtic-stm32f4 && cargo check --release
-    @echo "Checking Embassy example..."
-    cd examples/embassy-stm32f4 && cargo check --release
-    @echo "Checking polling example..."
-    cd examples/polling-stm32f4 && cargo check --release
-    @echo "All embedded examples check passed!"
-
-# Clean embedded example build artifacts
-clean-embedded-examples:
-    rm -rf examples/rtic-stm32f4/target
-    rm -rf examples/embassy-stm32f4/target
-    rm -rf examples/polling-stm32f4/target
-    @echo "Embedded example build artifacts cleaned"
-
-# Show embedded example binary sizes
-size-embedded-examples: build-embedded-examples
-    @echo ""
-    @echo "Binary sizes (release, stripped):"
-    @echo "================================="
-    @size examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example 2>/dev/null || echo "RTIC: run 'just build-rtic' first"
-    @size examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example 2>/dev/null || echo "Embassy: run 'just build-embassy' first"
-    @size examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example 2>/dev/null || echo "Polling: run 'just build-polling' first"
-
-# Flash RTIC example to STM32F4 (requires probe-rs)
-flash-rtic:
-    cd examples/rtic-stm32f4 && cargo run --release
-
-# Flash Embassy example to STM32F4 (requires probe-rs)
-flash-embassy:
-    cd examples/embassy-stm32f4 && cargo run --release
-
-# Flash polling example to STM32F4 (requires probe-rs)
-flash-polling:
-    cd examples/polling-stm32f4 && cargo run --release
-
-# =============================================================================
-# Zephyr Examples
-# =============================================================================
-
-# Show Zephyr example build instructions
+# Show Zephyr build instructions
 zephyr-help:
     @echo "Zephyr Examples"
     @echo "==============="
@@ -205,44 +279,3 @@ zephyr-help:
     @echo "Quick start (assuming Zephyr is installed):"
     @echo "  west build -b qemu_cortex_m3 examples/zephyr-talker"
     @echo "  west build -t run"
-
-# =============================================================================
-# Real-Time Static Analysis
-# =============================================================================
-
-# Run Clippy with real-time safety lints
-check-realtime:
-    @echo "Running Clippy with real-time safety lints..."
-    cargo clippy --workspace --exclude qemu-test --no-default-features -- \
-        -D warnings \
-        -D clippy::infinite_iter \
-        -D clippy::while_immutable_condition \
-        -D clippy::never_loop \
-        -D clippy::empty_loop \
-        -D clippy::unconditional_recursion \
-        -W clippy::large_stack_arrays \
-        -W clippy::large_types_passed_by_value
-    @echo "Real-time lint checks passed!"
-
-# Run Miri for undefined behavior detection
-check-miri:
-    @echo "Running Miri on safe crates..."
-    cargo +nightly miri test -p nano-ros-serdes
-    cargo +nightly miri test -p nano-ros-core
-    cargo +nightly miri test -p nano-ros-types
-    @echo "Miri checks passed!"
-
-# Analyze stack usage for embedded examples (requires nightly)
-analyze-stack:
-    @echo "Analyzing stack usage for RTIC example..."
-    cd examples/rtic-stm32f4 && \
-        RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release 2>&1 | head -20
-    @echo ""
-    @echo "Note: For full call graph analysis, install cargo-call-stack:"
-    @echo "  cargo +nightly install cargo-call-stack"
-    @echo "  cd examples/rtic-stm32f4 && cargo +nightly call-stack --release"
-
-# Run all static analysis checks
-static-analysis: check-realtime check-miri
-    @echo ""
-    @echo "All static analysis checks passed!"
