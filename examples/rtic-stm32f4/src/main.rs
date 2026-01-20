@@ -77,12 +77,12 @@ mod app {
         Mono::start(cx.core.SYST, 168_000_000); // 168MHz for STM32F429
 
         // Configure clocks using new stm32f4xx-hal 0.23 API
-        let mut rcc = cx
-            .device
-            .RCC
-            .freeze(Config::hse(8.MHz()).sysclk(168.MHz()));
+        let mut rcc = cx.device.RCC.freeze(Config::hse(8.MHz()).sysclk(168.MHz()));
 
-        defmt::info!("Clocks configured: sysclk = {} Hz", rcc.clocks.sysclk().to_Hz());
+        defmt::info!(
+            "Clocks configured: sysclk = {} Hz",
+            rcc.clocks.sysclk().to_Hz()
+        );
 
         // Configure GPIO for LED (PB7 on NUCLEO-F429ZI)
         let gpiob = cx.device.GPIOB.split(&mut rcc);

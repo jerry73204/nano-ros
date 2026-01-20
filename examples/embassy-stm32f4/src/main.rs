@@ -162,9 +162,7 @@ async fn publisher_task(mut led: Output<'static>) {
         led.toggle();
 
         // Send publish request to node handler
-        PUBLISH_CHANNEL
-            .send(PublishRequest { counter })
-            .await;
+        PUBLISH_CHANNEL.send(PublishRequest { counter }).await;
 
         defmt::info!("Publisher: sent counter = {}", counter);
 

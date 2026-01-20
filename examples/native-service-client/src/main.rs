@@ -21,9 +21,9 @@ use log::info;
 use log::{error, info};
 
 #[cfg(feature = "zenoh")]
-use nano_ros::prelude::*;
-#[cfg(feature = "zenoh")]
 use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest};
+#[cfg(feature = "zenoh")]
+use nano_ros::prelude::*;
 
 #[cfg(feature = "zenoh")]
 fn main() {
@@ -36,7 +36,8 @@ fn main() {
     let config = NodeConfig::new("add_two_ints_client", "/");
 
     // Connect to zenoh router
-    let mut node = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447") {
+    let mut node: ConnectedNode = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447")
+    {
         Ok(node) => {
             info!("Connected to zenoh router at tcp/127.0.0.1:7447");
             node
