@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// String message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct String {
-    
     pub data: heapless::String<256>,
-    
 }
 
 impl Serialize for String {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_string(self.data.as_str())?;
-        
-        
         Ok(())
     }
 }
@@ -29,14 +21,10 @@ impl Serialize for String {
 impl Deserialize for String {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: {
                 let s = reader.read_string()?;
                 heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
             },
-            
-            
         })
     }
 }

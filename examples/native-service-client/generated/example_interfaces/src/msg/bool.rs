@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// Bool message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Bool {
-    
     pub data: bool,
-    
 }
 
 impl Serialize for Bool {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_bool(self.data)?;
-        
-        
         Ok(())
     }
 }
@@ -29,11 +21,7 @@ impl Serialize for Bool {
 impl Deserialize for Bool {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: reader.read_bool()?,
-            
-            
         })
     }
 }

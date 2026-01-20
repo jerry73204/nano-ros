@@ -16,6 +16,7 @@ pub struct Byte {
 }
 
 impl Serialize for Byte {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -24,9 +25,11 @@ impl Serialize for Byte {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Byte {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -36,6 +39,7 @@ impl Deserialize for Byte {
             
         })
     }
+    
 }
 
 impl RosMessage for Byte {

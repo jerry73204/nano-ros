@@ -18,6 +18,7 @@ pub struct Time {
 }
 
 impl Serialize for Time {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -30,9 +31,11 @@ impl Serialize for Time {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Time {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -46,6 +49,7 @@ impl Deserialize for Time {
             
         })
     }
+    
 }
 
 impl RosMessage for Time {

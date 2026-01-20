@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// UInt16 message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UInt16 {
-    
     pub data: u16,
-    
 }
 
 impl Serialize for UInt16 {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_u16(self.data)?;
-        
-        
         Ok(())
     }
 }
@@ -29,11 +21,7 @@ impl Serialize for UInt16 {
 impl Deserialize for UInt16 {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: reader.read_u16()?,
-            
-            
         })
     }
 }

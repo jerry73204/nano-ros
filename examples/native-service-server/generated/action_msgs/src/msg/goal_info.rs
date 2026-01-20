@@ -5,29 +5,17 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// GoalInfo message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GoalInfo {
-    
     pub goal_id: unique_identifier_msgs::msg::UUID,
-    
     pub stamp: builtin_interfaces::msg::Time,
-    
 }
 
 impl Serialize for GoalInfo {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         self.goal_id.serialize(writer)?;
-        
-        
-        
         self.stamp.serialize(writer)?;
-        
-        
         Ok(())
     }
 }
@@ -35,15 +23,8 @@ impl Serialize for GoalInfo {
 impl Deserialize for GoalInfo {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             goal_id: Deserialize::deserialize(reader)?,
-            
-            
-            
             stamp: Deserialize::deserialize(reader)?,
-            
-            
         })
     }
 }

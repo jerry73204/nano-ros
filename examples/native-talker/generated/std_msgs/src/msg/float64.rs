@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// Float64 message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Float64 {
-    
     pub data: f64,
-    
 }
 
 impl Serialize for Float64 {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_f64(self.data)?;
-        
-        
         Ok(())
     }
 }
@@ -29,11 +21,7 @@ impl Serialize for Float64 {
 impl Deserialize for Float64 {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: reader.read_f64()?,
-            
-            
         })
     }
 }

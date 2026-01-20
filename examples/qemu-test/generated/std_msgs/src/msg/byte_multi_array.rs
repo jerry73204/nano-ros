@@ -18,6 +18,7 @@ pub struct ByteMultiArray {
 }
 
 impl Serialize for ByteMultiArray {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -35,9 +36,11 @@ impl Serialize for ByteMultiArray {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for ByteMultiArray {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -60,6 +63,7 @@ impl Deserialize for ByteMultiArray {
             
         })
     }
+    
 }
 
 impl RosMessage for ByteMultiArray {

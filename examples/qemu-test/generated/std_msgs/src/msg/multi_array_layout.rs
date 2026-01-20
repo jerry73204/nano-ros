@@ -18,6 +18,7 @@ pub struct MultiArrayLayout {
 }
 
 impl Serialize for MultiArrayLayout {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -35,9 +36,11 @@ impl Serialize for MultiArrayLayout {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for MultiArrayLayout {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -60,6 +63,7 @@ impl Deserialize for MultiArrayLayout {
             
         })
     }
+    
 }
 
 impl RosMessage for MultiArrayLayout {

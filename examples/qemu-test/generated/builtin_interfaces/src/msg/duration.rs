@@ -18,6 +18,7 @@ pub struct Duration {
 }
 
 impl Serialize for Duration {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -30,9 +31,11 @@ impl Serialize for Duration {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Duration {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -46,6 +49,7 @@ impl Deserialize for Duration {
             
         })
     }
+    
 }
 
 impl RosMessage for Duration {

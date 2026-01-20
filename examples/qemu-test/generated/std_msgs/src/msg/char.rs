@@ -16,6 +16,7 @@ pub struct Char {
 }
 
 impl Serialize for Char {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -24,9 +25,11 @@ impl Serialize for Char {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Char {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -36,6 +39,7 @@ impl Deserialize for Char {
             
         })
     }
+    
 }
 
 impl RosMessage for Char {

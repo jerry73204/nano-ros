@@ -18,6 +18,7 @@ pub struct Float32MultiArray {
 }
 
 impl Serialize for Float32MultiArray {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -35,9 +36,11 @@ impl Serialize for Float32MultiArray {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Float32MultiArray {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -60,6 +63,7 @@ impl Deserialize for Float32MultiArray {
             
         })
     }
+    
 }
 
 impl RosMessage for Float32MultiArray {

@@ -16,6 +16,7 @@ pub struct Bool {
 }
 
 impl Serialize for Bool {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -24,9 +25,11 @@ impl Serialize for Bool {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Bool {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -36,6 +39,7 @@ impl Deserialize for Bool {
             
         })
     }
+    
 }
 
 impl RosMessage for Bool {

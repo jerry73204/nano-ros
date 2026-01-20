@@ -101,14 +101,19 @@ mod tests {
     // Mock service for testing
     struct MockService;
 
+    // Mock types for testing - fields exist for structural completeness but are not
+    // read since the mock serialize/deserialize implementations are no-ops
     #[derive(Debug, Clone)]
     struct MockRequest {
+        #[allow(dead_code)]
         pub a: i32,
+        #[allow(dead_code)]
         pub b: i32,
     }
 
     #[derive(Debug, Clone)]
     struct MockReply {
+        #[allow(dead_code)]
         pub sum: i32,
     }
 

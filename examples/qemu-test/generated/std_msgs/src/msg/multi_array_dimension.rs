@@ -20,6 +20,7 @@ pub struct MultiArrayDimension {
 }
 
 impl Serialize for MultiArrayDimension {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -36,9 +37,11 @@ impl Serialize for MultiArrayDimension {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for MultiArrayDimension {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -59,6 +62,7 @@ impl Deserialize for MultiArrayDimension {
             
         })
     }
+    
 }
 
 impl RosMessage for MultiArrayDimension {

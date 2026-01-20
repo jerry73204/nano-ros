@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// Int8 message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Int8 {
-    
     pub data: i8,
-    
 }
 
 impl Serialize for Int8 {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_i8(self.data)?;
-        
-        
         Ok(())
     }
 }
@@ -29,11 +21,7 @@ impl Serialize for Int8 {
 impl Deserialize for Int8 {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: reader.read_i8()?,
-            
-            
         })
     }
 }

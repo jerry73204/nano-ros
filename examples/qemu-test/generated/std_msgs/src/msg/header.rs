@@ -18,6 +18,7 @@ pub struct Header {
 }
 
 impl Serialize for Header {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -30,9 +31,11 @@ impl Serialize for Header {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Header {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -49,6 +52,7 @@ impl Deserialize for Header {
             
         })
     }
+    
 }
 
 impl RosMessage for Header {

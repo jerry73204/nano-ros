@@ -16,6 +16,7 @@ pub struct Int64 {
 }
 
 impl Serialize for Int64 {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -24,9 +25,11 @@ impl Serialize for Int64 {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for Int64 {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -36,6 +39,7 @@ impl Deserialize for Int64 {
             
         })
     }
+    
 }
 
 impl RosMessage for Int64 {

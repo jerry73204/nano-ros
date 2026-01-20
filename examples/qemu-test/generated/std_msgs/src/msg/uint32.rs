@@ -16,6 +16,7 @@ pub struct UInt32 {
 }
 
 impl Serialize for UInt32 {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -24,9 +25,11 @@ impl Serialize for UInt32 {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for UInt32 {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -36,6 +39,7 @@ impl Deserialize for UInt32 {
             
         })
     }
+    
 }
 
 impl RosMessage for UInt32 {

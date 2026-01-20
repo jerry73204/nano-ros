@@ -14,18 +14,21 @@ pub struct Empty {
 }
 
 impl Serialize for Empty {
-    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
+    
+    // Empty message - no fields to serialize
+    fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
         Ok(())
     }
+    
 }
 
 impl Deserialize for Empty {
-    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
-        Ok(Self {
-            
-        })
+    
+    // Empty message - no fields to deserialize
+    fn deserialize(_reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {})
     }
+    
 }
 
 impl RosMessage for Empty {

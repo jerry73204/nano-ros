@@ -22,6 +22,7 @@ pub struct ColorRGBA {
 }
 
 impl Serialize for ColorRGBA {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -42,9 +43,11 @@ impl Serialize for ColorRGBA {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for ColorRGBA {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -66,6 +69,7 @@ impl Deserialize for ColorRGBA {
             
         })
     }
+    
 }
 
 impl RosMessage for ColorRGBA {

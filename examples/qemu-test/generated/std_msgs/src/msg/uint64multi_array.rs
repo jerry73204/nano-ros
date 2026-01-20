@@ -18,6 +18,7 @@ pub struct UInt64MultiArray {
 }
 
 impl Serialize for UInt64MultiArray {
+    
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
         
         
@@ -35,9 +36,11 @@ impl Serialize for UInt64MultiArray {
         
         Ok(())
     }
+    
 }
 
 impl Deserialize for UInt64MultiArray {
+    
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
             
@@ -60,6 +63,7 @@ impl Deserialize for UInt64MultiArray {
             
         })
     }
+    
 }
 
 impl RosMessage for UInt64MultiArray {

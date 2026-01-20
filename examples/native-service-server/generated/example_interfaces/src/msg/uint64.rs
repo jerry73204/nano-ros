@@ -5,23 +5,15 @@
 use nano_ros_core::{RosMessage, Serialize, Deserialize};
 use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
 
-
-
 /// UInt64 message type
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UInt64 {
-    
     pub data: u64,
-    
 }
 
 impl Serialize for UInt64 {
     fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
-        
-        
         writer.write_u64(self.data)?;
-        
-        
         Ok(())
     }
 }
@@ -29,11 +21,7 @@ impl Serialize for UInt64 {
 impl Deserialize for UInt64 {
     fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
         Ok(Self {
-            
-            
             data: reader.read_u64()?,
-            
-            
         })
     }
 }
