@@ -29,13 +29,13 @@ zenoh = [
 ]
 
 [dependencies]
-# Core functionality
-nano-ros-core = { path = "../nano-ros-core" }
-nano-ros-serdes = { path = "../nano-ros-serdes" }
+# Core functionality (default-features = false for no_std support)
+nano-ros-core = { path = "../nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "../nano-ros-serdes", default-features = false }
 nano-ros-macros = { path = "../nano-ros-macros" }
-nano-ros-node = { path = "../nano-ros-node" }
-nano-ros-transport = { path = "../nano-ros-transport" }
-nano-ros-params = { path = "../nano-ros-params" }
+nano-ros-node = { path = "../nano-ros-node", default-features = false }
+nano-ros-transport = { path = "../nano-ros-transport", default-features = false }
+nano-ros-params = { path = "../nano-ros-params", default-features = false }
 
 [dev-dependencies]
 
