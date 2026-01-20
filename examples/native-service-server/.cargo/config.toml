@@ -1,6 +1,6 @@
 [patch.crates-io]
-nano-ros-core = { path = "/home/aeon/repos/rusty-ros/crates/nano-ros-core" }
-nano-ros-serdes = { path = "/home/aeon/repos/rusty-ros/crates/nano-ros-serdes" }
+nano-ros-core = { path = "../../crates/nano-ros-core" }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes" }
 action_msgs = { path = "generated/action_msgs" }
 builtin_interfaces = { path = "generated/builtin_interfaces" }
 example_interfaces = { path = "generated/example_interfaces" }
