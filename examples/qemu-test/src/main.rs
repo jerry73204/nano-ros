@@ -12,8 +12,8 @@ use panic_semihosting as _;
 
 use nano_ros_core::RosMessage;
 use nano_ros_serdes::{CdrReader, CdrWriter, Deserialize, Serialize};
-use nano_ros_types::std_msgs::{Float64, Int32};
-use nano_ros_types::Time;
+use std_msgs::msg::{Float64, Int32};
+use builtin_interfaces::msg::Time;
 
 // Import Node API
 use nano_ros_node::{Node, NodeConfig};
@@ -56,7 +56,7 @@ fn test_float64_roundtrip() -> bool {
 /// Test Time type serialization
 fn test_time_roundtrip() -> bool {
     let mut buf = [0u8; 16];
-    let time = Time::new(1234, 567890);
+    let time = Time { sec: 1234, nanosec: 567890 };
 
     let mut writer = CdrWriter::new(&mut buf);
     if time.serialize(&mut writer).is_err() {
