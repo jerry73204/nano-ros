@@ -65,21 +65,31 @@ pub use publisher::PublisherHandle;
 pub use subscriber::SubscriberHandle;
 
 // Re-export transport types for convenience
-pub use nano_ros_transport::{QosSettings, TopicInfo, TransportConfig, TransportError};
+pub use nano_ros_transport::{ActionInfo, QosSettings, TopicInfo, TransportConfig, TransportError};
 
 // Re-export connected types when zenoh feature is enabled
 #[cfg(feature = "zenoh")]
 pub use connected::{
+    // Action types
+    ActiveGoal,
+    ConnectedActionClient,
+    ConnectedActionServer,
+    // Node types
     ConnectedNode,
     ConnectedNodeError,
     ConnectedPublisher,
     ConnectedServiceClient,
     ConnectedServiceServer,
     ConnectedSubscriber,
+    GoalHandle,
     // Buffer size constants
+    DEFAULT_FEEDBACK_BUFFER_SIZE,
+    DEFAULT_GOAL_BUFFER_SIZE,
+    DEFAULT_MAX_ACTIVE_GOALS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_REPLY_BUFFER_SIZE,
     DEFAULT_REQ_BUFFER_SIZE,
+    DEFAULT_RESULT_BUFFER_SIZE,
     DEFAULT_RX_BUFFER_SIZE,
 };
 

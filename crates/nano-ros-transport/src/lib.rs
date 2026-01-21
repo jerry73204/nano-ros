@@ -42,8 +42,9 @@ pub mod zenoh;
 
 // Re-export main types
 pub use traits::{
-    Publisher, QosSettings, ServiceClientTrait, ServiceInfo, ServiceRequest, ServiceServerTrait,
-    Session, SessionMode, Subscriber, TopicInfo, Transport, TransportConfig, TransportError,
+    ActionInfo, Publisher, QosSettings, ServiceClientTrait, ServiceInfo, ServiceRequest,
+    ServiceServerTrait, Session, SessionMode, Subscriber, TopicInfo, Transport, TransportConfig,
+    TransportError,
 };
 
 // Re-export zenoh types when feature is enabled

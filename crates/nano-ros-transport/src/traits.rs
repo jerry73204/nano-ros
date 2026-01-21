@@ -81,6 +81,99 @@ pub struct ServiceInfo<'a> {
     pub domain_id: u32,
 }
 
+/// Action information for action client/server
+///
+/// Actions in ROS 2 use 5 communication channels:
+/// - `send_goal` service: `<action_name>/_action/send_goal`
+/// - `cancel_goal` service: `<action_name>/_action/cancel_goal`
+/// - `get_result` service: `<action_name>/_action/get_result`
+/// - `feedback` topic: `<action_name>/_action/feedback`
+/// - `status` topic: `<action_name>/_action/status`
+#[derive(Debug, Clone)]
+pub struct ActionInfo<'a> {
+    /// Action name (e.g., "/fibonacci")
+    pub name: &'a str,
+    /// ROS action type name (e.g., "example_interfaces::action::dds_::Fibonacci_")
+    pub type_name: &'a str,
+    /// Type hash for compatibility checking
+    pub type_hash: &'a str,
+    /// Domain ID (default: 0)
+    pub domain_id: u32,
+}
+
+impl<'a> ActionInfo<'a> {
+    /// Create new action info
+    pub const fn new(name: &'a str, type_name: &'a str, type_hash: &'a str) -> Self {
+        Self {
+            name,
+            type_name,
+            type_hash,
+            domain_id: 0,
+        }
+    }
+
+    /// Create action info with custom domain ID
+    pub const fn with_domain(mut self, domain_id: u32) -> Self {
+        self.domain_id = domain_id;
+        self
+    }
+
+    /// Generate the send_goal service key
+    pub fn send_goal_key<const N: usize>(&self) -> heapless::String<N> {
+        self.service_key::<N>("SendGoal")
+    }
+
+    /// Generate the cancel_goal service key
+    pub fn cancel_goal_key<const N: usize>(&self) -> heapless::String<N> {
+        self.service_key::<N>("CancelGoal")
+    }
+
+    /// Generate the get_result service key
+    pub fn get_result_key<const N: usize>(&self) -> heapless::String<N> {
+        self.service_key::<N>("GetResult")
+    }
+
+    /// Generate the feedback topic key
+    pub fn feedback_key<const N: usize>(&self) -> heapless::String<N> {
+        self.topic_key::<N>("FeedbackMessage")
+    }
+
+    /// Generate the status topic key
+    pub fn status_key<const N: usize>(&self) -> heapless::String<N> {
+        self.topic_key::<N>("GoalStatusArray")
+    }
+
+    /// Generate a service key for an action sub-service
+    fn service_key<const N: usize>(&self, suffix: &str) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let action_stripped = self.name.trim_matches('/');
+        // Format: <domain>/<action>/_action/<service_type>/RIHS01_<hash>
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "{}/{}/_action/{}_{}/RIHS01_{}",
+                self.domain_id, action_stripped, self.type_name, suffix, self.type_hash
+            ),
+        );
+        key
+    }
+
+    /// Generate a topic key for an action sub-topic
+    fn topic_key<const N: usize>(&self, suffix: &str) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let action_stripped = self.name.trim_matches('/');
+        // Format: <domain>/<action>/_action/<topic_type>/<hash>
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "{}/{}/_action/{}_{}/{}",
+                self.domain_id, action_stripped, self.type_name, suffix, self.type_hash
+            ),
+        );
+        key
+    }
+}
+
 impl<'a> ServiceInfo<'a> {
     /// Create new service info
     pub const fn new(name: &'a str, type_name: &'a str, type_hash: &'a str) -> Self {
@@ -446,5 +539,58 @@ mod tests {
     fn test_qos_defaults() {
         let qos = QosSettings::default();
         assert!(!qos.reliable);
+    }
+
+    #[test]
+    fn test_action_info() {
+        let action = ActionInfo::new(
+            "/fibonacci",
+            "example_interfaces::action::dds_::Fibonacci_",
+            "abc123",
+        );
+        assert_eq!(action.name, "/fibonacci");
+        assert_eq!(action.domain_id, 0);
+    }
+
+    #[test]
+    fn test_action_info_with_domain() {
+        let action = ActionInfo::new(
+            "/fibonacci",
+            "example_interfaces::action::dds_::Fibonacci_",
+            "abc123",
+        )
+        .with_domain(42);
+        assert_eq!(action.domain_id, 42);
+    }
+
+    #[test]
+    fn test_action_send_goal_key() {
+        let action = ActionInfo::new(
+            "/fibonacci",
+            "example_interfaces::action::dds_::Fibonacci_",
+            "abc123",
+        )
+        .with_domain(0);
+
+        let key: heapless::String<256> = action.send_goal_key();
+        assert!(key.contains("fibonacci"));
+        assert!(key.contains("_action"));
+        assert!(key.contains("SendGoal"));
+        assert!(key.contains("RIHS01_"));
+    }
+
+    #[test]
+    fn test_action_feedback_key() {
+        let action = ActionInfo::new(
+            "/fibonacci",
+            "example_interfaces::action::dds_::Fibonacci_",
+            "abc123",
+        )
+        .with_domain(0);
+
+        let key: heapless::String<256> = action.feedback_key();
+        assert!(key.contains("fibonacci"));
+        assert!(key.contains("_action"));
+        assert!(key.contains("FeedbackMessage"));
     }
 }

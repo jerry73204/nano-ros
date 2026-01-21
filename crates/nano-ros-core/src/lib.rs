@@ -3,6 +3,7 @@
 //! This crate provides the foundational types and traits for nano-ros:
 //! - `RosMessage` trait for message types
 //! - `RosService` trait for service types
+//! - `RosAction` trait for action types
 //! - `ServiceServer` and `ServiceClient` for service communication
 //! - Time and Duration types
 //! - Error types
@@ -15,11 +16,15 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub mod action;
 pub mod error;
 pub mod service;
 pub mod time;
 pub mod types;
 
+pub use action::{
+    ActionClient, ActionServer, CancelResponse, GoalId, GoalResponse, GoalStatus, RosAction,
+};
 pub use error::Error;
 pub use service::{ServiceCallback, ServiceClient, ServiceRequest, ServiceResult, ServiceServer};
 pub use time::{Duration, Time};

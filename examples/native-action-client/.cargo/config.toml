@@ -1,0 +1,7 @@
+[patch.crates-io]
+nano-ros-core = { path = "../../crates/nano-ros-core" }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes" }
+action_msgs = { path = "generated/action_msgs" }
+builtin_interfaces = { path = "generated/builtin_interfaces" }
+example_interfaces = { path = "generated/example_interfaces" }
+unique_identifier_msgs = { path = "generated/unique_identifier_msgs" }

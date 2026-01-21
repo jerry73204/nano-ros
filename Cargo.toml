@@ -23,6 +23,8 @@ exclude = [
     "examples/native-listener",
     "examples/native-service-server",
     "examples/native-service-client",
+    "examples/native-action-server",
+    "examples/native-action-client",
     "examples/rtic-stm32f4",
     "examples/embassy-stm32f4",
     "examples/polling-stm32f4",

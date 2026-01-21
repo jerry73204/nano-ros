@@ -106,6 +106,8 @@ build-examples-native:
     cd examples/native-listener && cargo build
     cd examples/native-service-server && cargo build
     cd examples/native-service-client && cargo build
+    cd examples/native-action-server && cargo build
+    cd examples/native-action-client && cargo build
 
 # Format native examples
 format-examples-native:
@@ -114,6 +116,8 @@ format-examples-native:
     cd examples/native-listener && cargo +nightly fmt
     cd examples/native-service-server && cargo +nightly fmt
     cd examples/native-service-client && cargo +nightly fmt
+    cd examples/native-action-server && cargo +nightly fmt
+    cd examples/native-action-client && cargo +nightly fmt
 
 # Check native examples
 check-examples-native:
@@ -122,6 +126,8 @@ check-examples-native:
     cd examples/native-listener && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
     cd examples/native-service-server && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
     cd examples/native-service-client && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+    cd examples/native-action-server && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
+    cd examples/native-action-client && cargo +nightly fmt --check && cargo clippy -- {{CLIPPY_LINTS}}
 
 # =============================================================================
 # Examples - Embedded (STM32F4)

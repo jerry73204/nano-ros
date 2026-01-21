@@ -76,6 +76,11 @@ pub use nano_ros_transport::{Ros2Liveliness, ZenohSession, ZenohTransport};
 // Re-export service types
 pub use nano_ros_core::{ServiceClient, ServiceServer};
 
+// Re-export action types
+pub use nano_ros_core::{
+    ActionClient, ActionServer, CancelResponse, GoalId, GoalResponse, GoalStatus, RosAction,
+};
+
 // Re-export parameter types
 pub use nano_ros_params::{
     Parameter, ParameterDescriptor, ParameterServer, ParameterType, ParameterValue,
@@ -102,6 +107,9 @@ pub mod prelude {
 
     // Re-export parameter types
     pub use crate::{ParameterServer, ParameterType, ParameterValue};
+
+    // Re-export action types
+    pub use crate::{GoalId, GoalResponse, GoalStatus, RosAction};
 
     // Re-export Time from core
     pub use nano_ros_core::Time;
