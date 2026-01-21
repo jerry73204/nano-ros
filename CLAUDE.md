@@ -669,6 +669,46 @@ This ensures users maintain control over privileged operations.
 
 Fix any issues before considering a task complete.
 
+### Handling Unused Variable Warnings
+
+When encountering unused variable warnings, follow this practice:
+
+1. **Rename to `_name`** to suppress the warning
+2. **Always add a comment** explaining why the variable is unused
+3. **Use `#[allow(dead_code)]`** for struct fields in test code that exist for structural completeness
+
+**Common patterns:**
+
+```rust
+// Trait method signature requires parameter, but implementation doesn't use it
+fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
+    // Empty message - no fields to serialize
+    Ok(())
+}
+
+// Test mock with fields for structural completeness
+#[derive(Debug, Clone)]
+struct MockRequest {
+    // Fields exist for structural completeness but are not read
+    // since the mock serialize/deserialize implementations are no-ops
+    #[allow(dead_code)]
+    pub a: i32,
+    #[allow(dead_code)]
+    pub b: i32,
+}
+```
+
+**When to use TODO comments:**
+
+If the unused variable represents incomplete functionality or future work, add a TODO:
+
+```rust
+fn process(&self, _data: &[u8]) -> Result<()> {
+    // TODO: Implement data processing when the protocol layer is complete
+    Ok(())
+}
+```
+
 ## Documentation
 
 Development documentation lives in `docs/`:
@@ -698,6 +738,8 @@ docs/
 | Phase 2B | Zephyr integration + QEMU testing | **Complete** |
 | Phase 3 | Services, parameters, unified API | **In Progress** |
 | Phase 4 | Message generation (cargo nano-ros) | **Complete** |
+| Phase 5 | RTIC integration | **Complete** |
+| Phase 6 | ROS 2 Actions | **Planning** |
 
 See `docs/roadmap/` for detailed work items.
 
