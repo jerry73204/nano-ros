@@ -51,7 +51,8 @@ extern crate alloc;
 
 // Re-export core types
 pub use nano_ros_core::{
-    CdrReader, CdrWriter, Deserialize, Duration, RosMessage, RosService, Serialize, Time,
+    CdrReader, CdrWriter, Clock, ClockType, Deserialize, Duration, RosMessage, RosService,
+    Serialize, Time,
 };
 
 // Re-export node types
@@ -133,8 +134,8 @@ pub mod prelude {
     // Re-export action types
     pub use crate::{GoalId, GoalResponse, GoalStatus, RosAction};
 
-    // Re-export Time and Duration from core
-    pub use nano_ros_core::{Duration, Time};
+    // Re-export Time, Duration, Clock from core
+    pub use nano_ros_core::{Clock, ClockType, Duration, Time};
 
     // Re-export timer types
     pub use crate::{TimerCallbackFn, TimerDuration, TimerHandle, TimerMode};

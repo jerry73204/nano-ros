@@ -17,6 +17,7 @@ extern crate std;
 extern crate alloc;
 
 pub mod action;
+pub mod clock;
 pub mod error;
 pub mod service;
 pub mod time;
@@ -25,6 +26,7 @@ pub mod types;
 pub use action::{
     ActionClient, ActionServer, CancelResponse, GoalId, GoalResponse, GoalStatus, RosAction,
 };
+pub use clock::{Clock, ClockType};
 pub use error::Error;
 pub use service::{ServiceCallback, ServiceClient, ServiceRequest, ServiceResult, ServiceServer};
 pub use time::{Duration, Time};

@@ -21,7 +21,8 @@
 //! - ConnectedServiceClient: REQ_BUF + REPLY_BUF bytes + ~64 bytes overhead
 
 use nano_ros_core::{
-    Deserialize, GoalId, GoalResponse, GoalStatus, RosAction, RosMessage, RosService, Serialize,
+    Clock, ClockType, Deserialize, GoalId, GoalResponse, GoalStatus, RosAction, RosMessage,
+    RosService, Serialize,
 };
 
 use crate::timer::{
@@ -176,6 +177,8 @@ pub struct ConnectedNode<
     parameter_server: nano_ros_params::ParameterServer,
     /// Timers for periodic callbacks
     timers: heapless::Vec<TimerState, MAX_TIMERS>,
+    /// Node clock for time queries
+    clock: Clock,
 }
 
 #[cfg(feature = "zenoh")]
@@ -217,6 +220,7 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             #[cfg(feature = "zenoh")]
             parameter_server: nano_ros_params::ParameterServer::new(),
             timers: heapless::Vec::new(),
+            clock: Clock::ros_time(),
         })
     }
 
@@ -261,6 +265,7 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             #[cfg(feature = "zenoh")]
             parameter_server: nano_ros_params::ParameterServer::new(),
             timers: heapless::Vec::new(),
+            clock: Clock::ros_time(),
         })
     }
 
@@ -946,6 +951,46 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         }
 
         fired_count
+    }
+
+    // ========== Clock API ==========
+
+    /// Get the node's clock
+    ///
+    /// The default clock type is `RosTime`, which supports time override
+    /// for simulation. Use `set_clock_type()` to change the clock type.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let clock = node.get_clock();
+    /// let now = clock.now();
+    /// println!("Current time: {} sec, {} nsec", now.sec, now.nanosec);
+    /// ```
+    pub fn get_clock(&self) -> &Clock {
+        &self.clock
+    }
+
+    /// Get the current time from the node's clock
+    ///
+    /// This is a convenience method equivalent to `node.get_clock().now()`.
+    pub fn now(&self) -> nano_ros_core::Time {
+        self.clock.now()
+    }
+
+    /// Get the clock type
+    pub fn clock_type(&self) -> ClockType {
+        self.clock.clock_type()
+    }
+
+    /// Set the clock type
+    ///
+    /// Changes the clock used by this node for time queries.
+    ///
+    /// # Arguments
+    /// * `clock_type` - The new clock type to use
+    pub fn set_clock_type(&mut self, clock_type: ClockType) {
+        self.clock = Clock::new(clock_type);
     }
 }
 
