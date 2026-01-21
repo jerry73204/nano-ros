@@ -32,20 +32,25 @@ fn test_node_config_with_domain() {
 /// Test QoS settings creation
 #[test]
 fn test_qos_settings() {
-    use nano_ros_node::QosSettings;
+    use nano_ros_node::{QosReliabilityPolicy, QosSettings};
 
-    // Default QoS - derive(Default) gives 0 for history_depth
+    // Default QoS - BEST_EFFORT
     let default_qos = QosSettings::default();
-    assert!(!default_qos.reliable);
-    assert_eq!(default_qos.history_depth, 0);
+    assert_eq!(
+        default_qos.reliability,
+        QosReliabilityPolicy::BestEffort,
+        "Default should be best effort"
+    );
+    assert_eq!(default_qos.history_depth(), 1, "Default history depth");
 
-    // Custom QoS
-    let custom_qos = QosSettings {
-        reliable: true,
-        history_depth: 100,
-    };
-    assert!(custom_qos.reliable);
-    assert_eq!(custom_qos.history_depth, 100);
+    // Custom QoS using builder
+    let custom_qos = QosSettings::new().reliable().keep_last(100);
+    assert_eq!(
+        custom_qos.reliability,
+        QosReliabilityPolicy::Reliable,
+        "Custom should be reliable"
+    );
+    assert_eq!(custom_qos.history_depth(), 100, "Custom history depth");
 }
 
 /// Test that memory requirements are bounded

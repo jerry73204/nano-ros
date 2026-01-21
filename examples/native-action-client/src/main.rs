@@ -34,28 +34,23 @@ fn main() {
     info!("nano-ros Action Client Example");
     info!("================================");
 
-    // Create node configuration
-    let config = NodeConfig::new("fibonacci_action_client", "/");
+    // Create context and node using rclrs-style API
+    let context = match Context::from_env() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            error!("Failed to create context: {:?}", e);
+            std::process::exit(1);
+        }
+    };
 
-    // Connect to zenoh router
-    let mut node: ConnectedNode = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447")
-    {
+    let mut node = match context.create_node("fibonacci_action_client") {
         Ok(node) => {
-            info!("Connected to zenoh router at tcp/127.0.0.1:7447");
+            info!("Node created: fibonacci_action_client");
             node
         }
         Err(e) => {
-            info!("Failed to connect to router: {:?}, trying peer mode...", e);
-            match ConnectedNode::connect_peer(config) {
-                Ok(node) => {
-                    info!("Connected in peer mode");
-                    node
-                }
-                Err(e) => {
-                    error!("Failed to connect: {:?}", e);
-                    std::process::exit(1);
-                }
-            }
+            error!("Failed to create node: {:?}", e);
+            std::process::exit(1);
         }
     };
 

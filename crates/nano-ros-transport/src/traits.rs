@@ -248,27 +248,164 @@ pub enum TransportError {
     JoinFailed,
 }
 
-/// QoS (Quality of Service) settings
-#[derive(Debug, Clone, Copy, Default)]
+/// QoS history policy
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QosHistoryPolicy {
+    /// Keep last N messages
+    KeepLast { depth: u32 },
+    /// Keep all messages
+    KeepAll,
+}
+
+impl Default for QosHistoryPolicy {
+    fn default() -> Self {
+        Self::KeepLast { depth: 10 }
+    }
+}
+
+/// QoS reliability policy
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QosReliabilityPolicy {
+    /// Reliable delivery (retransmit if needed)
+    Reliable,
+    /// Best-effort delivery (no retransmits)
+    #[default]
+    BestEffort,
+}
+
+/// QoS durability policy
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QosDurabilityPolicy {
+    /// Messages are discarded when subscriber disconnects
+    #[default]
+    Volatile,
+    /// Messages are persisted for late-joining subscribers
+    TransientLocal,
+}
+
+/// QoS (Quality of Service) settings with builder pattern
+#[derive(Debug, Clone, Copy)]
 pub struct QosSettings {
-    /// Reliability: true for reliable, false for best-effort
-    pub reliable: bool,
-    /// History depth for subscribers (0 = keep last)
-    pub history_depth: u8,
+    /// History policy
+    pub history: QosHistoryPolicy,
+    /// Reliability policy
+    pub reliability: QosReliabilityPolicy,
+    /// Durability policy
+    pub durability: QosDurabilityPolicy,
+}
+
+impl Default for QosSettings {
+    fn default() -> Self {
+        Self::BEST_EFFORT
+    }
 }
 
 impl QosSettings {
+    /// Create new QoS settings with defaults
+    pub const fn new() -> Self {
+        Self {
+            history: QosHistoryPolicy::KeepLast { depth: 10 },
+            reliability: QosReliabilityPolicy::BestEffort,
+            durability: QosDurabilityPolicy::Volatile,
+        }
+    }
+
     /// Best-effort QoS (default for real-time)
     pub const BEST_EFFORT: Self = Self {
-        reliable: false,
-        history_depth: 1,
+        history: QosHistoryPolicy::KeepLast { depth: 1 },
+        reliability: QosReliabilityPolicy::BestEffort,
+        durability: QosDurabilityPolicy::Volatile,
     };
 
     /// Reliable QoS
     pub const RELIABLE: Self = Self {
-        reliable: true,
-        history_depth: 10,
+        history: QosHistoryPolicy::KeepLast { depth: 10 },
+        reliability: QosReliabilityPolicy::Reliable,
+        durability: QosDurabilityPolicy::Volatile,
     };
+
+    /// Default QoS profile (best-effort, keep last 10)
+    pub const QOS_PROFILE_DEFAULT: Self = Self {
+        history: QosHistoryPolicy::KeepLast { depth: 10 },
+        reliability: QosReliabilityPolicy::BestEffort,
+        durability: QosDurabilityPolicy::Volatile,
+    };
+
+    /// Sensor data QoS profile (best-effort, keep last 1)
+    pub const QOS_PROFILE_SENSOR_DATA: Self = Self {
+        history: QosHistoryPolicy::KeepLast { depth: 1 },
+        reliability: QosReliabilityPolicy::BestEffort,
+        durability: QosDurabilityPolicy::Volatile,
+    };
+
+    /// Services default QoS profile (reliable, keep last 10)
+    pub const QOS_PROFILE_SERVICES_DEFAULT: Self = Self {
+        history: QosHistoryPolicy::KeepLast { depth: 10 },
+        reliability: QosReliabilityPolicy::Reliable,
+        durability: QosDurabilityPolicy::Volatile,
+    };
+
+    /// Parameters QoS profile (reliable, transient local, keep last 10)
+    pub const QOS_PROFILE_PARAMETERS: Self = Self {
+        history: QosHistoryPolicy::KeepLast { depth: 10 },
+        reliability: QosReliabilityPolicy::Reliable,
+        durability: QosDurabilityPolicy::TransientLocal,
+    };
+
+    /// Set history to keep last N messages
+    pub const fn keep_last(mut self, depth: u32) -> Self {
+        self.history = QosHistoryPolicy::KeepLast { depth };
+        self
+    }
+
+    /// Set history to keep all messages
+    pub const fn keep_all(mut self) -> Self {
+        self.history = QosHistoryPolicy::KeepAll;
+        self
+    }
+
+    /// Set reliability to reliable
+    pub const fn reliable(mut self) -> Self {
+        self.reliability = QosReliabilityPolicy::Reliable;
+        self
+    }
+
+    /// Set reliability to best-effort
+    pub const fn best_effort(mut self) -> Self {
+        self.reliability = QosReliabilityPolicy::BestEffort;
+        self
+    }
+
+    /// Set durability to volatile
+    pub const fn volatile(mut self) -> Self {
+        self.durability = QosDurabilityPolicy::Volatile;
+        self
+    }
+
+    /// Set durability to transient local
+    pub const fn transient_local(mut self) -> Self {
+        self.durability = QosDurabilityPolicy::TransientLocal;
+        self
+    }
+
+    /// Get history depth (for backwards compatibility)
+    pub const fn history_depth(&self) -> u8 {
+        match self.history {
+            QosHistoryPolicy::KeepLast { depth } => {
+                if depth > 255 {
+                    255
+                } else {
+                    depth as u8
+                }
+            }
+            QosHistoryPolicy::KeepAll => 0,
+        }
+    }
+
+    /// Check if reliability is reliable (for backwards compatibility)
+    pub const fn is_reliable(&self) -> bool {
+        matches!(self.reliability, QosReliabilityPolicy::Reliable)
+    }
 }
 
 /// Transport session configuration
@@ -538,7 +675,7 @@ mod tests {
     #[test]
     fn test_qos_defaults() {
         let qos = QosSettings::default();
-        assert!(!qos.reliable);
+        assert_eq!(qos.reliability, QosReliabilityPolicy::BestEffort);
     }
 
     #[test]

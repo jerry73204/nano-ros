@@ -35,30 +35,23 @@ fn main() {
     info!("nano-ros Native Talker (Zenoh Transport)");
     info!("=========================================");
 
-    // Create a connected node
-    let config = NodeConfig::new("talker", "/demo");
+    // Create context and node using rclrs-style API
+    let context = match Context::from_env() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            error!("Failed to create context: {:?}", e);
+            std::process::exit(1);
+        }
+    };
 
-    // Try to connect to zenoh router
-    let mut node = match ConnectedNode::connect(config.clone(), "tcp/127.0.0.1:7447") {
+    let node = match context.create_node("talker".namespace("/demo")) {
         Ok(node) => {
-            info!("Connected to zenoh router at tcp/127.0.0.1:7447");
+            info!("Node created: talker in namespace /demo");
             node
         }
         Err(e) => {
-            warn!("Failed to connect to zenoh router: {:?}", e);
-            warn!("Trying peer mode...");
-
-            // Fall back to peer mode
-            match ConnectedNode::connect_peer(config) {
-                Ok(node) => {
-                    info!("Connected in peer mode");
-                    node
-                }
-                Err(e) => {
-                    error!("Failed to connect in peer mode: {:?}", e);
-                    std::process::exit(1);
-                }
-            }
+            error!("Failed to create node: {:?}", e);
+            std::process::exit(1);
         }
     };
 
@@ -114,7 +107,7 @@ fn main() {
 
     // Create a node (without transport)
     let config = NodeConfig::new("talker", "/demo");
-    let mut node = Node::<4, 4>::new(config);
+    let mut node = StandaloneNode::<4, 4>::new(config);
 
     info!("Node created: {}", node.fully_qualified_name());
 

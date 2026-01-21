@@ -16,7 +16,7 @@ use nano_ros_serdes::{CdrReader, CdrWriter, Deserialize, Serialize};
 use std_msgs::msg::{Float64, Int32};
 
 // Import Node API
-use nano_ros_node::{Node, NodeConfig};
+use nano_ros_node::{NodeConfig, StandaloneNode as Node};
 
 /// Test primitive type serialization
 fn test_int32_roundtrip() -> bool {

@@ -57,15 +57,34 @@ mod subscriber;
 #[cfg(feature = "zenoh")]
 mod connected;
 
+#[cfg(feature = "zenoh")]
+mod context;
+
+#[cfg(feature = "zenoh")]
+mod options;
+
 #[cfg(all(feature = "zenoh", feature = "rtic"))]
 pub mod rtic;
 
-pub use node::{Node, NodeConfig, NodeError};
+// Export standalone node (without transport)
+pub use node::{NodeConfig, NodeError};
+
+// Only export standalone Node if zenoh is not enabled
+#[cfg(not(feature = "zenoh"))]
+pub use node::Node as StandaloneNode;
+
+// Export as StandaloneNode when zenoh is enabled to avoid conflict
+#[cfg(feature = "zenoh")]
+pub use node::Node as StandaloneNode;
+
 pub use publisher::PublisherHandle;
 pub use subscriber::SubscriberHandle;
 
 // Re-export transport types for convenience
-pub use nano_ros_transport::{ActionInfo, QosSettings, TopicInfo, TransportConfig, TransportError};
+pub use nano_ros_transport::{
+    ActionInfo, QosDurabilityPolicy, QosHistoryPolicy, QosReliabilityPolicy, QosSettings,
+    TopicInfo, TransportConfig, TransportError,
+};
 
 // Re-export connected types when zenoh feature is enabled
 #[cfg(feature = "zenoh")]
@@ -91,6 +110,18 @@ pub use connected::{
     DEFAULT_REQ_BUFFER_SIZE,
     DEFAULT_RESULT_BUFFER_SIZE,
     DEFAULT_RX_BUFFER_SIZE,
+};
+
+// Re-export context types when zenoh feature is enabled (rclrs-style API)
+#[cfg(feature = "zenoh")]
+pub use context::{
+    Context, InitOptions, IntoNodeOptions, Node, NodeNameExt, NodeOptions, RclrsError,
+};
+
+// Re-export options types when zenoh feature is enabled
+#[cfg(feature = "zenoh")]
+pub use options::{
+    IntoPublisherOptions, IntoSubscriberOptions, PublisherOptions, SubscriberOptions,
 };
 
 // Re-export zenoh transport types for convenience

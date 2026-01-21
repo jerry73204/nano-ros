@@ -33,20 +33,41 @@ fn test_mutex_with_api() {
 /// Test QoS settings creation
 #[test]
 fn test_qos_settings() {
-    use nano_ros_transport::QosSettings;
+    use nano_ros_transport::{QosReliabilityPolicy, QosSettings};
 
-    // Default QoS - derive(Default) gives 0 for history_depth
+    // Default QoS - BEST_EFFORT
     let qos = QosSettings::default();
-    assert!(!qos.reliable);
-    assert_eq!(qos.history_depth, 0);
+    assert_eq!(
+        qos.reliability,
+        QosReliabilityPolicy::BestEffort,
+        "Default QoS should be best effort"
+    );
+    assert_eq!(qos.history_depth(), 1, "Default QoS history depth");
 
     // Reliable QoS constant
     let reliable_qos = QosSettings::RELIABLE;
-    assert!(reliable_qos.reliable);
+    assert_eq!(
+        reliable_qos.reliability,
+        QosReliabilityPolicy::Reliable,
+        "RELIABLE QoS should be reliable"
+    );
 
     // Best effort QoS constant
     let best_effort_qos = QosSettings::BEST_EFFORT;
-    assert!(!best_effort_qos.reliable);
+    assert_eq!(
+        best_effort_qos.reliability,
+        QosReliabilityPolicy::BestEffort,
+        "BEST_EFFORT QoS should be best effort"
+    );
+
+    // Test builder pattern
+    let custom_qos = QosSettings::new().keep_last(5).reliable();
+    assert_eq!(
+        custom_qos.reliability,
+        QosReliabilityPolicy::Reliable,
+        "Builder should set reliability"
+    );
+    assert_eq!(custom_qos.history_depth(), 5, "Builder should set history");
 }
 
 /// Test TopicInfo creation

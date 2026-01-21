@@ -55,18 +55,26 @@ pub use nano_ros_core::{
 };
 
 // Re-export node types
-pub use nano_ros_node::{Node, NodeConfig, PublisherHandle, SubscriberHandle};
+pub use nano_ros_node::{NodeConfig, PublisherHandle, StandaloneNode, SubscriberHandle};
 
 // Re-export connected node types (with zenoh feature)
 #[cfg(feature = "zenoh")]
 pub use nano_ros_node::{
-    ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedServiceClient,
-    ConnectedServiceServer, ConnectedSubscriber,
+    ConnectedActionClient, ConnectedActionServer, ConnectedNode, ConnectedNodeError,
+    ConnectedPublisher, ConnectedServiceClient, ConnectedServiceServer, ConnectedSubscriber,
+};
+
+// Re-export new rclrs-style API types (with zenoh feature)
+#[cfg(feature = "zenoh")]
+pub use nano_ros_node::{
+    Context, InitOptions, IntoNodeOptions, IntoPublisherOptions, IntoSubscriberOptions, Node,
+    NodeNameExt, NodeOptions, PublisherOptions, RclrsError, SubscriberOptions,
 };
 
 // Re-export transport types
 pub use nano_ros_transport::{
-    QosSettings, ServiceInfo, SessionMode, TopicInfo, TransportConfig, TransportError,
+    QosDurabilityPolicy, QosHistoryPolicy, QosReliabilityPolicy, QosSettings, ServiceInfo,
+    SessionMode, TopicInfo, TransportConfig, TransportError,
 };
 
 // Re-export zenoh-specific types
@@ -95,14 +103,23 @@ pub use nano_ros_params::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        CdrReader, CdrWriter, Deserialize, Node, NodeConfig, PublisherHandle, QosSettings,
-        RosMessage, RosService, Serialize, SubscriberHandle, TopicInfo, TransportConfig,
+        CdrReader, CdrWriter, Deserialize, NodeConfig, PublisherHandle, QosDurabilityPolicy,
+        QosHistoryPolicy, QosReliabilityPolicy, QosSettings, RosMessage, RosService, Serialize,
+        StandaloneNode, SubscriberHandle, TopicInfo, TransportConfig,
     };
 
     #[cfg(feature = "zenoh")]
     pub use crate::{
-        ConnectedNode, ConnectedNodeError, ConnectedPublisher, ConnectedServiceClient,
-        ConnectedServiceServer, ConnectedSubscriber, SessionMode,
+        ConnectedActionClient, ConnectedActionServer, ConnectedNode, ConnectedNodeError,
+        ConnectedPublisher, ConnectedServiceClient, ConnectedServiceServer, ConnectedSubscriber,
+        SessionMode,
+    };
+
+    // Re-export new rclrs-style API
+    #[cfg(feature = "zenoh")]
+    pub use crate::{
+        Context, InitOptions, IntoNodeOptions, IntoPublisherOptions, IntoSubscriberOptions, Node,
+        NodeNameExt, NodeOptions, PublisherOptions, RclrsError, SubscriberOptions,
     };
 
     // Re-export parameter types

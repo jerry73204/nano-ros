@@ -25,7 +25,7 @@ use nano_ros_core::{
 };
 use nano_ros_transport::{
     ActionInfo, Publisher as PublisherTrait, QosSettings, ServiceClientTrait, ServiceInfo,
-    ServiceServerTrait, Session, SessionMode, Subscriber as SubscriberTrait, TopicInfo, Transport,
+    ServiceServerTrait, Session, Subscriber as SubscriberTrait, TopicInfo, Transport,
     TransportConfig, TransportError,
 };
 
@@ -196,24 +196,6 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             _node_token: node_token,
             _entity_tokens: heapless::Vec::new(),
         })
-    }
-
-    /// Connect to a zenoh router
-    pub fn connect(config: NodeConfig, locator: &str) -> Result<Self, ConnectedNodeError> {
-        let transport_config = TransportConfig {
-            locator: Some(locator),
-            mode: SessionMode::Client,
-        };
-        Self::new(config, &transport_config)
-    }
-
-    /// Connect in peer mode (no router required)
-    pub fn connect_peer(config: NodeConfig) -> Result<Self, ConnectedNodeError> {
-        let transport_config = TransportConfig {
-            locator: None,
-            mode: SessionMode::Peer,
-        };
-        Self::new(config, &transport_config)
     }
 
     /// Create a new connected node without starting background tasks
