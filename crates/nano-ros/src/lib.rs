@@ -51,11 +51,16 @@ extern crate alloc;
 
 // Re-export core types
 pub use nano_ros_core::{
-    CdrReader, CdrWriter, Deserialize, RosMessage, RosService, Serialize, Time,
+    CdrReader, CdrWriter, Deserialize, Duration, RosMessage, RosService, Serialize, Time,
 };
 
 // Re-export node types
 pub use nano_ros_node::{NodeConfig, PublisherHandle, StandaloneNode, SubscriberHandle};
+
+// Re-export timer types
+pub use nano_ros_node::{
+    TimerCallbackFn, TimerDuration, TimerHandle, TimerMode, TimerState, DEFAULT_MAX_TIMERS,
+};
 
 // Re-export connected node types (with zenoh feature)
 #[cfg(feature = "zenoh")]
@@ -128,8 +133,11 @@ pub mod prelude {
     // Re-export action types
     pub use crate::{GoalId, GoalResponse, GoalStatus, RosAction};
 
-    // Re-export Time from core
-    pub use nano_ros_core::Time;
+    // Re-export Time and Duration from core
+    pub use nano_ros_core::{Duration, Time};
+
+    // Re-export timer types
+    pub use crate::{TimerCallbackFn, TimerDuration, TimerHandle, TimerMode};
 }
 
 /// Derive macros for message types

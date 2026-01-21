@@ -23,6 +23,10 @@
 use nano_ros_core::{
     Deserialize, GoalId, GoalResponse, GoalStatus, RosAction, RosMessage, RosService, Serialize,
 };
+
+use crate::timer::{
+    TimerCallbackFn, TimerDuration, TimerHandle, TimerMode, TimerState, DEFAULT_MAX_TIMERS,
+};
 use nano_ros_transport::{
     ActionInfo, Publisher as PublisherTrait, QosSettings, ServiceClientTrait, ServiceInfo,
     ServiceServerTrait, Session, Subscriber as SubscriberTrait, TopicInfo, Transport,
@@ -100,6 +104,12 @@ pub enum ConnectedNodeError {
     GoalNotFound,
     /// Action server is full (too many active goals)
     ActionServerFull,
+    /// Failed to create timer
+    TimerCreationFailed,
+    /// Timer not found
+    TimerNotFound,
+    /// Timer storage is full (too many timers)
+    TimerStorageFull,
 }
 
 impl From<TransportError> for ConnectedNodeError {
@@ -141,8 +151,12 @@ pub const DEFAULT_MAX_TOKENS: usize = 16;
 /// - `MAX_TOKENS`: Maximum number of liveliness tokens (publishers + subscribers).
 ///   Each publisher and subscriber requires one token for ROS 2 discovery.
 ///   Default is 16, allowing up to 16 combined publishers and subscribers.
+/// - `MAX_TIMERS`: Maximum number of timers. Default is 8.
 #[cfg(feature = "zenoh")]
-pub struct ConnectedNode<const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS> {
+pub struct ConnectedNode<
+    const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS,
+    const MAX_TIMERS: usize = DEFAULT_MAX_TIMERS,
+> {
     /// Node name
     name: heapless::String<64>,
     /// Node namespace
@@ -160,10 +174,12 @@ pub struct ConnectedNode<const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS> {
     /// Parameter server for typed parameter support
     #[cfg(feature = "zenoh")]
     parameter_server: nano_ros_params::ParameterServer,
+    /// Timers for periodic callbacks
+    timers: heapless::Vec<TimerState, MAX_TIMERS>,
 }
 
 #[cfg(feature = "zenoh")]
-impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
+impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS, MAX_TIMERS> {
     /// Create a new connected node
     ///
     /// # Arguments
@@ -200,6 +216,7 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             _entity_tokens: heapless::Vec::new(),
             #[cfg(feature = "zenoh")]
             parameter_server: nano_ros_params::ParameterServer::new(),
+            timers: heapless::Vec::new(),
         })
     }
 
@@ -243,6 +260,7 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             _entity_tokens: heapless::Vec::new(),
             #[cfg(feature = "zenoh")]
             parameter_server: nano_ros_params::ParameterServer::new(),
+            timers: heapless::Vec::new(),
         })
     }
 
@@ -718,6 +736,216 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
         name: &'a str,
     ) -> nano_ros_params::ParameterBuilder<'a, T> {
         nano_ros_params::ParameterBuilder::new(&mut self.parameter_server, name)
+    }
+
+    // ========== Timer API ==========
+
+    /// Create a repeating timer with a function pointer callback
+    ///
+    /// The timer will fire repeatedly at the specified period until canceled.
+    /// Use `process_timers()` to check and fire timers.
+    ///
+    /// # Arguments
+    /// * `period` - Time between timer fires
+    /// * `callback` - Function to call when timer fires
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// fn my_callback() {
+    ///     println!("Timer fired!");
+    /// }
+    ///
+    /// let handle = node.create_timer_repeating(
+    ///     TimerDuration::from_millis(100),
+    ///     my_callback,
+    /// )?;
+    /// ```
+    pub fn create_timer_repeating(
+        &mut self,
+        period: TimerDuration,
+        callback: TimerCallbackFn,
+    ) -> Result<TimerHandle, ConnectedNodeError> {
+        let state = TimerState::new_with_fn(period, TimerMode::Repeating, callback);
+        self.add_timer(state)
+    }
+
+    /// Create a one-shot timer with a function pointer callback
+    ///
+    /// The timer will fire once after the specified delay, then become inert.
+    ///
+    /// # Arguments
+    /// * `delay` - Time until the timer fires
+    /// * `callback` - Function to call when timer fires
+    pub fn create_timer_oneshot(
+        &mut self,
+        delay: TimerDuration,
+        callback: TimerCallbackFn,
+    ) -> Result<TimerHandle, ConnectedNodeError> {
+        let state = TimerState::new_with_fn(delay, TimerMode::OneShot, callback);
+        self.add_timer(state)
+    }
+
+    /// Create an inert timer (no callback)
+    ///
+    /// An inert timer never fires. It can be used as a placeholder or
+    /// converted to a repeating/one-shot timer later via `set_repeating()`.
+    ///
+    /// # Arguments
+    /// * `period` - Timer period (for when it becomes active)
+    pub fn create_timer_inert(
+        &mut self,
+        period: TimerDuration,
+    ) -> Result<TimerHandle, ConnectedNodeError> {
+        let state = TimerState::new_inert(period);
+        self.add_timer(state)
+    }
+
+    /// Create a repeating timer with a boxed callback (requires alloc)
+    ///
+    /// This allows using closures as callbacks.
+    #[cfg(feature = "alloc")]
+    pub fn create_timer_repeating_boxed<F>(
+        &mut self,
+        period: TimerDuration,
+        callback: F,
+    ) -> Result<TimerHandle, ConnectedNodeError>
+    where
+        F: FnMut() + Send + 'static,
+    {
+        let state = TimerState::new_with_box(
+            period,
+            TimerMode::Repeating,
+            alloc::boxed::Box::new(callback),
+        );
+        self.add_timer(state)
+    }
+
+    /// Create a one-shot timer with a boxed callback (requires alloc)
+    #[cfg(feature = "alloc")]
+    pub fn create_timer_oneshot_boxed<F>(
+        &mut self,
+        delay: TimerDuration,
+        callback: F,
+    ) -> Result<TimerHandle, ConnectedNodeError>
+    where
+        F: FnMut() + Send + 'static,
+    {
+        let state =
+            TimerState::new_with_box(delay, TimerMode::OneShot, alloc::boxed::Box::new(callback));
+        self.add_timer(state)
+    }
+
+    /// Add a timer state and return its handle
+    fn add_timer(&mut self, state: TimerState) -> Result<TimerHandle, ConnectedNodeError> {
+        let index = self.timers.len();
+        self.timers
+            .push(state)
+            .map_err(|_| ConnectedNodeError::TimerStorageFull)?;
+        Ok(TimerHandle::new(index))
+    }
+
+    /// Get a reference to a timer by handle
+    pub fn get_timer(&self, handle: &TimerHandle) -> Option<&TimerState> {
+        self.timers.get(handle.index())
+    }
+
+    /// Get a mutable reference to a timer by handle
+    pub fn get_timer_mut(&mut self, handle: &TimerHandle) -> Option<&mut TimerState> {
+        self.timers.get_mut(handle.index())
+    }
+
+    /// Cancel a timer
+    pub fn cancel_timer(&mut self, handle: &TimerHandle) -> Result<(), ConnectedNodeError> {
+        self.timers
+            .get_mut(handle.index())
+            .map(|t| t.cancel())
+            .ok_or(ConnectedNodeError::TimerNotFound)
+    }
+
+    /// Reset a timer (uncancels and resets elapsed time)
+    pub fn reset_timer(&mut self, handle: &TimerHandle) -> Result<(), ConnectedNodeError> {
+        self.timers
+            .get_mut(handle.index())
+            .map(|t| t.reset())
+            .ok_or(ConnectedNodeError::TimerNotFound)
+    }
+
+    /// Check if a timer is ready to fire
+    pub fn is_timer_ready(&self, handle: &TimerHandle) -> bool {
+        self.timers
+            .get(handle.index())
+            .map(|t| t.is_ready())
+            .unwrap_or(false)
+    }
+
+    /// Check if a timer is canceled
+    pub fn is_timer_canceled(&self, handle: &TimerHandle) -> bool {
+        self.timers
+            .get(handle.index())
+            .map(|t| t.is_canceled())
+            .unwrap_or(true)
+    }
+
+    /// Get the timer period
+    pub fn get_timer_period(&self, handle: &TimerHandle) -> Option<TimerDuration> {
+        self.timers.get(handle.index()).map(|t| t.period())
+    }
+
+    /// Get time until next timer call
+    pub fn time_until_next_call(&self, handle: &TimerHandle) -> Option<TimerDuration> {
+        self.timers
+            .get(handle.index())
+            .map(|t| t.time_until_next_call())
+    }
+
+    /// Get time since last timer call
+    pub fn time_since_last_call(&self, handle: &TimerHandle) -> Option<TimerDuration> {
+        self.timers
+            .get(handle.index())
+            .map(|t| t.time_since_last_call())
+    }
+
+    /// Get the number of timers
+    pub fn timer_count(&self) -> usize {
+        self.timers.len()
+    }
+
+    /// Process all timers
+    ///
+    /// Call this periodically to update timer elapsed times and fire callbacks.
+    /// The `delta_ms` parameter is the time elapsed since the last call.
+    ///
+    /// For RTIC applications, call this from a periodic software task:
+    ///
+    /// ```ignore
+    /// #[task(priority = 2, shared = [node])]
+    /// async fn timer_process(mut cx: timer_process::Context) {
+    ///     loop {
+    ///         cx.shared.node.lock(|node| {
+    ///             node.process_timers(TIMER_PROCESS_INTERVAL_MS as u64);
+    ///         });
+    ///         Systick::delay(TIMER_PROCESS_INTERVAL_MS.millis()).await;
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Arguments
+    /// * `delta_ms` - Milliseconds elapsed since last call
+    ///
+    /// # Returns
+    /// The number of timers that fired
+    pub fn process_timers(&mut self, delta_ms: u64) -> usize {
+        let mut fired_count = 0;
+
+        for timer in &mut self.timers {
+            if timer.update(delta_ms) {
+                timer.fire();
+                fired_count += 1;
+            }
+        }
+
+        fired_count
     }
 }
 

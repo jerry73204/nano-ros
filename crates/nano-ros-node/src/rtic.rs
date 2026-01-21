@@ -137,6 +137,12 @@ pub const KEEPALIVE_INTERVAL_MS: u32 = 1000;
 /// Recommended join interval in milliseconds (for peer mode)
 pub const JOIN_INTERVAL_MS: u32 = 1000;
 
+/// Recommended timer processing interval in milliseconds
+///
+/// This determines how often `process_timers()` should be called.
+/// Timer resolution will be limited to this value.
+pub const TIMER_PROCESS_INTERVAL_MS: u32 = 10;
+
 /// Generates RTIC task stubs for zenoh polling
 ///
 /// This macro generates the task function signatures that you can copy
@@ -198,5 +204,6 @@ mod tests {
         assert_eq!(POLL_INTERVAL_MS, 10);
         assert_eq!(KEEPALIVE_INTERVAL_MS, 1000);
         assert_eq!(JOIN_INTERVAL_MS, 1000);
+        assert_eq!(TIMER_PROCESS_INTERVAL_MS, 10);
     }
 }

@@ -53,6 +53,7 @@ extern crate alloc;
 mod node;
 mod publisher;
 mod subscriber;
+pub mod timer;
 
 #[cfg(feature = "zenoh")]
 mod connected;
@@ -127,3 +128,8 @@ pub use options::{
 // Re-export zenoh transport types for convenience
 #[cfg(feature = "zenoh")]
 pub use nano_ros_transport::SessionMode;
+
+// Re-export timer types
+pub use timer::{
+    TimerCallbackFn, TimerDuration, TimerHandle, TimerMode, TimerState, DEFAULT_MAX_TIMERS,
+};

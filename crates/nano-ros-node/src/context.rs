@@ -304,6 +304,12 @@ pub enum RclrsError {
     GoalNotFound,
     /// Action server is full (too many active goals)
     ActionServerFull,
+    /// Failed to create timer
+    TimerCreationFailed,
+    /// Timer not found
+    TimerNotFound,
+    /// Timer storage is full (too many timers)
+    TimerStorageFull,
 }
 
 impl RclrsError {
@@ -349,6 +355,9 @@ impl From<crate::ConnectedNodeError> for RclrsError {
             ConnectedNodeError::GoalRejected => RclrsError::GoalRejected,
             ConnectedNodeError::GoalNotFound => RclrsError::GoalNotFound,
             ConnectedNodeError::ActionServerFull => RclrsError::ActionServerFull,
+            ConnectedNodeError::TimerCreationFailed => RclrsError::TimerCreationFailed,
+            ConnectedNodeError::TimerNotFound => RclrsError::TimerNotFound,
+            ConnectedNodeError::TimerStorageFull => RclrsError::TimerStorageFull,
         }
     }
 }
