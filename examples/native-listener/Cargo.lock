@@ -328,6 +328,7 @@ dependencies = [
  "heapless",
  "log",
  "nano-ros-core",
+ "nano-ros-params",
  "nano-ros-serdes",
  "nano-ros-transport",
 ]

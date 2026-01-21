@@ -193,6 +193,32 @@ impl ParameterServer {
         SetParameterResult::Success
     }
 
+    /// Unset an optional parameter (set to NotSet)
+    ///
+    /// This bypasses the type check to allow optional parameters to be unset.
+    /// Returns an error if the parameter is read-only.
+    pub fn unset(&mut self, name: &str) -> SetParameterResult {
+        let idx = match self.find_index(name) {
+            Some(idx) => idx,
+            None => return SetParameterResult::NotFound,
+        };
+
+        let entry = match self.entries[idx].as_mut() {
+            Some(e) => e,
+            None => return SetParameterResult::NotFound,
+        };
+
+        // Check if read-only
+        if let Some(ref desc) = entry.descriptor {
+            if desc.read_only {
+                return SetParameterResult::ReadOnly;
+            }
+        }
+
+        entry.param.value = ParameterValue::NotSet;
+        SetParameterResult::Success
+    }
+
     /// Set or declare a parameter
     ///
     /// If the parameter exists, sets its value. Otherwise, declares it.

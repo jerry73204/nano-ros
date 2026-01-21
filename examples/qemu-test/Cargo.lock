@@ -116,8 +116,18 @@ version = "0.1.0"
 dependencies = [
  "heapless",
  "nano-ros-core",
+ "nano-ros-params",
  "nano-ros-serdes",
  "nano-ros-transport",
+]
+
+[[package]]
+name = "nano-ros-params"
+version = "0.1.0"
+dependencies = [
+ "heapless",
+ "nano-ros-core",
+ "nano-ros-serdes",
 ]
 
 [[package]]

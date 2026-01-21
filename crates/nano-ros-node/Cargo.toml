@@ -21,6 +21,7 @@ polling = ["nano-ros-transport/polling"]  # Manual polling mode
 nano-ros-core = { workspace = true, default-features = false }
 nano-ros-serdes = { workspace = true, default-features = false }
 nano-ros-transport = { workspace = true, default-features = false }
+nano-ros-params = { workspace = true, default-features = false }
 heapless = { workspace = true }
 log = { workspace = true, optional = true }
 defmt = { workspace = true, optional = true }

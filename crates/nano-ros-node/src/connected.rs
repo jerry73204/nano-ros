@@ -157,6 +157,9 @@ pub struct ConnectedNode<const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS> {
     _node_token: Option<LivelinessToken>,
     /// Publisher/subscriber liveliness tokens (static allocation)
     _entity_tokens: heapless::Vec<LivelinessToken, MAX_TOKENS>,
+    /// Parameter server for typed parameter support
+    #[cfg(feature = "zenoh")]
+    parameter_server: nano_ros_params::ParameterServer,
 }
 
 #[cfg(feature = "zenoh")]
@@ -195,6 +198,8 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             zid,
             _node_token: node_token,
             _entity_tokens: heapless::Vec::new(),
+            #[cfg(feature = "zenoh")]
+            parameter_server: nano_ros_params::ParameterServer::new(),
         })
     }
 
@@ -236,6 +241,8 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             zid,
             _node_token: node_token,
             _entity_tokens: heapless::Vec::new(),
+            #[cfg(feature = "zenoh")]
+            parameter_server: nano_ros_params::ParameterServer::new(),
         })
     }
 
@@ -690,6 +697,27 @@ impl<const MAX_TOKENS: usize> ConnectedNode<MAX_TOKENS> {
             goal_counter: 0,
             _marker: core::marker::PhantomData,
         })
+    }
+
+    /// Declare a typed parameter
+    ///
+    /// This returns a builder that allows fluent configuration of the parameter.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let speed: MandatoryParameter<f64> = node
+    ///     .declare_parameter("speed")
+    ///     .default(5.0)
+    ///     .range(0.0, 10.0, 0.1)
+    ///     .description("Maximum speed in m/s")
+    ///     .mandatory()?;
+    /// ```
+    pub fn declare_parameter<'a, T: nano_ros_params::ParameterVariant>(
+        &'a mut self,
+        name: &'a str,
+    ) -> nano_ros_params::ParameterBuilder<'a, T> {
+        nano_ros_params::ParameterBuilder::new(&mut self.parameter_server, name)
     }
 }
 

@@ -39,12 +39,14 @@ extern crate std;
 extern crate alloc;
 
 pub mod server;
+pub mod typed;
 pub mod types;
 
 // Re-export main types
-pub use server::{ParameterBuilder, ParameterServer, MAX_PARAMETERS};
+pub use server::{ParameterBuilder as LegacyParameterBuilder, ParameterServer, MAX_PARAMETERS};
+pub use typed::{MandatoryParameter, OptionalParameter, ParameterBuilder, ParameterError};
 pub use types::{
     FloatingPointRange, IntegerRange, Parameter, ParameterDescriptor, ParameterRange,
-    ParameterType, ParameterValue, SetParameterResult, MAX_ARRAY_LEN, MAX_BYTE_ARRAY_LEN,
-    MAX_PARAM_NAME_LEN, MAX_STRING_VALUE_LEN,
+    ParameterType, ParameterValue, ParameterVariant, SetParameterResult, MAX_ARRAY_LEN,
+    MAX_BYTE_ARRAY_LEN, MAX_PARAM_NAME_LEN, MAX_STRING_VALUE_LEN,
 };

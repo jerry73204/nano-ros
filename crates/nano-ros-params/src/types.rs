@@ -392,6 +392,84 @@ impl SetParameterResult {
     }
 }
 
+/// Trait for types that can be used as typed parameters
+///
+/// This trait provides conversions between Rust types and ParameterValue,
+/// enabling type-safe parameter access.
+pub trait ParameterVariant: Clone {
+    /// Convert this type to a ParameterValue
+    fn to_parameter_value(&self) -> ParameterValue;
+
+    /// Try to extract this type from a ParameterValue
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self>;
+
+    /// Get the expected parameter type
+    fn parameter_type() -> ParameterType;
+}
+
+// Implement ParameterVariant for basic types
+
+impl ParameterVariant for bool {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::Bool(*self)
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_bool()
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::Bool
+    }
+}
+
+impl ParameterVariant for i64 {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::Integer(*self)
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_integer()
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::Integer
+    }
+}
+
+impl ParameterVariant for f64 {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::Double(*self)
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_double()
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::Double
+    }
+}
+
+// For strings, we implement ParameterVariant for String<MAX_STRING_VALUE_LEN>
+impl ParameterVariant for String<MAX_STRING_VALUE_LEN> {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::String(self.clone())
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        if let ParameterValue::String(s) = value {
+            Some(s.clone())
+        } else {
+            None
+        }
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::String
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
