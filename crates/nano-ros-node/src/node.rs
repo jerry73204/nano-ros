@@ -124,6 +124,56 @@ pub struct Node<const MAX_PUBS: usize = 8, const MAX_SUBS: usize = 8> {
     rx_buffer: [u8; 1024],
 }
 
+/// Options for creating a publisher
+#[derive(Debug, Clone)]
+pub struct PublisherOptions<'a> {
+    /// Topic name
+    pub topic: &'a str,
+    /// QoS settings
+    pub qos: QosSettings,
+}
+
+impl<'a> PublisherOptions<'a> {
+    /// Create new publisher options with the given topic and default QoS
+    pub fn new(topic: &'a str) -> Self {
+        Self {
+            topic,
+            qos: QosSettings::default(),
+        }
+    }
+
+    /// Set the QoS settings
+    pub fn qos(mut self, qos: QosSettings) -> Self {
+        self.qos = qos;
+        self
+    }
+}
+
+/// Options for creating a subscriber
+#[derive(Debug, Clone)]
+pub struct SubscriberOptions<'a> {
+    /// Topic name
+    pub topic: &'a str,
+    /// QoS settings
+    pub qos: QosSettings,
+}
+
+impl<'a> SubscriberOptions<'a> {
+    /// Create new subscriber options with the given topic and default QoS
+    pub fn new(topic: &'a str) -> Self {
+        Self {
+            topic,
+            qos: QosSettings::default(),
+        }
+    }
+
+    /// Set the QoS settings
+    pub fn qos(mut self, qos: QosSettings) -> Self {
+        self.qos = qos;
+        self
+    }
+}
+
 impl<const MAX_PUBS: usize, const MAX_SUBS: usize> Node<MAX_PUBS, MAX_SUBS> {
     /// Create a new node with the given configuration
     pub fn new(config: NodeConfig) -> Self {
@@ -171,33 +221,47 @@ impl<const MAX_PUBS: usize, const MAX_SUBS: usize> Node<MAX_PUBS, MAX_SUBS> {
     }
 
     /// Create a publisher for the given topic
-    ///
-    /// Returns a handle that can be used to publish messages.
-    pub fn create_publisher<M: RosMessage>(
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_publisher with PublisherOptions instead"
+    )]
+    pub fn create_publisher_simple<M: RosMessage>(
         &mut self,
         topic: &str,
     ) -> Result<PublisherHandle<M>, NodeError> {
-        self.create_publisher_with_qos::<M>(topic, QosSettings::BEST_EFFORT)
+        self.create_publisher(PublisherOptions::new(topic))
     }
 
     /// Create a publisher with custom QoS settings
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_publisher with PublisherOptions instead"
+    )]
     pub fn create_publisher_with_qos<M: RosMessage>(
         &mut self,
         topic: &str,
         qos: QosSettings,
+    ) -> Result<PublisherHandle<M>, NodeError> {
+        self.create_publisher(PublisherOptions::new(topic).qos(qos))
+    }
+
+    /// Create a publisher with the given options
+    pub fn create_publisher<M: RosMessage>(
+        &mut self,
+        options: PublisherOptions,
     ) -> Result<PublisherHandle<M>, NodeError> {
         if self.publishers.len() >= MAX_PUBS {
             return Err(NodeError::MaxPublishersReached);
         }
 
         let mut topic_name = heapless::String::new();
-        let _ = topic_name.push_str(topic);
+        let _ = topic_name.push_str(options.topic);
 
         let info = PublisherInfo {
             topic_name,
             type_name: M::TYPE_NAME,
             type_hash: M::TYPE_HASH,
-            qos,
+            qos: options.qos,
             active: true,
         };
 
@@ -210,33 +274,47 @@ impl<const MAX_PUBS: usize, const MAX_SUBS: usize> Node<MAX_PUBS, MAX_SUBS> {
     }
 
     /// Create a subscriber for the given topic
-    ///
-    /// Returns a handle that can be used to receive messages.
-    pub fn create_subscriber<M: RosMessage>(
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_subscriber with SubscriberOptions instead"
+    )]
+    pub fn create_subscriber_simple<M: RosMessage>(
         &mut self,
         topic: &str,
     ) -> Result<SubscriberHandle<M>, NodeError> {
-        self.create_subscriber_with_qos::<M>(topic, QosSettings::BEST_EFFORT)
+        self.create_subscriber(SubscriberOptions::new(topic))
     }
 
     /// Create a subscriber with custom QoS settings
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_subscriber with SubscriberOptions instead"
+    )]
     pub fn create_subscriber_with_qos<M: RosMessage>(
         &mut self,
         topic: &str,
         qos: QosSettings,
+    ) -> Result<SubscriberHandle<M>, NodeError> {
+        self.create_subscriber(SubscriberOptions::new(topic).qos(qos))
+    }
+
+    /// Create a subscriber with the given options
+    pub fn create_subscriber<M: RosMessage>(
+        &mut self,
+        options: SubscriberOptions,
     ) -> Result<SubscriberHandle<M>, NodeError> {
         if self.subscribers.len() >= MAX_SUBS {
             return Err(NodeError::MaxSubscribersReached);
         }
 
         let mut topic_name = heapless::String::new();
-        let _ = topic_name.push_str(topic);
+        let _ = topic_name.push_str(options.topic);
 
         let info = SubscriberInfo {
             topic_name,
             type_name: M::TYPE_NAME,
             type_hash: M::TYPE_HASH,
-            qos,
+            qos: options.qos,
             active: true,
         };
 
@@ -371,7 +449,7 @@ mod tests {
     #[test]
     fn test_create_publisher() {
         let mut node = Node::<4, 4>::default();
-        let handle = node.create_publisher::<TestMessage>("/test_topic");
+        let handle = node.create_publisher::<TestMessage>(PublisherOptions::new("/test_topic"));
 
         assert!(handle.is_ok());
         assert_eq!(node.publisher_count(), 1);
@@ -380,7 +458,7 @@ mod tests {
     #[test]
     fn test_create_subscriber() {
         let mut node = Node::<4, 4>::default();
-        let handle = node.create_subscriber::<TestMessage>("/test_topic");
+        let handle = node.create_subscriber::<TestMessage>(SubscriberOptions::new("/test_topic"));
 
         assert!(handle.is_ok());
         assert_eq!(node.subscriber_count(), 1);
@@ -390,9 +468,9 @@ mod tests {
     fn test_max_publishers() {
         let mut node = Node::<2, 2>::default();
 
-        let _ = node.create_publisher::<TestMessage>("/topic1");
-        let _ = node.create_publisher::<TestMessage>("/topic2");
-        let result = node.create_publisher::<TestMessage>("/topic3");
+        let _ = node.create_publisher::<TestMessage>(PublisherOptions::new("/topic1"));
+        let _ = node.create_publisher::<TestMessage>(PublisherOptions::new("/topic2"));
+        let result = node.create_publisher::<TestMessage>(PublisherOptions::new("/topic3"));
 
         assert_eq!(result, Err(NodeError::MaxPublishersReached));
     }
@@ -400,8 +478,12 @@ mod tests {
     #[test]
     fn test_serialize_deserialize() {
         let mut node = Node::<4, 4>::default();
-        let pub_handle = node.create_publisher::<TestMessage>("/test").unwrap();
-        let sub_handle = node.create_subscriber::<TestMessage>("/test").unwrap();
+        let pub_handle = node
+            .create_publisher::<TestMessage>(PublisherOptions::new("/test"))
+            .unwrap();
+        let sub_handle = node
+            .create_subscriber::<TestMessage>(SubscriberOptions::new("/test"))
+            .unwrap();
 
         let msg = TestMessage { data: 42 };
 

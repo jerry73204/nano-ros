@@ -47,6 +47,7 @@ const KEEPALIVE_INTERVAL_MS: u32 = 1000;
 mod app {
     use super::*;
     use defmt_rtt as _;
+    use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
     use stm32f4xx_hal::{
         gpio::{Output, Pin},
         prelude::*,
@@ -56,9 +57,9 @@ mod app {
     /// Shared resources accessible by multiple tasks
     #[shared]
     struct Shared {
-        // In a real application, this would be the ConnectedNode
-        // For this example, we show the structure without actual zenoh connection
-        // since that requires network hardware setup
+        // The PollingExecutor manages all nano-ros nodes
+        // It's placed in shared resources to be accessible by tasks
+        executor: PollingExecutor<1>, // Allow 1 node
         counter: u32,
     }
 
@@ -90,21 +91,29 @@ mod app {
 
         // In a real application, you would:
         // 1. Initialize the network interface (Ethernet or UART)
-        // 2. Create the zenoh session without background tasks:
+        // 2. Create the context, executor, and node:
         //
-        // ```
-        // let config = NodeConfig::new("rtic_node", "/demo");
-        // let node = ConnectedNode::connect_without_tasks(config, "tcp/192.168.1.1:7447")?;
-        // ```
+        // let init_options = InitOptions::new().locator("tcp/192.168.1.1:7447");
+        // let ctx = Context::new(init_options).unwrap();
+        // let mut executor: PollingExecutor<1> = ctx.create_polling_executor();
+        // let node = executor.create_node("rtic_node".namespace("/demo")).unwrap();
 
         defmt::info!("Starting periodic tasks...");
 
         // Spawn the periodic tasks
         zenoh_poll::spawn().ok();
-        zenoh_keepalive::spawn().ok();
+        // The keepalive task is no longer needed with the executor model,
+        // as `spin_once` handles keepalives automatically.
+        // zenoh_keepalive::spawn().ok();
         publisher_task::spawn().ok();
 
-        (Shared { counter: 0 }, Local { led })
+        (
+            Shared {
+                // executor, // Uncomment when using real hardware
+                counter: 0,
+            },
+            Local { led },
+        )
     }
 
     /// Idle task - runs when no other tasks are ready
@@ -121,39 +130,20 @@ mod app {
     /// This task runs every 10ms to process incoming network data.
     /// In RTIC, this replaces the background read thread.
     /// Higher priority (2) ensures timely message processing.
-    #[task(priority = 2, shared = [])]
-    async fn zenoh_poll(_cx: zenoh_poll::Context) {
+    #[task(priority = 2, shared = [executor])]
+    async fn zenoh_poll(mut cx: zenoh_poll::Context) {
         loop {
-            // In a real application with ConnectedNode:
-            // cx.shared.node.lock(|node| {
-            //     if let Err(e) = node.poll_read() {
-            //         defmt::warn!("Poll error: {:?}", e);
+            // In a real application, call spin_once on the executor
+            // cx.shared.executor.lock(|exec| {
+            //     let result = exec.spin_once(POLL_INTERVAL_MS as u64);
+            //     if result.subscriptions_processed > 0 {
+            //         defmt::info!("Processed {} subscriptions", result.subscriptions_processed);
             //     }
             // });
 
             defmt::trace!("zenoh_poll tick");
 
             Mono::delay(POLL_INTERVAL_MS.millis()).await;
-        }
-    }
-
-    /// Send keepalive to maintain session
-    ///
-    /// This task runs every 1s to send keepalive messages.
-    /// In RTIC, this replaces the background lease thread.
-    #[task(priority = 1, shared = [])]
-    async fn zenoh_keepalive(_cx: zenoh_keepalive::Context) {
-        loop {
-            // In a real application with ConnectedNode:
-            // cx.shared.node.lock(|node| {
-            //     if let Err(e) = node.send_keepalive() {
-            //         defmt::warn!("Keepalive error: {:?}", e);
-            //     }
-            // });
-
-            defmt::trace!("zenoh_keepalive tick");
-
-            Mono::delay(KEEPALIVE_INTERVAL_MS.millis()).await;
         }
     }
 

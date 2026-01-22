@@ -59,7 +59,9 @@ fn main() {
 
     // Create a subscriber for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
-    let mut subscriber = match node.create_subscriber::<Int32>("/chatter") {
+    let mut subscriber = match node
+        .create_subscriber::<Int32>(SubscriberOptions::new("/chatter").reliable().keep_last(10))
+    {
         Ok(sub) => {
             info!("Subscriber created for topic: /chatter");
             debug!("Message type: {}", Int32::TYPE_NAME);
@@ -112,7 +114,7 @@ fn main() {
 
     // Create a subscriber for Int32 messages
     let subscriber = node
-        .create_subscriber::<Int32>("/chatter")
+        .create_subscriber::<Int32>(SubscriberOptions::new("/chatter"))
         .expect("Failed to create subscriber");
 
     info!("Subscriber created for topic: /chatter");

@@ -32,24 +32,12 @@
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
+use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
 use panic_halt as _;
 
-/// Timing constants for Embassy tasks (same as nano_ros_node::rtic when zenoh is enabled)
-/// Poll interval in milliseconds - how often to poll zenoh for incoming messages
+/// Timing constants for Embassy tasks
 const POLL_INTERVAL_MS: u64 = 10;
-/// Keepalive interval in milliseconds - how often to send keepalive to maintain session
-const KEEPALIVE_INTERVAL_MS: u64 = 1000;
-
-/// Channel for sending publish requests from publisher to a shared node task
-static PUBLISH_CHANNEL: Channel<CriticalSectionRawMutex, PublishRequest, 4> = Channel::new();
-
-/// A request to publish data
-struct PublishRequest {
-    counter: u32,
-}
 
 /// Main entry point - spawns all async tasks
 #[embassy_executor::main]
@@ -66,20 +54,22 @@ async fn main(spawner: Spawner) {
 
     // In a real application, you would:
     // 1. Initialize the network interface (Ethernet or UART)
-    // 2. Create the zenoh session without background tasks:
+    // 2. Create the context, executor, and node:
     //
-    // ```
-    // let config = NodeConfig::new("embassy_node", "/demo");
-    // let node = ConnectedNode::connect_without_tasks(config, "tcp/192.168.1.1:7447")?;
-    // ```
+    // let init_options = InitOptions::new().locator("tcp/192.168.1.1:7447");
+    // let ctx = Context::new(init_options).unwrap();
+    // let mut executor: PollingExecutor<1> = ctx.create_polling_executor();
+    // let node = executor.create_node("embassy_node".namespace("/demo")).unwrap();
+    // let publisher = node.create_publisher::<Int32>("/counter").unwrap();
 
     defmt::info!("Spawning async tasks...");
 
-    // Spawn all the background tasks
+    // Spawn the background tasks
+    // Note: The executor must be moved into a statically allocated container
+    // to be shared across tasks, e.g., using embassy_sync::Mutex.
+    // For simplicity, this example shows the task structure without shared state.
     spawner.spawn(zenoh_poll_task()).unwrap();
-    spawner.spawn(zenoh_keepalive_task()).unwrap();
     spawner.spawn(publisher_task(led)).unwrap();
-    spawner.spawn(node_handler_task()).unwrap();
 
     defmt::info!("All tasks spawned, entering main loop");
 
@@ -92,14 +82,14 @@ async fn main(spawner: Spawner) {
 /// Poll zenoh for incoming messages
 ///
 /// This task runs every 10ms to process incoming network data.
-/// In Embassy, this replaces the background read thread.
 #[embassy_executor::task]
 async fn zenoh_poll_task() {
     loop {
-        // In a real application with ConnectedNode:
-        // NODE.lock(|node| {
-        //     if let Err(e) = node.poll_read() {
-        //         defmt::warn!("Poll error: {:?}", e);
+        // In a real application with a shared executor:
+        // EXECUTOR.lock(|exec| {
+        //     let result = exec.spin_once(POLL_INTERVAL_MS as u64);
+        //     if result.subscriptions_processed > 0 {
+        //         defmt::info!("Processed {} subscriptions", result.subscriptions_processed);
         //     }
         // });
 
@@ -109,47 +99,9 @@ async fn zenoh_poll_task() {
     }
 }
 
-/// Send keepalive to maintain session
-///
-/// This task runs every 1s to send keepalive messages.
-/// In Embassy, this replaces the background lease thread.
-#[embassy_executor::task]
-async fn zenoh_keepalive_task() {
-    loop {
-        // In a real application with ConnectedNode:
-        // NODE.lock(|node| {
-        //     if let Err(e) = node.send_keepalive() {
-        //         defmt::warn!("Keepalive error: {:?}", e);
-        //     }
-        // });
-
-        defmt::trace!("zenoh_keepalive tick");
-
-        Timer::after(Duration::from_millis(KEEPALIVE_INTERVAL_MS)).await;
-    }
-}
-
-/// Handle node operations (publishing, subscribing)
-///
-/// This task receives publish requests via channel and processes them.
-/// Using a channel decouples the publisher logic from the actual zenoh operations.
-#[embassy_executor::task]
-async fn node_handler_task() {
-    loop {
-        // Wait for a publish request
-        let request = PUBLISH_CHANNEL.receive().await;
-
-        // In a real application with a publisher:
-        // publisher.publish(&Int32 { data: request.counter as i32 }).ok();
-
-        defmt::info!("Node handler: published counter = {}", request.counter);
-    }
-}
-
 /// Publish messages periodically
 ///
 /// This task demonstrates publishing ROS 2 messages at a fixed rate.
-/// It sends publish requests to the node handler via a channel.
 #[embassy_executor::task]
 async fn publisher_task(mut led: Output<'static>) {
     let mut counter: u32 = 0;
@@ -161,8 +113,10 @@ async fn publisher_task(mut led: Output<'static>) {
         // Toggle LED to show activity
         led.toggle();
 
-        // Send publish request to node handler
-        PUBLISH_CHANNEL.send(PublishRequest { counter }).await;
+        // In a real application with a shared publisher:
+        // PUBLISHER.lock(|pub_| {
+        //     pub_.publish(&Int32 { data: counter as i32 }).ok();
+        // });
 
         defmt::info!("Publisher: sent counter = {}", counter);
 

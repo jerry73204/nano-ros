@@ -35,14 +35,14 @@ fn test_mutex_with_api() {
 fn test_qos_settings() {
     use nano_ros_transport::{QosReliabilityPolicy, QosSettings};
 
-    // Default QoS - BEST_EFFORT
+    // Default QoS - RELIABLE
     let qos = QosSettings::default();
     assert_eq!(
         qos.reliability,
-        QosReliabilityPolicy::BestEffort,
-        "Default QoS should be best effort"
+        QosReliabilityPolicy::Reliable,
+        "Default QoS should be reliable"
     );
-    assert_eq!(qos.history_depth(), 1, "Default QoS history depth");
+    assert_eq!(qos.history_depth(), 10, "Default QoS history depth");
 
     // Reliable QoS constant
     let reliable_qos = QosSettings::RELIABLE;

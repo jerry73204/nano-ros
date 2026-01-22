@@ -191,44 +191,63 @@ mod tests {
     fn test_publisher_options() {
         let options = PublisherOptions::new("/test");
         assert_eq!(options.topic, "/test");
-        assert_eq!(options.qos.reliability, QosReliabilityPolicy::BestEffort);
+        assert_eq!(options.qos.reliability, QosReliabilityPolicy::Reliable);
     }
 
     #[test]
+
     fn test_publisher_builder() {
         let options = PublisherOptions::new("/test").keep_last(5).reliable();
+
         assert_eq!(options.topic, "/test");
+
         assert_eq!(options.qos.reliability, QosReliabilityPolicy::Reliable);
-        assert_eq!(options.qos.history, QosHistoryPolicy::KeepLast { depth: 5 });
+
+        assert_eq!(options.qos.history, QosHistoryPolicy::KeepLast);
+
+        assert_eq!(options.qos.depth, 5);
     }
 
     #[test]
+
     fn test_publisher_fluent_api() {
         let options = PublisherOptions::new("/test").keep_last(10).reliable();
+
         assert_eq!(options.topic, "/test");
+
         assert_eq!(options.qos.reliability, QosReliabilityPolicy::Reliable);
-        assert_eq!(
-            options.qos.history,
-            QosHistoryPolicy::KeepLast { depth: 10 }
-        );
+
+        assert_eq!(options.qos.history, QosHistoryPolicy::KeepLast);
+
+        assert_eq!(options.qos.depth, 10);
     }
 
     #[test]
+
     fn test_subscriber_options() {
         let options = SubscriberOptions::new("/test");
+
         assert_eq!(options.topic, "/test");
-        assert_eq!(options.qos.reliability, QosReliabilityPolicy::BestEffort);
+
+        assert_eq!(options.qos.reliability, QosReliabilityPolicy::Reliable);
     }
 
     #[test]
+
     fn test_subscriber_builder() {
         let options = SubscriberOptions::new("/test")
             .keep_last(5)
             .reliable()
             .transient_local();
+
         assert_eq!(options.topic, "/test");
+
         assert_eq!(options.qos.reliability, QosReliabilityPolicy::Reliable);
-        assert_eq!(options.qos.history, QosHistoryPolicy::KeepLast { depth: 5 });
+
+        assert_eq!(options.qos.history, QosHistoryPolicy::KeepLast);
+
+        assert_eq!(options.qos.depth, 5);
+
         assert_eq!(options.qos.durability, QosDurabilityPolicy::TransientLocal);
     }
 

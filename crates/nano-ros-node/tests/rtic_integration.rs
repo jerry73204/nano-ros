@@ -34,14 +34,14 @@ fn test_node_config_with_domain() {
 fn test_qos_settings() {
     use nano_ros_node::{QosReliabilityPolicy, QosSettings};
 
-    // Default QoS - BEST_EFFORT
+    // Default QoS - RELIABLE
     let default_qos = QosSettings::default();
     assert_eq!(
         default_qos.reliability,
-        QosReliabilityPolicy::BestEffort,
-        "Default should be best effort"
+        QosReliabilityPolicy::Reliable,
+        "Default should be reliable"
     );
-    assert_eq!(default_qos.history_depth(), 1, "Default history depth");
+    assert_eq!(default_qos.history_depth(), 10, "Default history depth");
 
     // Custom QoS using builder
     let custom_qos = QosSettings::new().reliable().keep_last(100);

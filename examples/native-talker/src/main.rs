@@ -59,7 +59,9 @@ fn main() {
 
     // Create a publisher for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
-    let publisher = match node.create_publisher::<Int32>("/chatter") {
+    let publisher = match node
+        .create_publisher::<Int32>(PublisherOptions::new("/chatter").reliable().keep_last(10))
+    {
         Ok(pub_) => {
             info!("Publisher created for topic: /chatter");
             debug!("Message type: {}", Int32::TYPE_NAME);
@@ -113,7 +115,7 @@ fn main() {
 
     // Create a publisher for Int32 messages
     let publisher = node
-        .create_publisher::<Int32>("/chatter")
+        .create_publisher::<Int32>(PublisherOptions::new("/chatter"))
         .expect("Failed to create publisher");
 
     info!("Publisher created for topic: /chatter");

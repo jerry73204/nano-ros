@@ -56,7 +56,10 @@ pub use nano_ros_core::{
 };
 
 // Re-export node types
-pub use nano_ros_node::{NodeConfig, PublisherHandle, StandaloneNode, SubscriberHandle};
+pub use nano_ros_node::{
+    NodeConfig, PublisherHandle, PublisherOptions, StandaloneNode, SubscriberHandle,
+    SubscriberOptions,
+};
 
 // Re-export timer types
 pub use nano_ros_node::{
@@ -74,7 +77,7 @@ pub use nano_ros_node::{
 #[cfg(feature = "zenoh")]
 pub use nano_ros_node::{
     Context, InitOptions, IntoNodeOptions, IntoPublisherOptions, IntoSubscriberOptions, Node,
-    NodeNameExt, NodeOptions, PublisherOptions, RclrsError, SubscriberOptions,
+    NodeNameExt, NodeOptions, RclrsError,
 };
 
 // Re-export transport types
@@ -109,9 +112,10 @@ pub use nano_ros_params::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        CdrReader, CdrWriter, Deserialize, NodeConfig, PublisherHandle, QosDurabilityPolicy,
-        QosHistoryPolicy, QosReliabilityPolicy, QosSettings, RosMessage, RosService, Serialize,
-        StandaloneNode, SubscriberHandle, TopicInfo, TransportConfig,
+        CdrReader, CdrWriter, Deserialize, NodeConfig, PublisherHandle, PublisherOptions,
+        QosDurabilityPolicy, QosHistoryPolicy, QosReliabilityPolicy, QosSettings, RosMessage,
+        RosService, Serialize, StandaloneNode, SubscriberHandle, SubscriberOptions, TopicInfo,
+        TransportConfig,
     };
 
     #[cfg(feature = "zenoh")]
@@ -125,7 +129,7 @@ pub mod prelude {
     #[cfg(feature = "zenoh")]
     pub use crate::{
         Context, InitOptions, IntoNodeOptions, IntoPublisherOptions, IntoSubscriberOptions, Node,
-        NodeNameExt, NodeOptions, PublisherOptions, RclrsError, SubscriberOptions,
+        NodeNameExt, NodeOptions, RclrsError,
     };
 
     // Re-export parameter types

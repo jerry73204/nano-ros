@@ -26,6 +26,7 @@ use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse}
 use nano_ros::prelude::*;
 
 #[cfg(feature = "zenoh")]
+#[allow(deprecated)] // TODO: Update to use executor API once service callbacks are supported
 fn main() {
     env_logger::init();
 

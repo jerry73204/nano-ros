@@ -40,6 +40,7 @@ use nano_ros_transport::{
     ZenohServiceServer, ZenohSession, ZenohSubscriber, ZenohTransport,
 };
 
+use crate::options::{PublisherOptions, SubscriberOptions};
 use crate::NodeConfig;
 
 /// Default receive buffer size for subscribers
@@ -188,6 +189,10 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
     /// # Arguments
     /// * `config` - Node configuration (name, namespace, domain_id)
     /// * `transport_config` - Transport configuration (locator, mode)
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use Context and an executor (e.g. create_polling_executor) instead"
+    )]
     pub fn new(
         config: NodeConfig,
         transport_config: &TransportConfig,
@@ -273,6 +278,10 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
     ///
     /// Use this for RTIC or other single-threaded executors.
     #[cfg(any(feature = "rtic", feature = "polling"))]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use Context and an executor (e.g. create_polling_executor) instead"
+    )]
     pub fn connect_without_tasks(
         config: NodeConfig,
         locator: &str,
@@ -288,6 +297,10 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
     ///
     /// Use this for RTIC or other single-threaded executors.
     #[cfg(any(feature = "rtic", feature = "polling"))]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use Context and an executor (e.g. create_polling_executor) instead"
+    )]
     pub fn connect_peer_without_tasks(config: NodeConfig) -> Result<Self, ConnectedNodeError> {
         let transport_config = TransportConfig {
             locator: None,
@@ -374,23 +387,39 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
     }
 
     /// Create a publisher for the given topic
-    pub fn create_publisher<M: RosMessage>(
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_publisher with PublisherOptions instead"
+    )]
+    pub fn create_publisher_simple<M: RosMessage>(
         &mut self,
         topic: &str,
     ) -> Result<ConnectedPublisher<M>, ConnectedNodeError> {
-        self.create_publisher_with_qos(topic, QosSettings::BEST_EFFORT)
+        self.create_publisher(PublisherOptions::new(topic))
     }
 
     /// Create a publisher with custom QoS settings
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_publisher with PublisherOptions instead"
+    )]
     pub fn create_publisher_with_qos<M: RosMessage>(
         &mut self,
         topic: &str,
         qos: QosSettings,
     ) -> Result<ConnectedPublisher<M>, ConnectedNodeError> {
-        let topic_info =
-            TopicInfo::new(topic, M::TYPE_NAME, M::TYPE_HASH).with_domain(self.domain_id);
+        self.create_publisher(PublisherOptions { topic, qos })
+    }
 
-        let publisher = self.session.create_publisher(&topic_info, qos)?;
+    /// Create a publisher with the given options
+    pub fn create_publisher<M: RosMessage>(
+        &mut self,
+        options: PublisherOptions,
+    ) -> Result<ConnectedPublisher<M>, ConnectedNodeError> {
+        let topic_info =
+            TopicInfo::new(options.topic, M::TYPE_NAME, M::TYPE_HASH).with_domain(self.domain_id);
+
+        let publisher = self.session.create_publisher(&topic_info, options.qos)?;
 
         // Declare publisher liveliness token for ROS 2 discovery
         let pub_keyexpr =
@@ -412,47 +441,39 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
     ///
     /// Uses the default receive buffer size (1024 bytes).
     /// For larger messages, use `create_subscriber_sized`.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_subscriber with SubscriberOptions instead"
+    )]
     pub fn create_subscriber<M: RosMessage>(
         &mut self,
         topic: &str,
     ) -> Result<ConnectedSubscriber<M, DEFAULT_RX_BUFFER_SIZE>, ConnectedNodeError> {
-        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(topic, QosSettings::BEST_EFFORT)
+        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(SubscriberOptions::new(topic))
     }
 
     /// Create a subscriber with custom QoS settings
-    ///
-    /// Uses the default receive buffer size (1024 bytes).
-    /// For larger messages, use `create_subscriber_sized`.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use create_subscriber with SubscriberOptions instead"
+    )]
     pub fn create_subscriber_with_qos<M: RosMessage>(
         &mut self,
         topic: &str,
         qos: QosSettings,
     ) -> Result<ConnectedSubscriber<M, DEFAULT_RX_BUFFER_SIZE>, ConnectedNodeError> {
-        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(topic, qos)
+        self.create_subscriber_sized::<M, DEFAULT_RX_BUFFER_SIZE>(SubscriberOptions { topic, qos })
     }
 
     /// Create a subscriber with custom buffer size
-    ///
-    /// # Type Parameters
-    ///
-    /// - `M`: The ROS message type
-    /// - `RX_BUF`: Receive buffer size in bytes
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Create subscriber with 4KB buffer for large messages
-    /// let sub = node.create_subscriber_sized::<LargeMsg, 4096>("/large_topic", QosSettings::BEST_EFFORT)?;
-    /// ```
     pub fn create_subscriber_sized<M: RosMessage, const RX_BUF: usize>(
         &mut self,
-        topic: &str,
-        qos: QosSettings,
+        options: SubscriberOptions,
     ) -> Result<ConnectedSubscriber<M, RX_BUF>, ConnectedNodeError> {
         let topic_info =
-            TopicInfo::new(topic, M::TYPE_NAME, M::TYPE_HASH).with_domain(self.domain_id);
+            TopicInfo::new(options.topic, M::TYPE_NAME, M::TYPE_HASH).with_domain(self.domain_id);
 
-        let subscriber = self.session.create_subscriber(&topic_info, qos)?;
+        let subscriber = self.session.create_subscriber(&topic_info, options.qos)?;
 
         // Declare subscriber liveliness token for ROS 2 discovery
         let sub_keyexpr =

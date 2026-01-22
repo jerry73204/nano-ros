@@ -40,6 +40,7 @@
 
 use cortex_m_rt::entry;
 use defmt_rtt as _;
+use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
 use panic_halt as _;
 use stm32f4xx_hal::{prelude::*, rcc::Config};
 
@@ -86,18 +87,16 @@ impl SimpleTimer {
 
 /// Application state for the polling loop
 struct App {
+    executor: PollingExecutor<1>,
     counter: u32,
-    poll_timer: SimpleTimer,
-    keepalive_timer: SimpleTimer,
     publish_timer: SimpleTimer,
 }
 
 impl App {
-    fn new(sysclk_hz: u32) -> Self {
+    fn new(sysclk_hz: u32, executor: PollingExecutor<1>) -> Self {
         Self {
+            executor,
             counter: 0,
-            poll_timer: SimpleTimer::new(sysclk_hz),
-            keepalive_timer: SimpleTimer::new(sysclk_hz),
             publish_timer: SimpleTimer::new(sysclk_hz),
         }
     }
@@ -129,40 +128,29 @@ fn main() -> ! {
 
     // In a real application, you would:
     // 1. Initialize the network interface (Ethernet or UART)
-    // 2. Create the zenoh session without background tasks:
+    // 2. Create the context, executor, and node:
     //
-    // ```
-    // let config = NodeConfig::new("polling_node", "/demo");
-    // let node = ConnectedNode::connect_without_tasks(config, "tcp/192.168.1.1:7447")?;
-    // let publisher = node.create_publisher::<Int32>("/counter")?;
-    // ```
+    // let init_options = InitOptions::new().locator("tcp/192.168.1.1:7447");
+    // let ctx = Context::new(init_options).unwrap();
+    // let mut executor: PollingExecutor<1> = ctx.create_polling_executor();
+    // let node = executor.create_node("polling_node".namespace("/demo")).unwrap();
+    // let publisher = node.create_publisher::<Int32>("/counter").unwrap();
 
     // Initialize application state
-    let mut app = App::new(sysclk_hz);
+    // let mut app = App::new(sysclk_hz, executor); // Uncomment for real hardware
 
     defmt::info!("Entering main polling loop...");
 
-    // Main polling loop - no executor needed!
+    // Main polling loop
     loop {
-        // Task 1: Poll zenoh for incoming messages (every POLL_INTERVAL_MS)
-        if app.poll_timer.elapsed_ms(POLL_INTERVAL_MS) {
-            // In a real application:
-            // if let Err(e) = node.poll_read() {
-            //     defmt::warn!("Poll error: {:?}", e);
-            // }
-            defmt::trace!("zenoh_poll tick");
-        }
+        // In a real application, call spin_once on the executor
+        // let result = app.executor.spin_once(POLL_INTERVAL_MS as u64);
+        // if result.subscriptions_processed > 0 {
+        //     defmt::info!("Processed {} subscriptions", result.subscriptions_processed);
+        // }
 
-        // Task 2: Send keepalive (every KEEPALIVE_INTERVAL_MS)
-        if app.keepalive_timer.elapsed_ms(KEEPALIVE_INTERVAL_MS) {
-            // In a real application:
-            // if let Err(e) = node.send_keepalive() {
-            //     defmt::warn!("Keepalive error: {:?}", e);
-            // }
-            defmt::trace!("zenoh_keepalive tick");
-        }
-
-        // Task 3: Publish at 10 Hz (every 100ms)
+        // Task: Publish at 10 Hz (every 100ms)
+        // Note: The main loop spin rate should be fast enough to accommodate this
         if app.publish_timer.elapsed_ms(100) {
             app.counter = app.counter.wrapping_add(1);
 
