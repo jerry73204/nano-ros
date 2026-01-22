@@ -315,17 +315,71 @@ impl ParameterServer {
             None => SetParameterResult::StorageFull, // String too long
         }
     }
+
+    /// Declare a parameter with a descriptor and optional initial value.
+    ///
+    /// This is a more comprehensive declaration method used by the typed parameter API.
+    ///
+    /// # Arguments
+    /// - `descriptor`: The metadata for the parameter.
+    /// - `initial_value`: An optional initial value for the parameter. If `None`,
+    ///   the parameter will be initialized to `ParameterValue::NotSet`.
+    pub fn declare_parameter(
+        &mut self,
+        descriptor: ParameterDescriptor,
+        initial_value: Option<&ParameterValue>,
+    ) -> Result<(), SetParameterResult> {
+        let name = descriptor.name.as_str();
+
+        // Check if already exists
+        if self.find_index(name).is_some() {
+            return Err(SetParameterResult::TypeMismatch); // Indicates already declared
+        }
+
+        // Find an empty slot
+        let slot = match self.find_empty_slot() {
+            Some(idx) => idx,
+            None => return Err(SetParameterResult::StorageFull),
+        };
+
+        let param_value = initial_value.cloned().unwrap_or_default();
+
+        let param = Parameter::new(name, param_value).ok_or(SetParameterResult::StorageFull)?; // name too long
+
+        self.entries[slot] = Some(ParameterEntry {
+            param,
+            descriptor: Some(descriptor),
+        });
+        self.count += 1;
+        Ok(())
+    }
+
+    /// Get the current value of a parameter.
+    ///
+    /// Returns `Some(ParameterValue)` if the parameter exists, `None` otherwise.
+    /// The `ParameterValue` is cloned to avoid lifetime issues with `&mut self`.
+    pub fn get_parameter_value(&self, name: &str) -> Option<ParameterValue> {
+        self.get(name).cloned()
+    }
+
+    /// Set the value of a parameter.
+    ///
+    /// Returns `SetParameterResult::Success` on success, or an error if the parameter
+    /// is read-only, type mismatches, or is out of range.
+    pub fn set_parameter_value(&mut self, name: &str, value: ParameterValue) -> SetParameterResult {
+        self.set(name, value)
+    }
 }
 
 /// Builder for declaring parameters with a fluent API
-pub struct ParameterBuilder<'a> {
+pub struct LegacyParameterBuilder<'a> {
     server: &'a mut ParameterServer,
     name: String<MAX_PARAM_NAME_LEN>,
     value: ParameterValue,
     descriptor: Option<ParameterDescriptor>,
 }
 
-impl<'a> ParameterBuilder<'a> {
+impl<'a> LegacyParameterBuilder<'a> {
     /// Create a new parameter builder
     pub fn new(server: &'a mut ParameterServer, name: &str, value: ParameterValue) -> Option<Self> {
         let mut n = String::new();

@@ -451,7 +451,8 @@ impl ParameterVariant for f64 {
     }
 }
 
-// For strings, we implement ParameterVariant for String<MAX_STRING_VALUE_LEN>
+// For strings, we implement ParameterVariant for heapless::String (no_std)
+#[cfg(not(feature = "std"))]
 impl ParameterVariant for String<MAX_STRING_VALUE_LEN> {
     fn to_parameter_value(&self) -> ParameterValue {
         ParameterValue::String(self.clone())
@@ -467,6 +468,94 @@ impl ParameterVariant for String<MAX_STRING_VALUE_LEN> {
 
     fn parameter_type() -> ParameterType {
         ParameterType::String
+    }
+}
+
+// Implement ParameterVariant for std::string::String (std)
+#[cfg(feature = "std")]
+impl ParameterVariant for std::string::String {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::from_string(self.as_str()).unwrap_or_default()
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_string().map(|s| s.to_string())
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::String
+    }
+}
+
+// Implement ParameterVariant for std::vec::Vec<i64> (std)
+#[cfg(feature = "std")]
+impl ParameterVariant for std::vec::Vec<i64> {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::IntegerArray(Vec::from_slice(self.as_slice()).unwrap_or_default())
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_integer_array().map(|v| v.to_vec())
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::IntegerArray
+    }
+}
+
+// Implement ParameterVariant for std::vec::Vec<f64> (std)
+#[cfg(feature = "std")]
+impl ParameterVariant for std::vec::Vec<f64> {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::DoubleArray(Vec::from_slice(self.as_slice()).unwrap_or_default())
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_double_array().map(|v| v.to_vec())
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::DoubleArray
+    }
+}
+
+// Implement ParameterVariant for std::vec::Vec<bool> (std)
+#[cfg(feature = "std")]
+impl ParameterVariant for std::vec::Vec<bool> {
+    fn to_parameter_value(&self) -> ParameterValue {
+        ParameterValue::BoolArray(Vec::from_slice(self.as_slice()).unwrap_or_default())
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        value.as_bool_array().map(|v| v.to_vec())
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::BoolArray
+    }
+}
+
+// Implement ParameterVariant for std::vec::Vec<std::string::String> (std)
+#[cfg(feature = "std")]
+impl ParameterVariant for std::vec::Vec<std::string::String> {
+    fn to_parameter_value(&self) -> ParameterValue {
+        let mut vec = Vec::new();
+        for s in self {
+            vec.push(String::from(s.as_str())).unwrap();
+        }
+        ParameterValue::StringArray(vec)
+    }
+
+    fn from_parameter_value(value: &ParameterValue) -> Option<Self> {
+        if let ParameterValue::StringArray(v) = value {
+            Some(v.iter().map(|s| s.as_str().to_string()).collect())
+        } else {
+            None
+        }
+    }
+
+    fn parameter_type() -> ParameterType {
+        ParameterType::StringArray
     }
 }
 

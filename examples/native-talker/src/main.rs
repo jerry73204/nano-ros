@@ -57,6 +57,18 @@ fn main() {
 
     info!("Node: {}/{}", node.namespace(), node.name());
 
+    // Declare a typed parameter
+    let counter_start_value = node
+        .declare_parameter("start_value")
+        .default(0i64)
+        .description("Initial value for the counter")
+        .integer_range(0, 1000, 1)
+        .unwrap()
+        .mandatory()
+        .unwrap();
+
+    info!("Counter start value: {}", counter_start_value.get());
+
     // Create a publisher for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
     let publisher = match node
@@ -78,7 +90,7 @@ fn main() {
     info!("Publishing Int32 messages...");
 
     // Publishing loop
-    let mut count: i32 = 0;
+    let mut count: i32 = counter_start_value.get() as i32;
     loop {
         let msg = Int32 { data: count };
 

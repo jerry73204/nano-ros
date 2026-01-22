@@ -489,6 +489,52 @@ impl<'a, const MAX_TOKENS: usize, const MAX_TIMERS: usize, const MAX_SUBS: usize
             .create_timer_repeating_boxed(period, callback)
             .map_err(|_| RclrsError::TimerCreationFailed)
     }
+
+    /// Declare a typed parameter for this node.
+    ///
+    /// This returns a `ParameterBuilder` which provides a fluent API for
+    /// configuring and declaring the parameter.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `T`: The Rust type of the parameter, which must implement `ParameterVariant`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let speed: MandatoryParameter<f64> = node
+    ///     .declare_parameter("speed")
+    ///     .default(5.0)
+    ///     .description("Maximum speed in m/s")
+    ///     .float_range(0.0, 10.0, 0.1)?
+    ///     .mandatory()?;
+    /// ```
+    pub fn declare_parameter<'b, T: nano_ros_params::ParameterVariant>(
+        &'b mut self,
+        name: &'b str,
+    ) -> nano_ros_params::ParameterBuilder<'b, T> {
+        // Need to pass a mutable reference to the inner parameter_server
+        nano_ros_params::ParameterBuilder::new(&mut self.node.inner.parameter_server, name)
+    }
+
+    /// Provides an interface for dynamically accessing parameters not explicitly
+    /// declared via `declare_parameter`.
+    ///
+    /// This allows interaction with parameters that might be set externally
+    /// or are not known at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let undeclared = node.use_undeclared_parameters();
+    /// if let Some(value) = undeclared.get_integer("some_dynamic_param") {
+    ///     println!("Dynamic param: {}", value);
+    /// }
+    /// ```
+    #[cfg(feature = "zenoh")]
+    pub fn use_undeclared_parameters(&mut self) -> nano_ros_params::UndeclaredParameters<'_> {
+        nano_ros_params::UndeclaredParameters::new(&mut self.node.inner.parameter_server)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

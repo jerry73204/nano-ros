@@ -764,6 +764,24 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         nano_ros_params::ParameterBuilder::new(&mut self.parameter_server, name)
     }
 
+    /// Provide an interface for accessing undeclared parameters dynamically.
+    ///
+    /// This allows a node to interact with parameters that were not explicitly
+    /// declared via `declare_parameter`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let undeclared = node.use_undeclared_parameters();
+    /// if let Some(value) = undeclared.get_integer("some_dynamic_param") {
+    ///     println!("Dynamic param: {}", value);
+    /// }
+    /// ```
+    #[cfg(feature = "zenoh")]
+    pub fn use_undeclared_parameters(&mut self) -> UndeclaredParameters<'_> {
+        UndeclaredParameters::new(&mut self.parameter_server)
+    }
+
     // ========== Timer API ==========
 
     /// Create a repeating timer with a function pointer callback

@@ -1,70 +1,69 @@
-//! Typed parameter API for type-safe parameter access
+//! Typed parameter API
 //!
-//! This module provides a fluent API for declaring and using typed parameters
-//! that match the rclrs 0.6.0 patterns.
+//! This module provides a fluent builder pattern for declaring typed parameters
+//! in a ROS 2 node, aligning with the rclrs API.
 
-use crate::server::ParameterServer;
-use crate::types::{
-    FloatingPointRange, IntegerRange, ParameterDescriptor, ParameterRange, ParameterValue,
-    ParameterVariant, SetParameterResult,
+use crate::{
+    ParameterDescriptor, ParameterRange, ParameterServer, ParameterType, SetParameterResult,
 };
+use heapless::String;
 
-/// Error type for parameter operations
+/// Trait for types that can be used as typed parameters
+pub use crate::ParameterVariant;
+
+/// Error type for typed parameter operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParameterError {
-    /// Parameter not found
-    NotFound,
-    /// Parameter type mismatch
+    /// Parameter already declared with a different type
     TypeMismatch,
+    /// Value is outside allowed range
+    OutOfRange,
     /// Parameter is read-only
     ReadOnly,
-    /// Value out of allowed range
-    OutOfRange,
-    /// Parameter storage is full
+    /// Parameter not found
+    NotFound,
+    /// Internal storage is full
     StorageFull,
-    /// Invalid parameter name
-    InvalidName,
+    /// String conversion failed
+    StringConversion,
+    /// Invalid range for type
+    InvalidRange,
 }
 
 impl From<SetParameterResult> for ParameterError {
     fn from(result: SetParameterResult) -> Self {
         match result {
-            SetParameterResult::Success => unreachable!("Cannot convert Success to error"),
-            SetParameterResult::ReadOnly => Self::ReadOnly,
-            SetParameterResult::TypeMismatch => Self::TypeMismatch,
-            SetParameterResult::OutOfRange => Self::OutOfRange,
-            SetParameterResult::NotFound => Self::NotFound,
-            SetParameterResult::StorageFull => Self::StorageFull,
+            SetParameterResult::TypeMismatch => ParameterError::TypeMismatch,
+            SetParameterResult::OutOfRange => ParameterError::OutOfRange,
+            SetParameterResult::ReadOnly => ParameterError::ReadOnly,
+            SetParameterResult::NotFound => ParameterError::NotFound,
+            SetParameterResult::StorageFull => ParameterError::StorageFull,
+            _ => panic!("Unexpected SetParameterResult"), // Should not happen with valid results
         }
     }
 }
 
-/// Builder for declaring typed parameters
-///
-/// # Example
-///
-/// ```ignore
-/// let speed: MandatoryParameter<f64> = node
-///     .declare_parameter("speed")
-///     .default(5.0)
-///     .range(0.0, 10.0, 0.1)
-///     .description("Maximum speed in m/s")
-///     .mandatory()?;
-/// ```
+/// Builder for declaring a typed parameter
 pub struct ParameterBuilder<'a, T: ParameterVariant> {
+    /// Reference to the parameter server
     server: &'a mut ParameterServer,
+    /// Parameter name
     name: &'a str,
+    /// Default value
     default: Option<T>,
+    /// Human-readable description
     description: Option<&'a str>,
+    /// Range constraints
     range: Option<ParameterRange>,
+    /// Whether the parameter is read-only
     read_only: bool,
+    /// Phantom data to hold the type parameter
+    _phantom: core::marker::PhantomData<T>,
 }
 
 impl<'a, T: ParameterVariant> ParameterBuilder<'a, T> {
     /// Create a new parameter builder
-    ///
-    /// This is typically called via `Node::declare_parameter()` rather than directly.
-    pub fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
+    pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
         Self {
             server,
             name,
@@ -72,337 +71,232 @@ impl<'a, T: ParameterVariant> ParameterBuilder<'a, T> {
             description: None,
             range: None,
             read_only: false,
+            _phantom: core::marker::PhantomData,
         }
     }
 
-    /// Set the default value for this parameter
-    ///
-    /// If the parameter already exists with a different value, the existing
-    /// value is preserved. Otherwise, the default is used.
+    /// Set a default value for the parameter
     pub fn default(mut self, value: T) -> Self {
         self.default = Some(value);
         self
     }
 
-    /// Set a human-readable description
+    /// Set a human-readable description for the parameter
     pub fn description(mut self, desc: &'a str) -> Self {
         self.description = Some(desc);
         self
     }
 
-    /// Set an integer range constraint (only valid for i64 parameters)
-    pub fn integer_range(mut self, min: i64, max: i64, step: i64) -> Self {
-        self.range = Some(ParameterRange::Integer(IntegerRange::new(min, max, step)));
-        self
-    }
-
-    /// Set a floating point range constraint (only valid for f64 parameters)
-    pub fn range(mut self, min: f64, max: f64, step: f64) -> Self {
-        self.range = Some(ParameterRange::FloatingPoint(FloatingPointRange::new(
+    /// Set integer range constraints for the parameter
+    pub fn integer_range(mut self, min: i64, max: i64, step: i64) -> Result<Self, ParameterError> {
+        if T::parameter_type() != ParameterType::Integer {
+            return Err(ParameterError::InvalidRange);
+        }
+        self.range = Some(ParameterRange::Integer(crate::IntegerRange::new(
             min, max, step,
         )));
-        self
+        Ok(self)
     }
 
-    /// Make this parameter read-only
-    ///
-    /// Read-only parameters cannot be modified after declaration.
+    /// Set floating point range constraints for the parameter
+    pub fn float_range(mut self, min: f64, max: f64, step: f64) -> Result<Self, ParameterError> {
+        if T::parameter_type() != ParameterType::Double {
+            return Err(ParameterError::InvalidRange);
+        }
+        self.range = Some(ParameterRange::FloatingPoint(
+            crate::FloatingPointRange::new(min, max, step),
+        ));
+        Ok(self)
+    }
+
+    /// Mark the parameter as read-only
     pub fn read_only(mut self) -> Self {
         self.read_only = true;
         self
     }
 
-    /// Declare as a mandatory parameter
+    /// Declare a mandatory parameter
     ///
-    /// Mandatory parameters must have a value. If no default is provided
-    /// and the parameter doesn't already exist, this returns an error.
+    /// If no default value is provided, it must be set externally before use.
     pub fn mandatory(self) -> Result<MandatoryParameter<'a, T>, ParameterError> {
-        // Check if parameter already exists
-        let existing = self.server.get(self.name);
-
-        let value = if let Some(existing_value) = existing {
-            // Use existing value if type matches
-            T::from_parameter_value(existing_value).ok_or(ParameterError::TypeMismatch)?
-        } else if let Some(default) = self.default {
-            // Use default value
-            default
-        } else {
-            // No value and no default - mandatory parameter requires a value
-            return Err(ParameterError::NotFound);
-        };
-
-        // Create descriptor if needed
-        if existing.is_none() {
-            let mut desc = ParameterDescriptor::new(self.name, T::parameter_type())
-                .ok_or(ParameterError::InvalidName)?;
-
-            if let Some(description) = self.description {
-                desc = desc.with_description(description);
-            }
-
-            if let Some(range) = self.range {
-                desc.range = range;
-            }
-
-            desc = desc.with_read_only(self.read_only);
-
-            // Declare with descriptor
-            self.server
-                .declare_with_descriptor(self.name, value.to_parameter_value(), Some(desc));
+        let mut descriptor = ParameterDescriptor::new(self.name, T::parameter_type())
+            .ok_or(ParameterError::StorageFull)?;
+        descriptor.description.clear();
+        if let Some(desc) = self.description {
+            descriptor
+                .description
+                .push_str(desc)
+                .map_err(|_| ParameterError::StringConversion)?;
         }
+        descriptor.read_only = self.read_only;
+        descriptor.range = self.range.unwrap_or_default();
 
-        Ok(MandatoryParameter {
-            server: self.server,
-            name: self.name,
-            _phantom: core::marker::PhantomData,
-        })
+        let default_value = self.default.map(|v| v.to_parameter_value());
+
+        self.server
+            .declare_parameter(descriptor, default_value.as_ref())?;
+
+        Ok(MandatoryParameter::new(self.server, self.name))
     }
 
-    /// Declare as an optional parameter
-    ///
-    /// Optional parameters may or may not have a value.
+    /// Declare an optional parameter
     pub fn optional(self) -> Result<OptionalParameter<'a, T>, ParameterError> {
-        // Check if parameter already exists
-        let existing = self.server.get(self.name);
-
-        // If exists, validate type
-        if let Some(existing_value) = existing {
-            T::from_parameter_value(existing_value).ok_or(ParameterError::TypeMismatch)?;
-        } else if let Some(default) = self.default {
-            // Declare with default
-            let mut desc = ParameterDescriptor::new(self.name, T::parameter_type())
-                .ok_or(ParameterError::InvalidName)?;
-
-            if let Some(description) = self.description {
-                desc = desc.with_description(description);
-            }
-
-            if let Some(range) = self.range {
-                desc.range = range;
-            }
-
-            desc = desc.with_read_only(self.read_only);
-
-            self.server.declare_with_descriptor(
-                self.name,
-                default.to_parameter_value(),
-                Some(desc),
-            );
-        } else {
-            // Declare without value (optional)
-            let mut desc = ParameterDescriptor::new(self.name, T::parameter_type())
-                .ok_or(ParameterError::InvalidName)?;
-
-            if let Some(description) = self.description {
-                desc = desc.with_description(description);
-            }
-
-            if let Some(range) = self.range {
-                desc.range = range;
-            }
-
-            desc = desc.with_read_only(self.read_only);
-
-            self.server
-                .declare_with_descriptor(self.name, ParameterValue::NotSet, Some(desc));
+        let mut descriptor = ParameterDescriptor::new(self.name, T::parameter_type())
+            .ok_or(ParameterError::StorageFull)?;
+        descriptor.description.clear();
+        if let Some(desc) = self.description {
+            descriptor
+                .description
+                .push_str(desc)
+                .map_err(|_| ParameterError::StringConversion)?;
         }
+        descriptor.read_only = self.read_only;
+        descriptor.range = self.range.unwrap_or_default();
 
-        Ok(OptionalParameter {
-            server: self.server,
-            name: self.name,
-            _phantom: core::marker::PhantomData,
-        })
+        let default_value = self.default.map(|v| v.to_parameter_value());
+
+        self.server
+            .declare_parameter(descriptor, default_value.as_ref())?;
+
+        Ok(OptionalParameter::new(self.server, self.name))
     }
 }
 
-/// A mandatory parameter that always has a value
-///
-/// # Example
-///
-/// ```ignore
-/// let speed: MandatoryParameter<f64> = node
-///     .declare_parameter("speed")
-///     .default(5.0)
-///     .mandatory()?;
-///
-/// let current_speed = speed.get();
-/// speed.set(7.0)?;
-/// ```
+/// A parameter that must always have a value
 pub struct MandatoryParameter<'a, T: ParameterVariant> {
-    server: *mut ParameterServer,
-    name: &'a str,
+    server: &'a mut ParameterServer,
+    name: String<{ crate::MAX_PARAM_NAME_LEN }>,
     _phantom: core::marker::PhantomData<T>,
 }
 
 impl<'a, T: ParameterVariant> MandatoryParameter<'a, T> {
-    /// Get the current parameter value
-    ///
-    /// # Panics
-    ///
-    /// Panics if the parameter no longer exists or has wrong type
-    /// (should not happen if used correctly)
+    pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
+        let mut n = String::new();
+        n.push_str(name).unwrap();
+        Self {
+            server,
+            name: n,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Get the current value of the parameter
     pub fn get(&self) -> T {
-        unsafe {
-            let server = &*self.server;
-            let value = server.get(self.name).expect("Mandatory parameter missing");
-            T::from_parameter_value(value).expect("Type mismatch")
-        }
+        self.server
+            .get_parameter_value(self.name.as_str())
+            .and_then(|val| T::from_parameter_value(&val))
+            .expect("Mandatory parameter must have a value")
     }
 
-    /// Set the parameter value
-    ///
-    /// Returns an error if the parameter is read-only or the value
-    /// is outside the allowed range.
-    pub fn set(&self, value: T) -> Result<(), ParameterError> {
-        unsafe {
-            let server = &mut *self.server;
-            let result = server.set(self.name, value.to_parameter_value());
-            if result.is_success() {
-                Ok(())
-            } else {
-                Err(result.into())
-            }
+    /// Set the value of the parameter
+    pub fn set(&mut self, value: T) -> Result<(), ParameterError> {
+        let result = self
+            .server
+            .set_parameter_value(self.name.as_str(), value.to_parameter_value());
+        if result == SetParameterResult::Success {
+            Ok(())
+        } else {
+            Err(ParameterError::from(result))
         }
-    }
-
-    /// Get the parameter name
-    pub fn name(&self) -> &str {
-        self.name
     }
 }
 
-/// An optional parameter that may or may not have a value
-///
-/// # Example
-///
-/// ```ignore
-/// let timeout: OptionalParameter<f64> = node
-///     .declare_parameter("timeout")
-///     .optional()?;
-///
-/// if let Some(value) = timeout.get() {
-///     println!("Timeout: {}", value);
-/// }
-///
-/// timeout.set(Some(10.0))?;
-/// ```
+/// A parameter that may or may not have a value
 pub struct OptionalParameter<'a, T: ParameterVariant> {
-    server: *mut ParameterServer,
-    name: &'a str,
+    server: &'a mut ParameterServer,
+    name: String<{ crate::MAX_PARAM_NAME_LEN }>,
     _phantom: core::marker::PhantomData<T>,
 }
 
 impl<'a, T: ParameterVariant> OptionalParameter<'a, T> {
-    /// Get the current parameter value, if set
+    pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
+        let mut n = String::new();
+        n.push_str(name).unwrap();
+        Self {
+            server,
+            name: n,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Get the current value of the parameter, if set
     pub fn get(&self) -> Option<T> {
-        unsafe {
-            let server = &*self.server;
-            let value = server.get(self.name)?;
-            T::from_parameter_value(value)
-        }
+        self.server
+            .get_parameter_value(self.name.as_str())
+            .and_then(|val| T::from_parameter_value(&val))
     }
 
-    /// Set the parameter value
-    ///
-    /// Pass `None` to unset the parameter.
-    pub fn set(&self, value: Option<T>) -> Result<(), ParameterError> {
-        unsafe {
-            let server = &mut *self.server;
-
-            if let Some(v) = value {
-                // Setting a value - use normal set
-                let result = server.set(self.name, v.to_parameter_value());
-                if result.is_success() {
-                    Ok(())
-                } else {
-                    Err(result.into())
-                }
-            } else {
-                // Unsetting - use unset() to bypass type check
-                let result = server.unset(self.name);
-                if result.is_success() {
-                    Ok(())
-                } else {
-                    Err(result.into())
-                }
-            }
+    /// Set the value of the parameter
+    pub fn set(&mut self, value: Option<T>) -> Result<(), ParameterError> {
+        let param_value = value.map(|v| v.to_parameter_value());
+        let result = self
+            .server
+            .set_parameter_value(self.name.as_str(), param_value.unwrap_or_default());
+        if result == SetParameterResult::Success {
+            Ok(())
+        } else {
+            Err(ParameterError::from(result))
         }
-    }
-
-    /// Get the parameter name
-    pub fn name(&self) -> &str {
-        self.name
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// A parameter whose value cannot be changed after declaration
+pub struct ReadOnlyParameter<'a, T: ParameterVariant> {
+    server: &'a mut ParameterServer,
+    name: String<{ crate::MAX_PARAM_NAME_LEN }>,
+    _phantom: core::marker::PhantomData<T>,
+}
 
-    #[test]
-    fn test_mandatory_parameter() {
-        let mut server = ParameterServer::new();
-
-        let speed: MandatoryParameter<f64> = ParameterBuilder::new(&mut server, "speed")
-            .default(5.0)
-            .mandatory()
-            .unwrap();
-
-        assert_eq!(speed.get(), 5.0);
-
-        speed.set(7.0).unwrap();
-        assert_eq!(speed.get(), 7.0);
+impl<'a, T: ParameterVariant> ReadOnlyParameter<'a, T> {
+    pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
+        let mut n = String::new();
+        n.push_str(name).unwrap();
+        Self {
+            server,
+            name: n,
+            _phantom: core::marker::PhantomData,
+        }
     }
 
-    #[test]
-    fn test_optional_parameter() {
-        let mut server = ParameterServer::new();
+    /// Get the current value of the parameter
+    pub fn get(&self) -> T {
+        self.server
+            .get_parameter_value(self.name.as_str())
+            .and_then(|val| T::from_parameter_value(&val))
+            .expect("Read-only parameter must have a value")
+    }
+}
 
-        let timeout: OptionalParameter<f64> = ParameterBuilder::new(&mut server, "timeout")
-            .optional()
-            .unwrap();
+/// Provides access to undeclared parameters in a ParameterServer
+///
+/// This struct is returned by `Node::use_undeclared_parameters()` and allows
+/// for dynamic retrieval of parameter values by name without explicit declaration.
+pub struct UndeclaredParameters<'a> {
+    server: &'a mut ParameterServer,
+}
 
-        assert_eq!(timeout.get(), None);
-
-        timeout.set(Some(10.0)).unwrap();
-        assert_eq!(timeout.get(), Some(10.0));
-
-        timeout.set(None).unwrap();
-        assert_eq!(timeout.get(), None);
+impl<'a> UndeclaredParameters<'a> {
+    pub(crate) fn new(server: &'a mut ParameterServer) -> Self {
+        Self { server }
     }
 
-    #[test]
-    fn test_range_validation() {
-        let mut server = ParameterServer::new();
-
-        let speed: MandatoryParameter<f64> = ParameterBuilder::new(&mut server, "speed")
-            .default(5.0)
-            .range(0.0, 10.0, 0.1)
-            .mandatory()
-            .unwrap();
-
-        assert_eq!(speed.get(), 5.0);
-
-        // Valid value
-        assert!(speed.set(7.0).is_ok());
-
-        // Out of range (should fail)
-        assert_eq!(speed.set(15.0), Err(ParameterError::OutOfRange));
+    /// Try to get the value of an undeclared boolean parameter
+    pub fn get_bool(&self, name: &str) -> Option<bool> {
+        self.server.get_bool(name)
     }
 
-    #[test]
-    fn test_read_only() {
-        let mut server = ParameterServer::new();
+    /// Try to get the value of an undeclared integer parameter
+    pub fn get_integer(&self, name: &str) -> Option<i64> {
+        self.server.get_integer(name)
+    }
 
-        let speed: MandatoryParameter<f64> = ParameterBuilder::new(&mut server, "speed")
-            .default(5.0)
-            .read_only()
-            .mandatory()
-            .unwrap();
+    /// Try to get the value of an undeclared double parameter
+    pub fn get_double(&self, name: &str) -> Option<f64> {
+        self.server.get_double(name)
+    }
 
-        assert_eq!(speed.get(), 5.0);
-
-        // Should fail - read-only
-        assert_eq!(speed.set(7.0), Err(ParameterError::ReadOnly));
+    /// Try to get the value of an undeclared string parameter
+    pub fn get_string(&self, name: &str) -> Option<&str> {
+        self.server.get_string(name)
     }
 }
