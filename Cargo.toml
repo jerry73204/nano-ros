@@ -11,13 +11,14 @@ members = [
     "crates/nano-ros-node",
     "crates/zenoh-pico-sys",
     "crates/zenoh-pico",
+    "crates/zenoh-pico-shim",
 ]
 
 # Examples are excluded from workspace - they are standalone packages
 # that generate their own bindings via `cargo nano-ros generate`
 exclude = [
-    "examples/zephyr-talker-rs",
-    "examples/zephyr-listener-rs",
+    "examples/zephyr-talker",
+    "examples/zephyr-listener",
     "examples/qemu-test",
     "examples/native-talker",
     "examples/native-listener",
