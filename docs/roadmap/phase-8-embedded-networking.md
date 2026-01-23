@@ -2,7 +2,7 @@
 
 **Goal**: Enable network connectivity for all embedded nano-ros examples using smoltcp + zenoh-pico for bare-metal RTIC/polling, and verify native examples work correctly.
 
-**Status**: In Progress (Phase 8.1-8.3 Complete)
+**Status**: In Progress (Phase 8.1-8.4 Core Complete, Phase 8.4.5 Library Restructure Next)
 
 ## Overview
 
@@ -25,36 +25,42 @@ This phase provides working network connectivity for embedded systems:
 │                                                                          │
 │  ┌──────────────────────────┐       ┌────────────────────────────────┐  │
 │  │  Native/std              │       │  Embedded (RTIC/polling/Zephyr)│  │
-│  │  (unchanged path)        │       │  (new zenoh-pico-shim path)    │  │
+│  │  (posix feature)         │       │  (smoltcp/zephyr feature)      │  │
 │  └────────────┬─────────────┘       └───────────────┬────────────────┘  │
 │               │                                     │                    │
-│               ▼                                     ▼                    │
-│  ┌──────────────────────────┐       ┌────────────────────────────────┐  │
-│  │  zenoh-pico (safe Rust)  │       │  zenoh-pico-shim               │  │
-│  │                          │       │  ├── shim/ (C API)             │  │
-│  │                          │       │  ├── platform_smoltcp/ (z_*)   │  │
-│  │                          │       │  └── platform_zephyr/ (z_*)    │  │
-│  └────────────┬─────────────┘       └───────────────┬────────────────┘  │
-│               │                                     │                    │
-│               ▼                                     │                    │
-│  ┌──────────────────────────┐                       │                    │
-│  │  zenoh-pico-sys (FFI)    │◄──────────────────────┘                    │
-│  │  (bindings only)         │                                            │
-│  └────────────┬─────────────┘                                            │
-│               │                                                          │
-│               ▼                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │  zenoh-pico C library                                             │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
+│               └─────────────────┬───────────────────┘                    │
+│                                 │                                        │
+│                                 ▼                                        │
+│               ┌────────────────────────────────────────┐                 │
+│               │  zenoh-pico-shim (High-level Rust API) │                 │
+│               │  ├── Session, Publisher, Subscriber    │                 │
+│               │  └── platform/smoltcp.rs (Rust FFI)    │                 │
+│               └────────────────────┬───────────────────┘                 │
+│                                    │                                     │
+│                                    ▼                                     │
+│               ┌────────────────────────────────────────┐                 │
+│               │  zenoh-pico-shim-sys (FFI + C code)    │                 │
+│               │  ├── c/shim/zenoh_shim.c               │                 │
+│               │  ├── c/platform_smoltcp/*.c (optional) │                 │
+│               │  └── zenoh-pico/ (submodule)           │                 │
+│               └────────────────────┬───────────────────┘                 │
+│                                    │                                     │
+│                                    ▼                                     │
+│               ┌────────────────────────────────────────┐                 │
+│               │  zenoh-pico C library (submodule)      │                 │
+│               │  Platform: POSIX / Zephyr / GENERIC    │                 │
+│               └────────────────────────────────────────┘                 │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Design Decisions:**
-- Native/std applications continue using `zenoh-pico` → `zenoh-pico-sys` (unchanged)
-- Embedded applications use `zenoh-pico-shim` which provides:
-  - High-level C shim API (`zenoh_shim_*`) for FFI simplicity
-  - Platform layer implementations (`z_*` functions) for smoltcp and Zephyr
-- `zenoh-pico-shim` depends on `zenoh-pico-sys` for FFI bindings
+- All applications use unified `zenoh-pico-shim` API (replaces old `zenoh-pico` crate)
+- `zenoh-pico-shim-sys` contains all C code (shim + platform layers + zenoh-pico submodule)
+- Platform selection via feature flags:
+  - `posix` - Uses zenoh-pico native POSIX platform (desktop/Linux)
+  - `zephyr` - Uses zenoh-pico native Zephyr platform
+  - `smoltcp` - Uses custom platform layer for bare-metal
+- Clean separation: Rust code in `zenoh-pico-shim`, C code in `zenoh-pico-shim-sys`
 
 ---
 
@@ -279,7 +285,7 @@ Validate smoltcp + stm32-eth works on target hardware before integrating with ze
 
 ## Phase 8.4: smoltcp Platform Layer in zenoh-pico-shim
 
-**Status**: Not Started
+**Status**: Core Implementation Complete (Hardware Testing Pending)
 **Priority**: High
 **Depends on**: 8.2, 8.3
 
@@ -287,9 +293,17 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
 
 **Note:** The platform layer lives in `zenoh-pico-shim/platform_smoltcp/`, not in `zenoh-pico-sys`. This keeps `zenoh-pico-sys` as pure FFI bindings while `zenoh-pico-shim` owns all embedded-specific code.
 
+### Implementation Architecture
+
+The smoltcp platform layer uses callback-based integration:
+1. Application provides a `poll_callback` function that drives smoltcp
+2. Socket buffers are managed in Rust with C-callable push/pop functions
+3. Clock is updated externally via `smoltcp_set_clock_ms()`
+4. Memory uses a simple bump allocator (16KB static heap)
+
 ### Work Items
 
-- [ ] **8.4.1** Implement memory management (`platform_smoltcp/system.c`)
+- [x] **8.4.1** Implement memory management (`platform_smoltcp/system.c`)
   ```c
   // Uses embedded-alloc with static heap (~16KB)
   void *z_malloc(size_t size);
@@ -307,7 +321,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   static mut HEAP_MEM: [MaybeUninit<u8>; 16384] = [MaybeUninit::uninit(); 16384];
   ```
 
-- [ ] **8.4.2** Implement random number generation (`platform_smoltcp/system.c`)
+- [x] **8.4.2** Implement random number generation (`platform_smoltcp/system.c`)
   ```c
   uint8_t z_random_u8(void);
   uint16_t z_random_u16(void);
@@ -317,7 +331,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   ```
   - Use STM32 hardware RNG peripheral or seeded PRNG
 
-- [ ] **8.4.3** Implement time/clock functions (`platform_smoltcp/system.c`)
+- [x] **8.4.3** Implement time/clock functions (`platform_smoltcp/system.c`)
   ```c
   z_clock_t z_clock_now(void);
   unsigned long z_clock_elapsed_us(z_clock_t *time);
@@ -328,7 +342,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   - Use DWT cycle counter (Cortex-M debug unit) for timing
   - `z_sleep_*` busy-waits or yields to smoltcp polling
 
-- [ ] **8.4.4** Implement threading stubs (`platform_smoltcp/system.c`)
+- [x] **8.4.4** Implement threading stubs (`platform_smoltcp/system.c`)
   ```c
   // With Z_FEATURE_MULTI_THREAD=0, these become no-ops
   z_result_t _z_mutex_init(_z_mutex_t *m) { return _Z_RES_OK; }
@@ -338,7 +352,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   // etc.
   ```
 
-- [ ] **8.4.5** Define socket type structures (`platform_smoltcp/network.c`)
+- [x] **8.4.5** Define socket type structures (`zenoh_smoltcp_platform.h`)
   ```c
   typedef struct {
       uint8_t socket_handle;  // Index into smoltcp socket set
@@ -351,7 +365,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   } _z_sys_net_endpoint_t;
   ```
 
-- [ ] **8.4.6** Implement `_z_create_endpoint_tcp` (`platform_smoltcp/network.c`)
+- [x] **8.4.6** Implement `_z_create_endpoint_tcp` (`platform_smoltcp/network.c`)
   ```c
   z_result_t _z_create_endpoint_tcp(
       _z_sys_net_endpoint_t *ep,
@@ -362,7 +376,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   - Parse IP string "192.168.1.1" into bytes
   - Parse port string into uint16_t
 
-- [ ] **8.4.7** Implement `_z_open_tcp` (`platform_smoltcp/network.c`)
+- [x] **8.4.7** Implement `_z_open_tcp` (`platform_smoltcp/network.c`)
   ```c
   z_result_t _z_open_tcp(
       _z_sys_net_socket_t *sock,
@@ -374,7 +388,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   - Initiate connection
   - Polling loop until connected or timeout
 
-- [ ] **8.4.8** Implement `_z_read_tcp` with blocking wrapper
+- [x] **8.4.8** Implement `_z_read_tcp` with blocking wrapper
   ```c
   size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
       z_clock_t start = z_clock_now();
@@ -389,7 +403,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   }
   ```
 
-- [ ] **8.4.9** Implement `_z_send_tcp` with blocking wrapper
+- [x] **8.4.9** Implement `_z_send_tcp` with blocking wrapper
   ```c
   size_t _z_send_tcp(const _z_sys_net_socket_t sock, const uint8_t *ptr, size_t len) {
       size_t sent = 0;
@@ -404,7 +418,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   }
   ```
 
-- [ ] **8.4.10** Implement `_z_close_tcp`
+- [x] **8.4.10** Implement `_z_close_tcp`
   ```c
   void _z_close_tcp(_z_sys_net_socket_t *sock) {
       smoltcp_socket_close(sock->socket_handle);
@@ -412,7 +426,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   }
   ```
 
-- [ ] **8.4.11** Create Rust FFI module for smoltcp operations (`platform_smoltcp/mod.rs`)
+- [x] **8.4.11** Create Rust FFI module for smoltcp operations (`platform_smoltcp/mod.rs`)
   ```rust
   // Global smoltcp state
   static mut SMOLTCP_INTERFACE: Option<Interface> = None;
@@ -454,7 +468,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   pub extern "C" fn smoltcp_socket_close(handle: u8) { ... }
   ```
 
-- [ ] **8.4.12** Complete smoltcp backend (`shim/backend_smoltcp.c`)
+- [x] **8.4.12** Complete smoltcp backend (`shim/backend_smoltcp.c`)
   ```c
   bool zenoh_platform_uses_polling(void) { return true; }
 
@@ -475,7 +489,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   }
   ```
 
-- [ ] **8.4.13** Update zenoh-pico-shim `build.rs` for smoltcp platform layer
+- [x] **8.4.13** Update zenoh-pico-shim `build.rs` for smoltcp platform layer
   ```rust
   if cfg!(feature = "smoltcp") {
       // Backend (calls smoltcp FFI)
@@ -495,32 +509,280 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
   }
   ```
 
-- [ ] **8.4.14** Configure zenoh-pico CMake for bare-metal
-  ```cmake
-  # zenoh-pico-sys/cmake/arm-none-eabi.cmake
-  set(CMAKE_SYSTEM_NAME Generic)
-  set(CMAKE_SYSTEM_PROCESSOR arm)
-  set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+- [ ] **8.4.14** Configure zenoh-pico CMake for bare-metal (deferred)
+  - Note: Requires cross-compiling zenoh-pico library separately
+  - The platform layer works with pre-built zenoh-pico library
 
-  # Disable features not needed for embedded
-  set(Z_FEATURE_MULTI_THREAD 0)
-  set(Z_FEATURE_LINK_TCP 1)
-  set(Z_FEATURE_LINK_UDP_MULTICAST 0)
-  set(Z_FEATURE_LINK_UDP_UNICAST 0)
-  set(Z_FEATURE_SCOUTING_UDP 0)
-  ```
-
-- [ ] **8.4.15** Test smoltcp platform layer compiles for thumbv7em-none-eabihf
+- [x] **8.4.15** Test smoltcp platform layer compiles for x86_64-linux
   ```bash
-  cd crates/zenoh-pico-shim
-  cargo build --target thumbv7em-none-eabihf --features smoltcp
+  cargo check --features smoltcp  # Works!
   ```
+  - Note: thumbv7em target requires cross-compiled zenoh-pico library
+
+### Implementation Notes
+
+**Files Created:**
+- `platform_smoltcp/zenoh_smoltcp_platform.h` - Platform type definitions
+- `platform_smoltcp/zenoh_generic_platform.h` - zenoh-pico include redirect
+- `platform_smoltcp/zenoh_generic_config.h` - zenoh-pico feature configuration
+- `platform_smoltcp/system.c` - System functions (memory, random, clock, threading)
+- `platform_smoltcp/network.c` - TCP socket operations
+- `platform_smoltcp/mod.rs` - Rust FFI module for smoltcp integration
+
+**Integration Pattern:**
+The application must provide:
+1. A `poll_callback` function that drives smoltcp interface
+2. Periodic calls to `smoltcp_set_clock_ms()` for timekeeping
+3. Integration code that moves data between smoltcp sockets and the shim's buffers
 
 ### Acceptance Criteria
-- `zenoh-pico-shim` compiles with `smoltcp` feature for thumbv7em-none-eabihf
-- Platform layer implements all required `z_*` functions
-- smoltcp FFI functions callable from C platform code
-- Can create zenoh session using smoltcp as transport
+- [x] `zenoh-pico-shim` compiles with `smoltcp` feature for x86_64-linux
+- [x] Platform layer implements all required `z_*` functions
+- [x] smoltcp FFI functions callable from C platform code
+- [ ] Can create zenoh session using smoltcp as transport (requires hardware test)
+- [ ] Cross-compilation for thumbv7em (requires zenoh-pico cross-build)
+
+---
+
+## Phase 8.4.5: Library Restructure (zenoh-pico-shim Refactor)
+
+**Status**: Not Started
+**Priority**: High
+**Depends on**: 8.4
+
+Restructure the zenoh-pico related crates to cleanly separate Rust and C code, and simplify the dependency graph.
+
+### Motivation
+
+The current structure mixes Rust and C code in single crates:
+- `zenoh-pico-sys` - FFI bindings + builds zenoh-pico
+- `zenoh-pico` - Safe Rust wrapper
+- `zenoh-pico-shim` - C shim + Rust FFI + platform layers
+
+The new structure separates concerns:
+- `zenoh-pico-shim-sys` - All C code + FFI bindings (replaces zenoh-pico-sys)
+- `zenoh-pico-shim` - High-level Rust API (replaces zenoh-pico)
+
+### New Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        zenoh-pico-shim                              │
+│                     (High-level Rust API)                           │
+│                                                                     │
+│  - Safe wrappers (Session, Publisher, Subscriber)                   │
+│  - Platform Rust code (smoltcp_* implementations)                   │
+│  - no_std compatible                                                │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+                    depends on   │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      zenoh-pico-shim-sys                            │
+│                (FFI bindings + all C code)                          │
+│                                                                     │
+│  - zenoh-pico submodule (upstream C library)                        │
+│  - zenoh_shim.c/h (C shim API)                                      │
+│  - Platform C code (system.c, network.c for smoltcp)                │
+│  - extern "C" FFI declarations                                      │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+                    links        │
+                                 ▼
+                    zenoh-pico C library (submodule)
+```
+
+### Directory Structure
+
+```
+crates/
+├── zenoh-pico-shim/                    # High-level Rust API
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs                      # Public API, re-exports
+│       ├── config.rs                   # Configuration types
+│       ├── session.rs                  # Session management
+│       ├── publisher.rs                # Publisher
+│       ├── subscriber.rs               # Subscriber
+│       ├── error.rs                    # Error types
+│       └── platform/
+│           ├── mod.rs
+│           └── smoltcp.rs              # smoltcp_* Rust FFI implementations
+│
+├── zenoh-pico-shim-sys/                # FFI + all C code
+│   ├── Cargo.toml
+│   ├── build.rs                        # Compiles zenoh-pico + shim + platform
+│   ├── cbindgen.toml                   # Header generation config
+│   ├── src/
+│   │   └── lib.rs                      # FFI declarations only
+│   ├── zenoh-pico/                     # Git submodule (upstream)
+│   └── c/
+│       ├── shim/
+│       │   ├── zenoh_shim.h            # Public C API
+│       │   └── zenoh_shim.c            # Core shim implementation
+│       └── platform_smoltcp/
+│           ├── zenoh_generic_platform.h
+│           ├── zenoh_generic_config.h
+│           ├── zenoh_smoltcp_platform.h
+│           ├── system.c                # z_malloc, z_clock, etc.
+│           └── network.c               # _z_open_tcp, _z_read_tcp, etc.
+│
+└── (REMOVE: zenoh-pico-sys/, zenoh-pico/)
+```
+
+### Feature Flags
+
+```toml
+# zenoh-pico-shim-sys/Cargo.toml
+[features]
+default = []
+std = []
+
+# Platform selection (mutually exclusive)
+posix = []      # Uses zenoh-pico native POSIX platform (ZENOH_LINUX/ZENOH_MACOS)
+zephyr = []     # Uses zenoh-pico native Zephyr platform (ZENOH_ZEPHYR)
+smoltcp = []    # Uses custom platform layer (ZENOH_GENERIC + system.c/network.c)
+
+# zenoh-pico-shim/Cargo.toml
+[features]
+default = []
+std = ["zenoh-pico-shim-sys/std"]
+posix = ["zenoh-pico-shim-sys/posix"]
+zephyr = ["zenoh-pico-shim-sys/zephyr"]
+smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
+```
+
+### Work Items
+
+- [ ] **8.4.5.1** Create `zenoh-pico-shim-sys` crate structure
+  ```
+  crates/zenoh-pico-shim-sys/
+  ├── Cargo.toml
+  ├── build.rs
+  ├── cbindgen.toml
+  ├── src/lib.rs
+  └── c/
+  ```
+
+- [ ] **8.4.5.2** Move zenoh-pico submodule to `zenoh-pico-shim-sys/zenoh-pico/`
+  ```bash
+  git submodule add https://github.com/eclipse-zenoh/zenoh-pico.git \
+      crates/zenoh-pico-shim-sys/zenoh-pico
+  ```
+
+- [ ] **8.4.5.3** Move C shim code to `zenoh-pico-shim-sys/c/shim/`
+  - `zenoh_shim.h` → `c/shim/zenoh_shim.h`
+  - `zenoh_shim.c` → `c/shim/zenoh_shim.c`
+
+- [ ] **8.4.5.4** Move platform C code to `zenoh-pico-shim-sys/c/platform_smoltcp/`
+  - `system.c`, `network.c`, headers
+
+- [ ] **8.4.5.5** Create `zenoh-pico-shim-sys/build.rs`
+  - Compile zenoh-pico with appropriate platform defines
+  - Compile shim C code
+  - Compile platform C code (when smoltcp feature enabled)
+  - Feature-based platform selection
+
+- [ ] **8.4.5.6** Create `zenoh-pico-shim-sys/src/lib.rs`
+  - FFI declarations only (`extern "C" { ... }`)
+  - No business logic
+  - Constants and types re-exported from cbindgen
+
+- [ ] **8.4.5.7** Restructure `zenoh-pico-shim` as high-level Rust API
+  - Move Rust code from current structure
+  - `src/lib.rs` - Public API and re-exports
+  - `src/session.rs` - Session type (wraps FFI)
+  - `src/publisher.rs` - Publisher type
+  - `src/subscriber.rs` - Subscriber type
+  - `src/error.rs` - Error types
+
+- [ ] **8.4.5.8** Move platform Rust code to `zenoh-pico-shim/src/platform/`
+  - `src/platform/mod.rs` - Platform module
+  - `src/platform/smoltcp.rs` - smoltcp_* implementations
+
+- [ ] **8.4.5.9** Remove old crates
+  ```bash
+  git rm -rf crates/zenoh-pico-sys
+  git rm -rf crates/zenoh-pico
+  ```
+
+- [ ] **8.4.5.10** Update workspace `Cargo.toml`
+  - Remove `zenoh-pico-sys`, `zenoh-pico` from members
+  - Add `zenoh-pico-shim-sys` to members
+  - Update `zenoh-pico-shim` path if needed
+
+- [ ] **8.4.5.11** Update dependent crates
+  - `nano-ros-transport`: Remove `zenoh-pico` dependency, use `zenoh-pico-shim`
+  - Update any direct `zenoh-pico-sys` references
+
+- [ ] **8.4.5.12** Test build with all platform features
+  ```bash
+  cargo check -p zenoh-pico-shim-sys --features posix
+  cargo check -p zenoh-pico-shim-sys --features smoltcp
+  cargo check -p zenoh-pico-shim --features posix
+  cargo check -p zenoh-pico-shim --features smoltcp
+  ```
+
+- [ ] **8.4.5.13** Update CLAUDE.md documentation
+  - Update crate descriptions
+  - Update dependency graph
+  - Update build instructions
+
+### Build Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    zenoh-pico-shim-sys/build.rs                     │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         ▼                       ▼                       ▼
+    [posix]                 [zephyr]                [smoltcp]
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐  ┌─────────────────┐  ┌──────────────────────────┐
+│ cc::Build       │  │ cc::Build       │  │ cc::Build                │
+│                 │  │                 │  │                          │
+│ zenoh-pico/*    │  │ zenoh-pico/*    │  │ zenoh-pico/* (GENERIC)   │
+│ (ZENOH_LINUX)   │  │ (ZENOH_ZEPHYR)  │  │ c/platform_smoltcp/*.c   │
+│                 │  │                 │  │                          │
+│ c/shim/*.c      │  │ c/shim/*.c      │  │ c/shim/*.c               │
+└─────────────────┘  └─────────────────┘  └──────────────────────────┘
+         │                       │                       │
+         └───────────────────────┴───────────────────────┘
+                                 │
+                                 ▼
+                    libzenoh_pico_shim.a (static library)
+```
+
+### Link-time Resolution (smoltcp)
+
+For smoltcp platform, C code declares extern functions satisfied by Rust at link time:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Final Binary                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+              ┌──────────────────┴──────────────────┐
+              ▼                                     ▼
+┌──────────────────────────┐          ┌──────────────────────────────┐
+│  libzenoh_pico_shim.a    │          │  zenoh-pico-shim (Rust)      │
+│  (from -sys crate)       │          │                              │
+│                          │          │  src/platform/smoltcp.rs:    │
+│  system.c:               │   ───►   │    #[no_mangle]              │
+│    extern smoltcp_alloc  │  links   │    pub extern "C" fn         │
+│    extern smoltcp_poll   │    to    │      smoltcp_alloc() {...}   │
+└──────────────────────────┘          └──────────────────────────────┘
+```
+
+### Acceptance Criteria
+- [ ] `zenoh-pico-shim-sys` compiles with `posix` feature
+- [ ] `zenoh-pico-shim-sys` compiles with `smoltcp` feature
+- [ ] `zenoh-pico-shim` compiles with all platform features
+- [ ] Old crates (`zenoh-pico-sys`, `zenoh-pico`) removed
+- [ ] No Rust/C mixing within single crate directories
+- [ ] All existing functionality preserved
 
 ---
 
@@ -528,7 +790,7 @@ Implement the zenoh-pico platform abstraction (`z_*` functions) using smoltcp wi
 
 **Status**: Not Started
 **Priority**: High
-**Depends on**: 8.4
+**Depends on**: 8.4.5
 
 Integrate `zenoh-pico-shim` with `nano-ros-node` to enable embedded nano-ros applications.
 
@@ -845,6 +1107,12 @@ Phase 8.3 (smoltcp validation)     Phase 8.4 (smoltcp platform)          │   �
                                     smoltcp FFI layer                    │   │
                                     │                                    │   │
                                     ▼                                    │   │
+                              Phase 8.4.5 (Library Restructure)          │   │
+                                    zenoh-pico-shim-sys (C code)         │   │
+                                    zenoh-pico-shim (Rust API)           │   │
+                                    Remove zenoh-pico, zenoh-pico-sys    │   │
+                                    │                                    │   │
+                                    ▼                                    │   │
                               Phase 8.5 (nano-ros integration)           │   │
                                     ShimExecutor, ShimNode               │   │
                                     shim feature in nano-ros-node        │   │
@@ -859,7 +1127,7 @@ Phase 8.7 (native verification) ────────────────
 Phase 8.8 (documentation) ───────────────────────────────────────────────────┘
 ```
 
-### Crate Dependency Graph
+### Crate Dependency Graph (After Phase 8.4.5 Refactor)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -872,36 +1140,45 @@ Phase 8.8 (documentation) ──────────────────
 │  │  native-service-*       │        │                                    │  │
 │  └────────────┬────────────┘        └─────────────────┬──────────────────┘  │
 │               │                                       │                      │
-│               │ (std, zenoh features)                 │ (shim feature)       │
+│               │ (posix feature)                       │ (smoltcp/zephyr)     │
 │               │                                       │                      │
-│               ▼                                       ▼                      │
+│               └───────────────────┬───────────────────┘                      │
+│                                   │                                          │
+│                                   ▼                                          │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                         nano-ros-node                                │    │
-│  │  ┌──────────────────────┐     ┌─────────────────────────────────┐   │    │
-│  │  │ ConnectedExecutor    │     │ ShimExecutor (shim feature)     │   │    │
-│  │  │ (std, zenoh features)│     │                                 │   │    │
-│  │  └──────────┬───────────┘     └────────────────┬────────────────┘   │    │
-│  └─────────────┼──────────────────────────────────┼────────────────────┘    │
-│                │                                  │                          │
-│                ▼                                  ▼                          │
-│  ┌──────────────────────────┐     ┌────────────────────────────────────┐    │
-│  │  zenoh-pico (Rust)       │     │  zenoh-pico-shim                   │    │
-│  │  Safe wrapper            │     │  ├── shim/ (C API)                 │    │
-│  └──────────┬───────────────┘     │  ├── platform_smoltcp/ (z_*)       │    │
-│             │                     │  └── platform_zephyr/              │    │
-│             │                     └────────────────┬───────────────────┘    │
-│             │                                      │                         │
-│             ▼                                      │                         │
-│  ┌──────────────────────────┐                      │                         │
-│  │  zenoh-pico-sys (FFI)    │◄─────────────────────┘                         │
-│  │  Pure bindings only      │                                                │
-│  └──────────┬───────────────┘                                                │
-│             │                                                                │
-│             ▼                                                                │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │  zenoh-pico C library (external)                                      │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  │                    (shim feature for embedded)                       │    │
+│  └─────────────────────────────────┬───────────────────────────────────┘    │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  zenoh-pico-shim (High-level Rust API)                               │    │
+│  │  ├── src/lib.rs         - Public API, re-exports                     │    │
+│  │  ├── src/session.rs     - Session management                         │    │
+│  │  ├── src/publisher.rs   - Publisher                                  │    │
+│  │  ├── src/subscriber.rs  - Subscriber                                 │    │
+│  │  └── src/platform/      - Platform Rust code (smoltcp_*)             │    │
+│  └─────────────────────────────────┬───────────────────────────────────┘    │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  zenoh-pico-shim-sys (FFI + all C code)                              │    │
+│  │  ├── src/lib.rs                - FFI declarations only               │    │
+│  │  ├── c/shim/zenoh_shim.c       - C shim implementation               │    │
+│  │  ├── c/platform_smoltcp/*.c    - smoltcp platform (optional)         │    │
+│  │  └── zenoh-pico/               - Git submodule (upstream)            │    │
+│  └─────────────────────────────────┬───────────────────────────────────┘    │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  zenoh-pico C library (submodule, compiled by -sys crate)            │    │
+│  │  Platform selection: ZENOH_LINUX / ZENOH_ZEPHYR / ZENOH_GENERIC      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+Removed crates (after refactor):
+- zenoh-pico-sys (merged into zenoh-pico-shim-sys)
+- zenoh-pico (merged into zenoh-pico-shim)
 ```
 
 ---
