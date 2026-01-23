@@ -22,7 +22,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 ### Tasks
 
-- [ ] **7.1.1** Create `Context` struct in `nano-ros-node`
+- [x] **7.1.1** Create `Context` struct in `nano-ros-node`
   ```rust
   pub struct Context {
       domain_id: u32,
@@ -37,7 +37,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.1.2** Create `InitOptions` struct
+- [x] **7.1.2** Create `InitOptions` struct
   ```rust
   pub struct InitOptions {
       domain_id: Option<u32>,
@@ -49,7 +49,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.1.3** Add `Context::create_node()` method (without executor initially)
+- [x] **7.1.3** Add `Context::create_node()` method (without executor initially)
   ```rust
   impl Context {
       pub fn create_node<'a>(&self, options: impl IntoNodeOptions<'a>)
@@ -57,7 +57,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.1.4** Implement `IntoNodeOptions` trait for string conversion
+- [x] **7.1.4** Implement `IntoNodeOptions` trait for string conversion
   ```rust
   pub trait IntoNodeOptions<'a> {
       fn into_node_options(self) -> NodeOptions<'a>;
@@ -70,7 +70,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.1.5** Add `NodeOptions` builder with namespace method
+- [x] **7.1.5** Add `NodeOptions` builder with namespace method
   ```rust
   pub struct NodeOptions<'a> {
       pub name: &'a str,
@@ -85,7 +85,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   impl<'a> IntoNodeOptions<'a> for NodeOptions<'a> { ... }
   ```
 
-- [ ] **7.1.6** Add `Node` type alias
+- [x] **7.1.6** Add `Node` type alias
   ```rust
   #[cfg(feature = "std")]
   pub type Node = Arc<ConnectedNode>;
@@ -94,15 +94,15 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   pub type Node<'a, const N: usize = DEFAULT_MAX_TOKENS> = &'a mut ConnectedNode<N>;
   ```
 
-- [ ] **7.1.7** Deprecate direct `ConnectedNode::connect()` in favor of `Context`
+- [x] **7.1.7** Deprecate direct `ConnectedNode::connect()` in favor of `Context`
   ```rust
   #[deprecated(since = "0.2.0", note = "Use Context::create_node() instead")]
   pub fn connect(...) -> ...
   ```
 
-- [ ] **7.1.8** Update examples to use new Context API
+- [x] **7.1.8** Update examples to use new Context API
 
-- [ ] **7.1.9** Add tests for Context initialization
+- [x] **7.1.9** Add tests for Context initialization
 
 ### Acceptance Criteria
 - Context can be created from environment or options
@@ -118,7 +118,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 ### Tasks
 
-- [ ] **7.2.1** Extend `QosSettings` with more fields
+- [x] **7.2.1** Extend `QosSettings` with more fields
   ```rust
   pub struct QosSettings {
       pub history: QosHistoryPolicy,
@@ -143,7 +143,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.2.2** Add QoS builder methods
+- [x] **7.2.2** Add QoS builder methods
   ```rust
   impl QosSettings {
       pub fn keep_last(self, depth: u32) -> Self;
@@ -155,7 +155,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.2.3** Add predefined QoS profiles
+- [x] **7.2.3** Add predefined QoS profiles
   ```rust
   pub const QOS_PROFILE_DEFAULT: QosSettings = ...;
   pub const QOS_PROFILE_SENSOR_DATA: QosSettings = ...;
@@ -163,7 +163,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   pub const QOS_PROFILE_PARAMETERS: QosSettings = ...;
   ```
 
-- [ ] **7.2.4** Create `IntoPrimitiveOptions` trait for topic strings
+- [x] **7.2.4** Create `IntoPrimitiveOptions` trait for topic strings
   ```rust
   pub trait IntoPublisherOptions<'a> {
       fn into_publisher_options(self) -> PublisherOptions<'a>;
@@ -181,7 +181,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.2.5** Implement string-to-options conversion
+- [x] **7.2.5** Implement string-to-options conversion
   ```rust
   impl<'a> IntoPublisherOptions<'a> for &'a str {
       fn into_publisher_options(self) -> PublisherOptions<'a> {
@@ -195,7 +195,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   // Enable: node.create_publisher::<M>("topic".keep_last(10).reliable())?
   ```
 
-- [ ] **7.2.6** Update `create_publisher` to accept options
+- [x] **7.2.6** Update `create_publisher` to accept options
   ```rust
   pub fn create_publisher<M: RosMessage>(
       &mut self,
@@ -203,11 +203,11 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   ) -> Result<Publisher<M>, RclrsError>;
   ```
 
-- [ ] **7.2.7** Apply same pattern to subscribers, services, actions
+- [x] **7.2.7** Apply same pattern to subscribers, services, actions
 
-- [ ] **7.2.8** Deprecate `create_publisher_with_qos()` methods
+- [x] **7.2.8** Deprecate `create_publisher_with_qos()` methods
 
-- [ ] **7.2.9** Update examples and tests
+- [x] **7.2.9** Update examples and tests
 
 ### Acceptance Criteria
 - `node.create_publisher::<M>("topic".keep_last(10).reliable())` works
@@ -223,7 +223,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 ### Tasks
 
-- [ ] **7.3.1** Create `ParameterVariant` trait
+- [x] **7.3.1** Create `ParameterVariant` trait
   ```rust
   pub trait ParameterVariant: Clone {
       fn to_parameter_value(&self) -> ParameterValue;
@@ -233,7 +233,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   // Implement for: bool, i64, f64, String, Vec<i64>, Vec<f64>, Vec<bool>, Vec<String>
   ```
 
-- [ ] **7.3.2** Create `ParameterBuilder` struct
+- [x] **7.3.2** Create `ParameterBuilder` struct
   ```rust
   pub struct ParameterBuilder<'a, T: ParameterVariant> {
       node: &'a Node,
@@ -253,7 +253,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.3.3** Create typed parameter types
+- [x] **7.3.3** Create typed parameter types
   ```rust
   pub struct MandatoryParameter<T: ParameterVariant> {
       // ...
@@ -283,7 +283,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.3.4** Add `declare_parameter` to Node
+- [x] **7.3.4** Add `declare_parameter` to Node
   ```rust
   impl Node {
       pub fn declare_parameter<'a, T: ParameterVariant>(
@@ -293,7 +293,7 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.3.5** Create `ParameterRange` types
+- [x] **7.3.5** Create `ParameterRange` types
   ```rust
   pub struct IntegerRange {
       pub from: i64,
@@ -308,16 +308,16 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   }
   ```
 
-- [ ] **7.3.6** Add `use_undeclared_parameters()` for dynamic access
+- [x] **7.3.6** Add `use_undeclared_parameters()` for dynamic access
   ```rust
   impl Node {
       pub fn use_undeclared_parameters(&self) -> UndeclaredParameters<'_>;
   }
   ```
 
-- [ ] **7.3.7** Keep `ParameterServer` for `no_std` environments
+- [x] **7.3.7** Keep `ParameterServer` for `no_std` environments
 
-- [ ] **7.3.8** Update examples and tests
+- [x] **7.3.8** Update examples and tests
 
 ### Acceptance Criteria
 - Typed parameters work: `node.declare_parameter("speed").default(5.0).mandatory()?`
@@ -331,73 +331,80 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 **Goal**: Add timer support matching rclrs patterns.
 
+**Status**: COMPLETE
+
 ### Tasks
 
-- [ ] **7.4.1** Create `Timer` struct
+- [x] **7.4.1** Create `Timer` struct
   ```rust
-  pub struct Timer {
-      period: Duration,
-      callback: Option<Box<dyn FnMut() + Send>>,
-      last_call: Instant,
+  // Implemented as TimerState and TimerHandle in nano-ros-node/src/timer.rs
+  pub struct TimerState {
+      period_ms: u64,
+      elapsed_ms: u64,
+      mode: TimerMode,
       canceled: bool,
+      callback_fn: Option<TimerCallbackFn>,
+      #[cfg(feature = "alloc")]
+      callback_box: Option<TimerCallback>,
   }
   ```
 
-- [ ] **7.4.2** Add timer creation methods to Node
+- [x] **7.4.2** Add timer creation methods to Node
   ```rust
-  impl Node {
-      pub fn create_timer_repeating<F>(
-          &self,
-          period: Duration,
-          callback: F,
-      ) -> Result<Timer, RclrsError>
-      where
-          F: FnMut() + Send + 'static;
-
-      pub fn create_timer_oneshot<F>(
-          &self,
-          delay: Duration,
-          callback: F,
-      ) -> Result<Timer, RclrsError>
-      where
-          F: FnMut() + Send + 'static;
-
-      pub fn create_timer_inert(
-          &self,
-          period: Duration,
-      ) -> Result<Timer, RclrsError>;
+  impl ConnectedNode {
+      pub fn create_timer_repeating(&mut self, period: TimerDuration, callback: TimerCallbackFn) -> Result<TimerHandle, ConnectedNodeError>;
+      pub fn create_timer_oneshot(&mut self, delay: TimerDuration, callback: TimerCallbackFn) -> Result<TimerHandle, ConnectedNodeError>;
+      pub fn create_timer_inert(&mut self, period: TimerDuration) -> Result<TimerHandle, ConnectedNodeError>;
+      #[cfg(feature = "alloc")]
+      pub fn create_timer_repeating_boxed<F>(&mut self, period: TimerDuration, callback: F) -> Result<TimerHandle, ConnectedNodeError>;
+      #[cfg(feature = "alloc")]
+      pub fn create_timer_oneshot_boxed<F>(&mut self, delay: TimerDuration, callback: F) -> Result<TimerHandle, ConnectedNodeError>;
   }
   ```
 
-- [ ] **7.4.3** Add Timer methods
+- [x] **7.4.3** Add Timer methods
   ```rust
-  impl Timer {
-      pub fn cancel(&self) -> Result<(), RclrsError>;
+  impl TimerState {
+      pub fn cancel(&mut self);
       pub fn is_canceled(&self) -> bool;
-      pub fn reset(&self) -> Result<(), RclrsError>;
+      pub fn reset(&mut self);
       pub fn is_ready(&self) -> bool;
-      pub fn time_until_next_call(&self) -> Duration;
-      pub fn time_since_last_call(&self) -> Duration;
-      pub fn get_timer_period(&self) -> Duration;
+      pub fn time_until_next_call(&self) -> TimerDuration;
+      pub fn time_since_last_call(&self) -> TimerDuration;
+      pub fn period(&self) -> TimerDuration;
+      pub fn set_callback_fn(&mut self, callback: TimerCallbackFn);
+      pub fn set_repeating(&mut self);
+      pub fn set_oneshot(&mut self);
+      pub fn set_inert(&mut self);
+  }
 
-      pub fn set_callback<F>(&self, callback: F)
-      where
-          F: FnMut() + Send + 'static;
-      pub fn set_repeating<F>(&self, callback: F);
-      pub fn set_oneshot<F>(&self, callback: F);
-      pub fn set_inert(&self);
+  impl ConnectedNode {
+      pub fn cancel_timer(&mut self, handle: &TimerHandle) -> Result<(), ConnectedNodeError>;
+      pub fn reset_timer(&mut self, handle: &TimerHandle) -> Result<(), ConnectedNodeError>;
+      pub fn is_timer_ready(&self, handle: &TimerHandle) -> bool;
+      pub fn is_timer_canceled(&self, handle: &TimerHandle) -> bool;
+      pub fn get_timer_period(&self, handle: &TimerHandle) -> Option<TimerDuration>;
+      pub fn time_until_next_call(&self, handle: &TimerHandle) -> Option<TimerDuration>;
+      pub fn time_since_last_call(&self, handle: &TimerHandle) -> Option<TimerDuration>;
+      pub fn process_timers(&mut self, delta_ms: u64) -> usize;
   }
   ```
 
-- [ ] **7.4.4** Integrate timers with executor (Phase 7.6)
+- [x] **7.4.4** Integrate timers with executor (Phase 7.6)
 
-- [ ] **7.4.5** Add `no_std` variant using const generics
+- [x] **7.4.5** Add `no_std` variant using const generics
   ```rust
-  #[cfg(not(feature = "std"))]
-  pub struct Timer<const MAX_TIMERS: usize> { ... }
+  pub struct ConnectedNode<
+      const MAX_TOKENS: usize = DEFAULT_MAX_TOKENS,
+      const MAX_TIMERS: usize = DEFAULT_MAX_TIMERS,
+  > { ... }
+
+  pub const DEFAULT_MAX_TIMERS: usize = 8;
   ```
 
-- [ ] **7.4.6** Add tests and examples
+- [x] **7.4.6** Add tests and examples
+  - Unit tests in `timer.rs` for TimerDuration, TimerState, TimerHandle
+  - TIMER_PROCESS_INTERVAL_MS constant in rtic.rs
 
 ### Acceptance Criteria
 - Repeating timers fire at specified interval
@@ -411,63 +418,99 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 **Goal**: Add clock abstraction for time sources.
 
+**Status**: COMPLETE
+
 ### Tasks
 
-- [ ] **7.5.1** Create `ClockType` enum
+- [x] **7.5.1** Create `ClockType` enum
   ```rust
+  // Implemented in nano-ros-core/src/clock.rs
   pub enum ClockType {
-      RosTime,      // Simulation time (can be paused/scaled)
-      SystemTime,   // Wall clock
+      SystemTime,   // Wall clock (default)
       SteadyTime,   // Monotonic clock
+      RosTime,      // Simulation time (can be paused/scaled)
   }
   ```
 
-- [ ] **7.5.2** Create `Clock` struct
+- [x] **7.5.2** Create `Clock` struct
   ```rust
+  // Implemented in nano-ros-core/src/clock.rs
   pub struct Clock {
       clock_type: ClockType,
-      // Internal state
   }
 
   impl Clock {
-      pub fn new(kind: ClockType) -> Self;
-      pub fn system() -> Self;
-      pub fn steady() -> Self;
-      pub fn clock_type(&self) -> ClockType;
+      pub const fn new(clock_type: ClockType) -> Self;
+      pub const fn system() -> Self;
+      pub const fn steady() -> Self;
+      pub const fn ros_time() -> Self;
+      pub const fn clock_type(&self) -> ClockType;
       pub fn now(&self) -> Time;
   }
   ```
 
-- [ ] **7.5.3** Extend `Time` type with more operations
+- [x] **7.5.3** Extend `Time` type with more operations
   ```rust
+  // Implemented in nano-ros-core/src/time.rs
   impl Time {
-      pub fn from_nanos(nanos: i64) -> Self;
-      pub fn to_nanos(&self) -> i64;
-      pub fn as_duration(&self) -> Duration;
-      pub fn from_duration(d: Duration) -> Self;
+      pub const fn from_nanos(nanos: i64) -> Self;
+      pub const fn to_nanos(&self) -> i64;
+      pub const fn as_duration(&self) -> Duration;
+      pub const fn from_duration(d: Duration) -> Self;
+      pub fn from_secs_f64(secs: f64) -> Self;
+      pub fn to_secs_f64(&self) -> f64;
   }
 
-  impl Add<Duration> for Time { ... }
-  impl Sub<Duration> for Time { ... }
-  impl Sub<Time> for Time { type Output = Duration; ... }
+  impl Add<Duration> for Time { type Output = Time; }
+  impl Sub<Duration> for Time { type Output = Time; }
+  impl Sub<Time> for Time { type Output = Duration; }
+
+  // Also extended Duration:
+  impl Duration {
+      pub const fn from_nanos(nanos: i64) -> Self;
+      pub const fn to_nanos(&self) -> i64;
+      pub fn from_secs_f64(secs: f64) -> Self;
+      pub fn to_secs_f64(&self) -> f64;
+  }
+
+  impl Add for Duration { type Output = Duration; }
+  impl Sub for Duration { type Output = Duration; }
   ```
 
-- [ ] **7.5.4** Add `get_clock()` to Node
+- [x] **7.5.4** Add `get_clock()` to Node
   ```rust
-  impl Node {
+  // Implemented in nano-ros-node/src/connected.rs
+  impl ConnectedNode {
       pub fn get_clock(&self) -> &Clock;
+      pub fn now(&self) -> Time;
+      pub fn clock_type(&self) -> ClockType;
+      pub fn set_clock_type(&mut self, clock_type: ClockType);
   }
   ```
 
-- [ ] **7.5.5** Add ROS time override support
+- [x] **7.5.5** Add ROS time override support
   ```rust
+  // Implemented in nano-ros-core/src/clock.rs
   impl Clock {
-      pub fn set_ros_time_override(&self, nanos: i64);
-      pub fn clear_ros_time_override(&self);
+      pub fn set_ros_time_override(nanos: i64);
+      pub fn set_ros_time_override_time(time: Time);
+      pub fn clear_ros_time_override();
+      pub fn is_ros_time_override_active() -> bool;
+      pub fn get_ros_time_override() -> Option<Time>;
+  }
+
+  // For no_std environments:
+  impl Clock {
+      pub fn update_steady_time(delta_nanos: i64);
+      pub fn update_steady_time_ms(delta_ms: u64);
+      pub fn set_steady_time(nanos: i64);
+      pub fn get_steady_time_nanos() -> i64;
   }
   ```
 
-- [ ] **7.5.6** Add tests for clock operations
+- [x] **7.5.6** Add tests for clock operations
+  - Unit tests in `time.rs` for Time/Duration arithmetic
+  - Unit tests in `clock.rs` for ClockType, Clock, ROS time override
 
 ### Acceptance Criteria
 - System and steady clocks work
@@ -477,154 +520,261 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 ---
 
-## Phase 7.6: Executor and Spin Model
+## Phase 7.6: Unified Executor Model
 
-**Goal**: Add executor abstraction with spin/spin_async support.
+**Goal**: Add unified executor abstraction that works on both std and no_std targets.
+
+**Design Document**: See `docs/architecture/unified-executor-design.md` for full design.
+
+### Design Principles
+
+1. **Unified API** - Same `Context → Executor → Node` flow everywhere
+2. **Two Executor Types**:
+   - `PollingExecutor` - Always available, no_std compatible, user calls `spin_once()`
+   - `BasicExecutor` - std only, has blocking `spin()` and `spin_async()`
+3. **Executor owns nodes** - Prevents mixing manual polling with executor-managed spinning
+4. **Callback-based subscriptions** - Stored in executor, invoked during `spin_once()`
 
 ### Tasks
 
-- [ ] **7.6.1** Create `Executor` struct
-  ```rust
-  pub struct Executor {
-      context: Context,
-      nodes: Vec<Node>,
-      // Internal state
-  }
-  ```
+#### 7.6.1 Core Types
 
-- [ ] **7.6.2** Add executor creation from Context
+- [x] **7.6.1.1** Deprecate `Context::create_node()` (deprecated, not removed for backwards compat)
   ```rust
   impl Context {
-      pub fn create_basic_executor(&self) -> Executor;
+      pub fn new(opts: InitOptions) -> Result<Self, RclrsError>;
+      #[cfg(feature = "std")]
+      pub fn from_env() -> Result<Self, RclrsError>;
+      pub fn create_polling_executor<const N: usize>(&self) -> PollingExecutor<N>;
+      #[cfg(feature = "std")]
+      pub fn create_basic_executor(&self) -> BasicExecutor;
   }
   ```
 
-- [ ] **7.6.3** Add node creation through executor
+- [x] **7.6.1.2** Update `InitOptions` with transport configuration
   ```rust
-  impl Executor {
-      pub fn create_node<'a>(
-          &mut self,
-          options: impl IntoNodeOptions<'a>,
-      ) -> Result<Node, RclrsError>;
+  pub struct InitOptions {
+      domain_id: Option<u32>,
+      #[cfg(feature = "zenoh")]
+      locator: Option<&'static str>,
+      #[cfg(feature = "zenoh")]
+      session_mode: SessionMode,
   }
   ```
 
-- [ ] **7.6.4** Create `SpinOptions` struct
+- [x] **7.6.1.3** Create `SpinOnceResult` struct
+  ```rust
+  pub struct SpinOnceResult {
+      pub subscriptions_processed: usize,
+      pub timers_fired: usize,
+      pub services_handled: usize,
+  }
+  ```
+
+- [x] **7.6.1.4** Create `SpinOptions` struct
   ```rust
   pub struct SpinOptions {
-      max_iterations: Option<usize>,
-      timeout: Option<Duration>,
-      // Other conditions
-  }
-
-  impl SpinOptions {
-      pub fn default() -> Self;
-      pub fn max_iterations(self, count: usize) -> Self;
-      pub fn timeout(self, duration: Duration) -> Self;
+      pub timeout: Option<Duration>,
+      pub only_next: bool,
+      pub max_callbacks: Option<usize>,
   }
   ```
 
-- [ ] **7.6.5** Add blocking spin
+#### 7.6.2 Executor Trait
+
+- [x] **7.6.2.1** Create `Executor` trait (always available)
   ```rust
-  impl Executor {
-      pub fn spin(&mut self, options: SpinOptions) -> Vec<RclrsError>;
+  pub trait Executor {
+      fn create_node<'a>(&mut self, opts: impl IntoNodeOptions<'a>)
+          -> Result<NodeHandle<'_>, RclrsError>;
+      fn spin_once(&mut self, delta_ms: u64) -> SpinOnceResult;
   }
   ```
 
-- [ ] **7.6.6** Add async spin (behind feature flag)
+- [x] **7.6.2.2** Create `SpinExecutor` trait (std only)
   ```rust
-  #[cfg(feature = "async")]
-  impl Executor {
-      pub async fn spin_async(
-          self,
-          options: SpinOptions,
-      ) -> (Self, Vec<RclrsError>);
+  #[cfg(feature = "std")]
+  pub trait SpinExecutor: Executor {
+      fn spin(&mut self, opts: SpinOptions) -> Vec<RclrsError>;
+      fn spin_async(self, opts: SpinOptions)
+          -> BoxFuture<'static, (Self, Vec<RclrsError>)>
+      where Self: Sized;
   }
   ```
 
-- [ ] **7.6.7** Create `ExecutorCommands` for runtime operations
+#### 7.6.3 PollingExecutor (no_std compatible)
+
+- [x] **7.6.3.1** Create `PollingExecutor<const MAX_NODES: usize>` struct
   ```rust
-  pub struct ExecutorCommands {
-      // ...
-  }
-
-  impl ExecutorCommands {
-      pub fn halt_spinning(&self);
-      pub fn context(&self) -> &Context;
+  pub struct PollingExecutor<const MAX_NODES: usize = 4> {
+      context: Context,
+      nodes: heapless::Vec<NodeState, MAX_NODES>,
   }
   ```
 
-- [ ] **7.6.8** Keep manual polling API for embedded
+- [x] **7.6.3.2** Implement `Executor` trait for `PollingExecutor`
+
+- [x] **7.6.3.3** Implement `spin_once()` to process all nodes
+  - Poll transport for incoming messages
+  - Iterate subscriptions, invoke ready callbacks
+  - Fire ready timers
+  - Handle service requests
+
+#### 7.6.4 BasicExecutor (std only)
+
+- [x] **7.6.4.1** Create `BasicExecutor` struct
   ```rust
-  impl Node {
-      pub fn poll(&mut self) -> Result<(), RclrsError>;
+  #[cfg(feature = "std")]
+  pub struct BasicExecutor {
+      context: Context,
+      nodes: Vec<NodeState>,
+      halt_flag: Arc<AtomicBool>,
   }
   ```
 
-- [ ] **7.6.9** Update examples to use executor
+- [x] **7.6.4.2** Implement `Executor` trait for `BasicExecutor`
+
+- [x] **7.6.4.3** Implement `spin_once()` (same logic as PollingExecutor)
+
+- [x] **7.6.4.4** Implement blocking `spin()`
+  ```rust
+  pub fn spin(&mut self, opts: SpinOptions) -> Vec<RclrsError> {
+      loop {
+          self.spin_once(POLL_INTERVAL_MS);
+          if self.should_stop(&opts) { break; }
+          std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+      }
+  }
+  ```
+
+- [ ] **7.6.4.5** Implement `spin_async()` (spawns background thread)
+
+- [x] **7.6.4.6** Implement `halt()` method
+
+#### 7.6.5 NodeHandle and Callbacks
+
+- [x] **7.6.5.1** Create `NodeHandle<'a>` struct (reference to node in executor)
+  ```rust
+  pub struct NodeHandle<'a> {
+      node: &'a mut NodeState,
+  }
+  ```
+
+- [x] **7.6.5.2** Implement `NodeHandle` methods
+  - `create_publisher<M>(topic)` - Same as current
+  - `create_subscription<M>(topic, callback)` - With callback storage
+  - `create_timer(period, callback)` - With callback storage
+  - `get_clock()`, `now()` - Clock access
+  - `name()`, `namespace()`, `fully_qualified_name()`
+
+- [x] **7.6.5.3** Create `SubscriptionCallback<M>` trait
+  ```rust
+  pub trait SubscriptionCallback<M: RosMessage>: Send {
+      fn call(&mut self, msg: &M);
+  }
+
+  impl<M: RosMessage> SubscriptionCallback<M> for fn(&M) { ... }
+
+  #[cfg(feature = "alloc")]
+  impl<M, F: FnMut(&M) + Send> SubscriptionCallback<M> for F { ... }
+  ```
+
+- [x] **7.6.5.4** Create `TimerCallback` trait
+  ```rust
+  pub trait TimerCallback: Send {
+      fn call(&mut self);
+  }
+  ```
+
+- [x] **7.6.5.5** Create internal `SubscriptionEntry` for callback storage
+  ```rust
+  struct SubscriptionEntry {
+      subscriber: ConnectedSubscriber</* ... */>,
+      callback: Box<dyn ErasedCallback>,  // or function pointer for no_std
+  }
+  ```
+
+#### 7.6.6 Internal NodeState
+
+- [x] **7.6.6.1** Create `NodeState` struct to wrap `ConnectedNode`
+  ```rust
+  struct NodeState {
+      inner: ConnectedNode,
+      subscriptions: SubscriptionStorage,
+      // timers already in ConnectedNode
+  }
+  ```
+
+- [x] **7.6.6.2** Implement subscription storage
+  - `heapless::Vec` for no_std
+  - `Vec` for std/alloc
+
+#### 7.6.7 Deprecation and Migration
+
+- [x] **7.6.7.1** Deprecate `Context::create_node()` direct method
+  ```rust
+  #[deprecated(since = "0.2.0", note = "Use create_polling_executor() or create_basic_executor()")]
+  pub fn create_node(...) -> ...
+  ```
+
+- [x] **7.6.7.2** Deprecate `ConnectedNode::new()` direct usage
+  ```rust
+  #[deprecated(since = "0.2.0", note = "Use Context + Executor instead")]
+  pub fn connect(...) -> ...
+  ```
+
+- [x] **7.6.7.3** Keep old API working for backwards compatibility
+
+#### 7.6.8 Tests and Examples
+
+- [x] **7.6.8.1** Add unit tests for `PollingExecutor`
+  - Create nodes
+  - Create subscriptions with callbacks
+  - `spin_once()` invokes callbacks
+
+- [x] **7.6.8.2** Add unit tests for `BasicExecutor`
+  - All PollingExecutor tests
+  - `spin()` with timeout
+  - `halt()` stops spinning
+
+- [x] **7.6.8.3** Update `native-talker` example to use executor
+
+- [x] **7.6.8.4** Update `native-listener` example to use executor
+
+- [x] **7.6.8.5** Update RTIC example to use `PollingExecutor`
+
+- [x] **7.6.8.6** Action examples already use executor API (manual loop for complex handling)
 
 ### Acceptance Criteria
-- `executor.spin()` processes all callbacks
-- `spin_async` works with async runtime
-- Manual polling still available
-- SpinOptions control spin behavior
+
+- [x] Unified `Context → Executor → Node` API works on all targets
+- [x] `PollingExecutor` works on no_std (RTIC, Embassy)
+- [x] `BasicExecutor` provides full `spin()` on std
+- [x] `spin_async()` deferred to Phase 7.10 (requires Send bounds on zenoh-pico types)
+- [x] Callbacks invoked during `spin_once()`
+- [x] Function pointer callbacks work without alloc
+- [x] Closure callbacks work with alloc
+- [x] Old API still works (deprecated)
+- [x] All examples updated to use executor API
+- [x] Tests pass on both std and no_std
+
+### Notes on spin_async()
+
+The `spin_async()` method is commented out because zenoh-pico's C types are not `Send`.
+This is a fundamental limitation of the FFI bindings. For async support:
+- Phase 7.10 will address this with either a pure-Rust zenoh backend or unsafe Send wrappers
+- For now, use `spin()` (blocking) or `spin_once()` (manual polling)
 
 ---
 
-## Phase 7.7: Callback-based Subscriptions
+## Phase 7.7: Service Callbacks (Merged into 7.6)
 
-**Goal**: Add callback-based subscription API alongside polling.
+**Note**: Service callback support is now part of Phase 7.6's executor model.
+The `spin_once()` method handles service requests alongside subscriptions.
 
-### Tasks
-
-- [ ] **7.7.1** Add callback subscription creation
-  ```rust
-  impl Node {
-      pub fn create_subscription<M, F>(
-          &self,
-          options: impl IntoSubscriberOptions<'_>,
-          callback: F,
-      ) -> Result<Subscription<M>, RclrsError>
-      where
-          M: RosMessage,
-          F: FnMut(M) + Send + 'static;
-  }
-  ```
-
-- [ ] **7.7.2** Support multiple callback signatures
-  ```rust
-  // Just message
-  |msg: M| { ... }
-
-  // Message with info (future)
-  |msg: M, info: MessageInfo| { ... }
-  ```
-
-- [ ] **7.7.3** Add `set_callback` for runtime changes
-  ```rust
-  impl<M: RosMessage> Subscription<M> {
-      pub fn set_callback<F>(&self, callback: F)
-      where
-          F: FnMut(M) + Send + 'static;
-  }
-  ```
-
-- [ ] **7.7.4** Keep polling API as alternative
-  ```rust
-  impl<M: RosMessage> Subscription<M> {
-      pub fn try_recv(&mut self) -> Result<Option<M>, RclrsError>;
-  }
-  ```
-
-- [ ] **7.7.5** Integrate callbacks with executor spin
-
-- [ ] **7.7.6** Add tests for callback subscriptions
-
-### Acceptance Criteria
-- Callback-based subscriptions work with executor
-- Callbacks can be changed at runtime
-- Polling still works for manual control
-- Both patterns coexist
+Tasks moved to 7.6:
+- Service callback registration via `NodeHandle::create_service()`
+- Service request handling in `spin_once()`
 
 ---
 
@@ -983,22 +1133,32 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
 
 ## Implementation Schedule
 
-| Phase | Description | Estimated Effort | Dependencies |
-|-------|-------------|------------------|--------------|
-| 7.1 | Context and Initialization | 1 week | None |
-| 7.2 | QoS Builder Pattern | 1 week | 7.1 |
-| 7.3 | Typed Parameters | 1 week | 7.1 |
-| 7.4 | Timer API | 3 days | 7.1 |
-| 7.5 | Clock API | 3 days | 7.1 |
-| 7.6 | Executor and Spin | 1 week | 7.1, 7.4 |
-| 7.7 | Callback Subscriptions | 3 days | 7.6 |
-| 7.8 | Logger API | 3 days | 7.1 |
-| 7.9 | Worker Pattern | 3 days | 7.6, 7.7 |
-| 7.10 | Async Support | 1 week | 7.6 |
-| 7.11 | Action API Improvements | 1 week | 7.10 |
-| 7.12 | Error Type Alignment | 2 days | All above |
+| Phase | Description                | Status      | Estimated Effort | Dependencies  |
+|-------|----------------------------|-------------|------------------|---------------|
+| 7.1   | Context and Initialization | ✅ Complete | 1 week           | None          |
+| 7.2   | QoS Builder Pattern        | ✅ Complete | 1 week           | 7.1           |
+| 7.3   | Typed Parameters           | ✅ Complete | 1 week           | 7.1           |
+| 7.4   | Timer API                  | ✅ Complete | 3 days           | 7.1           |
+| 7.5   | Clock API                  | ✅ Complete | 3 days           | 7.1           |
+| 7.6   | Unified Executor Model     | ✅ Complete | 2 weeks          | 7.1, 7.4, 7.5 |
+| 7.7   | *(Merged into 7.6)*        | -           | -                | -             |
+| 7.8   | Logger API                 | Pending     | 3 days           | 7.1           |
+| 7.9   | Worker Pattern             | Pending     | 3 days           | 7.6           |
+| 7.10  | Async Support              | Pending     | 1 week           | 7.6           |
+| 7.11  | Action API Improvements    | Pending     | 1 week           | 7.10          |
+| 7.12  | Error Type Alignment       | ✅ Complete | 2 days           | All above     |
 
-**Total Estimated Effort**: ~8 weeks
+**Notes:**
+- Phase 7.7 (Callback Subscriptions) merged into Phase 7.6 (Unified Executor Model)
+- Phase 7.6 effort increased from 1 week to 2 weeks to account for merged scope
+- See `docs/architecture/unified-executor-design.md` for Phase 7.6 design details
+- `spin_async()` deferred to Phase 7.10 (Async Support) due to zenoh-pico Send bounds
+- Phase 7.12 (Error Types) complete - `RclrsError` implemented in `context.rs`
+
+**Completed**: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.12
+**Pending**: 7.8 (Logger), 7.9 (Worker), 7.10 (Async), 7.11 (Actions)
+
+**Total Estimated Effort**: ~8 weeks (7 phases complete, 4 pending)
 
 ---
 
@@ -1021,12 +1181,12 @@ loop {
 }
 ```
 
-### After (nano-ros 0.2.x with rclrs-style API)
+### After - Desktop (nano-ros 0.2.x with BasicExecutor)
 ```rust
 use nano_ros::prelude::*;
 
 let context = Context::from_env(InitOptions::default().with_domain_id(Some(42)))?;
-let executor = context.create_basic_executor();
+let mut executor = context.create_basic_executor();
 let node = executor.create_node("my_node".namespace("/ns"))?;
 
 let pub = node.create_publisher::<Int32>("topic".keep_last(10))?;
@@ -1035,6 +1195,48 @@ let _sub = node.create_subscription("topic", |msg: Int32| {
 })?;
 
 executor.spin(SpinOptions::default())?;
+```
+
+### After - RTIC/Embedded (nano-ros 0.2.x with PollingExecutor)
+```rust
+use nano_ros::prelude::*;
+
+// In RTIC init task
+let context = Context::new(InitOptions::new()
+    .with_locator("tcp/192.0.2.2:7447"))?;
+let mut executor: PollingExecutor<4> = context.create_polling_executor();
+let node = executor.create_node("embedded_node")?;
+
+let pub = node.create_publisher::<Int32>("sensor_data")?;
+let _sub = node.create_subscription("commands", handle_command as fn(&Command))?;
+
+// In RTIC periodic task (e.g., every 10ms)
+#[task(priority = 2)]
+async fn zenoh_poll(mut cx: zenoh_poll::Context) {
+    loop {
+        cx.shared.executor.lock(|exec| {
+            exec.spin_once(10);  // 10ms delta
+        });
+        Mono::delay(10.millis()).await;
+    }
+}
+```
+
+### Generic Code (works with both executors)
+```rust
+fn setup_ros_node<E: Executor>(executor: &mut E) -> Result<NodeHandle<'_>, RclrsError> {
+    let node = executor.create_node("generic_node")?;
+    let _pub = node.create_publisher::<Int32>("topic")?;
+    Ok(node)
+}
+
+// Called with spin_once() - works everywhere
+fn process_messages<E: Executor>(executor: &mut E, delta_ms: u64) {
+    let result = executor.spin_once(delta_ms);
+    if result.subscriptions_processed > 0 {
+        // Handle received messages
+    }
+}
 ```
 
 ---
