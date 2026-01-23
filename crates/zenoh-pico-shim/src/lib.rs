@@ -44,6 +44,18 @@ use core::marker::PhantomData;
 mod ffi;
 pub use ffi::*;
 
+// ============================================================================
+// Platform-specific Modules
+// ============================================================================
+
+/// smoltcp platform layer for bare-metal systems
+///
+/// This module provides the Rust FFI functions that the C platform layer calls
+/// to interact with smoltcp for network I/O and system services.
+#[cfg(feature = "smoltcp")]
+#[path = "../platform_smoltcp/mod.rs"]
+pub mod platform_smoltcp;
+
 // Extern imports from C shim
 // Note: These are kept in lib.rs (not ffi.rs) for separation.
 // cbindgen parses the entire crate and generates duplicate declarations from this block.

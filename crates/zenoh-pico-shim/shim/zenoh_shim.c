@@ -17,7 +17,7 @@
 // Subscriber entry with callback
 typedef struct {
     z_owned_subscriber_t subscriber;
-    zenoh_shim_callback_t callback;
+    ShimCallback callback;
     void *ctx;
     bool active;
 } subscriber_entry_t;
@@ -235,7 +235,7 @@ int zenoh_shim_undeclare_publisher(int handle) {
 // ============================================================================
 
 int zenoh_shim_declare_subscriber(const char *keyexpr,
-                                   zenoh_shim_callback_t callback,
+                                   ShimCallback callback,
                                    void *ctx) {
     if (!g_session_open) {
         return ZENOH_SHIM_ERR_SESSION;

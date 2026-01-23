@@ -76,11 +76,39 @@ fn main() {
     } else if use_smoltcp {
         println!("cargo:rustc-cfg=shim_backend=\"smoltcp\"");
         build.file("shim/backend_smoltcp.c");
+
+        // Add smoltcp platform layer sources
+        build.file("platform_smoltcp/system.c");
+        build.file("platform_smoltcp/network.c");
+
+        // Include platform_smoltcp directory for headers
+        build.include("platform_smoltcp");
+
         // Our custom define for the smoltcp backend
         build.define("ZENOH_SHIM_SMOLTCP", None);
-        // Note: For actual smoltcp builds, we'd need to define platform macros
-        // and potentially provide a custom platform implementation.
-        // This is handled in Phase 8.4.
+
+        // Use ZENOH_GENERIC to include our custom platform header
+        build.define("ZENOH_GENERIC", None);
+
+        // Disable multi-threading for bare-metal
+        build.define("Z_FEATURE_MULTI_THREAD", "0");
+
+        // Enable TCP, disable other link types
+        build.define("Z_FEATURE_LINK_TCP", "1");
+        build.define("Z_FEATURE_LINK_UDP_MULTICAST", "0");
+        build.define("Z_FEATURE_LINK_UDP_UNICAST", "0");
+        build.define("Z_FEATURE_SCOUTING_UDP", "0");
+        build.define("Z_FEATURE_LINK_SERIAL", "0");
+
+        // ARM cross-compilation flags when targeting embedded
+        let target = env::var("TARGET").unwrap_or_default();
+        if target.contains("thumbv7em") {
+            build
+                .flag("-mcpu=cortex-m4")
+                .flag("-mthumb")
+                .flag("-mfpu=fpv4-sp-d16")
+                .flag("-mfloat-abi=hard");
+        }
     }
 
     // Set optimization level
@@ -99,6 +127,9 @@ fn main() {
     println!("cargo:rerun-if-changed=shim/backend_posix.c");
     println!("cargo:rerun-if-changed=shim/backend_zephyr.c");
     println!("cargo:rerun-if-changed=shim/backend_smoltcp.c");
+    println!("cargo:rerun-if-changed=platform_smoltcp/system.c");
+    println!("cargo:rerun-if-changed=platform_smoltcp/network.c");
+    println!("cargo:rerun-if-changed=platform_smoltcp/zenoh_smoltcp_platform.h");
 }
 
 /// Generate the C header file from Rust FFI declarations using cbindgen.
