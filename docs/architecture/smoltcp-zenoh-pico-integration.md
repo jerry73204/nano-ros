@@ -1,6 +1,8 @@
 # smoltcp + zenoh-pico Integration Design
 
-This document describes how to integrate smoltcp (pure-Rust TCP/IP stack) with zenoh-pico (C zenoh client) for bare-metal RTIC/polling embedded systems.
+This document describes the architecture for integrating smoltcp (pure-Rust TCP/IP stack) with zenoh-pico (C zenoh client) for bare-metal RTIC/polling embedded systems.
+
+For implementation tasks, see [Phase 8: Embedded Networking](../roadmap/phase-8-embedded-networking.md).
 
 ## Overview
 
@@ -50,7 +52,7 @@ The goal is to enable network communication for bare-metal nano-ros examples (rt
 
 Based on analysis of zenoh-pico source code, the following functions must be implemented:
 
-### 1. Memory Management (Required)
+### 1. Memory Management
 
 ```c
 void *z_malloc(size_t size);
@@ -58,12 +60,9 @@ void *z_realloc(void *ptr, size_t size);
 void z_free(void *ptr);
 ```
 
-**Implementation Options:**
-- Use `embedded-alloc` crate with static heap
-- Use custom arena allocator
-- Link to FreeRTOS heap (if using FreeRTOS)
+**Implementation**: Use `embedded-alloc` crate with static heap (~16KB).
 
-### 2. Random Number Generation (Required)
+### 2. Random Number Generation
 
 ```c
 uint8_t z_random_u8(void);
@@ -73,59 +72,36 @@ uint64_t z_random_u64(void);
 void z_random_fill(void *buf, size_t len);
 ```
 
-**Implementation:**
-- Use STM32 hardware RNG (RNG peripheral)
-- Or seeded PRNG (xorshift) for deterministic testing
+**Implementation**: Use STM32 hardware RNG (RNG peripheral) or seeded PRNG.
 
-### 3. Time & Clock (Required)
+### 3. Time & Clock
 
 ```c
 z_clock_t z_clock_now(void);
 unsigned long z_clock_elapsed_us(z_clock_t *time);
 unsigned long z_clock_elapsed_ms(z_clock_t *time);
-unsigned long z_clock_elapsed_s(z_clock_t *time);
-
 z_time_t z_time_now(void);
-unsigned long z_time_elapsed_us(z_time_t *time);
-unsigned long z_time_elapsed_ms(z_time_t *time);
-unsigned long z_time_elapsed_s(z_time_t *time);
-```
-
-**Implementation:**
-- Use DWT cycle counter (Cortex-M debug unit)
-- Or SysTick / hardware timer
-- For RTIC: Use RTIC monotonic
-
-### 4. Sleep (Required)
-
-```c
 z_result_t z_sleep_us(size_t time);
 z_result_t z_sleep_ms(size_t time);
-z_result_t z_sleep_s(size_t time);
 ```
 
-**Implementation:**
-- Busy-wait loop with cycle counter
-- Or cooperative yield (in RTIC async tasks)
+**Implementation**: Use DWT cycle counter (Cortex-M debug unit) or SysTick.
 
-### 5. Threading (Can be disabled)
+### 4. Threading (Disabled)
 
-With `Z_FEATURE_MULTI_THREAD=0`, threading is disabled. All threading functions become no-ops:
+With `Z_FEATURE_MULTI_THREAD=0`, threading functions become no-ops:
 
 ```c
-// These become no-ops or dummy implementations
-z_result_t _z_mutex_init(_z_mutex_t *m);
-z_result_t _z_mutex_lock(_z_mutex_t *m);
-z_result_t _z_mutex_unlock(_z_mutex_t *m);
-// ... etc
+z_result_t _z_mutex_init(_z_mutex_t *m) { return _Z_RES_OK; }
+z_result_t _z_mutex_lock(_z_mutex_t *m) { return _Z_RES_OK; }
+z_result_t _z_mutex_unlock(_z_mutex_t *m) { return _Z_RES_OK; }
 ```
 
-### 6. Network Sockets (Required for TCP)
+### 5. Network Sockets
 
 This is the critical integration point with smoltcp:
 
 ```c
-// Type definitions
 typedef struct {
     uint8_t socket_handle;  // Index into smoltcp socket set
     bool connected;
@@ -137,24 +113,11 @@ typedef struct {
 } _z_sys_net_endpoint_t;
 
 // Functions to implement
-z_result_t _z_create_endpoint_tcp(_z_sys_net_endpoint_t *ep,
-                                   const char *s_address,
-                                   const char *s_port);
-void _z_free_endpoint_tcp(_z_sys_net_endpoint_t *ep);
-
-z_result_t _z_open_tcp(_z_sys_net_socket_t *sock,
-                       const _z_sys_net_endpoint_t rep,
-                       uint32_t tout);
-z_result_t _z_listen_tcp(_z_sys_net_socket_t *sock,
-                         const _z_sys_net_endpoint_t rep);
-void _z_close_tcp(_z_sys_net_socket_t *sock);
-
-size_t _z_read_tcp(const _z_sys_net_socket_t sock,
-                   uint8_t *ptr, size_t len);
-size_t _z_read_exact_tcp(const _z_sys_net_socket_t sock,
-                         uint8_t *ptr, size_t len);
-size_t _z_send_tcp(const _z_sys_net_socket_t sock,
-                   const uint8_t *ptr, size_t len);
+z_result_t _z_create_endpoint_tcp(...);
+z_result_t _z_open_tcp(...);
+size_t _z_read_tcp(...);
+size_t _z_send_tcp(...);
+void _z_close_tcp(...);
 ```
 
 ## smoltcp Integration Details
@@ -164,103 +127,39 @@ size_t _z_send_tcp(const _z_sys_net_socket_t sock,
 Since zenoh-pico expects a C-style socket API, we need global state to manage smoltcp:
 
 ```rust
-// Global smoltcp state (in Rust, exposed via FFI)
 static mut SMOLTCP_INTERFACE: Option<Interface> = None;
 static mut SMOLTCP_DEVICE: Option<EthernetDevice> = None;
 static mut SMOLTCP_SOCKETS: Option<SocketSet> = None;
 
-// Socket handle mapping
 const MAX_SOCKETS: usize = 4;
 static mut SOCKET_HANDLES: [Option<SocketHandle>; MAX_SOCKETS] = [None; MAX_SOCKETS];
 ```
 
-### Socket Buffer Allocation
-
-```rust
-// Static buffers for TCP sockets
-const SOCKET_RX_SIZE: usize = 2048;
-const SOCKET_TX_SIZE: usize = 2048;
-
-static mut SOCKET_RX_BUFFERS: [[u8; SOCKET_RX_SIZE]; MAX_SOCKETS] = [[0; SOCKET_RX_SIZE]; MAX_SOCKETS];
-static mut SOCKET_TX_BUFFERS: [[u8; SOCKET_TX_SIZE]; MAX_SOCKETS] = [[0; SOCKET_TX_SIZE]; MAX_SOCKETS];
-```
-
 ### Blocking Socket Operations
 
-zenoh-pico expects blocking socket operations, but smoltcp is polling-based. Solution: polling loops with timeout.
+zenoh-pico expects blocking socket operations, but smoltcp is polling-based. Solution: **polling loops with timeout**.
 
-```rust
-/// Blocking read with timeout
-#[no_mangle]
-pub extern "C" fn _z_read_tcp(
-    sock: _z_sys_net_socket_t,
-    ptr: *mut u8,
-    len: usize,
-) -> usize {
-    let start = clock_now();
-    let timeout_ms = 100; // Z_CONFIG_SOCKET_TIMEOUT
-
-    loop {
-        // Poll smoltcp interface
-        poll_interface();
-
-        // Try to receive data
-        if let Some(n) = try_recv(sock.socket_handle, ptr, len) {
-            return n;
-        }
-
-        // Check timeout
-        if clock_elapsed_ms(start) > timeout_ms {
-            return SIZE_MAX; // Error: timeout
-        }
-
-        // Check connection state
-        if !is_socket_connected(sock.socket_handle) {
-            return SIZE_MAX; // Error: disconnected
+```c
+size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
+    z_clock_t start = z_clock_now();
+    while (true) {
+        smoltcp_poll();  // Process packets via Rust FFI
+        size_t n = smoltcp_try_recv(sock.socket_handle, ptr, len);
+        if (n > 0) return n;
+        if (z_clock_elapsed_ms(&start) > Z_CONFIG_SOCKET_TIMEOUT) {
+            return SIZE_MAX;  // Timeout error
         }
     }
-}
-
-/// Blocking write
-#[no_mangle]
-pub extern "C" fn _z_send_tcp(
-    sock: _z_sys_net_socket_t,
-    ptr: *const u8,
-    len: usize,
-) -> usize {
-    let start = clock_now();
-    let timeout_ms = 100;
-    let mut sent = 0;
-
-    while sent < len {
-        // Poll smoltcp interface
-        poll_interface();
-
-        // Try to send data
-        if let Some(n) = try_send(sock.socket_handle, ptr.add(sent), len - sent) {
-            sent += n;
-        }
-
-        // Check timeout
-        if clock_elapsed_ms(start) > timeout_ms {
-            break;
-        }
-    }
-
-    sent
 }
 ```
 
-### Interface Polling Integration
+### Interface Polling
 
-The key insight: **smoltcp's `Interface::poll()` must be called regularly** for TCP to work. Options:
-
-#### Option A: Poll Inside Socket Operations
-
-Poll the interface within `_z_read_tcp` and `_z_send_tcp`:
+smoltcp's `Interface::poll()` must be called regularly. We call it from within socket operations:
 
 ```rust
-fn poll_interface() {
+#[no_mangle]
+pub extern "C" fn smoltcp_poll() {
     unsafe {
         if let (Some(iface), Some(device), Some(sockets)) =
             (&mut SMOLTCP_INTERFACE, &mut SMOLTCP_DEVICE, &mut SMOLTCP_SOCKETS)
@@ -271,81 +170,17 @@ fn poll_interface() {
 }
 ```
 
-**Pros:** Self-contained, no application changes needed
-**Cons:** May miss packets between zenoh calls
-
-#### Option B: Poll from Application Main Loop
-
-Application explicitly polls smoltcp in main loop:
-
-```rust
-// In main polling loop
-loop {
-    // 1. Poll smoltcp
-    smoltcp_poll();
-
-    // 2. Poll zenoh via nano-ros
-    executor.spin_once(10);
-
-    // 3. Application logic
-    publish_if_needed();
-}
-```
-
-**Pros:** Application has full control
-**Cons:** More complex integration
-
-#### Option C: Combined (Recommended)
-
-Poll both in socket operations AND in main loop:
-
-```rust
-// Exported function for main loop
-#[no_mangle]
-pub extern "C" fn smoltcp_poll() {
-    poll_interface();
-}
-
-// Also poll within blocking operations
-fn _z_read_tcp(...) {
-    loop {
-        poll_interface();  // Ensure we process incoming packets
-        // ... try_recv ...
-    }
-}
-```
-
-## Memory Requirements
-
-### Static Allocation Budget
+## Memory Budget
 
 | Component | Size | Notes |
 |-----------|------|-------|
+| Ethernet DMA buffers | ~8 KB | 4 RX + 4 TX descriptors |
 | smoltcp Interface | ~1 KB | Configuration dependent |
-| Ethernet Device | ~8 KB | DMA buffers (4 RX + 4 TX) |
 | Socket Set | ~100 B | Metadata only |
 | TCP Socket RX | 2 KB × N | Per socket |
 | TCP Socket TX | 2 KB × N | Per socket |
 | zenoh-pico heap | ~16 KB | Session + publishers + subscribers |
-
-**Total for 2 sockets:** ~30-40 KB
-
-### Heap for zenoh-pico
-
-zenoh-pico uses malloc extensively. Recommended: `embedded-alloc` with static heap:
-
-```rust
-use embedded_alloc::LlffHeap as Heap;
-
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
-
-// In init
-static mut HEAP_MEM: [MaybeUninit<u8>; 16384] = [MaybeUninit::uninit(); 16384];
-unsafe {
-    HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_MEM.len());
-}
-```
+| **Total (2 sockets)** | **~33 KB** | Fits in STM32F429 (256 KB RAM) |
 
 ## Build Configuration
 
@@ -378,64 +213,12 @@ smoltcp = { version = "0.11", default-features = false, features = [
 ] }
 stm32-eth = { version = "0.6", features = ["stm32f429"] }
 embedded-alloc = "0.5"
-
-# zenoh-pico bindings (with smoltcp platform)
 zenoh-pico-sys = { path = "../../crates/zenoh-pico-sys", features = ["smoltcp"] }
 ```
 
-## Implementation Steps
+## Alternative: C Shim Pattern (Like Zephyr)
 
-### Phase 1: smoltcp Standalone Test
-
-1. Create minimal RTIC example with smoltcp + stm32-eth
-2. Implement Device trait for STM32 Ethernet
-3. Test basic TCP echo server
-4. Verify memory usage and timing
-
-### Phase 2: Platform Layer Skeleton
-
-1. Create `crates/zenoh-pico-sys/src/platform/smoltcp/` directory
-2. Implement memory functions (use embedded-alloc)
-3. Implement random functions (use hardware RNG or PRNG)
-4. Implement time functions (use DWT or SysTick)
-5. Stub out socket functions (return errors)
-6. Test compilation
-
-### Phase 3: Socket Integration
-
-1. Implement socket type definitions
-2. Implement `_z_create_endpoint_tcp` (parse IP:port)
-3. Implement `_z_open_tcp` (create smoltcp socket, connect)
-4. Implement `_z_read_tcp` and `_z_send_tcp` (blocking wrappers)
-5. Implement `_z_close_tcp`
-6. Test with zenoh router
-
-### Phase 4: nano-ros Integration
-
-1. Create `SmoltcpTransport` in nano-ros-transport
-2. Update rtic-stm32f4 example to use real transport
-3. Test publisher with native listener
-4. Test subscriber with native publisher
-
-### Phase 5: Polish and Document
-
-1. Optimize memory usage
-2. Add error handling
-3. Document API and usage
-4. Add to CI (if feasible)
-
-## Risks and Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Memory fragmentation | Use arena allocator for zenoh-pico heap |
-| Timing issues (missed packets) | Aggressive polling in blocking ops |
-| Complex FFI boundary | Thorough testing, minimize unsafe |
-| C cross-compilation | Document toolchain setup clearly |
-
-## Alternative: C Shim Like Zephyr
-
-Instead of implementing the full platform layer in Rust, we could use the same C shim approach as Zephyr:
+Instead of implementing the full platform layer in Rust, we can use the same C shim approach as the Zephyr examples:
 
 ```c
 // smoltcp_shim.c
@@ -449,33 +232,27 @@ extern int smoltcp_socket_recv(int handle, uint8_t *data, size_t len);
 extern void smoltcp_socket_close(int handle);
 extern void smoltcp_poll(void);
 
-// zenoh-pico platform implementation
+// zenoh-pico platform implementation calls these Rust functions
 z_result_t _z_open_tcp(_z_sys_net_socket_t *sock, ...) {
     sock->_handle = smoltcp_socket_open(ip, port);
     return sock->_handle >= 0 ? _Z_RES_OK : _Z_ERR_GENERIC;
-}
-
-size_t _z_read_tcp(const _z_sys_net_socket_t sock, uint8_t *ptr, size_t len) {
-    // Poll smoltcp in blocking loop
-    while (true) {
-        smoltcp_poll();
-        int n = smoltcp_socket_recv(sock._handle, ptr, len);
-        if (n > 0) return n;
-        if (n < 0) return SIZE_MAX;
-        // timeout check...
-    }
 }
 ```
 
 This approach keeps the complex smoltcp code in Rust while the zenoh-pico platform layer is simple C.
 
-## Conclusion
+## Risks and Mitigations
 
-The smoltcp + zenoh-pico integration is feasible with moderate effort. The key challenges are:
+| Risk | Mitigation |
+|------|------------|
+| Memory fragmentation | Use arena allocator for zenoh-pico heap |
+| Timing issues (missed packets) | Aggressive polling in blocking ops |
+| Complex FFI boundary | Thorough testing, minimize unsafe code |
+| C cross-compilation | Document toolchain setup clearly |
 
-1. **Blocking/polling mismatch**: Solved with polling loops inside socket operations
-2. **Memory management**: Solved with embedded-alloc static heap
-3. **Cross-compilation**: Requires arm-none-eabi-gcc toolchain
-4. **Global state**: Managed via static variables with careful synchronization
+## References
 
-The recommended approach is the C shim pattern (like Zephyr) as it provides the cleanest separation of concerns and leverages existing patterns in the codebase.
+- [smoltcp documentation](https://docs.rs/smoltcp)
+- [stm32-eth crate](https://github.com/stm32-rs/stm32-eth)
+- [zenoh-pico platform layer](https://github.com/eclipse-zenoh/zenoh-pico/tree/main/src/system)
+- [embedded-alloc](https://github.com/rust-embedded/embedded-alloc)
