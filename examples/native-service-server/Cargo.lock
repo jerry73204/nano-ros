@@ -450,15 +450,3 @@ dependencies = [
  "cmake",
  "cty",
 ]
-
-[[patch.unused]]
-name = "action_msgs"
-version = "1.2.1"
-
-[[patch.unused]]
-name = "builtin_interfaces"
-version = "1.2.1"
-
-[[patch.unused]]
-name = "unique_identifier_msgs"
-version = "2.2.1"

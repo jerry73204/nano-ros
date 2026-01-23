@@ -40,15 +40,12 @@
 
 use cortex_m_rt::entry;
 use defmt_rtt as _;
-use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
+// TODO: To use the full executor, a C cross-compilation toolchain (e.g. arm-none-eabi-gcc)
+// must be installed and visible to bindgen. The build script for zenoh-pico-sys
+// would also need to be updated to use it.
+// use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
 use panic_halt as _;
 use stm32f4xx_hal::{prelude::*, rcc::Config};
-
-/// Timing constants for polling tasks (same as nano_ros_node::rtic when zenoh is enabled)
-/// Poll interval in milliseconds - how often to poll zenoh for incoming messages
-const POLL_INTERVAL_MS: u32 = 10;
-/// Keepalive interval in milliseconds - how often to send keepalive to maintain session
-const KEEPALIVE_INTERVAL_MS: u32 = 1000;
 
 /// Simple timing tracker using DWT cycle counter
 struct SimpleTimer {
@@ -86,21 +83,21 @@ impl SimpleTimer {
 }
 
 /// Application state for the polling loop
-struct App {
-    executor: PollingExecutor<1>,
-    counter: u32,
-    publish_timer: SimpleTimer,
-}
+// struct App {
+//     executor: PollingExecutor<1>,
+//     counter: u32,
+//     publish_timer: SimpleTimer,
+// }
 
-impl App {
-    fn new(sysclk_hz: u32, executor: PollingExecutor<1>) -> Self {
-        Self {
-            executor,
-            counter: 0,
-            publish_timer: SimpleTimer::new(sysclk_hz),
-        }
-    }
-}
+// impl App {
+//     fn new(sysclk_hz: u32, executor: PollingExecutor<1>) -> Self {
+//         Self {
+//             executor,
+//             counter: 0,
+//             publish_timer: SimpleTimer::new(sysclk_hz),
+//         }
+//     }
+// }
 
 #[entry]
 fn main() -> ! {
@@ -137,7 +134,8 @@ fn main() -> ! {
     // let publisher = node.create_publisher::<Int32>("/counter").unwrap();
 
     // Initialize application state
-    // let mut app = App::new(sysclk_hz, executor); // Uncomment for real hardware
+    let mut publish_timer = SimpleTimer::new(sysclk_hz);
+    let mut counter: u32 = 0;
 
     defmt::info!("Entering main polling loop...");
 
@@ -151,8 +149,8 @@ fn main() -> ! {
 
         // Task: Publish at 10 Hz (every 100ms)
         // Note: The main loop spin rate should be fast enough to accommodate this
-        if app.publish_timer.elapsed_ms(100) {
-            app.counter = app.counter.wrapping_add(1);
+        if publish_timer.elapsed_ms(100) {
+            counter = counter.wrapping_add(1);
 
             // Toggle LED to show activity
             led.toggle();
@@ -160,7 +158,7 @@ fn main() -> ! {
             // In a real application:
             // publisher.publish(&Int32 { data: app.counter as i32 }).ok();
 
-            defmt::info!("Published: counter = {}", app.counter);
+            defmt::info!("Published: counter = {}", counter);
         }
 
         // Optional: WFI to save power between polls

@@ -27,6 +27,7 @@ stm32f4xx-hal = { version = "0.23", features = ["stm32f429"] }
 nano-ros-core = { path = "../../crates/nano-ros-core", default-features = false }
 nano-ros-serdes = { path = "../../crates/nano-ros-serdes", default-features = false }
 
+
 # Logging (optional, for debugging)
 defmt = "0.3"
 defmt-rtt = "0.4"

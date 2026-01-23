@@ -1,6 +1,7 @@
 //! Native Listener Example
 //!
 //! Demonstrates subscribing to messages using nano-ros on native x86.
+//! Uses the unified executor API with callback-based subscriptions.
 //!
 //! # Without zenoh feature (simulation mode):
 //! ```bash
@@ -24,9 +25,15 @@
 #[cfg(not(feature = "zenoh"))]
 use log::{debug, error, info};
 #[cfg(feature = "zenoh")]
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use nano_ros::prelude::*;
 use std_msgs::msg::Int32;
+
+#[cfg(feature = "zenoh")]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "zenoh")]
+static MESSAGE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(feature = "zenoh")]
 fn main() {
@@ -35,7 +42,7 @@ fn main() {
     info!("nano-ros Native Listener (Zenoh Transport)");
     info!("==========================================");
 
-    // Create context and node using rclrs-style API
+    // Create context using rclrs-style API
     let context = match Context::from_env() {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -44,7 +51,11 @@ fn main() {
         }
     };
 
-    let mut node = match context.create_node("listener".namespace("/demo")) {
+    // Create executor - owns and manages nodes
+    let mut executor = context.create_basic_executor();
+
+    // Create node through executor
+    let node = match executor.create_node("listener".namespace("/demo")) {
         Ok(node) => {
             info!("Node created: listener in namespace /demo");
             node
@@ -57,44 +68,30 @@ fn main() {
 
     info!("Node: {}/{}", node.namespace(), node.name());
 
-    // Create a subscriber for Int32 messages on /chatter topic
+    // Create a subscription with callback for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
-    let mut subscriber = match node
-        .create_subscriber::<Int32>(SubscriberOptions::new("/chatter").reliable().keep_last(10))
-    {
-        Ok(sub) => {
+    match node.create_subscription::<Int32>(
+        SubscriberOptions::new("/chatter").reliable().keep_last(10),
+        |msg: &Int32| {
+            let count = MESSAGE_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+            info!("[{}] Received: data={}", count, msg.data);
+        },
+    ) {
+        Ok(_handle) => {
             info!("Subscriber created for topic: /chatter");
             debug!("Message type: {}", Int32::TYPE_NAME);
-            sub
         }
         Err(e) => {
             error!("Failed to create subscriber: {:?}", e);
             std::process::exit(1);
         }
-    };
+    }
 
     info!("Waiting for Int32 messages on /chatter...");
     info!("(Press Ctrl+C to exit)");
 
-    // Receiving loop
-    let mut count: u64 = 0;
-    loop {
-        match subscriber.try_recv() {
-            Ok(Some(msg)) => {
-                count += 1;
-                info!("[{}] Received: data={}", count, msg.data);
-            }
-            Ok(None) => {
-                // No message available, sleep briefly
-            }
-            Err(e) => {
-                error!("Receive error: {:?}", e);
-            }
-        }
-
-        // Small sleep to avoid busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    // Run the executor - callbacks will be invoked automatically
+    executor.spin(SpinOptions::default());
 }
 
 #[cfg(not(feature = "zenoh"))]

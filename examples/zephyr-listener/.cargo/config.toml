@@ -1,0 +1,5 @@
+[patch.crates-io]
+nano-ros-core = { path = "../../crates/nano-ros-core" }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes" }
+builtin_interfaces = { path = "generated/builtin_interfaces" }
+std_msgs = { path = "generated/std_msgs" }

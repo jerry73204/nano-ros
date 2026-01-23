@@ -1,6 +1,7 @@
 //! Native Talker Example
 //!
 //! Demonstrates publishing messages using nano-ros on native x86.
+//! Uses the unified executor API with spin_once() for manual control.
 //!
 //! # Without zenoh feature (simulation mode):
 //! ```bash
@@ -24,7 +25,7 @@
 #[cfg(not(feature = "zenoh"))]
 use log::{debug, error, info};
 #[cfg(feature = "zenoh")]
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use nano_ros::prelude::*;
 use std_msgs::msg::Int32;
 
@@ -35,7 +36,7 @@ fn main() {
     info!("nano-ros Native Talker (Zenoh Transport)");
     info!("=========================================");
 
-    // Create context and node using rclrs-style API
+    // Create context using rclrs-style API
     let context = match Context::from_env() {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -44,7 +45,11 @@ fn main() {
         }
     };
 
-    let node = match context.create_node("talker".namespace("/demo")) {
+    // Create executor - owns and manages nodes
+    let mut executor = context.create_basic_executor();
+
+    // Create node through executor
+    let node = match executor.create_node("talker".namespace("/demo")) {
         Ok(node) => {
             info!("Node created: talker in namespace /demo");
             node
@@ -77,8 +82,6 @@ fn main() {
         Ok(pub_) => {
             info!("Publisher created for topic: /chatter");
             debug!("Message type: {}", Int32::TYPE_NAME);
-            debug!("Type hash: {}", Int32::TYPE_HASH);
-            debug!("ZID: {}", node.zid().to_hex_string());
             pub_
         }
         Err(e) => {
@@ -89,7 +92,8 @@ fn main() {
 
     info!("Publishing Int32 messages...");
 
-    // Publishing loop
+    // Publishing loop with spin_once() - demonstrates manual control pattern
+    // This pattern is also used in RTIC/embedded where you control the main loop
     let mut count: i32 = counter_start_value.get() as i32;
     loop {
         let msg = Int32 { data: count };
@@ -104,6 +108,10 @@ fn main() {
         }
 
         count = count.wrapping_add(1);
+
+        // Process any pending callbacks (timers, subscriptions)
+        // The delta_ms parameter updates internal timers
+        let _result = executor.spin_once(1000); // 1000ms delta
 
         // Sleep 1 second between messages (like ROS 2 demo)
         std::thread::sleep(std::time::Duration::from_secs(1));

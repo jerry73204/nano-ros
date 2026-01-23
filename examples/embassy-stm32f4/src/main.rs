@@ -26,6 +26,34 @@
 //! cargo run --release  # Uses probe-rs
 //! ```
 
+//! Embassy Example for nano-ros on STM32F4
+//!
+//! This example demonstrates how to use nano-ros with Embassy on an STM32F4
+//! microcontroller. It shows:
+//!
+//! - Async task-based architecture
+//! - Manual zenoh session polling using async tasks
+//! - Periodic publishing using embassy timers
+//! - Channel-based communication between tasks
+//!
+//! # Hardware
+//!
+//! Tested on NUCLEO-F429ZI, but should work on any STM32F4 with:
+//! - Ethernet or serial connection for zenoh transport
+//! - At least 64KB RAM
+//!
+//! # Building
+//!
+//! ```bash
+//! cargo build --release
+//! ```
+//!
+//! # Flashing
+//!
+//! ```bash
+//! cargo run --release  # Uses probe-rs
+//! ```
+
 #![no_std]
 #![no_main]
 
@@ -33,7 +61,9 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::{Duration, Timer};
-use nano_ros::prelude::{Context, Executor, InitOptions, NodeNameExt, PollingExecutor};
+// TODO: To use the full executor, a C cross-compilation toolchain (e.g. arm-none-eabi-gcc)
+// must be installed and visible to bindgen.
+// use nano_ros_node::{Context, Executor, InitOptions, NodeHandle, NodeNameExt, PollingExecutor};
 use panic_halt as _;
 
 /// Timing constants for Embassy tasks

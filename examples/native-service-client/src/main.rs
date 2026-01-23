@@ -1,6 +1,7 @@
 //! Native Service Client Example
 //!
-//! Demonstrates a ROS 2 service client using nano-ros.
+//! Demonstrates a ROS 2 service client using nano-ros with the executor API.
+//! Service clients use blocking calls, so no spin() is needed.
 //!
 //! # Usage
 //!
@@ -32,7 +33,7 @@ fn main() {
     info!("nano-ros Service Client Example");
     info!("================================");
 
-    // Create context and node using rclrs-style API
+    // Create context using rclrs-style API
     let context = match Context::from_env() {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -41,7 +42,9 @@ fn main() {
         }
     };
 
-    let mut node = match context.create_node("add_two_ints_client") {
+    // Create executor and node through executor
+    let mut executor = context.create_basic_executor();
+    let mut node = match executor.create_node("add_two_ints_client") {
         Ok(node) => {
             info!("Node created: add_two_ints_client");
             node

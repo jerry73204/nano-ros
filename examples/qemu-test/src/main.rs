@@ -104,24 +104,25 @@ fn test_node_creation() -> bool {
 /// Test publisher creation via Node
 fn test_node_publisher() -> bool {
     let mut node = Node::<4, 4>::default();
-    let result = node.create_publisher::<Int32>("/counter");
+    let result = node.create_publisher::<Int32>(nano_ros_node::PublisherOptions::new("/counter"));
     result.is_ok() && node.publisher_count() == 1
 }
 
 /// Test subscriber creation via Node
 fn test_node_subscriber() -> bool {
     let mut node = Node::<4, 4>::default();
-    let result = node.create_subscriber::<Int32>("/counter");
+    let result = node.create_subscriber::<Int32>(nano_ros_node::SubscriberOptions::new("/counter"));
     result.is_ok() && node.subscriber_count() == 1
 }
 
 /// Test message serialization via Node
 fn test_node_serialize() -> bool {
     let mut node = Node::<4, 4>::default();
-    let pub_handle = match node.create_publisher::<Int32>("/test") {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
+    let pub_handle =
+        match node.create_publisher::<Int32>(nano_ros_node::PublisherOptions::new("/test")) {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
 
     let msg = Int32 { data: 123 };
     match node.serialize_message(&pub_handle, &msg) {

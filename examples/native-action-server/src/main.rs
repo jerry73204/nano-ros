@@ -34,7 +34,7 @@ fn main() {
     info!("nano-ros Action Server Example");
     info!("================================");
 
-    // Create context and node using rclrs-style API
+    // Create context
     let context = match Context::from_env() {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -43,7 +43,9 @@ fn main() {
         }
     };
 
-    let mut node = match context.create_node("fibonacci_action_server") {
+    // Create executor and node
+    let mut executor = context.create_basic_executor();
+    let mut node = match executor.create_node("fibonacci_action_server") {
         Ok(node) => {
             info!("Node created: fibonacci_action_server");
             node
