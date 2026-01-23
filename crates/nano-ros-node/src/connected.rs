@@ -35,6 +35,8 @@ use nano_ros_transport::{
 };
 
 #[cfg(feature = "zenoh")]
+use nano_ros_params::UndeclaredParameters;
+#[cfg(feature = "zenoh")]
 use nano_ros_transport::{
     LivelinessToken, Ros2Liveliness, ZenohId, ZenohPublisher, ZenohServiceClient,
     ZenohServiceServer, ZenohSession, ZenohSubscriber, ZenohTransport,
@@ -175,7 +177,7 @@ pub struct ConnectedNode<
     _entity_tokens: heapless::Vec<LivelinessToken, MAX_TOKENS>,
     /// Parameter server for typed parameter support
     #[cfg(feature = "zenoh")]
-    parameter_server: nano_ros_params::ParameterServer,
+    pub(crate) parameter_server: nano_ros_params::ParameterServer,
     /// Timers for periodic callbacks
     timers: heapless::Vec<TimerState, MAX_TIMERS>,
     /// Node clock for time queries

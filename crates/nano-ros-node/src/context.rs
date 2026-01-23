@@ -278,6 +278,7 @@ impl Context {
         since = "0.2.0",
         note = "Use create_polling_executor() or create_basic_executor() instead"
     )]
+    #[allow(deprecated)] // Internal use of ConnectedNode::new() is intentional
     pub fn create_node<'a>(&self, options: impl IntoNodeOptions<'a>) -> Result<Node, RclrsError> {
         let node_options = options.into_node_options();
 

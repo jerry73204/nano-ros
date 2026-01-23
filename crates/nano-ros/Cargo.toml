@@ -10,6 +10,7 @@ categories = ["embedded", "no-std", "robotics"]
 [features]
 default = ["std", "zenoh"]
 std = [
+    "alloc",  # std implies alloc
     "nano-ros-core/std",
     "nano-ros-serdes/std",
     "nano-ros-node/std",

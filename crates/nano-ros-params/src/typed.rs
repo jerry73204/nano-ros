@@ -63,7 +63,7 @@ pub struct ParameterBuilder<'a, T: ParameterVariant> {
 
 impl<'a, T: ParameterVariant> ParameterBuilder<'a, T> {
     /// Create a new parameter builder
-    pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
+    pub fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
         Self {
             server,
             name,
@@ -248,6 +248,7 @@ pub struct ReadOnlyParameter<'a, T: ParameterVariant> {
 }
 
 impl<'a, T: ParameterVariant> ReadOnlyParameter<'a, T> {
+    #[allow(dead_code)]
     pub(crate) fn new(server: &'a mut ParameterServer, name: &'a str) -> Self {
         let mut n = String::new();
         n.push_str(name).unwrap();
@@ -276,7 +277,7 @@ pub struct UndeclaredParameters<'a> {
 }
 
 impl<'a> UndeclaredParameters<'a> {
-    pub(crate) fn new(server: &'a mut ParameterServer) -> Self {
+    pub fn new(server: &'a mut ParameterServer) -> Self {
         Self { server }
     }
 

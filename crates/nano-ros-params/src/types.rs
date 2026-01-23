@@ -5,6 +5,9 @@
 
 use heapless::{String, Vec};
 
+#[cfg(feature = "std")]
+use std::string::ToString;
+
 /// Maximum length for parameter names
 pub const MAX_PARAM_NAME_LEN: usize = 64;
 
@@ -541,7 +544,10 @@ impl ParameterVariant for std::vec::Vec<std::string::String> {
     fn to_parameter_value(&self) -> ParameterValue {
         let mut vec = Vec::new();
         for s in self {
-            vec.push(String::from(s.as_str())).unwrap();
+            let mut h_string = String::new();
+            if h_string.push_str(s.as_str()).is_ok() {
+                let _ = vec.push(h_string);
+            }
         }
         ParameterValue::StringArray(vec)
     }

@@ -80,6 +80,17 @@ pub use nano_ros_node::{
     NodeNameExt, NodeOptions, RclrsError,
 };
 
+// Re-export executor types (with zenoh and alloc features)
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+pub use nano_ros_node::{
+    Executor, NodeHandle, NodeState, PollingExecutor, SpinOnceResult, SpinOptions,
+    SubscriptionCallback,
+};
+
+// Re-export BasicExecutor (with zenoh and std features)
+#[cfg(all(feature = "zenoh", feature = "std"))]
+pub use nano_ros_node::BasicExecutor;
+
 // Re-export transport types
 pub use nano_ros_transport::{
     QosDurabilityPolicy, QosHistoryPolicy, QosReliabilityPolicy, QosSettings, ServiceInfo,
@@ -131,6 +142,14 @@ pub mod prelude {
         Context, InitOptions, IntoNodeOptions, IntoPublisherOptions, IntoSubscriberOptions, Node,
         NodeNameExt, NodeOptions, RclrsError,
     };
+
+    // Re-export executor types
+    #[cfg(all(feature = "zenoh", feature = "alloc"))]
+    pub use crate::{Executor, PollingExecutor, SpinOnceResult, SpinOptions, SubscriptionCallback};
+
+    // Re-export BasicExecutor
+    #[cfg(all(feature = "zenoh", feature = "std"))]
+    pub use crate::BasicExecutor;
 
     // Re-export parameter types
     pub use crate::{ParameterServer, ParameterType, ParameterValue};

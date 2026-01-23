@@ -47,6 +47,18 @@
 //! executor.spin(SpinOptions::default());
 //! ```
 
+#[cfg(feature = "async")]
+use futures::future::BoxFuture;
+// Helper trait for conditional Send bounds
+#[cfg(feature = "async")]
+pub trait MaybeSend: Send {}
+#[cfg(feature = "async")]
+impl<T: Send> MaybeSend for T {}
+#[cfg(not(feature = "async"))]
+pub trait MaybeSend {}
+#[cfg(not(feature = "async"))]
+impl<T> MaybeSend for T {}
+
 use nano_ros_core::{Deserialize, RosMessage, Time};
 
 use crate::context::RclrsError;
@@ -55,8 +67,9 @@ use crate::timer::TimerDuration;
 
 #[cfg(feature = "zenoh")]
 use crate::{
-    ConnectedNode, ConnectedPublisher, ConnectedSubscriber, IntoNodeOptions, NodeConfig,
-    DEFAULT_MAX_TIMERS, DEFAULT_MAX_TOKENS, DEFAULT_RX_BUFFER_SIZE,
+    ConnectedNode, ConnectedPublisher, ConnectedServiceServer, ConnectedSubscriber,
+    IntoNodeOptions, NodeConfig, DEFAULT_MAX_TIMERS, DEFAULT_MAX_TOKENS, DEFAULT_REPLY_BUFFER_SIZE,
+    DEFAULT_REQ_BUFFER_SIZE, DEFAULT_RX_BUFFER_SIZE,
 };
 
 #[cfg(feature = "zenoh")]
@@ -222,13 +235,83 @@ impl SubscriptionHandle {
     }
 }
 
+#[cfg(feature = "zenoh")]
+use nano_ros_core::{RosAction, RosService};
+
+/// Trait for service callbacks
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+pub trait ServiceCallback<S: RosService>: Send {
+    /// Invoke the callback with a request and return a reply
+    fn call(&mut self, request: &S::Request) -> S::Reply;
+}
+
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+impl<S: RosService, F: FnMut(&S::Request) -> S::Reply + Send> ServiceCallback<S> for F {
+    fn call(&mut self, request: &S::Request) -> S::Reply {
+        (self)(request)
+    }
+}
+
+/// Type-erased service callback for storing in executor
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+pub(crate) trait ErasedServiceCallback: MaybeSend {
+    /// Try to receive and handle a service request, returns true if handled
+    fn try_handle(&mut self) -> Result<bool, RclrsError>;
+}
+
+/// Service entry combining server and callback
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+pub(crate) struct ServiceEntry<
+    S: RosService,
+    const REQ_BUF: usize = DEFAULT_REQ_BUFFER_SIZE,
+    const REPLY_BUF: usize = DEFAULT_REPLY_BUFFER_SIZE,
+    C: ServiceCallback<S> = fn(&<S as RosService>::Request) -> <S as RosService>::Reply,
+> {
+    pub server: ConnectedServiceServer<S, REQ_BUF, REPLY_BUF>,
+    pub callback: C,
+}
+
+#[cfg(all(feature = "zenoh", feature = "alloc"))]
+impl<
+        S: RosService + Send,
+        const REQ_BUF: usize,
+        const REPLY_BUF: usize,
+        C: ServiceCallback<S> + Send,
+    > ErasedServiceCallback for ServiceEntry<S, REQ_BUF, REPLY_BUF, C>
+{
+    fn try_handle(&mut self) -> Result<bool, RclrsError> {
+        self.server
+            .handle_request(|req| self.callback.call(req))
+            .map_err(|e| e.into())
+    }
+}
+
+/// Handle to a service created through NodeHandle
+#[cfg(feature = "zenoh")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServiceHandle {
+    index: usize,
+}
+
+#[cfg(feature = "zenoh")]
+impl ServiceHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self { index }
+    }
+
+    /// Get the service index
+    pub fn index(&self) -> usize {
+        self.index
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPE-ERASED CALLBACK (internal)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Type-erased subscription callback for storing in executor
 #[cfg(feature = "zenoh")]
-pub(crate) trait ErasedCallback: Send {
+pub(crate) trait ErasedCallback: MaybeSend {
     /// Try to receive and process a message, returns true if message was processed
     fn try_process(&mut self) -> Result<bool, RclrsError>;
 }
@@ -279,8 +362,13 @@ pub struct NodeState<
     /// Subscriptions with their callbacks (boxed for type erasure)
     #[cfg(feature = "alloc")]
     pub(crate) subscriptions: alloc::vec::Vec<alloc::boxed::Box<dyn ErasedCallback>>,
-    // For no_std without alloc, we can't have type-erased callbacks easily
-    // Users would need to use function pointers and manual polling
+    #[cfg(not(feature = "alloc"))]
+    pub(crate) subscriptions: (),
+    /// Services with their callbacks (boxed for type erasure)
+    #[cfg(feature = "alloc")]
+    pub(crate) services: alloc::vec::Vec<alloc::boxed::Box<dyn ErasedServiceCallback>>,
+    #[cfg(not(feature = "alloc"))]
+    pub(crate) services: (),
 }
 
 #[cfg(feature = "zenoh")]
@@ -293,6 +381,12 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize, const MAX_SUBS: usize>
             inner,
             #[cfg(feature = "alloc")]
             subscriptions: alloc::vec::Vec::new(),
+            #[cfg(not(feature = "alloc"))]
+            subscriptions: (),
+            #[cfg(feature = "alloc")]
+            services: alloc::vec::Vec::new(),
+            #[cfg(not(feature = "alloc"))]
+            services: (),
         }
     }
 
@@ -312,6 +406,18 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize, const MAX_SUBS: usize>
         let mut count = 0;
         for sub in &mut self.subscriptions {
             while sub.try_process()? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// Process all services, returns count of requests handled
+    #[cfg(feature = "alloc")]
+    pub(crate) fn process_services(&mut self) -> Result<usize, RclrsError> {
+        let mut count = 0;
+        for srv in &mut self.services {
+            if srv.try_handle()? {
                 count += 1;
             }
         }
@@ -445,6 +551,69 @@ impl<'a, const MAX_TOKENS: usize, const MAX_TIMERS: usize, const MAX_SUBS: usize
         Ok(SubscriptionHandle::new(index))
     }
 
+    /// Create a service with a callback.
+    ///
+    /// The callback will be invoked during `executor.spin_once()` when a request arrives.
+    #[cfg(feature = "alloc")]
+    pub fn create_service<S, C>(
+        &mut self,
+        service_name: &str,
+        callback: C,
+    ) -> Result<ServiceHandle, RclrsError>
+    where
+        S: RosService + Send + 'static,
+        C: ServiceCallback<S> + 'static,
+    {
+        let server = self
+            .node
+            .inner
+            .create_service::<S>(service_name)
+            .map_err(|e| RclrsError::from(e))?;
+
+        let entry = ServiceEntry { server, callback };
+
+        let index = self.node.services.len();
+        self.node.services.push(alloc::boxed::Box::new(entry));
+
+        Ok(ServiceHandle::new(index))
+    }
+
+    /// Create a service client.
+    #[cfg(feature = "zenoh")]
+    pub fn create_client<S: RosService>(
+        &mut self,
+        service_name: &str,
+    ) -> Result<crate::ConnectedServiceClient<S>, RclrsError> {
+        self.node
+            .inner
+            .create_client::<S>(service_name)
+            .map_err(RclrsError::from)
+    }
+
+    /// Create an action server.
+    #[cfg(feature = "zenoh")]
+    pub fn create_action_server<A: RosAction>(
+        &mut self,
+        action_name: &str,
+    ) -> Result<crate::ConnectedActionServer<A>, RclrsError> {
+        self.node
+            .inner
+            .create_action_server::<A>(action_name)
+            .map_err(RclrsError::from)
+    }
+
+    /// Create an action client.
+    #[cfg(feature = "zenoh")]
+    pub fn create_action_client<A: RosAction>(
+        &mut self,
+        action_name: &str,
+    ) -> Result<crate::ConnectedActionClient<A>, RclrsError> {
+        self.node
+            .inner
+            .create_action_client::<A>(action_name)
+            .map_err(RclrsError::from)
+    }
+
     /// Create a timer with a callback
     ///
     /// The callback will be invoked during `executor.spin_once()` when the timer fires.
@@ -571,6 +740,22 @@ pub trait Executor {
     fn spin_once(&mut self, delta_ms: u64) -> SpinOnceResult;
 }
 
+/// Extended trait for executors with blocking/async spin (std only)
+#[cfg(all(feature = "zenoh", feature = "std"))]
+pub trait SpinExecutor: Executor {
+    /// Blocking spin loop
+    fn spin(&mut self, opts: SpinOptions);
+
+    // TODO: Re-enable spin_async once underlying zenoh-pico types are Send.
+    // /// Async spin (runs on background thread)
+    // #[cfg(feature = "async")]
+    // fn spin_async(
+    //     self,
+    //     opts: SpinOptions,
+    // ) -> BoxFuture<'static, (Self, Vec<RclrsError>)>
+    // where
+    //     Self: Sized;
+}
 // ═══════════════════════════════════════════════════════════════════════════
 // POLLING EXECUTOR (no_std compatible)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -609,8 +794,7 @@ pub struct PollingExecutor<const MAX_NODES: usize = DEFAULT_MAX_NODES> {
     /// Transport configuration
     transport_config: TransportConfig<'static>,
     /// Nodes owned by this executor
-    #[cfg(feature = "alloc")]
-    nodes: alloc::vec::Vec<NodeState>,
+    nodes: heapless::Vec<NodeState, MAX_NODES>,
 }
 
 #[cfg(feature = "zenoh")]
@@ -620,8 +804,7 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
         Self {
             domain_id,
             transport_config,
-            #[cfg(feature = "alloc")]
-            nodes: alloc::vec::Vec::new(),
+            nodes: heapless::Vec::new(),
         }
     }
 
@@ -629,7 +812,7 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
     ///
     /// Returns a `NodeHandle` that can be used to create publishers, subscribers, etc.
     /// The node is owned by the executor and will be processed during `spin_once()`.
-    #[cfg(feature = "alloc")]
+    #[allow(deprecated)] // Internal use of ConnectedNode::new() is intentional
     pub fn create_node<'a, 'b>(
         &'a mut self,
         opts: impl IntoNodeOptions<'b>,
@@ -646,14 +829,15 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
             .map_err(|_| RclrsError::NodeCreationFailed)?;
 
         let node_state = NodeState::new(inner);
-        self.nodes.push(node_state);
+        self.nodes
+            .push(node_state)
+            .map_err(|_| RclrsError::ExecutorFull)?;
 
         let node = self.nodes.last_mut().unwrap();
         Ok(NodeHandle::new(node))
     }
 
     /// Get the number of nodes in this executor
-    #[cfg(feature = "alloc")]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -664,7 +848,6 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
     ///
     /// # Arguments
     /// * `delta_ms` - Time elapsed since last call (for timer processing)
-    #[cfg(feature = "alloc")]
     pub fn spin_once(&mut self, delta_ms: u64) -> SpinOnceResult {
         let mut result = SpinOnceResult::new();
 
@@ -674,8 +857,15 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
             let _ = node.poll_read();
 
             // Process subscriptions
+            #[cfg(feature = "alloc")]
             if let Ok(count) = node.process_subscriptions() {
                 result.subscriptions_processed += count;
+            }
+
+            // Process services
+            #[cfg(feature = "alloc")]
+            if let Ok(count) = node.process_services() {
+                result.services_handled += count;
             }
 
             // Process timers
@@ -686,7 +876,7 @@ impl<const MAX_NODES: usize> PollingExecutor<MAX_NODES> {
     }
 }
 
-#[cfg(all(feature = "zenoh", feature = "alloc"))]
+#[cfg(feature = "zenoh")]
 impl<const MAX_NODES: usize> Executor for PollingExecutor<MAX_NODES> {
     fn spin_once(&mut self, delta_ms: u64) -> SpinOnceResult {
         PollingExecutor::spin_once(self, delta_ms)
@@ -740,6 +930,7 @@ impl BasicExecutor {
     }
 
     /// Create a node managed by this executor
+    #[allow(deprecated)] // Internal use of ConnectedNode::new() is intentional
     pub fn create_node<'a, 'b>(
         &'a mut self,
         opts: impl IntoNodeOptions<'b>,
@@ -773,8 +964,15 @@ impl BasicExecutor {
 
         for node in &mut self.nodes {
             // Process subscriptions
+            #[cfg(feature = "alloc")]
             if let Ok(count) = node.process_subscriptions() {
                 result.subscriptions_processed += count;
+            }
+
+            // Process services
+            #[cfg(feature = "alloc")]
+            if let Ok(count) = node.process_services() {
+                result.services_handled += count;
             }
 
             // Process timers
@@ -865,6 +1063,32 @@ impl Executor for BasicExecutor {
     fn spin_once(&mut self, delta_ms: u64) -> SpinOnceResult {
         BasicExecutor::spin_once(self, delta_ms)
     }
+}
+
+#[cfg(all(feature = "zenoh", feature = "std", feature = "async"))]
+impl SpinExecutor for BasicExecutor {
+    fn spin(&mut self, opts: SpinOptions) {
+        BasicExecutor::spin(self, opts)
+    }
+
+    // TODO: Re-enable spin_async once underlying zenoh-pico types are Send.
+    // fn spin_async(
+    //     mut self,
+    //     opts: SpinOptions,
+    // ) -> BoxFuture<'static, (Self, Vec<RclrsError>)>
+    // where
+    //     Self: Send + 'static,
+    // {
+    //     Box::pin(async move {
+    //         let (tx, rx) = futures::channel::oneshot::channel();
+    //         std::thread::spawn(move || {
+    //             self.spin(opts);
+    //             // Errors are not propagated from spin, so return empty vec
+    //             let _ = tx.send((self, Vec::new()));
+    //         });
+    //         rx.await.unwrap()
+    //     })
+    // }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
