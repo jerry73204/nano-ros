@@ -2,7 +2,7 @@
 
 **Goal**: Enable network connectivity for all embedded nano-ros examples using smoltcp + zenoh-pico for bare-metal RTIC/polling, and verify native examples work correctly.
 
-**Status**: In Progress (Phase 8.1-8.4 Core Complete, Phase 8.4.5 Library Restructure Next)
+**Status**: In Progress (Phase 8.1-8.4 Core Complete, Phase 8.4.5 Library Restructure Partially Complete)
 
 ## Overview
 
@@ -546,7 +546,7 @@ The application must provide:
 
 ## Phase 8.4.5: Library Restructure (zenoh-pico-shim Refactor)
 
-**Status**: Not Started
+**Status**: Partially Complete (Core restructure done, transport migration pending)
 **Priority**: High
 **Depends on**: 8.4
 
@@ -654,7 +654,7 @@ smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
 
 ### Work Items
 
-- [ ] **8.4.5.1** Create `zenoh-pico-shim-sys` crate structure
+- [x] **8.4.5.1** Create `zenoh-pico-shim-sys` crate structure
   ```
   crates/zenoh-pico-shim-sys/
   ├── Cargo.toml
@@ -664,63 +664,57 @@ smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
   └── c/
   ```
 
-- [ ] **8.4.5.2** Move zenoh-pico submodule to `zenoh-pico-shim-sys/zenoh-pico/`
+- [x] **8.4.5.2** Move zenoh-pico submodule to `zenoh-pico-shim-sys/zenoh-pico/`
   ```bash
-  git submodule add https://github.com/eclipse-zenoh/zenoh-pico.git \
-      crates/zenoh-pico-shim-sys/zenoh-pico
+  git mv crates/zenoh-pico-sys/zenoh-pico crates/zenoh-pico-shim-sys/zenoh-pico
   ```
 
-- [ ] **8.4.5.3** Move C shim code to `zenoh-pico-shim-sys/c/shim/`
-  - `zenoh_shim.h` → `c/shim/zenoh_shim.h`
+- [x] **8.4.5.3** Move C shim code to `zenoh-pico-shim-sys/c/shim/`
+  - `zenoh_shim.h` → `c/include/zenoh_shim.h` (auto-generated)
   - `zenoh_shim.c` → `c/shim/zenoh_shim.c`
 
-- [ ] **8.4.5.4** Move platform C code to `zenoh-pico-shim-sys/c/platform_smoltcp/`
+- [x] **8.4.5.4** Move platform C code to `zenoh-pico-shim-sys/c/platform_smoltcp/`
   - `system.c`, `network.c`, headers
 
-- [ ] **8.4.5.5** Create `zenoh-pico-shim-sys/build.rs`
+- [x] **8.4.5.5** Create `zenoh-pico-shim-sys/build.rs`
   - Compile zenoh-pico with appropriate platform defines
   - Compile shim C code
   - Compile platform C code (when smoltcp feature enabled)
   - Feature-based platform selection
 
-- [ ] **8.4.5.6** Create `zenoh-pico-shim-sys/src/lib.rs`
+- [x] **8.4.5.6** Create `zenoh-pico-shim-sys/src/lib.rs`
   - FFI declarations only (`extern "C" { ... }`)
   - No business logic
   - Constants and types re-exported from cbindgen
 
-- [ ] **8.4.5.7** Restructure `zenoh-pico-shim` as high-level Rust API
-  - Move Rust code from current structure
-  - `src/lib.rs` - Public API and re-exports
-  - `src/session.rs` - Session type (wraps FFI)
-  - `src/publisher.rs` - Publisher type
-  - `src/subscriber.rs` - Subscriber type
-  - `src/error.rs` - Error types
+- [x] **8.4.5.7** Restructure `zenoh-pico-shim` as high-level Rust API
+  - `src/lib.rs` - Public API and re-exports from sys crate
+  - ShimContext, ShimPublisher, ShimSubscriber wrappers
+  - Error types
 
-- [ ] **8.4.5.8** Move platform Rust code to `zenoh-pico-shim/src/platform/`
-  - `src/platform/mod.rs` - Platform module
-  - `src/platform/smoltcp.rs` - smoltcp_* implementations
+- [x] **8.4.5.8** Move platform Rust code to `zenoh-pico-shim-sys/src/platform_smoltcp.rs`
+  - smoltcp_* implementations in sys crate
+  - Re-exported from zenoh-pico-shim
 
-- [ ] **8.4.5.9** Remove old crates
+- [ ] **8.4.5.9** Remove old crates (DEFERRED → 8.8.6)
+  - Old crates kept for backward compatibility with nano-ros-transport
+  - `zenoh-pico-sys/zenoh-pico` symlinked to new location
+  - Tracked in Phase 8.8.6 (after transport migration in 8.5.8)
+
+- [x] **8.4.5.10** Update workspace `Cargo.toml`
+  - Added `zenoh-pico-shim-sys` to members
+  - Kept legacy crates with comments (for transport compatibility)
+
+- [ ] **8.4.5.11** Update dependent crates (DEFERRED → 8.5.8)
+  - `nano-ros-transport` still uses legacy `zenoh-pico` crate
+  - Migration requires adding LivelinessToken, ZenohId, Attachment to shim API
+  - Tracked in Phase 8.5.8 (transport migration task)
+
+- [x] **8.4.5.12** Test build with all platform features
   ```bash
-  git rm -rf crates/zenoh-pico-sys
-  git rm -rf crates/zenoh-pico
-  ```
-
-- [ ] **8.4.5.10** Update workspace `Cargo.toml`
-  - Remove `zenoh-pico-sys`, `zenoh-pico` from members
-  - Add `zenoh-pico-shim-sys` to members
-  - Update `zenoh-pico-shim` path if needed
-
-- [ ] **8.4.5.11** Update dependent crates
-  - `nano-ros-transport`: Remove `zenoh-pico` dependency, use `zenoh-pico-shim`
-  - Update any direct `zenoh-pico-sys` references
-
-- [ ] **8.4.5.12** Test build with all platform features
-  ```bash
-  cargo check -p zenoh-pico-shim-sys --features posix
-  cargo check -p zenoh-pico-shim-sys --features smoltcp
-  cargo check -p zenoh-pico-shim --features posix
-  cargo check -p zenoh-pico-shim --features smoltcp
+  cargo check -p zenoh-pico-shim-sys --features posix  # ✓
+  cargo check -p zenoh-pico-shim --features posix      # ✓
+  # smoltcp feature builds but requires hardware test
   ```
 
 - [ ] **8.4.5.13** Update CLAUDE.md documentation
@@ -871,11 +865,27 @@ Integrate `zenoh-pico-shim` with `nano-ros-node` to enable embedded nano-ros app
   optional = true
   ```
 
+- [ ] **8.5.8** Migrate nano-ros-transport from zenoh-pico to zenoh-pico-shim
+  - Add `shim` feature flag for embedded platforms
+  - Update `ZenohTransport` to use `zenoh-pico-shim` when `shim` feature enabled
+  - Add Liveliness token support to shim API (required for RMW compatibility)
+  - Add ZenohId support to shim API (required for liveliness tokens)
+  - Add Attachment support to shim API (required for RMW metadata)
+  - Maintain backward compatibility with existing `zenoh` feature
+  - Test both code paths work correctly
+
+- [ ] **8.5.9** Update Zephyr examples to use zenoh-pico-shim crate
+  - Migrate zephyr-talker from inline C shim to crate
+  - Migrate zephyr-listener from inline C shim to crate
+  - Test Zephyr examples still work (QEMU or hardware)
+
 ### Acceptance Criteria
 - nano-ros-node compiles with `shim` feature for thumbv7em-none-eabihf
 - `ShimExecutor` provides familiar executor API pattern
 - Can create publishers and subscribers through `ShimNode`
 - Polling-based execution works without threads
+- nano-ros-transport works with both `zenoh` and `shim` features
+- Zephyr examples use zenoh-pico-shim crate (not inline C shim)
 
 ---
 
@@ -1067,10 +1077,27 @@ Verify all native examples work correctly with executor API.
       cd examples/polling-stm32f4 && cargo build --release
   ```
 
+- [ ] **8.8.6** Remove legacy zenoh crates
+  - Remove `crates/zenoh-pico-sys/` (merged into zenoh-pico-shim-sys)
+  - Remove `crates/zenoh-pico/` (merged into zenoh-pico-shim)
+  - Remove symlink `crates/zenoh-pico-sys/zenoh-pico`
+  - Update workspace `Cargo.toml` to remove legacy crates from members
+  - Verify no crates depend on removed crates
+  - Update CLAUDE.md crate descriptions
+  - **Prerequisite**: 8.5.8 (transport migration) must be complete
+
+- [ ] **8.8.7** Final CLAUDE.md cleanup
+  - Update zenoh-pico bindings section to describe new architecture
+  - Remove references to old zenoh-pico-sys/zenoh-pico crates
+  - Update crate dependency diagram
+  - Document shim vs zenoh feature selection
+
 ### Acceptance Criteria
 - All documentation updated
 - CI includes embedded checks where feasible
 - justfile has embedded build commands
+- Legacy crates removed (zenoh-pico-sys, zenoh-pico)
+- No dead code or unused dependencies in workspace
 
 ---
 
@@ -1110,16 +1137,19 @@ Phase 8.3 (smoltcp validation)     Phase 8.4 (smoltcp platform)          │   �
                               Phase 8.4.5 (Library Restructure)          │   │
                                     zenoh-pico-shim-sys (C code)         │   │
                                     zenoh-pico-shim (Rust API)           │   │
-                                    Remove zenoh-pico, zenoh-pico-sys    │   │
                                     │                                    │   │
                                     ▼                                    │   │
                               Phase 8.5 (nano-ros integration)           │   │
                                     ShimExecutor, ShimNode               │   │
                                     shim feature in nano-ros-node        │   │
-                                    │                                    │   │
-                                    ▼                                    │   │
-                              Phase 8.6 (RTIC/polling examples) ─────────┘   │
-                                    Hardware testing                         │
+                                    8.5.8: Transport migration ──────┐   │   │
+                                    │                                │   │   │
+                                    ▼                                │   │   │
+                              Phase 8.6 (RTIC/polling examples) ─────┤───┘   │
+                                    Hardware testing                 │       │
+                                                                     │       │
+                              Phase 8.8.6 (Old crates removal) ◄─────┘       │
+                                    Remove zenoh-pico-sys, zenoh-pico        │
                                                                              │
 Phase 8.7 (native verification) ─────────────────────────────────────────────┤
      Verify executor API works                                               │
@@ -1176,9 +1206,10 @@ Phase 8.8 (documentation) ──────────────────
 │  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-Removed crates (after refactor):
+Removed crates (Phase 8.8.6, after transport migration):
 - zenoh-pico-sys (merged into zenoh-pico-shim-sys)
 - zenoh-pico (merged into zenoh-pico-shim)
+- Note: Currently kept for backward compatibility with nano-ros-transport
 ```
 
 ---
