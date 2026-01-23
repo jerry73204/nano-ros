@@ -6,26 +6,18 @@ description = "High-level C shim for zenoh-pico with platform backends"
 license = "Apache-2.0"
 readme = "README.md"
 
-[lints.rust]
-# cbindgen sets cfg(cbindgen) when parsing - allow it without warnings
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cbindgen)'] }
-
 [features]
 default = []
 # Platform backends (mutually exclusive)
-posix = ["zenoh-pico-sys"]
-zephyr = ["zenoh-pico-sys"]
-smoltcp = ["zenoh-pico-sys"]
+posix = ["zenoh-pico-shim-sys/posix"]
+zephyr = ["zenoh-pico-shim-sys/zephyr"]
+smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
 # Standard library support
-std = []
+std = ["zenoh-pico-shim-sys/std"]
 
 [dependencies]
-# zenoh-pico FFI bindings - provides linkage to zenoh-pico C library
-zenoh-pico-sys = { path = "../zenoh-pico-sys", optional = true }
-
-[build-dependencies]
-cbindgen = "0.29.2"
-cc = "1.0"
+# FFI bindings + C shim library
+zenoh-pico-shim-sys = { path = "../zenoh-pico-shim-sys" }
 
 [dev-dependencies]
 

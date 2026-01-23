@@ -1,4 +1,4 @@
-//! zenoh-pico-shim: High-level C shim for zenoh-pico with platform backends
+//! zenoh-pico-shim: High-level Rust API for zenoh-pico
 //!
 //! This crate provides a safe Rust wrapper around the zenoh-pico C shim,
 //! enabling embedded applications to use zenoh for communication.
@@ -20,65 +20,34 @@
 //! publisher.publish(b"Hello, World!")?;
 //! ```
 
-// Always use no_std - import std when the feature is enabled
 #![no_std]
 
-// std is needed for tests or when std feature is enabled
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
-// Only need alloc when we have a backend but not std
-#[cfg(all(
-    not(feature = "std"),
-    any(feature = "posix", feature = "zephyr", feature = "smoltcp")
-))]
-extern crate alloc;
-
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 use core::ffi::c_void;
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 use core::marker::PhantomData;
 
-// ============================================================================
-// FFI Declarations
-// ============================================================================
+// Re-export FFI types and constants from sys crate
+pub use zenoh_pico_shim_sys::{
+    PollCallback, ShimCallback, ZENOH_SHIM_ERR_CONFIG, ZENOH_SHIM_ERR_FULL, ZENOH_SHIM_ERR_GENERIC,
+    ZENOH_SHIM_ERR_INVALID, ZENOH_SHIM_ERR_KEYEXPR, ZENOH_SHIM_ERR_PUBLISH, ZENOH_SHIM_ERR_SESSION,
+    ZENOH_SHIM_ERR_TASK, ZENOH_SHIM_MAX_PUBLISHERS, ZENOH_SHIM_MAX_SUBSCRIBERS, ZENOH_SHIM_OK,
+};
 
-mod ffi;
-pub use ffi::*;
-
-// ============================================================================
-// Platform-specific Modules
-// ============================================================================
-
-/// smoltcp platform layer for bare-metal systems
-///
-/// This module provides the Rust FFI functions that the C platform layer calls
-/// to interact with smoltcp for network I/O and system services.
+// Re-export platform module for smoltcp
 #[cfg(feature = "smoltcp")]
-#[path = "../platform_smoltcp/mod.rs"]
-pub mod platform_smoltcp;
+pub use zenoh_pico_shim_sys::platform_smoltcp;
 
-// Extern imports from C shim
-// Note: These are kept in lib.rs (not ffi.rs) for separation.
-// cbindgen parses the entire crate and generates duplicate declarations from this block.
-// The generated header is post-processed to remove the duplicates (see ffi.rs for commands).
-#[allow(improper_ctypes)]
-extern "C" {
-    pub(crate) fn zenoh_shim_init(locator: *const core::ffi::c_char) -> i32;
-    pub(crate) fn zenoh_shim_open() -> i32;
-    pub(crate) fn zenoh_shim_is_open() -> i32;
-    pub(crate) fn zenoh_shim_close();
-    pub(crate) fn zenoh_shim_declare_publisher(keyexpr: *const core::ffi::c_char) -> i32;
-    pub(crate) fn zenoh_shim_publish(handle: i32, data: *const u8, len: usize) -> i32;
-    pub(crate) fn zenoh_shim_undeclare_publisher(handle: i32) -> i32;
-    pub(crate) fn zenoh_shim_declare_subscriber(
-        keyexpr: *const core::ffi::c_char,
-        callback: ShimCallback,
-        ctx: *mut c_void,
-    ) -> i32;
-    pub(crate) fn zenoh_shim_undeclare_subscriber(handle: i32) -> i32;
-    pub(crate) fn zenoh_shim_poll(timeout_ms: u32) -> i32;
-    pub(crate) fn zenoh_shim_spin_once(timeout_ms: u32) -> i32;
-    pub(crate) fn zenoh_shim_uses_polling() -> bool;
-}
+// Import FFI functions from sys crate
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
+use zenoh_pico_shim_sys::{
+    zenoh_shim_close, zenoh_shim_declare_publisher, zenoh_shim_declare_subscriber, zenoh_shim_init,
+    zenoh_shim_is_open, zenoh_shim_open, zenoh_shim_poll, zenoh_shim_publish, zenoh_shim_spin_once,
+    zenoh_shim_undeclare_publisher, zenoh_shim_undeclare_subscriber, zenoh_shim_uses_polling,
+};
 
 // ============================================================================
 // Error Types
@@ -107,6 +76,7 @@ pub enum ShimError {
     NotOpen,
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp", test))]
 impl ShimError {
     fn from_code(code: i32) -> Self {
         match code {
@@ -155,10 +125,12 @@ pub type Result<T> = core::result::Result<T, ShimError>;
 ///
 /// Only one `ShimContext` can exist at a time due to the global state
 /// in the C shim.
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 pub struct ShimContext {
     _private: PhantomData<*const ()>,
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl ShimContext {
     /// Create a new shim context with the given locator
     ///
@@ -291,6 +263,7 @@ impl ShimContext {
     }
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl Drop for ShimContext {
     fn drop(&mut self) {
         unsafe {
@@ -306,11 +279,13 @@ impl Drop for ShimContext {
 /// Publisher handle for sending data
 ///
 /// Created via `ShimContext::declare_publisher()`.
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 pub struct ShimPublisher<'a> {
     handle: i32,
     _ctx: PhantomData<&'a ShimContext>,
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl<'a> ShimPublisher<'a> {
     /// Publish data
     ///
@@ -331,6 +306,7 @@ impl<'a> ShimPublisher<'a> {
     }
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl<'a> Drop for ShimPublisher<'a> {
     fn drop(&mut self) {
         unsafe {
@@ -346,11 +322,13 @@ impl<'a> Drop for ShimPublisher<'a> {
 /// Subscriber handle for receiving data
 ///
 /// Created via `ShimContext::declare_subscriber_raw()`.
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 pub struct ShimSubscriber<'a> {
     handle: i32,
     _ctx: PhantomData<&'a ShimContext>,
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl<'a> ShimSubscriber<'a> {
     /// Get the subscriber handle
     pub fn handle(&self) -> i32 {
@@ -358,6 +336,7 @@ impl<'a> ShimSubscriber<'a> {
     }
 }
 
+#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 impl<'a> Drop for ShimSubscriber<'a> {
     fn drop(&mut self) {
         unsafe {

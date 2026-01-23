@@ -1,5 +1,5 @@
-# cbindgen configuration for zenoh-pico-shim
-# Generates include/zenoh_shim.h from src/ffi.rs
+# cbindgen configuration for zenoh-pico-shim-sys
+# Generates c/include/zenoh_shim.h from src/ffi.rs
 
 language = "C"
 header = """/**
@@ -12,7 +12,7 @@ header = """/**
  * subscribers with static storage.
  *
  * Platform-specific behavior (threading vs polling) is handled by the
- * backend interface in zenoh_shim_platform.h
+ * backend interface in zenoh_smoltcp_platform.h
  */
 """
 include_guard = "ZENOH_SHIM_H"
@@ -47,9 +47,10 @@ clean = true
 include = ["ffi"]
 
 [export]
-# Only include items from the cbindgen_stubs module
+# Include all exported items
 exclude = []
 include = [
+    # Shim API
     "zenoh_shim_init",
     "zenoh_shim_open",
     "zenoh_shim_is_open",
@@ -62,7 +63,10 @@ include = [
     "zenoh_shim_poll",
     "zenoh_shim_spin_once",
     "zenoh_shim_uses_polling",
+    # Types
     "ShimCallback",
+    "PollCallback",
+    # Constants
     "ZENOH_SHIM_MAX_PUBLISHERS",
     "ZENOH_SHIM_MAX_SUBSCRIBERS",
     "ZENOH_SHIM_OK",
@@ -74,4 +78,27 @@ include = [
     "ZENOH_SHIM_ERR_FULL",
     "ZENOH_SHIM_ERR_INVALID",
     "ZENOH_SHIM_ERR_PUBLISH",
+    # smoltcp platform FFI
+    "smoltcp_alloc",
+    "smoltcp_realloc",
+    "smoltcp_free",
+    "smoltcp_random_u32",
+    "smoltcp_set_clock_ms",
+    "smoltcp_clock_now_ms",
+    "smoltcp_set_poll_callback",
+    "smoltcp_poll",
+    "smoltcp_init",
+    "smoltcp_cleanup",
+    "smoltcp_socket_open",
+    "smoltcp_socket_connect",
+    "smoltcp_socket_is_connected",
+    "smoltcp_socket_close",
+    "smoltcp_socket_can_recv",
+    "smoltcp_socket_can_send",
+    "smoltcp_socket_recv",
+    "smoltcp_socket_send",
+    "smoltcp_socket_push_rx",
+    "smoltcp_socket_pop_tx",
+    "smoltcp_socket_get_remote",
+    "smoltcp_socket_set_connected",
 ]

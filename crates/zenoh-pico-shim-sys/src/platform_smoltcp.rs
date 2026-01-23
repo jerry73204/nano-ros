@@ -275,17 +275,17 @@ static mut SOCKET_TABLE: [SocketEntry; MAX_SOCKETS] = [SocketEntry {
 static mut NEXT_EPHEMERAL_PORT: u16 = 49152;
 
 /// C-compatible callback function pointer type
-pub type PollCallback = Option<unsafe extern "C" fn()>;
+pub type PollCallbackFn = Option<unsafe extern "C" fn()>;
 
 /// Platform initialization callback
 /// This must be set by the application before using zenoh-pico
-static mut POLL_CALLBACK: PollCallback = None;
+static mut POLL_CALLBACK: PollCallbackFn = None;
 
 /// Set the network poll callback
 ///
 /// This callback should poll the smoltcp interface and update socket buffers.
 #[no_mangle]
-pub extern "C" fn smoltcp_set_poll_callback(callback: PollCallback) {
+pub extern "C" fn smoltcp_set_poll_callback(callback: PollCallbackFn) {
     unsafe {
         POLL_CALLBACK = callback;
     }

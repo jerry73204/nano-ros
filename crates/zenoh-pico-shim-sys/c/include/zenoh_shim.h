@@ -8,7 +8,7 @@
  * subscribers with static storage.
  *
  * Platform-specific behavior (threading vs polling) is handled by the
- * backend interface in zenoh_shim_platform.h
+ * backend interface in zenoh_smoltcp_platform.h
  */
 
 #ifndef ZENOH_SHIM_H
@@ -90,6 +90,11 @@ typedef void (*ShimCallback)(const uint8_t *data, uintptr_t len, void *ctx);
  * C-compatible callback function pointer type
  */
 typedef void (*PollCallback)(void);
+
+/**
+ * C-compatible callback function pointer type
+ */
+typedef void (*PollCallbackFn)(void);
 
 /**
  * Initialize zenoh configuration with client mode and connect locator.
@@ -227,6 +232,134 @@ bool zenoh_shim_uses_polling(void);
 /**
  * Allocate memory
  */
+void *smoltcp_alloc(uintptr_t _size);
+
+/**
+ * Reallocate memory
+ *
+ * Note: This is a simplified implementation that allocates new memory
+ * and copies the data. The old memory is "leaked" (not reused).
+ */
+void *smoltcp_realloc(void *_ptr, uintptr_t _size);
+
+/**
+ * Free memory (no-op for bump allocator)
+ */
+void smoltcp_free(void *_ptr);
+
+/**
+ * Generate a random u32 using xorshift32
+ */
+uint32_t smoltcp_random_u32(void);
+
+/**
+ * Set the current monotonic time in milliseconds
+ *
+ * Call this from your timer interrupt or monotonic update.
+ */
+void smoltcp_set_clock_ms(uint64_t _ms);
+
+/**
+ * Get the current monotonic time in milliseconds
+ */
+uint64_t smoltcp_clock_now_ms(void);
+
+/**
+ * Set the network poll callback
+ *
+ * This callback should poll the smoltcp interface and update socket buffers.
+ */
+void smoltcp_set_poll_callback(PollCallback _callback);
+
+/**
+ * Poll the network stack
+ *
+ * Calls the registered poll callback if set.
+ */
+int32_t smoltcp_poll(void);
+
+/**
+ * Initialize the platform
+ */
+int32_t smoltcp_init(void);
+
+/**
+ * Cleanup the platform
+ */
+void smoltcp_cleanup(void);
+
+/**
+ * Allocate a new socket
+ */
+int32_t smoltcp_socket_open(void);
+
+/**
+ * Initiate a TCP connection
+ *
+ * This stores the connection parameters. The actual connection is established
+ * when the poll callback drives the smoltcp state machine.
+ */
+int32_t smoltcp_socket_connect(int32_t _handle, const uint8_t *_ip, uint16_t _port);
+
+/**
+ * Check if socket is connected
+ */
+int32_t smoltcp_socket_is_connected(int32_t _handle);
+
+/**
+ * Close a socket
+ */
+int32_t smoltcp_socket_close(int32_t _handle);
+
+/**
+ * Check if socket can receive data
+ */
+int32_t smoltcp_socket_can_recv(int32_t _handle);
+
+/**
+ * Check if socket can send data
+ */
+int32_t smoltcp_socket_can_send(int32_t _handle);
+
+/**
+ * Receive data from socket
+ */
+int32_t smoltcp_socket_recv(int32_t _handle, uint8_t *_buf, uintptr_t _len);
+
+/**
+ * Send data to socket
+ */
+int32_t smoltcp_socket_send(int32_t _handle, const uint8_t *_buf, uintptr_t _len);
+
+/**
+ * Push received data into a socket's RX buffer
+ *
+ * Called by the smoltcp integration layer when data is received.
+ */
+int32_t smoltcp_socket_push_rx(int32_t _handle, const uint8_t *_data, uintptr_t _len);
+
+/**
+ * Pop pending data from a socket's TX buffer
+ *
+ * Called by the smoltcp integration layer when ready to send.
+ */
+int32_t smoltcp_socket_pop_tx(int32_t _handle, uint8_t *_buf, uintptr_t _max_len);
+
+/**
+ * Get socket connection parameters
+ */
+int32_t smoltcp_socket_get_remote(int32_t _handle, uint8_t *_ip, uint16_t *_port);
+
+/**
+ * Set socket as connected
+ *
+ * Called by the smoltcp integration layer when connection is established.
+ */
+void smoltcp_socket_set_connected(int32_t _handle, bool _connected);
+
+/**
+ * Allocate memory
+ */
 void *smoltcp_alloc(uintptr_t size);
 
 /**
@@ -264,7 +397,7 @@ uint64_t smoltcp_clock_now_ms(void);
  *
  * This callback should poll the smoltcp interface and update socket buffers.
  */
-void smoltcp_set_poll_callback(PollCallback callback);
+void smoltcp_set_poll_callback(PollCallbackFn callback);
 
 /**
  * Poll the network stack

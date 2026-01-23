@@ -902,9 +902,17 @@ dependencies = [
 name = "zenoh-pico-shim"
 version = "0.1.0"
 dependencies = [
+ "zenoh-pico-shim-sys",
+]
+
+[[package]]
+name = "zenoh-pico-shim-sys"
+version = "0.1.0"
+dependencies = [
  "cbindgen",
  "cc",
- "zenoh-pico-sys",
+ "cmake",
+ "cty",
 ]
 
 [[package]]

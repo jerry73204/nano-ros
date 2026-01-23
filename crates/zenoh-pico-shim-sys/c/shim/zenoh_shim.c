@@ -2,13 +2,25 @@
  * zenoh-pico-shim Core Implementation
  *
  * This file implements the zenoh shim API using zenoh-pico.
- * Platform-specific behavior is delegated to the backend interface.
+ * Platform-specific behavior is handled by zenoh-pico's platform layer.
+ *
+ * The shim provides a simplified C API that hides zenoh-pico's complex
+ * ownership types from Rust FFI (avoiding struct size mismatch issues).
  */
 
 #include "zenoh_shim.h"
-#include "zenoh_shim_platform.h"
 #include <zenoh-pico.h>
 #include <string.h>
+
+// ============================================================================
+// Platform-Specific Declarations
+// ============================================================================
+
+#ifdef ZENOH_SHIM_SMOLTCP
+// External Rust FFI functions for smoltcp platform initialization
+extern int smoltcp_init(void);
+extern void smoltcp_cleanup(void);
+#endif
 
 // ============================================================================
 // Internal Data Structures
@@ -78,11 +90,13 @@ int zenoh_shim_init(const char *locator) {
     memset(g_subscribers, 0, sizeof(g_subscribers));
     g_session_open = false;
 
-    // Initialize platform
-    int ret = zenoh_platform_init();
+#ifdef ZENOH_SHIM_SMOLTCP
+    // Initialize smoltcp platform
+    int ret = smoltcp_init();
     if (ret < 0) {
         return ZENOH_SHIM_ERR_GENERIC;
     }
+#endif
 
     // Initialize zenoh config
     z_config_default(&g_config);
@@ -110,20 +124,18 @@ int zenoh_shim_open(void) {
         return ZENOH_SHIM_ERR_SESSION;
     }
 
-    // For threaded backends, start background tasks
-    if (!zenoh_platform_uses_polling()) {
-        int ret = zenoh_platform_start_read_task(z_session_loan_mut(&g_session));
-        if (ret < 0) {
-            z_close(z_session_loan_mut(&g_session), NULL);
-            return ZENOH_SHIM_ERR_TASK;
-        }
+    // Start background tasks
+    // For single-threaded platforms (Z_FEATURE_MULTI_THREAD=0), these are no-ops
+    // For threaded platforms, they start background read/lease threads
+    if (zp_start_read_task(z_session_loan_mut(&g_session), NULL) < 0) {
+        z_close(z_session_loan_mut(&g_session), NULL);
+        return ZENOH_SHIM_ERR_TASK;
+    }
 
-        ret = zenoh_platform_start_lease_task(z_session_loan_mut(&g_session));
-        if (ret < 0) {
-            zenoh_platform_stop_tasks(z_session_loan_mut(&g_session));
-            z_close(z_session_loan_mut(&g_session), NULL);
-            return ZENOH_SHIM_ERR_TASK;
-        }
+    if (zp_start_lease_task(z_session_loan_mut(&g_session), NULL) < 0) {
+        zp_stop_read_task(z_session_loan_mut(&g_session));
+        z_close(z_session_loan_mut(&g_session), NULL);
+        return ZENOH_SHIM_ERR_TASK;
     }
 
     g_session_open = true;
@@ -155,15 +167,18 @@ void zenoh_shim_close(void) {
 
     // Close session
     if (g_session_open) {
-        if (!zenoh_platform_uses_polling()) {
-            zenoh_platform_stop_tasks(z_session_loan_mut(&g_session));
-        }
+        // Stop background tasks (no-op for single-threaded platforms)
+        zp_stop_read_task(z_session_loan_mut(&g_session));
+        zp_stop_lease_task(z_session_loan_mut(&g_session));
         z_close(z_session_loan_mut(&g_session), NULL);
         g_session_open = false;
     }
 
-    // Cleanup platform
-    zenoh_platform_cleanup();
+#ifdef ZENOH_SHIM_SMOLTCP
+    // Cleanup smoltcp platform
+    smoltcp_cleanup();
+#endif
+
     g_initialized = false;
 }
 
@@ -299,7 +314,12 @@ int zenoh_shim_poll(uint32_t timeout_ms) {
         return ZENOH_SHIM_ERR_SESSION;
     }
 
-    return zenoh_platform_poll(z_session_loan_mut(&g_session), timeout_ms);
+    (void)timeout_ms;  // Timeout handled by socket layer
+
+    // For single-threaded platforms, zp_read() processes incoming data
+    // and invokes subscriber callbacks. The underlying socket operations
+    // (in network.c) poll the network stack via smoltcp_poll().
+    return zp_read(z_session_loan_mut(&g_session), NULL);
 }
 
 int zenoh_shim_spin_once(uint32_t timeout_ms) {
@@ -307,11 +327,26 @@ int zenoh_shim_spin_once(uint32_t timeout_ms) {
         return ZENOH_SHIM_ERR_SESSION;
     }
 
-    // For threaded backends, just a brief poll is enough
-    // For polling backends, this handles network I/O and protocol maintenance
-    return zenoh_platform_poll(z_session_loan_mut(&g_session), timeout_ms);
+    (void)timeout_ms;  // Timeout handled by socket layer
+
+    // Combined poll and keepalive operation
+    // zp_read handles incoming data, zp_send_keep_alive handles lease maintenance
+    int ret = zp_read(z_session_loan_mut(&g_session), NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
+    // Send keepalive if needed
+    zp_send_keep_alive(z_session_loan_mut(&g_session), NULL);
+
+    return ret;
 }
 
 bool zenoh_shim_uses_polling(void) {
-    return zenoh_platform_uses_polling();
+    // Returns true if multi-threading is disabled
+#if Z_FEATURE_MULTI_THREAD == 0
+    return true;
+#else
+    return false;
+#endif
 }

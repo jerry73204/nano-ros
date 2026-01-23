@@ -1,0 +1,31 @@
+[package]
+name = "zenoh-pico-shim-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "C shim library for zenoh-pico with FFI bindings"
+links = "zenoh_shim"
+
+[lints.rust]
+# cbindgen sets cfg(cbindgen) when parsing - allow it without warnings
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cbindgen)', 'cfg(shim_backend, values("posix", "zephyr", "smoltcp"))'] }
+
+[lib]
+name = "zenoh_pico_shim_sys"
+
+[features]
+default = []
+# Platform backends (mutually exclusive)
+posix = []
+zephyr = []
+smoltcp = []
+# Standard library support
+std = []
+
+[dependencies]
+cty = { workspace = true }
+
+[build-dependencies]
+cbindgen = "0.29"
+cc = "1.0"
+cmake = "0.1"
