@@ -226,12 +226,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
-name = "cty"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
-
-[[package]]
 name = "defmt"
 version = "0.3.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -561,7 +555,6 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 name = "nano-ros-core"
 version = "0.1.0"
 dependencies = [
- "heapless",
  "nano-ros-serdes",
 ]
 
@@ -569,7 +562,6 @@ dependencies = [
 name = "nano-ros-serdes"
 version = "0.1.0"
 dependencies = [
- "byteorder",
  "heapless",
 ]
 
@@ -1147,7 +1139,6 @@ dependencies = [
  "cbindgen",
  "cc",
  "cmake",
- "cty",
 ]
 
 [[package]]

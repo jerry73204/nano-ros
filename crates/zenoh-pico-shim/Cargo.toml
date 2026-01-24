@@ -13,7 +13,9 @@ posix = ["zenoh-pico-shim-sys/posix"]
 zephyr = ["zenoh-pico-shim-sys/zephyr"]
 smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
 # Standard library support
-std = ["zenoh-pico-shim-sys/std"]
+std = ["alloc", "zenoh-pico-shim-sys/std"]
+# Allocator support (for String in ZenohId)
+alloc = []
 
 [dependencies]
 # FFI bindings + C shim library

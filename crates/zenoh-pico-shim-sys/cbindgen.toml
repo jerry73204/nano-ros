@@ -45,30 +45,50 @@ parse_deps = false
 clean = true
 # Only parse ffi.rs (not lib.rs which has the extern block imports)
 include = ["ffi"]
+# Exclude platform implementation modules
+exclude = ["platform_smoltcp"]
 
 [export]
 # Include all exported items
 exclude = []
 include = [
-    # Shim API
+    # Shim API - Session lifecycle
     "zenoh_shim_init",
     "zenoh_shim_open",
     "zenoh_shim_is_open",
     "zenoh_shim_close",
+    # Shim API - Publishers
     "zenoh_shim_declare_publisher",
     "zenoh_shim_publish",
+    "zenoh_shim_publish_with_attachment",
     "zenoh_shim_undeclare_publisher",
+    # Shim API - Subscribers
     "zenoh_shim_declare_subscriber",
     "zenoh_shim_undeclare_subscriber",
+    # Shim API - Polling
     "zenoh_shim_poll",
     "zenoh_shim_spin_once",
     "zenoh_shim_uses_polling",
+    # Shim API - ZenohId
+    "zenoh_shim_get_zid",
+    # Shim API - Liveliness
+    "zenoh_shim_declare_liveliness",
+    "zenoh_shim_undeclare_liveliness",
+    # Shim API - Queryables (Services)
+    "zenoh_shim_declare_queryable",
+    "zenoh_shim_undeclare_queryable",
+    "zenoh_shim_query_reply",
     # Types
     "ShimCallback",
+    "ShimQueryCallback",
     "PollCallback",
     # Constants
     "ZENOH_SHIM_MAX_PUBLISHERS",
     "ZENOH_SHIM_MAX_SUBSCRIBERS",
+    "ZENOH_SHIM_MAX_LIVELINESS",
+    "ZENOH_SHIM_MAX_QUERYABLES",
+    "ZENOH_SHIM_ZID_SIZE",
+    "ZENOH_SHIM_RMW_GID_SIZE",
     "ZENOH_SHIM_OK",
     "ZENOH_SHIM_ERR_GENERIC",
     "ZENOH_SHIM_ERR_CONFIG",

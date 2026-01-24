@@ -23,6 +23,12 @@
 //! 2. Call `smoltcp_set_clock_ms()` periodically to update the monotonic clock
 //! 3. The poll callback should update socket buffers via `smoltcp_socket_push_rx()`
 //!    and `smoltcp_socket_pop_tx()`
+//!
+//! Note: This file is excluded from cbindgen via cfg(not(cbindgen)) to avoid
+//! duplicate function declarations. The FFI stubs are in ffi.rs for header generation.
+
+// Exclude this entire module from cbindgen parsing
+#![cfg(not(cbindgen))]
 
 use core::ffi::c_void;
 use core::mem::MaybeUninit;

@@ -2,7 +2,7 @@
 
 **Goal**: Enable network connectivity for all embedded nano-ros examples using smoltcp + zenoh-pico for bare-metal RTIC/polling, and verify native examples work correctly.
 
-**Status**: In Progress (Phase 8.1-8.7 Complete, Phase 8.8 Pending)
+**Status**: In Progress (Phase 8.1-8.7 Complete, Phase 8.8.A-B Complete, Phase 8.8.C-D and 8.9 Pending)
 
 ## Overview
 
@@ -54,13 +54,14 @@ This phase provides working network connectivity for embedded systems:
 ```
 
 **Key Design Decisions:**
-- All applications use unified `zenoh-pico-shim` API (replaces old `zenoh-pico` crate)
+- All applications use unified `zenoh-pico-shim` API
 - `zenoh-pico-shim-sys` contains all C code (shim + platform layers + zenoh-pico submodule)
 - Platform selection via feature flags:
   - `posix` - Uses zenoh-pico native POSIX platform (desktop/Linux)
   - `zephyr` - Uses zenoh-pico native Zephyr platform
   - `smoltcp` - Uses custom platform layer for bare-metal
 - Clean separation: Rust code in `zenoh-pico-shim`, C code in `zenoh-pico-shim-sys`
+- Legacy crates (`zenoh-pico`, `zenoh-pico-sys`) to be removed after feature migration (Phase 8.8.B)
 
 ---
 
@@ -257,9 +258,8 @@ Validate smoltcp + stm32-eth works on target hardware before integrating with ze
   }
   ```
 
-- [ ] **8.3.5** Test TCP connection to host PC (requires hardware)
-  - Build verified, hardware testing pending
-  - Instructions provided in README
+- [ ] **8.3.5** Test TCP connection to host PC
+  - Build verified, hardware testing moved to Phase 8.9
 
 ### Binary Size
 
@@ -279,7 +279,7 @@ Validate smoltcp + stm32-eth works on target hardware before integrating with ze
 ### Acceptance Criteria
 - [x] Example compiles for thumbv7em-none-eabihf
 - [x] Binary size documented (~74 KB total, <40 KB RAM used)
-- [ ] TCP echo server works on NUCLEO-F429ZI (hardware test pending)
+- [ ] TCP echo server works on NUCLEO-F429ZI (moved to Phase 8.9)
 
 ---
 
@@ -539,8 +539,8 @@ The application must provide:
 - [x] `zenoh-pico-shim` compiles with `smoltcp` feature for x86_64-linux
 - [x] Platform layer implements all required `z_*` functions
 - [x] smoltcp FFI functions callable from C platform code
-- [ ] Can create zenoh session using smoltcp as transport (requires hardware test)
-- [ ] Cross-compilation for thumbv7em (requires zenoh-pico cross-build)
+- [ ] Can create zenoh session using smoltcp as transport (moved to Phase 8.9)
+- [ ] Cross-compilation for thumbv7em (moved to Phase 8.9)
 
 ---
 
@@ -696,19 +696,19 @@ smoltcp = ["zenoh-pico-shim-sys/smoltcp"]
   - smoltcp_* implementations in sys crate
   - Re-exported from zenoh-pico-shim
 
-- [ ] **8.4.5.9** Remove old crates (DEFERRED → 8.8.6)
+- [ ] **8.4.5.9** Remove old crates (DEFERRED → 8.8.8)
   - Old crates kept for backward compatibility with nano-ros-transport
   - `zenoh-pico-sys/zenoh-pico` symlinked to new location
-  - Tracked in Phase 8.8.6 (after transport migration in 8.5.8)
+  - Tracked in Phase 8.8.8 (after feature migration in 8.8.3-8.8.7)
 
 - [x] **8.4.5.10** Update workspace `Cargo.toml`
   - Added `zenoh-pico-shim-sys` to members
   - Kept legacy crates with comments (for transport compatibility)
 
-- [ ] **8.4.5.11** Update dependent crates (DEFERRED → 8.5.8)
+- [ ] **8.4.5.11** Update dependent crates (DEFERRED → 8.8.7)
   - `nano-ros-transport` still uses legacy `zenoh-pico` crate
   - Migration requires adding LivelinessToken, ZenohId, Attachment to shim API
-  - Tracked in Phase 8.5.8 (transport migration task)
+  - Tracked in Phase 8.8.B (8.8.3-8.8.7)
 
 - [x] **8.4.5.12** Test build with all platform features
   ```bash
@@ -831,11 +831,11 @@ Integrate `zenoh-pico-shim` with `nano-ros-node` to enable embedded nano-ros app
   shim-smoltcp = ["shim", "zenoh-pico-shim/smoltcp"]
   ```
 
-- [ ] **8.5.8** Migrate nano-ros-transport from zenoh-pico to zenoh-pico-shim (DEFERRED)
+- [ ] **8.5.8** Migrate nano-ros-transport from zenoh-pico to zenoh-pico-shim (DEFERRED → 8.8.7)
   - Note: Current `zenoh` feature still uses legacy `zenoh-pico` crate
   - New `shim` feature provides alternative path for embedded platforms
   - Full migration requires adding Liveliness tokens, ZenohId, Attachment to shim API
-  - Tracked for Phase 8.8 cleanup
+  - Tracked in Phase 8.8.B (8.8.3-8.8.7)
 
 - [x] **8.5.9** Update Zephyr examples to use zenoh-pico-shim crate
   - **zephyr-talker**: Updated CMakeLists.txt to use shared C shim from zenoh-pico-shim-sys
@@ -940,14 +940,11 @@ Verified zenoh-pico-shim compiles with all platform features.
   - IP: 192.168.1.10, Gateway: 192.168.1.1, Router: tcp/192.168.1.1:7447
   - Dynamic configuration can be added in future if needed
 
-- [ ] **8.6.6** Test RTIC example on NUCLEO-F429ZI (hardware pending)
-  - Publisher sends to zenoh router
-  - Native listener receives messages
-  - **Requires**: Cross-compiled zenoh-pico + hardware
+- [ ] **8.6.6** Test RTIC example on NUCLEO-F429ZI
+  - Moved to Phase 8.9
 
-- [ ] **8.6.7** Test polling example on NUCLEO-F429ZI (hardware pending)
-  - Same tests as RTIC
-  - **Requires**: Cross-compiled zenoh-pico + hardware
+- [ ] **8.6.7** Test polling example on NUCLEO-F429ZI
+  - Moved to Phase 8.9
 
 - [x] **8.6.8** Verify zenoh-pico-shim compiles with all platform features
   - `cargo check -p zenoh-pico-shim --features posix` - OK
@@ -979,8 +976,8 @@ The examples demonstrate the correct pattern for smoltcp + zenoh-pico integratio
 - [x] RTIC example compiles for thumbv7em-none-eabihf
 - [x] Polling example compiles for thumbv7em-none-eabihf
 - [x] zenoh-pico-shim compiles with posix, zephyr, smoltcp features
-- [ ] Hardware testing on NUCLEO-F429ZI (pending zenoh-pico cross-compilation)
-- [ ] Zephyr examples work on native_sim/QEMU (pending west workspace setup)
+- [ ] Hardware testing on NUCLEO-F429ZI (moved to Phase 8.9)
+- [ ] Zephyr examples work on native_sim/QEMU (moved to Phase 8.9)
 
 ---
 
@@ -1037,9 +1034,7 @@ Verified all native examples work correctly with executor API.
   - Tracked in Phase 6 (ROS 2 Actions)
 
 - [ ] **8.7.10** Test ROS 2 interoperability
-  - Deferred: requires ROS 2 environment
-  - native-talker → ROS 2 listener
-  - ROS 2 talker → native-listener
+  - Moved to Phase 8.8
 
 ### Build Fixes Applied
 
@@ -1059,66 +1054,258 @@ Verified all native examples work correctly with executor API.
 - [x] Pub/sub communication works
 - [ ] Service communication works (pending Phase 3 implementation)
 - [ ] Action communication works (pending Phase 6 implementation)
-- [ ] ROS 2 interop verified (deferred)
+- [ ] ROS 2 interop verified (moved to Phase 8.8)
 
 ---
 
-## Phase 8.8: Documentation and Cleanup
+## Phase 8.8: Migration, Cleanup, Interop Testing, and Documentation
 
-**Status**: Not Started
-**Priority**: Low
+**Status**: In Progress (8.8.A-B Complete, 8.8.C-D Pending)
+**Priority**: Medium
 **Depends on**: 8.6, 8.7
 
-### Work Items
+### 8.8.A: Dependency Cleanup (Complete)
 
-- [ ] **8.8.1** Update `docs/embedded-integration.md`
+- [x] **8.8.1** Clean up unused dependencies
+  - Removed `cty` from zenoh-pico-shim-sys (not used)
+  - Removed `byteorder` from nano-ros-serdes (not used)
+  - Removed `heapless` from nano-ros-core (not used)
+  - Removed `nano-ros-core` and `nano-ros-serdes` from nano-ros-params (not used)
+  - Removed `nano-ros-serdes` from nano-ros-node (feature propagation via core)
+  - Removed `nano-ros-serdes` from nano-ros (feature propagation via node)
+  - Removed `defmt` from nano-ros-transport and nano-ros-node (placeholder, not implemented)
+  - Removed `portable-atomic` from nano-ros-transport (placeholder, not implemented)
+  - Added cargo-machete ignore for `cty` in zenoh-pico-sys (used by generated bindings)
+
+- [x] **8.8.2** Clean up dead code
+  - Removed unused `sync-portable-atomic` feature flag
+  - Removed unused `defmt` feature flags
+  - All workspace crates pass `cargo machete` check
+
+### 8.8.B: zenoh-pico-shim Feature Migration
+
+Migrate features from `zenoh-pico` to `zenoh-pico-shim` so we can remove the legacy crates.
+The goal is a single unified API that works for both desktop and embedded platforms.
+
+**Current zenoh-pico features missing from zenoh-pico-shim:**
+- ~~LivelinessToken (for ROS 2 discovery)~~ ✅ Complete
+- ~~ZenohId (session identifier)~~ ✅ Complete
+- ~~Queryable/Query (for ROS 2 services)~~ ✅ Complete
+- ~~RMW attachment support~~ ✅ Complete
+- Session task control (handled by platform backends, not needed in shim API)
+
+- [x] **8.8.3** Add LivelinessToken support to zenoh-pico-shim
+  - Added `zenoh_shim_declare_liveliness()` to C shim
+  - Added `zenoh_shim_undeclare_liveliness()` to C shim
+  - Added `ShimLivelinessToken` Rust wrapper with RAII drop
+  - Exposed in `zenoh_shim.h` header
+
+- [x] **8.8.4** Add ZenohId support to zenoh-pico-shim
+  - Added `zenoh_shim_get_zid()` to C shim
+  - Added `ShimZenohId` Rust type with `to_hex_bytes()` method
+  - Supports LSB-first hex format for ROS 2 compatibility
+  - Added `zid()` method to `ShimContext`
+
+- [x] **8.8.5** Add Queryable support to zenoh-pico-shim
+  - Added `zenoh_shim_declare_queryable()` to C shim
+  - Added `zenoh_shim_undeclare_queryable()` to C shim
+  - Added `zenoh_shim_query_reply()` to C shim
+  - Added `ShimQueryable` Rust wrapper
+  - Note: Reply mechanism requires synchronous call within callback scope
+
+- [x] **8.8.6** Add RMW attachment support to zenoh-pico-shim
+  - Added `zenoh_shim_publish_with_attachment()` to C shim
+  - Added `ShimPublisher::publish_with_attachment()` method
+  - Implemented 33-byte RMW attachment format in transport layer
+  - Added `RmwAttachment` struct with serialization
+  - Required for rmw_zenoh compatibility
+
+- [x] **8.8.7** Update nano-ros-transport shim backend with feature parity
+  - Added `zid()` and `declare_liveliness()` to `ShimSession`
+  - Updated `ShimPublisher` to include RMW attachments
+  - Added `Ros2Liveliness` helper for key expression generation
+  - Implemented `ShimServiceServer` using queryables
+  - Service client still returns error (z_get not yet implemented)
+  - Both `zenoh` and `shim` backends now have equivalent features
+
+- [ ] **8.8.8** Remove legacy zenoh-pico crates
+  - Delete `crates/zenoh-pico-sys/` directory
+  - Delete `crates/zenoh-pico/` directory
+  - Remove from workspace Cargo.toml
+  - Update CLAUDE.md crate descriptions
+
+- [ ] **8.8.9** Test infrastructure migration
+  - Move `crates/zenoh-pico/tests/common/mod.rs` to `crates/zenoh-pico-shim/tests/`
+  - Update singleton zenohd manager for shim tests
+  - Verify all tests pass with new crate structure
+
+### 8.8.C: ROS 2 Interop Testing
+
+- [ ] **8.8.10** Test nano-ros → ROS 2 pub/sub communication
+  - Start zenoh router on host
+  - Run native-talker with zenoh feature
+  - Verify ROS 2 listener receives messages via rmw_zenoh_cpp
+  - Document configuration requirements
+
+- [ ] **8.8.11** Test ROS 2 → nano-ros pub/sub communication
+  - Start zenoh router on host
+  - Run native-listener with zenoh feature
+  - Run ROS 2 talker via rmw_zenoh_cpp
+  - Verify nano-ros receives messages
+  - Document any QoS compatibility issues
+
+- [ ] **8.8.12** Test bidirectional communication
+  - Run both directions simultaneously
+  - Verify no message loss or corruption
+  - Test with different message types (Int32, String, custom)
+
+- [ ] **8.8.13** Create interop test script
+  - Automate ROS 2 ↔ nano-ros testing
+  - Add to `scripts/test-ros2-interop.sh`
+  - Document ROS 2 environment setup requirements
+
+### 8.8.D: Documentation
+
+- [ ] **8.8.14** Update `docs/embedded-integration.md`
   - Document Zephyr integration (complete)
   - Document smoltcp + RTIC integration
   - Document smoltcp + polling integration
   - Add hardware requirements matrix
 
-- [ ] **8.8.2** Update example READMEs
+- [ ] **8.8.15** Update example READMEs
   - rtic-stm32f4/README.md
   - polling-stm32f4/README.md
   - zephyr-talker/README.md
   - zephyr-listener/README.md
 
-- [ ] **8.8.3** Update CLAUDE.md examples section
-  - Document all working examples
-  - Document build/run instructions
+- [ ] **8.8.16** Update CLAUDE.md
+  - Update zenoh-pico bindings section to describe unified zenoh-pico-shim architecture
+  - Remove references to old zenoh-pico-sys/zenoh-pico crates
+  - Update crate dependency diagram
+  - Document all working examples with build/run instructions
 
-- [ ] **8.8.4** Add embedded example build check to CI (if feasible)
+- [ ] **8.8.17** Add embedded example build check to CI (if feasible)
 
-- [ ] **8.8.5** Update justfile with embedded commands
+- [ ] **8.8.18** Update justfile with embedded commands
   ```makefile
   build-rtic:
       cd examples/rtic-stm32f4 && cargo build --release
 
   build-polling:
       cd examples/polling-stm32f4 && cargo build --release
+
+  test-ros2-interop:
+      ./scripts/test-ros2-interop.sh
   ```
 
-- [ ] **8.8.6** Remove legacy zenoh crates
-  - Remove `crates/zenoh-pico-sys/` (merged into zenoh-pico-shim-sys)
-  - Remove `crates/zenoh-pico/` (merged into zenoh-pico-shim)
-  - Remove symlink `crates/zenoh-pico-sys/zenoh-pico`
-  - Update workspace `Cargo.toml` to remove legacy crates from members
-  - Verify no crates depend on removed crates
-  - Update CLAUDE.md crate descriptions
-  - **Prerequisite**: 8.5.8 (transport migration) must be complete
-
-- [ ] **8.8.7** Final CLAUDE.md cleanup
-  - Update zenoh-pico bindings section to describe new architecture
-  - Remove references to old zenoh-pico-sys/zenoh-pico crates
-  - Update crate dependency diagram
-  - Document shim vs zenoh feature selection
-
 ### Acceptance Criteria
-- All documentation updated
-- CI includes embedded checks where feasible
-- justfile has embedded build commands
+- All features migrated from zenoh-pico to zenoh-pico-shim
 - Legacy crates removed (zenoh-pico-sys, zenoh-pico)
 - No dead code or unused dependencies in workspace
+- ROS 2 ↔ nano-ros pub/sub communication verified
+- Interop test script available
+- All documentation updated
+- CI includes embedded checks where feasible
+- justfile has embedded and interop commands
+
+---
+
+## Phase 8.9: Hardware Validation
+
+**Status**: Not Started
+**Priority**: Low
+**Depends on**: 8.8
+
+All hardware-dependent testing consolidated into this phase.
+
+### Prerequisites
+- Cross-compiled zenoh-pico library for thumbv7em-none-eabihf
+- NUCLEO-F429ZI development board
+- Zephyr west workspace set up
+- Network connectivity (Ethernet or WiFi depending on board)
+
+### 8.9.A: Cross-Compilation Setup
+
+- [ ] **8.9.1** Cross-compile zenoh-pico for ARM Cortex-M4
+  - Set up ARM GCC toolchain
+  - Configure CMake for cross-compilation
+  - Build libzenohpico.a for thumbv7em-none-eabihf
+  - Document build process
+
+- [ ] **8.9.2** Update zenoh-pico-shim-sys build.rs for cross-compilation
+  - Detect target triple and select appropriate pre-built library
+  - Or integrate CMake cross-build into Cargo build process
+  - Test with `cargo build --target thumbv7em-none-eabihf`
+
+### 8.9.B: smoltcp Hardware Testing
+
+- [ ] **8.9.3** Test smoltcp TCP echo (from Phase 8.3)
+  - Flash smoltcp-test example to NUCLEO-F429ZI
+  - Connect to host PC via Ethernet
+  - Verify TCP echo server responds on port 7
+  - Measure latency and throughput
+
+- [ ] **8.9.4** Test RTIC example on NUCLEO-F429ZI
+  - Flash rtic-stm32f4 example
+  - Connect to zenoh router on host
+  - Verify publisher sends messages
+  - Verify native-listener receives messages
+  - Measure message latency
+
+- [ ] **8.9.5** Test polling example on NUCLEO-F429ZI
+  - Flash polling-stm32f4 example
+  - Same tests as RTIC example
+  - Compare performance with RTIC
+
+### 8.9.C: Zephyr Hardware/QEMU Testing
+
+- [ ] **8.9.6** Test Zephyr examples on native_sim
+  - Set up west workspace with nano-ros module
+  - Build zephyr-talker for native_sim target
+  - Build zephyr-listener for native_sim target
+  - Test communication via TAP interface to host zenohd
+
+- [ ] **8.9.7** Test Zephyr examples on QEMU
+  - Configure QEMU ARM target (qemu_cortex_m3 or similar)
+  - Set up virtual networking
+  - Test pub/sub communication
+
+- [ ] **8.9.8** Test Zephyr examples on real hardware
+  - Flash to supported board (e.g., NUCLEO-F429ZI, nRF52840-DK)
+  - Verify network connectivity
+  - Test pub/sub communication with host
+
+### 8.9.D: Performance Benchmarking
+
+- [ ] **8.9.9** Measure message latency
+  - Round-trip time for small messages (< 100 bytes)
+  - Round-trip time for larger messages (1KB, 4KB)
+  - Compare RTIC vs polling vs Zephyr
+
+- [ ] **8.9.10** Measure throughput
+  - Maximum messages per second (small payloads)
+  - Maximum bytes per second (streaming)
+  - Identify bottlenecks
+
+- [ ] **8.9.11** Measure memory usage
+  - Stack usage per task/thread
+  - Heap usage (zenoh-pico allocations)
+  - Compare with budget estimates
+
+- [ ] **8.9.12** Document results
+  - Create `docs/performance-benchmarks.md`
+  - Include hardware specifications
+  - Include test methodology
+  - Compare with original Pico-ROS if available
+
+### Acceptance Criteria
+- zenoh-pico cross-compiled for ARM Cortex-M4
+- smoltcp TCP works on NUCLEO-F429ZI
+- RTIC example communicates with host
+- Polling example communicates with host
+- Zephyr examples work on native_sim/QEMU
+- Performance benchmarks documented
+- All results within expected ranges (see Memory Budget)
 
 ---
 
@@ -1137,21 +1324,17 @@ Verified all native examples work correctly with executor API.
 ## Dependencies
 
 ```
-                                    ┌─────────────────────────────────────────┐
-                                    │                                         │
-Phase 8.1 (Zephyr) ─────────────────┤                                         │
+Phase 8.1 (Zephyr) ─────────────────┬─────────────────────────────────────────┐
      COMPLETE                       │                                         │
-                                    │                                         │
                                     ▼                                         │
 Phase 8.2 (zenoh-pico-shim) ────────┬─────────────────────────────────────────┤
      C shim + backend interface     │                                         │
      Zephyr + POSIX backends        │                                         │
                                     │                                         │
                                     │    ┌────────────────────────────────┐   │
-                                    │    │                                │   │
                                     ▼    ▼                                │   │
 Phase 8.3 (smoltcp validation)     Phase 8.4 (smoltcp platform)          │   │
-     Hardware TCP test              z_* functions in zenoh-pico-shim     │   │
+     Build verified                 z_* functions in zenoh-pico-shim     │   │
                                     smoltcp FFI layer                    │   │
                                     │                                    │   │
                                     ▼                                    │   │
@@ -1163,22 +1346,31 @@ Phase 8.3 (smoltcp validation)     Phase 8.4 (smoltcp platform)          │   �
                               Phase 8.5 (nano-ros integration)           │   │
                                     ShimExecutor, ShimNode               │   │
                                     shim feature in nano-ros-node        │   │
-                                    8.5.8: Transport migration ──────┐   │   │
-                                    │                                │   │   │
-                                    ▼                                │   │   │
-                              Phase 8.6 (RTIC/polling examples) ─────┤───┘   │
-                                    Hardware testing                 │       │
-                                                                     │       │
-                              Phase 8.8.6 (Old crates removal) ◄─────┘       │
-                                    Remove zenoh-pico-sys, zenoh-pico        │
-                                                                             │
-Phase 8.7 (native verification) ─────────────────────────────────────────────┤
-     Verify executor API works                                               │
-                                                                             │
-Phase 8.8 (documentation) ───────────────────────────────────────────────────┘
+                                    │                                    │   │
+                                    ▼                                    │   │
+                              Phase 8.6 (RTIC/polling examples)          │   │
+                                    Build verified                       │   │
+                                    │                                    │   │
+Phase 8.7 (native verification) ────┼────────────────────────────────────┘   │
+     Verify executor API works      │                                        │
+                                    ▼                                        │
+                              Phase 8.8 (Migration + Cleanup + Tests + Docs) │
+                                    8.8.A: Dependency cleanup                │
+                                    8.8.B: zenoh-pico-shim migration         │
+                                           (add features, migrate transport, │
+                                            remove legacy crates)            │
+                                    8.8.C: ROS 2 interop tests               │
+                                    8.8.D: Documentation                     │
+                                    │                                        │
+                                    ▼                                        │
+                              Phase 8.9 (Hardware Validation) ◄──────────────┘
+                                    8.9.A: Cross-compilation setup
+                                    8.9.B: smoltcp hardware testing
+                                    8.9.C: Zephyr hardware/QEMU testing
+                                    8.9.D: Performance benchmarking
 ```
 
-### Crate Dependency Graph (After Phase 8.4.5 Refactor)
+### Crate Dependency Graph (After Phase 8.8.B Migration)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1191,24 +1383,32 @@ Phase 8.8 (documentation) ──────────────────
 │  │  native-service-*       │        │                                    │  │
 │  └────────────┬────────────┘        └─────────────────┬──────────────────┘  │
 │               │                                       │                      │
-│               │ (posix feature)                       │ (smoltcp/zephyr)     │
+│               │ (zenoh + posix)                       │ (zenoh + smoltcp/zephyr)
 │               │                                       │                      │
 │               └───────────────────┬───────────────────┘                      │
 │                                   │                                          │
 │                                   ▼                                          │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                         nano-ros-node                                │    │
-│  │                    (shim feature for embedded)                       │    │
+│  │                    (zenoh feature for all platforms)                 │    │
+│  └─────────────────────────────────┬───────────────────────────────────┘    │
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                       nano-ros-transport                             │    │
+│  │                    (zenoh feature → zenoh-pico-shim)                 │    │
 │  └─────────────────────────────────┬───────────────────────────────────┘    │
 │                                    │                                         │
 │                                    ▼                                         │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │  zenoh-pico-shim (High-level Rust API)                               │    │
-│  │  ├── src/lib.rs         - Public API, re-exports                     │    │
-│  │  ├── src/session.rs     - Session management                         │    │
-│  │  ├── src/publisher.rs   - Publisher                                  │    │
-│  │  ├── src/subscriber.rs  - Subscriber                                 │    │
-│  │  └── src/platform/      - Platform Rust code (smoltcp_*)             │    │
+│  │  ├── src/lib.rs           - Public API, re-exports                   │    │
+│  │  ├── src/session.rs       - Session management                       │    │
+│  │  ├── src/publisher.rs     - Publisher                                │    │
+│  │  ├── src/subscriber.rs    - Subscriber                               │    │
+│  │  ├── src/liveliness.rs    - LivelinessToken (ROS 2 discovery)        │    │
+│  │  ├── src/queryable.rs     - Queryable/Query (ROS 2 services)         │    │
+│  │  └── src/platform/        - Platform Rust code (smoltcp_*)           │    │
 │  └─────────────────────────────────┬───────────────────────────────────┘    │
 │                                    │                                         │
 │                                    ▼                                         │
@@ -1227,10 +1427,9 @@ Phase 8.8 (documentation) ──────────────────
 │  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-Removed crates (Phase 8.8.6, after transport migration):
+Legacy crates (removed in Phase 8.8.8):
 - zenoh-pico-sys (merged into zenoh-pico-shim-sys)
 - zenoh-pico (merged into zenoh-pico-shim)
-- Note: Currently kept for backward compatibility with nano-ros-transport
 ```
 
 ---

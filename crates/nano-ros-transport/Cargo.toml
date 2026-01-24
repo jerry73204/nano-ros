@@ -30,12 +30,9 @@ polling = []    # Simple polling mode - no background threads, manual poll requi
 sync-spin = ["dep:spin"]
 # Critical section: uses cortex_m::interrupt::free (RTIC-compatible)
 sync-critical-section = ["dep:critical-section"]
-# Portable atomic: uses portable-atomic for broader platform support
-sync-portable-atomic = ["dep:portable-atomic"]
 
 # Logging
 log = ["dep:log"]
-defmt = ["dep:defmt"]
 
 [dependencies]
 nano-ros-core = { workspace = true, default-features = false }
@@ -46,8 +43,6 @@ zenoh-pico-shim = { path = "../zenoh-pico-shim", optional = true, default-featur
 # Synchronization backends (optional)
 spin = { version = "0.9", optional = true, default-features = false, features = ["mutex", "spin_mutex"] }
 critical-section = { version = "1.1", optional = true }
-portable-atomic = { version = "1.6", optional = true, default-features = false }
 
 # Logging
 log = { workspace = true, optional = true }
-defmt = { workspace = true, optional = true }

@@ -32,6 +32,26 @@
 #define ZENOH_SHIM_MAX_SUBSCRIBERS 8
 
 /**
+ * Maximum number of concurrent liveliness tokens
+ */
+#define ZENOH_SHIM_MAX_LIVELINESS 16
+
+/**
+ * Maximum number of concurrent queryables
+ */
+#define ZENOH_SHIM_MAX_QUERYABLES 8
+
+/**
+ * Size of Zenoh ID in bytes
+ */
+#define ZENOH_SHIM_ZID_SIZE 16
+
+/**
+ * Size of RMW GID in bytes (for ROS 2 humble compatibility)
+ */
+#define ZENOH_SHIM_RMW_GID_SIZE 16
+
+/**
  * Success
  */
 #define ZENOH_SHIM_OK 0
@@ -85,6 +105,22 @@
  * * `ctx` - User-provided context pointer
  */
 typedef void (*ShimCallback)(const uint8_t *data, uintptr_t len, void *ctx);
+
+/**
+ * Callback function type for receiving queries (service requests).
+ *
+ * # Parameters
+ * * `keyexpr` - Key expression string (not null-terminated)
+ * * `keyexpr_len` - Length of key expression
+ * * `payload` - Pointer to request payload (may be NULL)
+ * * `payload_len` - Length of payload in bytes
+ * * `ctx` - User-provided context pointer
+ */
+typedef void (*ShimQueryCallback)(const char *keyexpr,
+                                  uintptr_t keyexpr_len,
+                                  const uint8_t *payload,
+                                  uintptr_t payload_len,
+                                  void *ctx);
 
 /**
  * C-compatible callback function pointer type
@@ -230,6 +266,101 @@ int32_t zenoh_shim_spin_once(uint32_t _timeout_ms);
 bool zenoh_shim_uses_polling(void);
 
 /**
+ * Get the session's Zenoh ID.
+ *
+ * # Parameters
+ * * `zid_out` - Pointer to 16-byte buffer to receive the ZID
+ *
+ * # Returns
+ * 0 on success, negative error code on failure.
+ */
+int32_t zenoh_shim_get_zid(uint8_t *_zid_out);
+
+/**
+ * Declare a liveliness token for ROS 2 discovery.
+ *
+ * # Parameters
+ * * `keyexpr` - Key expression string, null-terminated.
+ *
+ * # Returns
+ * Liveliness handle (>= 0) on success, negative error code on failure.
+ */
+int32_t zenoh_shim_declare_liveliness(const char *_keyexpr);
+
+/**
+ * Undeclare a liveliness token.
+ *
+ * # Parameters
+ * * `handle` - Liveliness handle
+ *
+ * # Returns
+ * 0 on success, negative error code on failure.
+ */
+int32_t zenoh_shim_undeclare_liveliness(int32_t _handle);
+
+/**
+ * Publish data with an attachment (for RMW compatibility).
+ *
+ * # Parameters
+ * * `handle` - Publisher handle
+ * * `data` - Pointer to data buffer
+ * * `len` - Length of data in bytes
+ * * `attachment` - Pointer to attachment buffer (may be NULL)
+ * * `attachment_len` - Length of attachment in bytes
+ *
+ * # Returns
+ * 0 on success, negative error code on failure.
+ */
+int32_t zenoh_shim_publish_with_attachment(int32_t _handle,
+                                           const uint8_t *_data,
+                                           uintptr_t _len,
+                                           const uint8_t *_attachment,
+                                           uintptr_t _attachment_len);
+
+/**
+ * Declare a queryable for receiving service requests.
+ *
+ * # Parameters
+ * * `keyexpr` - Key expression string, null-terminated.
+ * * `callback` - Callback function to invoke when queries arrive
+ * * `ctx` - User context pointer passed to callback
+ *
+ * # Returns
+ * Queryable handle (>= 0) on success, negative error code on failure.
+ */
+int32_t zenoh_shim_declare_queryable(const char *_keyexpr, ShimQueryCallback _callback, void *_ctx);
+
+/**
+ * Undeclare a queryable.
+ *
+ * # Parameters
+ * * `handle` - Queryable handle
+ *
+ * # Returns
+ * 0 on success, negative error code on failure.
+ */
+int32_t zenoh_shim_undeclare_queryable(int32_t _handle);
+
+/**
+ * Reply to a query (must be called within query callback).
+ *
+ * # Parameters
+ * * `keyexpr` - Reply key expression string, null-terminated.
+ * * `data` - Pointer to reply data buffer
+ * * `len` - Length of data in bytes
+ * * `attachment` - Pointer to attachment buffer (may be NULL)
+ * * `attachment_len` - Length of attachment in bytes
+ *
+ * # Returns
+ * 0 on success, negative error code on failure.
+ */
+int32_t zenoh_shim_query_reply(const char *_keyexpr,
+                               const uint8_t *_data,
+                               uintptr_t _len,
+                               const uint8_t *_attachment,
+                               uintptr_t _attachment_len);
+
+/**
  * Allocate memory
  */
 void *smoltcp_alloc(uintptr_t _size);
@@ -356,133 +487,5 @@ int32_t smoltcp_socket_get_remote(int32_t _handle, uint8_t *_ip, uint16_t *_port
  * Called by the smoltcp integration layer when connection is established.
  */
 void smoltcp_socket_set_connected(int32_t _handle, bool _connected);
-
-/**
- * Allocate memory
- */
-void *smoltcp_alloc(uintptr_t size);
-
-/**
- * Reallocate memory
- *
- * Note: This is a simplified implementation that allocates new memory
- * and copies the data. The old memory is "leaked" (not reused).
- */
-void *smoltcp_realloc(void *ptr, uintptr_t size);
-
-/**
- * Free memory (no-op for bump allocator)
- */
-void smoltcp_free(void *_ptr);
-
-/**
- * Generate a random u32 using xorshift32
- */
-uint32_t smoltcp_random_u32(void);
-
-/**
- * Set the current monotonic time in milliseconds
- *
- * Call this from your timer interrupt or monotonic update.
- */
-void smoltcp_set_clock_ms(uint64_t ms);
-
-/**
- * Get the current monotonic time in milliseconds
- */
-uint64_t smoltcp_clock_now_ms(void);
-
-/**
- * Set the network poll callback
- *
- * This callback should poll the smoltcp interface and update socket buffers.
- */
-void smoltcp_set_poll_callback(PollCallbackFn callback);
-
-/**
- * Poll the network stack
- *
- * Calls the registered poll callback if set.
- */
-int32_t smoltcp_poll(void);
-
-/**
- * Initialize the platform
- */
-int32_t smoltcp_init(void);
-
-/**
- * Cleanup the platform
- */
-void smoltcp_cleanup(void);
-
-/**
- * Allocate a new socket
- */
-int32_t smoltcp_socket_open(void);
-
-/**
- * Initiate a TCP connection
- *
- * This stores the connection parameters. The actual connection is established
- * when the poll callback drives the smoltcp state machine.
- */
-int32_t smoltcp_socket_connect(int32_t handle, const uint8_t *ip, uint16_t port);
-
-/**
- * Check if socket is connected
- */
-int32_t smoltcp_socket_is_connected(int32_t handle);
-
-/**
- * Close a socket
- */
-int32_t smoltcp_socket_close(int32_t handle);
-
-/**
- * Check if socket can receive data
- */
-int32_t smoltcp_socket_can_recv(int32_t handle);
-
-/**
- * Check if socket can send data
- */
-int32_t smoltcp_socket_can_send(int32_t handle);
-
-/**
- * Receive data from socket
- */
-int32_t smoltcp_socket_recv(int32_t handle, uint8_t *buf, uintptr_t len);
-
-/**
- * Send data to socket
- */
-int32_t smoltcp_socket_send(int32_t handle, const uint8_t *buf, uintptr_t len);
-
-/**
- * Push received data into a socket's RX buffer
- *
- * Called by the smoltcp integration layer when data is received.
- */
-int32_t smoltcp_socket_push_rx(int32_t handle, const uint8_t *data, uintptr_t len);
-
-/**
- * Pop pending data from a socket's TX buffer
- *
- * Called by the smoltcp integration layer when ready to send.
- */
-int32_t smoltcp_socket_pop_tx(int32_t handle, uint8_t *buf, uintptr_t max_len);
-
-/**
- * Get socket connection parameters
- */
-int32_t smoltcp_socket_get_remote(int32_t handle, uint8_t *ip, uint16_t *port);
-
-/**
- * Set socket as connected
- *
- * Called by the smoltcp integration layer when connection is established.
- */
-void smoltcp_socket_set_connected(int32_t handle, bool connected);
 
 #endif  /* ZENOH_SHIM_H */

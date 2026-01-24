@@ -63,4 +63,12 @@ pub use zenoh_pico::{LivelinessToken, ZenohId};
 
 // Re-export shim types when feature is enabled
 #[cfg(feature = "shim")]
-pub use shim::{ShimPublisher, ShimSession, ShimSubscriber, ShimTransport};
+pub use shim::{
+    RmwAttachment as ShimRmwAttachment, Ros2Liveliness as ShimRos2Liveliness, ShimPublisher,
+    ShimServiceClient, ShimServiceServer, ShimSession, ShimSubscriber, ShimTransport,
+    ZenohId as ShimZenohId, RMW_GID_SIZE as SHIM_RMW_GID_SIZE,
+};
+
+// Re-export zenoh-pico-shim types for liveliness support
+#[cfg(feature = "shim")]
+pub use zenoh_pico_shim::ShimLivelinessToken;

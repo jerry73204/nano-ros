@@ -149,17 +149,88 @@ fn generate_header(manifest_dir: &Path, include_dir: &Path) {
 
 /// Post-process the generated header to remove duplicate declarations
 fn post_process_header(header: &str) -> String {
+    use std::collections::HashSet;
+
     let mut result = String::new();
     let mut prev_blank = false;
+    let mut skip_until_semicolon = false;
+    let mut seen_declarations: HashSet<String> = HashSet::new();
+    let mut pending_lines: Vec<String> = Vec::new();
 
     for line in header.lines() {
-        // Skip lines starting with "extern " (duplicate undocumented declarations)
+        let trimmed = line.trim();
+
+        // Skip extern blocks entirely (single or multiline declarations)
         if line.starts_with("extern ") {
+            // For single-line extern declarations, just skip this line
+            // For multiline, skip until we see the closing semicolon
+            if !trimmed.ends_with(';') {
+                skip_until_semicolon = true;
+            }
             continue;
         }
 
+        // Continue skipping multiline extern until we see semicolon
+        if skip_until_semicolon {
+            if trimmed.ends_with(';') {
+                skip_until_semicolon = false;
+            }
+            continue;
+        }
+
+        // Track doc comments to associate with declarations
+        if trimmed.starts_with("/**") || trimmed.starts_with("*") || trimmed.starts_with("*/") {
+            pending_lines.push(line.to_string());
+            continue;
+        }
+
+        // Check for duplicate typedef declarations
+        if trimmed.starts_with("typedef ") {
+            if let Some(name) = extract_typedef_name(trimmed) {
+                if seen_declarations.contains(&name) {
+                    // Duplicate typedef - skip it and any pending doc comments
+                    pending_lines.clear();
+                    // Skip until semicolon for multiline typedefs
+                    if !trimmed.ends_with(';') {
+                        skip_until_semicolon = true;
+                    }
+                    continue;
+                }
+                seen_declarations.insert(name);
+            }
+        }
+
+        // Check for duplicate function declarations
+        if (trimmed.starts_with("int32_t ")
+            || trimmed.starts_with("void ")
+            || trimmed.starts_with("void *")
+            || trimmed.starts_with("uint32_t ")
+            || trimmed.starts_with("uint64_t ")
+            || trimmed.starts_with("bool "))
+            && trimmed.contains('(')
+        {
+            if let Some(name) = extract_function_name(trimmed) {
+                if seen_declarations.contains(&name) {
+                    // Duplicate function - skip it and any pending doc comments
+                    pending_lines.clear();
+                    // Skip until semicolon for multiline functions
+                    if !trimmed.ends_with(';') {
+                        skip_until_semicolon = true;
+                    }
+                    continue;
+                }
+                seen_declarations.insert(name);
+            }
+        }
+
+        // Flush pending lines (doc comments)
+        for pending in pending_lines.drain(..) {
+            result.push_str(&pending);
+            result.push('\n');
+        }
+
         // Collapse multiple blank lines into one
-        let is_blank = line.trim().is_empty();
+        let is_blank = trimmed.is_empty();
         if is_blank && prev_blank {
             continue;
         }
@@ -170,6 +241,53 @@ fn post_process_header(header: &str) -> String {
     }
 
     result
+}
+
+/// Extract function name from a declaration line
+fn extract_function_name(line: &str) -> Option<String> {
+    // Pattern: "type func_name(..." or "type *func_name(..."
+    let trimmed = line.trim();
+
+    // Find the opening parenthesis
+    let paren_pos = trimmed.find('(')?;
+
+    // Get the part before the parenthesis
+    let before_paren = &trimmed[..paren_pos];
+
+    // Split by whitespace and get the last token (function name)
+    // Handle pointer returns like "void *func_name"
+    let name = before_paren.split_whitespace().last()?;
+
+    // Remove any leading asterisks from pointer returns
+    let clean_name = name.trim_start_matches('*');
+
+    Some(clean_name.to_string())
+}
+
+/// Extract typedef name from a declaration line
+fn extract_typedef_name(line: &str) -> Option<String> {
+    // Pattern: "typedef ... (*TypeName)(...)" for function pointers
+    // Or: "typedef ... TypeName;" for simple typedefs
+    let trimmed = line.trim();
+
+    // Function pointer typedef: look for (*Name)
+    if let Some(start) = trimmed.find("(*") {
+        let after_star = &trimmed[start + 2..];
+        if let Some(end) = after_star.find(')') {
+            return Some(after_star[..end].to_string());
+        }
+    }
+
+    // Simple typedef: last word before semicolon
+    if trimmed.ends_with(';') {
+        let without_semi = trimmed.trim_end_matches(';').trim();
+        return without_semi
+            .split_whitespace()
+            .last()
+            .map(|s| s.to_string());
+    }
+
+    None
 }
 
 /// Build zenoh-pico via CMake for native targets

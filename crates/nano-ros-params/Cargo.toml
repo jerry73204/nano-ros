@@ -7,10 +7,8 @@ description = "ROS 2 parameter server for nano-ros"
 
 [features]
 default = ["std"]
-std = ["nano-ros-core/std"]
-alloc = ["nano-ros-core/alloc"]
+std = []
+alloc = []
 
 [dependencies]
-nano-ros-core = { workspace = true, default-features = false }
-nano-ros-serdes = { workspace = true, default-features = false }
 heapless = { workspace = true }

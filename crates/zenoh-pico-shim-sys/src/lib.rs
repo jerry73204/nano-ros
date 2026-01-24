@@ -39,6 +39,10 @@ pub use ffi::*;
 ///
 /// This module provides the Rust FFI functions that the C platform layer calls
 /// to interact with smoltcp for network I/O and system services.
+///
+/// Note: Excluded from cbindgen to avoid duplicate function declarations.
+/// The FFI declarations are in ffi.rs for header generation.
+#[cfg(not(cbindgen))]
 #[cfg(feature = "smoltcp")]
 pub mod platform_smoltcp;
 
@@ -48,22 +52,64 @@ pub mod platform_smoltcp;
 
 // These extern declarations import the C shim functions.
 // The actual implementations are in c/shim/zenoh_shim.c
-#[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
+//
+// Note: Excluded from cbindgen - these are Rust imports of C functions,
+// not declarations for the header file.
+#[cfg(all(
+    any(feature = "posix", feature = "zephyr", feature = "smoltcp"),
+    not(cbindgen)
+))]
 #[allow(improper_ctypes)]
 extern "C" {
+    // Session lifecycle
     pub fn zenoh_shim_init(locator: *const core::ffi::c_char) -> i32;
     pub fn zenoh_shim_open() -> i32;
     pub fn zenoh_shim_is_open() -> i32;
     pub fn zenoh_shim_close();
+
+    // ZenohId
+    pub fn zenoh_shim_get_zid(zid_out: *mut u8) -> i32;
+
+    // Publishers
     pub fn zenoh_shim_declare_publisher(keyexpr: *const core::ffi::c_char) -> i32;
     pub fn zenoh_shim_publish(handle: i32, data: *const u8, len: usize) -> i32;
+    pub fn zenoh_shim_publish_with_attachment(
+        handle: i32,
+        data: *const u8,
+        len: usize,
+        attachment: *const u8,
+        attachment_len: usize,
+    ) -> i32;
     pub fn zenoh_shim_undeclare_publisher(handle: i32) -> i32;
+
+    // Subscribers
     pub fn zenoh_shim_declare_subscriber(
         keyexpr: *const core::ffi::c_char,
         callback: ShimCallback,
         ctx: *mut c_void,
     ) -> i32;
     pub fn zenoh_shim_undeclare_subscriber(handle: i32) -> i32;
+
+    // Liveliness
+    pub fn zenoh_shim_declare_liveliness(keyexpr: *const core::ffi::c_char) -> i32;
+    pub fn zenoh_shim_undeclare_liveliness(handle: i32) -> i32;
+
+    // Queryables (for services)
+    pub fn zenoh_shim_declare_queryable(
+        keyexpr: *const core::ffi::c_char,
+        callback: ShimQueryCallback,
+        ctx: *mut c_void,
+    ) -> i32;
+    pub fn zenoh_shim_undeclare_queryable(handle: i32) -> i32;
+    pub fn zenoh_shim_query_reply(
+        keyexpr: *const core::ffi::c_char,
+        data: *const u8,
+        len: usize,
+        attachment: *const u8,
+        attachment_len: usize,
+    ) -> i32;
+
+    // Polling
     pub fn zenoh_shim_poll(timeout_ms: u32) -> i32;
     pub fn zenoh_shim_spin_once(timeout_ms: u32) -> i32;
     pub fn zenoh_shim_uses_polling() -> bool;

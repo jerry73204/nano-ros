@@ -12,4 +12,3 @@ alloc = []
 
 [dependencies]
 heapless = { workspace = true }
-byteorder = { workspace = true }

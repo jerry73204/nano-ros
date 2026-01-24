@@ -6,13 +6,14 @@
 //!
 //! Requires the `shim` feature flag.
 //!
-//! # Limitations
+//! # Features
 //!
-//! Compared to the full `zenoh` transport, this shim transport:
-//! - Does not support liveliness tokens (no ROS 2 discovery)
-//! - Does not support services (not yet implemented in shim)
-//! - Does not include RMW attachments (simplified protocol)
-//! - Requires manual polling (no background threads)
+//! - Session management with ZenohId support
+//! - Publishers with RMW attachment support for rmw_zenoh compatibility
+//! - Subscribers with wildcard matching
+//! - Liveliness tokens for ROS 2 discovery
+//! - Service servers via queryables (service clients not yet implemented)
+//! - Manual polling (no background threads) for embedded systems
 //!
 //! # Example
 //!
@@ -33,14 +34,30 @@
 //! ```
 
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 
 use crate::traits::{
     Publisher, QosSettings, ServiceClientTrait, ServiceInfo, ServiceRequest, ServiceServerTrait,
     Session, SessionMode, Subscriber, TopicInfo, Transport, TransportConfig, TransportError,
 };
 
-use zenoh_pico_shim::{ShimContext, ShimError};
+use zenoh_pico_shim::{
+    ShimContext, ShimError, ShimLivelinessToken, ShimZenohId, ZENOH_SHIM_RMW_GID_SIZE,
+};
+
+// Re-export for convenience
+pub use zenoh_pico_shim::ShimZenohId as ZenohId;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// RMW GID size for attachment serialization (16 bytes for Humble)
+pub const RMW_GID_SIZE: usize = ZENOH_SHIM_RMW_GID_SIZE as usize;
+
+/// Size of serialized RMW attachment
+/// Format: sequence_number (8) + timestamp (8) + VLE length (1) + gid (16) = 33 bytes
+const RMW_ATTACHMENT_SIZE: usize = 8 + 8 + 1 + RMW_GID_SIZE;
 
 // ============================================================================
 // Error Conversion
@@ -59,6 +76,180 @@ impl From<ShimError> for TransportError {
             ShimError::Publish => TransportError::PublishFailed,
             ShimError::NotOpen => TransportError::Disconnected,
         }
+    }
+}
+
+// ============================================================================
+// RMW Attachment Support
+// ============================================================================
+
+/// RMW attachment data for rmw_zenoh compatibility
+///
+/// This metadata is attached to each published message and is required
+/// for ROS 2 nodes using rmw_zenoh_cpp to receive messages.
+#[derive(Debug, Clone, Copy)]
+pub struct RmwAttachment {
+    /// Message sequence number (incremented per publish)
+    pub sequence_number: i64,
+    /// Timestamp in nanoseconds
+    pub timestamp: i64,
+    /// RMW Global Identifier (random, generated once per publisher)
+    pub rmw_gid: [u8; RMW_GID_SIZE],
+}
+
+impl RmwAttachment {
+    /// Create a new attachment with a random GID
+    pub fn new() -> Self {
+        Self {
+            sequence_number: 0,
+            timestamp: 0,
+            rmw_gid: Self::generate_gid(),
+        }
+    }
+
+    /// Generate a random GID using a simple PRNG
+    fn generate_gid() -> [u8; RMW_GID_SIZE] {
+        let mut gid = [0u8; RMW_GID_SIZE];
+        static COUNTER: AtomicI64 = AtomicI64::new(0);
+        let seed = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
+        // Use address of gid as additional entropy
+        let addr = &gid as *const _ as u64;
+        let mixed = seed.wrapping_mul(0x517cc1b727220a95) ^ addr;
+
+        for (i, byte) in gid.iter_mut().enumerate() {
+            let shift = (i % 8) * 8;
+            *byte = ((mixed.wrapping_mul((i as u64).wrapping_add(1))) >> shift) as u8;
+        }
+        gid
+    }
+
+    /// Serialize the attachment in the format expected by rmw_zenoh_cpp
+    ///
+    /// Format:
+    /// - int64: sequence_number (little-endian, 8 bytes)
+    /// - int64: timestamp (little-endian, 8 bytes)
+    /// - VLE length (1 byte for length 16)
+    /// - 16 x uint8: GID
+    pub fn serialize(&self, buf: &mut [u8; RMW_ATTACHMENT_SIZE]) {
+        // Sequence number (little-endian)
+        buf[0..8].copy_from_slice(&self.sequence_number.to_le_bytes());
+        // Timestamp (little-endian)
+        buf[8..16].copy_from_slice(&self.timestamp.to_le_bytes());
+        // VLE length (16 fits in single byte)
+        buf[16] = RMW_GID_SIZE as u8;
+        // GID bytes
+        buf[17..33].copy_from_slice(&self.rmw_gid);
+    }
+}
+
+impl Default for RmwAttachment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Ros2Liveliness Helper
+// ============================================================================
+
+/// ROS 2 liveliness key expression builder for the shim transport
+///
+/// Generates the key expressions required for ROS 2 discovery via rmw_zenoh.
+pub struct Ros2Liveliness;
+
+impl Ros2Liveliness {
+    /// Build a node liveliness key expression
+    ///
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/0/NN/%/%/<node_name>`
+    pub fn node_keyexpr<const N: usize>(
+        domain_id: u32,
+        zid: &ShimZenohId,
+        node_name: &str,
+    ) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let mut zid_hex = [0u8; 32];
+        zid.to_hex_bytes(&mut zid_hex);
+        let zid_str = core::str::from_utf8(&zid_hex).unwrap_or("");
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "@ros2_lv/{}/{}/0/0/NN/%/%/{}",
+                domain_id, zid_str, node_name
+            ),
+        );
+        key
+    }
+
+    /// Build a publisher liveliness key expression
+    ///
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    pub fn publisher_keyexpr<const N: usize>(
+        domain_id: u32,
+        zid: &ShimZenohId,
+        node_name: &str,
+        topic: &TopicInfo,
+    ) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let mut zid_hex = [0u8; 32];
+        zid.to_hex_bytes(&mut zid_hex);
+        let zid_str = core::str::from_utf8(&zid_hex).unwrap_or("");
+        // Mangle topic name: replace slashes with percent signs
+        let topic_mangled = Self::mangle_topic_name::<64>(topic.name);
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "@ros2_lv/{}/{}/0/11/MP/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
+                domain_id,
+                zid_str,
+                node_name,
+                topic_mangled.as_str(),
+                topic.type_name,
+                topic.type_hash
+            ),
+        );
+        key
+    }
+
+    /// Build a subscriber liveliness key expression
+    ///
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    pub fn subscriber_keyexpr<const N: usize>(
+        domain_id: u32,
+        zid: &ShimZenohId,
+        node_name: &str,
+        topic: &TopicInfo,
+    ) -> heapless::String<N> {
+        let mut key = heapless::String::new();
+        let mut zid_hex = [0u8; 32];
+        zid.to_hex_bytes(&mut zid_hex);
+        let zid_str = core::str::from_utf8(&zid_hex).unwrap_or("");
+        let topic_mangled = Self::mangle_topic_name::<64>(topic.name);
+        let _ = core::fmt::write(
+            &mut key,
+            format_args!(
+                "@ros2_lv/{}/{}/0/11/MS/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
+                domain_id,
+                zid_str,
+                node_name,
+                topic_mangled.as_str(),
+                topic.type_name,
+                topic.type_hash
+            ),
+        );
+        key
+    }
+
+    /// Mangle a topic name by replacing '/' with '%'
+    fn mangle_topic_name<const N: usize>(topic: &str) -> heapless::String<N> {
+        let mut mangled = heapless::String::new();
+        for c in topic.chars() {
+            if c == '/' {
+                let _ = mangled.push('%');
+            } else {
+                let _ = mangled.push(c);
+            }
+        }
+        mangled
     }
 }
 
@@ -177,6 +368,29 @@ impl ShimSession {
     pub fn inner(&self) -> &ShimContext {
         &self.context
     }
+
+    /// Get the session's Zenoh ID
+    ///
+    /// The Zenoh ID uniquely identifies this session in the Zenoh network.
+    /// It is used in liveliness token key expressions for ROS 2 discovery.
+    pub fn zid(&self) -> Result<ShimZenohId, TransportError> {
+        self.context.zid().map_err(TransportError::from)
+    }
+
+    /// Declare a liveliness token for ROS 2 discovery
+    ///
+    /// This creates a liveliness token at the given key expression,
+    /// allowing ROS 2 nodes using rmw_zenoh to discover this entity.
+    ///
+    /// The key expression should be null-terminated.
+    pub fn declare_liveliness(
+        &self,
+        keyexpr: &[u8],
+    ) -> Result<ShimLivelinessToken<'_>, TransportError> {
+        self.context
+            .declare_liveliness(keyexpr)
+            .map_err(TransportError::from)
+    }
 }
 
 impl Session for ShimSession {
@@ -204,10 +418,9 @@ impl Session for ShimSession {
 
     fn create_service_server(
         &mut self,
-        _service: &ServiceInfo,
+        service: &ServiceInfo,
     ) -> Result<Self::ServiceServerHandle, Self::Error> {
-        // Services not yet supported in shim
-        Err(TransportError::ServiceServerCreationFailed)
+        ShimServiceServer::new(&self.context, service)
     }
 
     fn create_service_client(
@@ -229,8 +442,14 @@ impl Session for ShimSession {
 // ============================================================================
 
 /// Shim publisher wrapping zenoh-pico-shim ShimPublisher
+///
+/// Includes RMW attachment support for rmw_zenoh compatibility.
 pub struct ShimPublisher {
     publisher: zenoh_pico_shim::ShimPublisher<'static>,
+    /// RMW attachment with GID and sequence counter
+    attachment: RmwAttachment,
+    /// Static timestamp counter (until platform time is available)
+    timestamp_counter: AtomicI64,
 }
 
 impl ShimPublisher {
@@ -264,7 +483,18 @@ impl ShimPublisher {
             }
         };
 
-        Ok(Self { publisher })
+        Ok(Self {
+            publisher,
+            attachment: RmwAttachment::new(),
+            timestamp_counter: AtomicI64::new(0),
+        })
+    }
+
+    /// Get current timestamp in nanoseconds (placeholder until platform time available)
+    fn current_timestamp(&self) -> i64 {
+        // Increment by 1ms equivalent
+        self.timestamp_counter
+            .fetch_add(1_000_000, Ordering::Relaxed)
     }
 }
 
@@ -272,7 +502,21 @@ impl Publisher for ShimPublisher {
     type Error = TransportError;
 
     fn publish_raw(&self, data: &[u8]) -> Result<(), Self::Error> {
-        self.publisher.publish(data).map_err(TransportError::from)
+        // Update attachment with new sequence number and timestamp
+        // Note: We need interior mutability here, using a simple workaround
+        // since we can't use Mutex in no_std without extra dependencies
+        let mut att = self.attachment;
+        att.sequence_number += 1;
+        att.timestamp = self.current_timestamp();
+
+        // Serialize the attachment
+        let mut att_buf = [0u8; RMW_ATTACHMENT_SIZE];
+        att.serialize(&mut att_buf);
+
+        // Publish with attachment
+        self.publisher
+            .publish_with_attachment(data, Some(&att_buf))
+            .map_err(TransportError::from)
     }
 
     fn buffer_error(&self) -> Self::Error {
@@ -440,12 +684,166 @@ impl Subscriber for ShimSubscriber {
 }
 
 // ============================================================================
-// Service Stubs (not yet implemented)
+// Service Server (using queryables)
 // ============================================================================
 
-/// Shim service server (not yet supported)
+/// Shared buffer for service server callbacks
+struct ServiceBuffer {
+    /// Buffer for received request data
+    data: [u8; 1024],
+    /// Buffer for keyexpr (for reply)
+    keyexpr: [u8; 256],
+    /// Flag indicating new request is available
+    has_request: AtomicBool,
+    /// Length of valid data
+    len: AtomicUsize,
+    /// Length of keyexpr
+    keyexpr_len: AtomicUsize,
+    /// Sequence number (counter)
+    sequence_number: AtomicI64,
+}
+
+impl ServiceBuffer {
+    const fn new() -> Self {
+        Self {
+            data: [0u8; 1024],
+            keyexpr: [0u8; 256],
+            has_request: AtomicBool::new(false),
+            len: AtomicUsize::new(0),
+            keyexpr_len: AtomicUsize::new(0),
+            sequence_number: AtomicI64::new(0),
+        }
+    }
+}
+
+/// Static buffers for service servers (limited by ZENOH_SHIM_MAX_QUERYABLES)
+static mut SERVICE_BUFFERS: [ServiceBuffer; 8] = [
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+    ServiceBuffer::new(),
+];
+
+/// Next available service buffer index
+static NEXT_SERVICE_BUFFER_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+/// Sequence counter for service requests
+static SERVICE_SEQ_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+/// Callback function invoked by the C shim when queries arrive
+extern "C" fn queryable_callback(
+    keyexpr: *const core::ffi::c_char,
+    keyexpr_len: usize,
+    payload: *const u8,
+    payload_len: usize,
+    ctx: *mut core::ffi::c_void,
+) {
+    let buffer_index = ctx as usize;
+    if buffer_index >= 8 {
+        return;
+    }
+
+    // Safety: We control access to SERVICE_BUFFERS and the callback is single-threaded
+    unsafe {
+        let buffer = &mut SERVICE_BUFFERS[buffer_index];
+
+        // Copy keyexpr
+        let keyexpr_copy_len = keyexpr_len.min(buffer.keyexpr.len() - 1);
+        core::ptr::copy_nonoverlapping(
+            keyexpr as *const u8,
+            buffer.keyexpr.as_mut_ptr(),
+            keyexpr_copy_len,
+        );
+        buffer.keyexpr[keyexpr_copy_len] = 0; // Null terminate
+        buffer
+            .keyexpr_len
+            .store(keyexpr_copy_len, Ordering::Release);
+
+        // Copy payload
+        let copy_len = payload_len.min(buffer.data.len());
+        if !payload.is_null() && payload_len > 0 {
+            core::ptr::copy_nonoverlapping(payload, buffer.data.as_mut_ptr(), copy_len);
+        }
+        buffer.len.store(copy_len, Ordering::Release);
+
+        // Set sequence number
+        let seq = SERVICE_SEQ_COUNTER.fetch_add(1, Ordering::Relaxed);
+        buffer.sequence_number.store(seq, Ordering::Release);
+
+        buffer.has_request.store(true, Ordering::Release);
+    }
+}
+
+/// Shim service server using queryables
+///
+/// Receives service requests via queryable callbacks.
+/// Note: The reply mechanism is limited due to the callback model.
 pub struct ShimServiceServer {
-    _private: PhantomData<()>,
+    /// The queryable handle (kept alive to maintain registration)
+    _queryable: zenoh_pico_shim::ShimQueryable<'static>,
+    /// Index into the static buffer array
+    buffer_index: usize,
+    /// Keyexpr buffer for replying (copied from last request)
+    reply_keyexpr: [u8; 256],
+    /// Keyexpr length
+    reply_keyexpr_len: usize,
+    /// Reference to context for replying
+    context: *const ShimContext,
+    /// Phantom to indicate ownership
+    _phantom: PhantomData<()>,
+}
+
+impl ShimServiceServer {
+    /// Create a new service server for the given service
+    pub fn new(context: &ShimContext, service: &ServiceInfo) -> Result<Self, TransportError> {
+        // Allocate a buffer index
+        let buffer_index = NEXT_SERVICE_BUFFER_INDEX.fetch_add(1, Ordering::SeqCst);
+        if buffer_index >= 8 {
+            NEXT_SERVICE_BUFFER_INDEX.fetch_sub(1, Ordering::SeqCst);
+            return Err(TransportError::ServiceServerCreationFailed);
+        }
+
+        // Generate the service key
+        let key: heapless::String<256> = service.to_key();
+
+        // Create null-terminated keyexpr
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = key.as_bytes();
+        if bytes.len() >= keyexpr_buf.len() {
+            return Err(TransportError::InvalidConfig);
+        }
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        keyexpr_buf[bytes.len()] = 0;
+
+        // Create queryable with callback
+        let queryable = unsafe {
+            let result = context.declare_queryable_raw(
+                &keyexpr_buf,
+                queryable_callback,
+                buffer_index as *mut core::ffi::c_void,
+            );
+            match result {
+                Ok(q) => core::mem::transmute::<
+                    zenoh_pico_shim::ShimQueryable<'_>,
+                    zenoh_pico_shim::ShimQueryable<'static>,
+                >(q),
+                Err(e) => return Err(TransportError::from(e)),
+            }
+        };
+
+        Ok(Self {
+            _queryable: queryable,
+            buffer_index,
+            reply_keyexpr: [0u8; 256],
+            reply_keyexpr_len: 0,
+            context: context as *const ShimContext,
+            _phantom: PhantomData,
+        })
+    }
 }
 
 impl ServiceServerTrait for ShimServiceServer {
@@ -453,18 +851,79 @@ impl ServiceServerTrait for ShimServiceServer {
 
     fn try_recv_request<'a>(
         &mut self,
-        _buf: &'a mut [u8],
+        buf: &'a mut [u8],
     ) -> Result<Option<ServiceRequest<'a>>, Self::Error> {
-        // Services not yet supported
-        Err(TransportError::ServiceServerCreationFailed)
+        // Safety: We own this buffer index and access is atomic
+        let buffer = unsafe { &SERVICE_BUFFERS[self.buffer_index] };
+
+        if !buffer.has_request.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+
+        let len = buffer.len.load(Ordering::Acquire);
+        if len > buf.len() {
+            return Err(TransportError::BufferTooSmall);
+        }
+
+        // Copy data and keyexpr
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                SERVICE_BUFFERS[self.buffer_index].data.as_ptr(),
+                buf.as_mut_ptr(),
+                len,
+            );
+
+            // Save keyexpr for potential reply
+            let keyexpr_len = buffer.keyexpr_len.load(Ordering::Acquire);
+            core::ptr::copy_nonoverlapping(
+                SERVICE_BUFFERS[self.buffer_index].keyexpr.as_ptr(),
+                self.reply_keyexpr.as_mut_ptr(),
+                keyexpr_len,
+            );
+            self.reply_keyexpr[keyexpr_len] = 0;
+            self.reply_keyexpr_len = keyexpr_len;
+        }
+
+        let seq = buffer.sequence_number.load(Ordering::Acquire);
+        buffer.has_request.store(false, Ordering::Release);
+
+        Ok(Some(ServiceRequest {
+            data: &buf[..len],
+            sequence_number: seq,
+        }))
     }
 
-    fn send_reply(&mut self, _sequence_number: i64, _data: &[u8]) -> Result<(), Self::Error> {
-        Err(TransportError::ServiceReplyFailed)
+    fn send_reply(&mut self, _sequence_number: i64, data: &[u8]) -> Result<(), Self::Error> {
+        // Note: This only works if called immediately after try_recv_request
+        // while the C shim's g_current_query is still valid.
+        // In practice, this is a limitation of the callback model.
+        if self.reply_keyexpr_len == 0 {
+            return Err(TransportError::ServiceReplyFailed);
+        }
+
+        // Get context reference
+        let context = unsafe { &*self.context };
+
+        // Send reply using the stored keyexpr
+        context
+            .query_reply(&self.reply_keyexpr[..=self.reply_keyexpr_len], data, None)
+            .map_err(|_| TransportError::ServiceReplyFailed)?;
+
+        // Clear the stored keyexpr
+        self.reply_keyexpr_len = 0;
+
+        Ok(())
     }
 }
 
+// ============================================================================
+// Service Client (not yet implemented)
+// ============================================================================
+
 /// Shim service client (not yet supported)
+///
+/// Service clients require synchronous z_get calls with reply handling,
+/// which is not yet implemented in the shim.
 pub struct ShimServiceClient {
     _private: PhantomData<()>,
 }
@@ -473,6 +932,8 @@ impl ServiceClientTrait for ShimServiceClient {
     type Error = TransportError;
 
     fn call_raw(&mut self, _request: &[u8], _reply_buf: &mut [u8]) -> Result<usize, Self::Error> {
+        // Service clients require z_get with reply handling
+        // This is not yet implemented in the shim
         Err(TransportError::ServiceRequestFailed)
     }
 }
@@ -495,5 +956,33 @@ mod tests {
             TransportError::from(ShimError::Publish),
             TransportError::PublishFailed
         );
+    }
+
+    #[test]
+    fn test_rmw_attachment_serialization() {
+        let mut att = RmwAttachment::new();
+        att.sequence_number = 42;
+        att.timestamp = 1000000;
+
+        let mut buf = [0u8; RMW_ATTACHMENT_SIZE];
+        att.serialize(&mut buf);
+
+        // Check sequence number (little-endian)
+        assert_eq!(&buf[0..8], &42i64.to_le_bytes());
+        // Check timestamp (little-endian)
+        assert_eq!(&buf[8..16], &1000000i64.to_le_bytes());
+        // Check VLE length
+        assert_eq!(buf[16], 16);
+        // Check GID (should match)
+        assert_eq!(&buf[17..33], &att.rmw_gid);
+    }
+
+    #[test]
+    fn test_ros2_liveliness_mangle() {
+        let mangled = Ros2Liveliness::mangle_topic_name::<64>("/chatter");
+        assert_eq!(mangled.as_str(), "%chatter");
+
+        let mangled2 = Ros2Liveliness::mangle_topic_name::<64>("/foo/bar/baz");
+        assert_eq!(mangled2.as_str(), "%foo%bar%baz");
     }
 }

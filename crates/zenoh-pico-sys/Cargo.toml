@@ -10,6 +10,7 @@ links = "zenohpico"
 name = "zenoh_pico_sys"
 
 [dependencies]
+# cty provides C type aliases for no_std compatibility in generated bindings
 cty = { workspace = true }
 
 [build-dependencies]
@@ -20,3 +21,7 @@ cmake = "0.1"
 [features]
 default = []
 std = []
+
+[package.metadata.cargo-machete]
+# cty is used by bindgen-generated code in OUT_DIR, not visible to machete
+ignored = ["cty"]

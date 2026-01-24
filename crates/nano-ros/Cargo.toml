@@ -12,14 +12,12 @@ default = ["std", "zenoh"]
 std = [
     "alloc",  # std implies alloc
     "nano-ros-core/std",
-    "nano-ros-serdes/std",
     "nano-ros-node/std",
     "nano-ros-transport/std",
     "nano-ros-params/std",
 ]
 alloc = [
     "nano-ros-core/alloc",
-    "nano-ros-serdes/alloc",
     "nano-ros-node/alloc",
     "nano-ros-transport/alloc",
     "nano-ros-params/alloc",
@@ -32,7 +30,6 @@ zenoh = [
 [dependencies]
 # Core functionality (default-features = false for no_std support)
 nano-ros-core = { path = "../nano-ros-core", default-features = false }
-nano-ros-serdes = { path = "../nano-ros-serdes", default-features = false }
 nano-ros-macros = { path = "../nano-ros-macros" }
 nano-ros-node = { path = "../nano-ros-node", default-features = false }
 nano-ros-transport = { path = "../nano-ros-transport", default-features = false }

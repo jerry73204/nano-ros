@@ -24,6 +24,18 @@ pub const ZENOH_SHIM_MAX_PUBLISHERS: usize = 8;
 /// Maximum number of concurrent subscribers
 pub const ZENOH_SHIM_MAX_SUBSCRIBERS: usize = 8;
 
+/// Maximum number of concurrent liveliness tokens
+pub const ZENOH_SHIM_MAX_LIVELINESS: usize = 16;
+
+/// Maximum number of concurrent queryables
+pub const ZENOH_SHIM_MAX_QUERYABLES: usize = 8;
+
+/// Size of Zenoh ID in bytes
+pub const ZENOH_SHIM_ZID_SIZE: usize = 16;
+
+/// Size of RMW GID in bytes (for ROS 2 humble compatibility)
+pub const ZENOH_SHIM_RMW_GID_SIZE: usize = 16;
+
 // ============================================================================
 // Error Codes
 // ============================================================================
@@ -58,6 +70,22 @@ pub const ZENOH_SHIM_ERR_PUBLISH: i32 = -8;
 /// * `len` - Length of data in bytes
 /// * `ctx` - User-provided context pointer
 pub type ShimCallback = extern "C" fn(data: *const u8, len: usize, ctx: *mut c_void);
+
+/// Callback function type for receiving queries (service requests).
+///
+/// # Parameters
+/// * `keyexpr` - Key expression string (not null-terminated)
+/// * `keyexpr_len` - Length of key expression
+/// * `payload` - Pointer to request payload (may be NULL)
+/// * `payload_len` - Length of payload in bytes
+/// * `ctx` - User-provided context pointer
+pub type ShimQueryCallback = extern "C" fn(
+    keyexpr: *const core::ffi::c_char,
+    keyexpr_len: usize,
+    payload: *const u8,
+    payload_len: usize,
+    ctx: *mut c_void,
+);
 
 /// C-compatible callback function pointer type
 pub type PollCallback = extern "C" fn();
@@ -218,6 +246,132 @@ mod cbindgen_stubs {
     #[no_mangle]
     pub extern "C" fn zenoh_shim_uses_polling() -> bool {
         false
+    }
+
+    // ========================================================================
+    // ZenohId API
+    // ========================================================================
+
+    /// Get the session's Zenoh ID.
+    ///
+    /// # Parameters
+    /// * `zid_out` - Pointer to 16-byte buffer to receive the ZID
+    ///
+    /// # Returns
+    /// 0 on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_get_zid(_zid_out: *mut u8) -> i32 {
+        0
+    }
+
+    // ========================================================================
+    // Liveliness API
+    // ========================================================================
+
+    /// Declare a liveliness token for ROS 2 discovery.
+    ///
+    /// # Parameters
+    /// * `keyexpr` - Key expression string, null-terminated.
+    ///
+    /// # Returns
+    /// Liveliness handle (>= 0) on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_declare_liveliness(_keyexpr: *const c_char) -> i32 {
+        0
+    }
+
+    /// Undeclare a liveliness token.
+    ///
+    /// # Parameters
+    /// * `handle` - Liveliness handle
+    ///
+    /// # Returns
+    /// 0 on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_undeclare_liveliness(_handle: i32) -> i32 {
+        0
+    }
+
+    // ========================================================================
+    // Publish with Attachment API
+    // ========================================================================
+
+    /// Publish data with an attachment (for RMW compatibility).
+    ///
+    /// # Parameters
+    /// * `handle` - Publisher handle
+    /// * `data` - Pointer to data buffer
+    /// * `len` - Length of data in bytes
+    /// * `attachment` - Pointer to attachment buffer (may be NULL)
+    /// * `attachment_len` - Length of attachment in bytes
+    ///
+    /// # Returns
+    /// 0 on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_publish_with_attachment(
+        _handle: i32,
+        _data: *const u8,
+        _len: usize,
+        _attachment: *const u8,
+        _attachment_len: usize,
+    ) -> i32 {
+        0
+    }
+
+    // ========================================================================
+    // Queryable API (for ROS 2 Services)
+    // ========================================================================
+
+    /// Declare a queryable for receiving service requests.
+    ///
+    /// # Parameters
+    /// * `keyexpr` - Key expression string, null-terminated.
+    /// * `callback` - Callback function to invoke when queries arrive
+    /// * `ctx` - User context pointer passed to callback
+    ///
+    /// # Returns
+    /// Queryable handle (>= 0) on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_declare_queryable(
+        _keyexpr: *const c_char,
+        _callback: ShimQueryCallback,
+        _ctx: *mut c_void,
+    ) -> i32 {
+        0
+    }
+
+    /// Undeclare a queryable.
+    ///
+    /// # Parameters
+    /// * `handle` - Queryable handle
+    ///
+    /// # Returns
+    /// 0 on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_undeclare_queryable(_handle: i32) -> i32 {
+        0
+    }
+
+    /// Reply to a query (must be called within query callback).
+    ///
+    /// # Parameters
+    /// * `keyexpr` - Reply key expression string, null-terminated.
+    /// * `data` - Pointer to reply data buffer
+    /// * `len` - Length of data in bytes
+    /// * `attachment` - Pointer to attachment buffer (may be NULL)
+    /// * `attachment_len` - Length of attachment in bytes
+    ///
+    /// # Returns
+    /// 0 on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_query_reply(
+        _keyexpr: *const c_char,
+        _data: *const u8,
+        _len: usize,
+        _attachment: *const u8,
+        _attachment_len: usize,
+    ) -> i32 {
+        0
     }
 
     // ========================================================================

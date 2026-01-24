@@ -23,7 +23,7 @@ smoltcp = []
 std = []
 
 [dependencies]
-cty = { workspace = true }
+# (none - all C code, no Rust deps)
 
 [build-dependencies]
 cbindgen = "0.29"
