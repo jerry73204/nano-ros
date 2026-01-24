@@ -20,14 +20,14 @@ This phase extends the existing test infrastructure to cover:
 
 ## Phase 9.A: Rust Test Framework Migration
 
-**Status**: In Progress
+**Status**: Complete (except Zephyr migration and GitHub Actions)
 - ✅ 9.A.1: Core Framework Setup (complete)
 - ✅ 9.A.2: Emulator Tests (complete)
-- ✅ 9.A.3: nano2nano Tests (partial - basic tests done)
+- ✅ 9.A.3: nano2nano Tests (complete)
 - ✅ 9.A.4: RMW Interop Tests (complete)
 - ✅ 9.A.5: Platform Tests (complete)
 - ✅ 9.A.6: CI Integration (justfile done, GitHub Actions pending)
-- ⏳ 9.A.7: Cleanup (ready to start)
+- ✅ 9.A.7: Cleanup (complete - Zephyr kept as shell script)
 
 **Priority**: **Critical** (Foundation for all other tests)
 
@@ -273,24 +273,27 @@ tests/
 #### 9.A.7: Cleanup Legacy Shell Scripts
 After migrating all tests to Rust, remove the legacy shell scripts:
 
-- [ ] **9.A.7.1** Delete `tests/emulator/` directory (migrated to `emulator.rs`)
-- [ ] **9.A.7.2** Delete `tests/nano2nano/` directory (migrated to `nano2nano.rs`)
-- [ ] **9.A.7.3** Delete `tests/platform/` directory (migrated to `platform.rs`)
-- [ ] **9.A.7.4** Delete `tests/smoltcp/` directory (already Rust unit tests)
-- [ ] **9.A.7.5** Delete `tests/rmw-interop/` directory (migrate to `rmw_interop.rs` first)
-- [ ] **9.A.7.6** Delete `tests/rmw-detailed/` directory (migrate to `rmw_interop.rs` first)
-- [ ] **9.A.7.7** Delete `tests/zephyr/` directory (migrate to Rust first)
-- [ ] **9.A.7.8** Delete `tests/common/` directory (utilities moved to `nano-ros-tests/src/lib.rs`)
-- [ ] **9.A.7.9** Delete `tests/run-all.sh` (replaced by `just test-rust`)
-- [ ] **9.A.7.10** Update `tests/README.md` to document Rust-only workflow
+- [x] **9.A.7.1** Delete `tests/emulator/` directory (migrated to `emulator.rs`)
+- [x] **9.A.7.2** Delete `tests/nano2nano/` directory (migrated to `nano2nano.rs`)
+- [x] **9.A.7.3** Delete `tests/platform/` directory (migrated to `platform.rs`)
+- [x] **9.A.7.4** Delete `tests/smoltcp/` directory (already Rust unit tests)
+- [x] **9.A.7.5** Delete `tests/rmw-interop/` directory (migrated to `rmw_interop.rs`)
+- [x] **9.A.7.6** Delete `tests/rmw-detailed/` directory (migrated to `rmw_interop.rs`)
+- [ ] **9.A.7.7** Migrate `tests/zephyr/` to Rust (kept: requires west workspace + TAP network)
+- [x] **9.A.7.8** Delete `tests/common/` directory (utilities moved to `nano-ros-tests/src/lib.rs`)
+- [x] **9.A.7.9** Delete `tests/run-all.sh` (replaced by `just test-rust`)
+- [x] **9.A.7.10** Update `tests/README.md` to document Rust-only workflow
+- [x] **9.A.7.11** Update `justfile` to remove shell script references
+- [x] **9.A.7.12** Make `rust-tests.sh` and `zephyr/run.sh` self-contained
 
 **Final `tests/` directory structure:**
 ```
 tests/
 ├── README.md                # Documentation for Rust tests
 ├── rust-tests.sh            # Optional wrapper for nice output
-└── rmw-interop/             # ROS 2 interop tests (keep until migrated)
-    └── ...                  # Delete after 9.A.4 complete
+├── zephyr/                  # Zephyr tests (not yet migrated to Rust)
+│   └── run.sh               # Self-contained, requires west + TAP network
+└── simple-workspace/        # Standalone build verification
 ```
 
 ### Benefits Over Shell Scripts
@@ -307,13 +310,13 @@ tests/
 | IDE support     | Limited           | Full (rust-analyzer)         |
 
 ### Acceptance Criteria
-- [ ] All existing shell tests have Rust equivalents in `crates/nano-ros-tests/`
+- [x] All existing shell tests have Rust equivalents in `crates/nano-ros-tests/` (except Zephyr)
 - [x] Tests run with `cargo test -p nano-ros-tests` or `just test-rust`
 - [x] Process cleanup is automatic (no orphan processes via RAII)
 - [x] Test failures produce clear error messages with context
-- [ ] CI runs Rust integration tests
-- [ ] Legacy shell scripts deleted from `tests/` directory
-- [ ] `tests/` directory contains only README and optional wrapper script
+- [ ] CI runs Rust integration tests (GitHub Actions pending)
+- [x] Legacy shell scripts deleted from `tests/` directory (except Zephyr)
+- [x] `tests/` directory contains only README, wrapper script, and Zephyr tests
 
 ---
 

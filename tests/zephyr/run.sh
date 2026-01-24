@@ -20,7 +20,73 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../common/utils.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# =============================================================================
+# Utilities (self-contained)
+# =============================================================================
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info()    { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_success() { echo -e "${GREEN}[PASS]${NC} $*"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error()   { echo -e "${RED}[FAIL]${NC} $*"; }
+log_header()  { echo -e "\n${CYAN}=== $* ===${NC}"; }
+
+# Temp directory for this test run
+TEST_TMPDIR="$(mktemp -d /tmp/nano-ros-zephyr-test.XXXXXX)"
+
+# Get a temp file path
+tmpfile() {
+    echo "$TEST_TMPDIR/$1"
+}
+
+# PIDs for cleanup
+declare -a CLEANUP_PIDS=()
+
+# Register a PID for cleanup
+register_pid() {
+    CLEANUP_PIDS+=("$1")
+}
+
+# Cleanup function - kills all registered processes
+cleanup() {
+    log_info "Cleaning up..."
+
+    # Kill registered PIDs
+    for pid in "${CLEANUP_PIDS[@]}"; do
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+
+    # Also kill by name as fallback
+    pkill -x zenohd 2>/dev/null || true
+
+    # Clean up temp directory
+    if [ -n "$TEST_TMPDIR" ] && [ -d "$TEST_TMPDIR" ]; then
+        rm -rf "$TEST_TMPDIR"
+    fi
+
+    CLEANUP_PIDS=()
+}
+
+# Setup trap for cleanup
+setup_cleanup() {
+    trap cleanup EXIT INT TERM
+}
+
+# =============================================================================
+# Script Configuration
+# =============================================================================
 
 # Parse arguments
 VERBOSE=false
@@ -186,9 +252,11 @@ build_zephyr_examples() {
 
     # Source environment
     if [ -f ".venv/bin/activate" ]; then
+        # shellcheck source=/dev/null
         source .venv/bin/activate
     fi
     if [ -f "zephyr/zephyr-env.sh" ]; then
+        # shellcheck source=/dev/null
         source zephyr/zephyr-env.sh
     fi
     export ZEPHYR_BASE="$ZEPHYR_WORKSPACE/zephyr"

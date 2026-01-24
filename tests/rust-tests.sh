@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
 # Rust-based integration tests wrapper
 # Invokes tests from crates/nano-ros-tests
+#
+# This script is optional - you can also run tests directly with:
+#   cargo test -p nano-ros-tests --tests -- --nocapture
+#   just test-rust
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-source "$SCRIPT_DIR/common/utils.sh"
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info()    { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_success() { echo -e "${GREEN}[PASS]${NC} $*"; }
+log_error()   { echo -e "${RED}[FAIL]${NC} $*"; }
+log_section() { echo -e "\n${CYAN}=== $* ===${NC}"; }
 
 usage() {
     cat <<EOF
@@ -33,6 +48,11 @@ EXAMPLES:
   $(basename "$0") platform           # Run platform tests
   $(basename "$0") rmw_interop        # Run ROS 2 interop tests
   $(basename "$0") -v all             # Verbose all tests
+
+ALTERNATIVE:
+  You can also run tests directly with cargo:
+    cargo test -p nano-ros-tests --tests -- --nocapture
+    just test-rust
 EOF
 }
 

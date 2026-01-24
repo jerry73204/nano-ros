@@ -268,32 +268,16 @@ test-zenoh-shim:
     cargo test -p zenoh-pico-shim --features "posix std" -- --test-threads=1
 
 # =============================================================================
-# Integration Tests (tests/)
+# Integration Tests
 # =============================================================================
 
-# Run all integration tests (requires zenohd, optionally ROS 2)
+# Run all integration tests (Rust-based, requires zenohd)
 test-integration:
-    ./tests/run-all.sh
+    cargo test -p nano-ros-tests --tests -- --nocapture
 
-# Run quick integration tests
-test-integration-quick:
-    ./tests/run-all.sh --quick
-
-# Run nano-ros ↔ nano-ros tests only
-test-nano2nano:
-    ./tests/run-all.sh nano2nano
-
-# Run ROS 2 interop tests (requires ROS 2 + rmw_zenoh_cpp)
-test-rmw-interop:
-    ./tests/run-all.sh rmw-interop
-
-# Run detailed RMW protocol tests
-test-rmw-detailed:
-    ./tests/run-all.sh rmw-detailed
-
-# Run Zephyr QEMU tests (requires west workspace)
+# Run Zephyr native_sim tests (requires west workspace + TAP network)
 test-zephyr:
-    ./tests/run-all.sh zephyr
+    ./tests/zephyr/run.sh
 
 # =============================================================================
 # Rust Integration Tests (crates/nano-ros-tests)

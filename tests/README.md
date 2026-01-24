@@ -1,271 +1,238 @@
 # nano-ros Integration Tests
 
-Integration tests for nano-ros communication with itself and ROS 2.
+Integration tests for nano-ros communication, platform backends, and ROS 2 interoperability.
 
-## Test Frameworks
+## Overview
 
-nano-ros uses two test frameworks:
+nano-ros uses a Rust-based test framework with rstest fixtures in `crates/nano-ros-tests/`. This provides:
 
-### Rust Tests (Recommended)
-Type-safe tests using rstest fixtures in `crates/nano-ros-tests/`:
-- RAII-based resource management (auto cleanup)
-- Parallel test execution support
-- Cached binary builds
+- **Type safety** - Compile-time error checking
+- **RAII cleanup** - Automatic process cleanup via `Drop` trait
+- **Parallel execution** - Tests run concurrently with proper isolation
+- **Cached builds** - Binary builds are cached across test runs
+- **IDE support** - Full debugging and code navigation
+
+## Running Tests
+
+### Quick Start
 
 ```bash
-# Run all Rust tests
+# Run all integration tests
 just test-rust
 
-# Run specific test suites
-just test-rust-emulator   # QEMU Cortex-M3 tests
-just test-rust-nano2nano  # Native pub/sub tests
-just test-rust-platform   # Platform detection tests
+# Run via cargo directly
+cargo test -p nano-ros-tests --tests -- --nocapture
 
-# Or via wrapper script
+# Run via wrapper script (with colored output)
 ./tests/rust-tests.sh
 ```
 
-### Shell Tests (Legacy)
-Shell scripts in `tests/` for complex orchestration:
-- ROS 2 interop tests (require sourced ROS environment)
-- Zephyr workspace tests
-- Detailed protocol tests
+### Specific Test Suites
 
 ```bash
-# Run all shell tests
-./tests/run-all.sh
+# QEMU Cortex-M3 emulator tests
+just test-rust-emulator
 
-# Quick smoke test
-./tests/run-all.sh --quick
+# nano-ros ↔ nano-ros pub/sub tests
+just test-rust-nano2nano
+
+# Platform detection tests
+just test-rust-platform
+
+# ROS 2 rmw_zenoh interop tests (requires ROS 2 + rmw_zenoh_cpp)
+just test-rust-rmw-interop
+
+# Zephyr native_sim tests (requires west workspace + TAP network)
+just test-zephyr
+```
+
+### Using the Wrapper Script
+
+```bash
+./tests/rust-tests.sh                 # Run all tests
+./tests/rust-tests.sh emulator        # Run emulator tests
+./tests/rust-tests.sh nano2nano       # Run pub/sub tests
+./tests/rust-tests.sh platform        # Run platform tests
+./tests/rust-tests.sh rmw_interop     # Run ROS 2 interop tests
+./tests/rust-tests.sh -v all          # Verbose output
 ```
 
 ## Directory Structure
 
 ```
 tests/
-├── rust-tests.sh        # Rust tests wrapper script
-├── run-all.sh           # Shell tests runner
-├── README.md
-├── common/              # Shared utilities
-│   ├── utils.sh         # Logging, cleanup, helpers
-│   └── prerequisites.sh # Prerequisite checks
-├── nano2nano/           # nano-ros ↔ nano-ros tests
-│   ├── run.sh
-│   └── README.md
-├── rmw-interop/         # ROS 2 rmw_zenoh interop tests
-│   ├── nano2ros.sh      # nano-ros talker → ROS 2 listener
-│   ├── ros2nano.sh      # ROS 2 talker → nano-ros listener
-│   ├── matrix.sh        # All 4 combinations
-│   └── README.md
-├── rmw-detailed/        # Detailed protocol tests
-│   ├── liveliness.sh    # Discovery tokens
-│   ├── keyexpr.sh       # Key expression format
-│   ├── qos.sh           # QoS compatibility
-│   ├── attachment.sh    # RMW attachment metadata
-│   └── README.md
-├── platform/            # Platform backend tests
-│   ├── run.sh           # Platform test runner
-│   ├── posix.sh         # POSIX platform (reference)
-│   ├── smoltcp-sim.sh   # smoltcp platform (simulation)
-│   ├── generic.sh       # Generic compile tests
-│   └── README.md
-├── smoltcp/             # smoltcp integration tests
-│   ├── run.sh           # smoltcp test runner
-│   ├── allocator.sh     # Bump allocator tests
-│   ├── socket-buffers.sh # Socket buffer operations
-│   ├── clock-sync.sh    # Clock synchronization tests
-│   ├── poll-callback.sh # Poll callback tests
-│   └── README.md
-├── emulator/            # Emulator tests (QEMU, Zephyr)
-│   ├── run.sh           # Emulator test runner
-│   ├── qemu-cortex-m3.sh    # QEMU bare-metal tests
-│   ├── zephyr-native-sim.sh # Zephyr native_sim tests
-│   ├── zephyr-qemu-arm.sh   # Zephyr QEMU ARM tests
-│   ├── common/
-│   │   └── qemu-utils.sh    # QEMU utilities
-│   └── README.md
-└── zephyr/              # Zephyr integration tests
-    └── run.sh
+├── README.md           # This file
+├── rust-tests.sh       # Optional wrapper script for nice output
+├── zephyr/             # Zephyr native_sim tests (shell-based)
+│   └── run.sh          # Requires west workspace + TAP network
+└── simple-workspace/   # Standalone build verification
 
-crates/nano-ros-tests/   # Rust test crate
+crates/nano-ros-tests/  # Rust test crate
+├── Cargo.toml
 ├── src/
-│   ├── lib.rs           # Shared utilities
-│   └── fixtures/        # rstest fixtures
-│       ├── binaries.rs  # Binary build helpers
-│       ├── qemu.rs      # QemuProcess fixture
-│       └── zenohd_fixture.rs # ZenohRouter fixture
+│   ├── lib.rs          # Test utilities (wait_for_pattern, count_pattern)
+│   └── fixtures/
+│       ├── mod.rs
+│       ├── binaries.rs     # Binary build helpers (cached)
+│       ├── qemu.rs         # QemuProcess fixture (RAII)
+│       ├── ros2.rs         # ROS 2 process helpers
+│       └── zenohd_fixture.rs # ZenohRouter fixture (RAII)
 └── tests/
-    ├── emulator.rs      # QEMU Cortex-M3 tests
-    ├── nano2nano.rs     # Native pub/sub tests
-    └── platform.rs      # Platform detection tests
-```
-
-## Quick Start
-
-```bash
-# Run all tests
-./tests/run-all.sh
-
-# Quick smoke test
-./tests/run-all.sh --quick
-
-# Specific test suite
-./tests/run-all.sh nano2nano
-./tests/run-all.sh rmw-interop
-./tests/run-all.sh rmw-detailed
-./tests/run-all.sh platform
-./tests/run-all.sh smoltcp
-./tests/run-all.sh emulator
-
-# With verbose output
-./tests/run-all.sh --verbose
+    ├── emulator.rs     # QEMU Cortex-M3 tests
+    ├── nano2nano.rs    # nano-ros ↔ nano-ros tests
+    ├── platform.rs     # Platform detection tests
+    └── rmw_interop.rs  # ROS 2 interop tests
 ```
 
 ## Test Suites
 
+### emulator
+Tests on QEMU Cortex-M3 emulator:
+- CDR serialization verification
+- Node API tests
+- Type metadata tests
+
+**Requirements:** `qemu-system-arm`, `thumbv7m-none-eabi` target
+
 ### nano2nano
-Tests communication between two nano-ros nodes.
-- Basic pub/sub
-- Multiple messages
-- Peer mode (no router)
+Tests communication between nano-ros nodes:
+- Basic pub/sub with zenohd router
+- Message delivery verification
 
-**Requirements:** zenohd
-
-### rmw-interop
-Tests interoperability with ROS 2 using rmw_zenoh_cpp.
-- nano-ros talker → ROS 2 listener
-- ROS 2 talker → nano-ros listener
-- Full 2x2 communication matrix
-
-**Requirements:** zenohd, ROS 2 Humble, rmw_zenoh_cpp
-
-### rmw-detailed
-Tests specific protocol details.
-- Liveliness token format
-- Key expression format
-- QoS compatibility
-- RMW attachment format
-
-**Requirements:** zenohd, ROS 2 Humble, rmw_zenoh_cpp, z_sub (optional)
+**Requirements:** `zenohd` in PATH
 
 ### platform
-Tests zenoh-pico-shim platform backends.
-- POSIX platform (reference implementation)
-- smoltcp platform (simulation mode)
-- Generic compile tests (no platform backend)
+Tests platform and toolchain detection:
+- QEMU ARM availability
+- ARM toolchain detection
+- Embedded target availability
+- Zephyr workspace detection
 
-**Requirements:** zenohd (for posix tests), cargo
+**Requirements:** None (detection tests)
 
-### smoltcp
-Tests the smoltcp platform layer implementation.
-- Bump allocator (alloc, realloc, free)
-- Socket buffer operations (push_rx, pop_tx)
-- Clock synchronization (set, get)
-- Poll callback (registration, invocation)
+### rmw_interop
+Tests interoperability with ROS 2 using rmw_zenoh_cpp:
+- nano-ros → ROS 2 communication
+- ROS 2 → nano-ros communication
+- Communication matrix (all directions)
+- Key expression format verification
+- QoS compatibility
 
-**Requirements:** cargo (no zenohd required)
+**Requirements:** `zenohd`, ROS 2 Humble, `rmw_zenoh_cpp`
 
-### emulator
-Tests on emulated hardware (QEMU, Zephyr native_sim).
-- QEMU Cortex-M3 bare-metal (CDR serialization, Node API)
-- Zephyr native_sim (network communication)
-- Zephyr QEMU ARM (optional, limited network support)
+Tests gracefully skip when ROS 2 is not available.
 
-**Requirements:** qemu-system-arm, thumbv7m-none-eabi target
-**Optional:** Zephyr workspace (for Zephyr tests)
+### zephyr (shell-based)
+Tests Zephyr native_sim integration:
+- Zephyr talker → native subscriber
+- TAP network communication
+
+**Requirements:** West workspace, TAP network interface
+
+```bash
+# Setup (one time)
+./zephyr/setup.sh
+sudo ./scripts/setup-zephyr-network.sh
+
+# Run tests
+just test-zephyr
+```
 
 ## Requirements
 
-### Basic Tests (nano2nano)
-- zenohd in PATH
-- nano-ros built with zenoh feature
+### Basic Tests
+- `zenohd` in PATH
+- Rust toolchain with `thumbv7m-none-eabi` target
 
 ### ROS 2 Interop Tests
-- zenohd in PATH
-- ROS 2 Humble (or Jazzy)
-- rmw_zenoh_cpp installed
+- ROS 2 Humble (or later)
+- `rmw_zenoh_cpp` middleware
 
 ```bash
-# Install ROS 2 Humble
-# See: https://docs.ros.org/en/humble/Installation.html
-
 # Install rmw_zenoh_cpp
 sudo apt install ros-humble-rmw-zenoh-cpp
 ```
 
-### Optional (for detailed tests)
-- z_sub/z_pub from zenoh-pico examples
-
-## Running Individual Tests
+### QEMU Tests
+- `qemu-system-arm`
+- ARM embedded toolchain
 
 ```bash
-# nano2nano
-./tests/nano2nano/run.sh
-./tests/nano2nano/run.sh --peer    # Test without router
-
-# rmw-interop
-./tests/rmw-interop/nano2ros.sh
-./tests/rmw-interop/ros2nano.sh
-./tests/rmw-interop/matrix.sh
-
-# rmw-detailed
-./tests/rmw-detailed/liveliness.sh
-./tests/rmw-detailed/keyexpr.sh
-./tests/rmw-detailed/qos.sh
-./tests/rmw-detailed/attachment.sh
-
-# platform
-./tests/platform/run.sh           # All platform tests
-./tests/platform/posix.sh         # POSIX platform
-./tests/platform/smoltcp-sim.sh   # smoltcp simulation
-./tests/platform/generic.sh       # Generic compile tests
-
-# smoltcp
-./tests/smoltcp/run.sh            # All smoltcp tests
-./tests/smoltcp/allocator.sh      # Allocator tests
-./tests/smoltcp/socket-buffers.sh # Socket buffer tests
-./tests/smoltcp/clock-sync.sh     # Clock tests
-./tests/smoltcp/poll-callback.sh  # Poll callback tests
-
-# emulator
-./tests/emulator/run.sh               # All emulator tests
-./tests/emulator/qemu-cortex-m3.sh    # QEMU bare-metal
-./tests/emulator/zephyr-native-sim.sh # Zephyr native_sim
-./tests/emulator/zephyr-qemu-arm.sh   # Zephyr QEMU ARM
+# Install QEMU
+sudo apt install qemu-system-arm
 ```
 
-## Environment Variables
+## Writing New Tests
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| ZENOH_LOCATOR | tcp/127.0.0.1:7447 | Zenoh router address |
-| ROS_DOMAIN_ID | 0 | ROS domain ID |
-| TEST_TIMEOUT | 15 | Test timeout in seconds |
+Create tests in `crates/nano-ros-tests/tests/`:
+
+```rust
+use nano_ros_tests::fixtures::{zenohd_unique, ZenohRouter};
+use rstest::rstest;
+
+#[rstest]
+fn test_my_feature(zenohd_unique: ZenohRouter) {
+    // zenohd is automatically started and cleaned up
+    let locator = zenohd_unique.locator();
+
+    // Your test logic here
+}
+```
+
+### Available Fixtures
+
+| Fixture | Description |
+|---------|-------------|
+| `zenohd_unique` | Starts zenohd on unique port, auto-cleanup |
+| `build_native_talker()` | Builds and caches native-talker binary |
+| `build_native_listener()` | Builds and caches native-listener binary |
+| `QemuProcess::run()` | Runs QEMU with semihosting, auto-cleanup |
+| `Ros2Process::topic_echo()` | Runs ros2 topic echo, auto-cleanup |
+| `Ros2Process::topic_pub()` | Runs ros2 topic pub, auto-cleanup |
+
+### Test Utilities
+
+```rust
+use nano_ros_tests::{wait_for_pattern, count_pattern};
+
+// Wait for pattern in output
+let found = wait_for_pattern(&output, "Received:", Duration::from_secs(10));
+
+// Count occurrences
+let count = count_pattern(&output, "data:");
+```
 
 ## Troubleshooting
 
-### Tests hang or timeout
-- Ensure zenohd is not already running
-- Check for leftover processes: `pkill -x zenohd; pkill -f /talker`
+### Tests timeout
+- Ensure no stale `zenohd` processes: `pkill -x zenohd`
+- Check for orphan test processes: `pkill -f native-talker`
 
-### ROS 2 interop fails
-1. Verify rmw_zenoh_cpp is installed
-2. Check QoS settings match (BEST_EFFORT)
-3. Ensure domain ID is 0
+### ROS 2 tests skip
+- Source ROS 2: `source /opt/ros/humble/setup.bash`
+- Verify rmw_zenoh: `ros2 pkg list | grep rmw_zenoh`
 
-### Permission denied
-```bash
-chmod +x tests/**/*.sh
-```
+### QEMU tests fail
+- Check QEMU installed: `qemu-system-arm --version`
+- Check ARM target: `rustup target list | grep thumbv7m`
 
-## Adding New Tests
+## Migration from Shell Scripts
 
-1. Create a new directory under `tests/` or add to existing suite
-2. Source common utilities:
-   ```bash
-   source "$(dirname "$0")/../common/utils.sh"
-   source "$(dirname "$0")/../common/prerequisites.sh"
-   ```
-3. Use `setup_cleanup` trap for resource cleanup
-4. Use `log_*` functions for output
-5. Return 0 on success, non-zero on failure
+The Rust test framework replaces the previous shell-based tests:
+
+| Shell Script | Rust Equivalent |
+|--------------|-----------------|
+| `tests/emulator/` | `tests/emulator.rs` |
+| `tests/nano2nano/` | `tests/nano2nano.rs` |
+| `tests/platform/` | `tests/platform.rs` |
+| `tests/rmw-interop/` | `tests/rmw_interop.rs` |
+| `tests/rmw-detailed/` | `tests/rmw_interop.rs` |
+| `tests/smoltcp/` | Unit tests in crate |
+| `tests/common/` | `src/lib.rs` + `src/fixtures/` |
+
+Benefits of Rust tests:
+- Type-safe process management
+- Automatic cleanup (no orphan processes)
+- Better error messages with stack traces
+- IDE debugging support
+- Parallel test execution
