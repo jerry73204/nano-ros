@@ -2,94 +2,14 @@
 //!
 //! Tests communication between nano-ros and ROS 2 nodes using rmw_zenoh_cpp.
 
+use nano_ros_tests::count_pattern;
 use nano_ros_tests::fixtures::{
-    build_native_listener, build_native_talker, is_rmw_zenoh_available, is_ros2_available,
-    zenohd_unique, Ros2Process, ZenohRouter, DEFAULT_ROS_DISTRO,
+    is_rmw_zenoh_available, is_ros2_available, listener_binary, talker_binary, zenohd_unique,
+    ManagedProcess, Ros2Process, ZenohRouter, DEFAULT_ROS_DISTRO,
 };
-use nano_ros_tests::{count_pattern, TestError};
 use rstest::rstest;
-use std::process::{Child, Command, Stdio};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
-/// Managed native process (talker or listener)
-struct NativeProcess {
-    handle: Child,
-    #[allow(dead_code)]
-    name: &'static str,
-}
-
-impl NativeProcess {
-    fn spawn(
-        binary: &std::path::Path,
-        args: &[&str],
-        name: &'static str,
-    ) -> Result<Self, TestError> {
-        let handle = Command::new(binary)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| TestError::ProcessFailed(format!("Failed to spawn {}: {}", name, e)))?;
-
-        Ok(Self { handle, name })
-    }
-
-    fn wait_for_output(&mut self, timeout: Duration) -> Result<String, TestError> {
-        use std::io::Read;
-
-        let start = std::time::Instant::now();
-        let mut output = String::new();
-
-        let mut stdout = self
-            .handle
-            .stdout
-            .take()
-            .ok_or_else(|| TestError::ProcessFailed("No stdout".to_string()))?;
-
-        let mut buffer = [0u8; 4096];
-        loop {
-            if start.elapsed() > timeout {
-                let _ = self.handle.kill();
-                break;
-            }
-
-            match self.handle.try_wait() {
-                Ok(Some(_)) => {
-                    let _ = stdout.read_to_string(&mut output);
-                    break;
-                }
-                Ok(None) => match stdout.read(&mut buffer) {
-                    Ok(0) => std::thread::sleep(Duration::from_millis(50)),
-                    Ok(n) => {
-                        output.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(50));
-                    }
-                    Err(_) => break,
-                },
-                Err(_) => break,
-            }
-        }
-
-        Ok(output)
-    }
-
-    fn kill(&mut self) {
-        let _ = self.handle.kill();
-        let _ = self.handle.wait();
-    }
-}
-
-impl Drop for NativeProcess {
-    fn drop(&mut self) {
-        self.kill();
-    }
-}
 
 /// Skip test if ROS 2 prerequisites are not met
 fn require_ros2() -> bool {
@@ -125,18 +45,10 @@ fn test_rmw_zenoh_detection() {
 // =============================================================================
 
 #[rstest]
-fn test_nano_to_ros2(zenohd_unique: ZenohRouter) {
+fn test_nano_to_ros2(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     if !require_ros2() {
         return;
     }
-
-    let talker_path = match build_native_talker() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-talker: {}", e);
-            return;
-        }
-    };
 
     let locator = zenohd_unique.locator();
     let tcp_addr = locator.replace("tcp/", "");
@@ -157,7 +69,7 @@ fn test_nano_to_ros2(zenohd_unique: ZenohRouter) {
 
     // Start nano-ros talker
     eprintln!("Starting nano-ros talker...");
-    let mut talker = NativeProcess::spawn(talker_path, &["--tcp", &tcp_addr], "native-talker")
+    let mut talker = ManagedProcess::spawn(&talker_binary, &["--tcp", &tcp_addr], "native-talker")
         .expect("Failed to start talker");
 
     // Let them communicate
@@ -189,18 +101,10 @@ fn test_nano_to_ros2(zenohd_unique: ZenohRouter) {
 // =============================================================================
 
 #[rstest]
-fn test_ros2_to_nano(zenohd_unique: ZenohRouter) {
+fn test_ros2_to_nano(zenohd_unique: ZenohRouter, listener_binary: PathBuf) {
     if !require_ros2() {
         return;
     }
-
-    let listener_path = match build_native_listener() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-listener: {}", e);
-            return;
-        }
-    };
 
     let locator = zenohd_unique.locator();
     let tcp_addr = locator.replace("tcp/", "");
@@ -208,7 +112,7 @@ fn test_ros2_to_nano(zenohd_unique: ZenohRouter) {
     // Start nano-ros listener first
     eprintln!("Starting nano-ros listener...");
     let mut listener =
-        NativeProcess::spawn(listener_path, &["--tcp", &tcp_addr], "native-listener")
+        ManagedProcess::spawn(&listener_binary, &["--tcp", &tcp_addr], "native-listener")
             .expect("Failed to start listener");
 
     // Give listener time to subscribe
@@ -286,7 +190,12 @@ impl std::fmt::Display for Direction {
 #[case(Direction::NanoToNano)]
 #[case(Direction::NanoToRos2)]
 #[case(Direction::Ros2ToNano)]
-fn test_communication_matrix(zenohd_unique: ZenohRouter, #[case] direction: Direction) {
+fn test_communication_matrix(
+    zenohd_unique: ZenohRouter,
+    talker_binary: PathBuf,
+    listener_binary: PathBuf,
+    #[case] direction: Direction,
+) {
     // Check prerequisites based on direction
     match direction {
         Direction::NanoToNano => {}
@@ -297,31 +206,17 @@ fn test_communication_matrix(zenohd_unique: ZenohRouter, #[case] direction: Dire
         }
     }
 
-    let talker_path = match build_native_talker() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-talker: {}", e);
-            return;
-        }
-    };
-
-    let listener_path = match build_native_listener() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-listener: {}", e);
-            return;
-        }
-    };
-
     let locator = zenohd_unique.locator();
     let tcp_addr = locator.replace("tcp/", "");
 
     eprintln!("Testing: {}", direction);
 
     let success = match direction {
-        Direction::NanoToNano => test_nano_to_nano_inner(&tcp_addr, talker_path, listener_path),
-        Direction::NanoToRos2 => test_nano_to_ros2_inner(&tcp_addr, talker_path),
-        Direction::Ros2ToNano => test_ros2_to_nano_inner(&tcp_addr, listener_path),
+        Direction::NanoToNano => {
+            test_nano_to_nano_inner(&tcp_addr, &talker_binary, &listener_binary)
+        }
+        Direction::NanoToRos2 => test_nano_to_ros2_inner(&tcp_addr, &talker_binary),
+        Direction::Ros2ToNano => test_ros2_to_nano_inner(&tcp_addr, &listener_binary),
     };
 
     if success {
@@ -334,19 +229,16 @@ fn test_communication_matrix(zenohd_unique: ZenohRouter, #[case] direction: Dire
     }
 }
 
-fn test_nano_to_nano_inner(
-    tcp_addr: &str,
-    talker_path: &std::path::Path,
-    listener_path: &std::path::Path,
-) -> bool {
+fn test_nano_to_nano_inner(tcp_addr: &str, talker_path: &Path, listener_path: &Path) -> bool {
     // Start listener
-    let mut listener = NativeProcess::spawn(listener_path, &["--tcp", tcp_addr], "native-listener")
-        .expect("Failed to start listener");
+    let mut listener =
+        ManagedProcess::spawn(listener_path, &["--tcp", tcp_addr], "native-listener")
+            .expect("Failed to start listener");
 
     std::thread::sleep(Duration::from_secs(1));
 
     // Start talker
-    let mut talker = NativeProcess::spawn(talker_path, &["--tcp", tcp_addr], "native-talker")
+    let mut talker = ManagedProcess::spawn(talker_path, &["--tcp", tcp_addr], "native-talker")
         .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(5));
@@ -359,7 +251,7 @@ fn test_nano_to_nano_inner(
     count_pattern(&output, "Received:") > 0
 }
 
-fn test_nano_to_ros2_inner(tcp_addr: &str, talker_path: &std::path::Path) -> bool {
+fn test_nano_to_ros2_inner(tcp_addr: &str, talker_path: &Path) -> bool {
     // Start ROS 2 listener
     let mut ros2_listener =
         match Ros2Process::topic_echo("/chatter", "std_msgs/msg/Int32", DEFAULT_ROS_DISTRO) {
@@ -370,7 +262,7 @@ fn test_nano_to_ros2_inner(tcp_addr: &str, talker_path: &std::path::Path) -> boo
     std::thread::sleep(Duration::from_secs(3));
 
     // Start nano-ros talker
-    let mut talker = NativeProcess::spawn(talker_path, &["--tcp", tcp_addr], "native-talker")
+    let mut talker = ManagedProcess::spawn(talker_path, &["--tcp", tcp_addr], "native-talker")
         .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(6));
@@ -383,10 +275,11 @@ fn test_nano_to_ros2_inner(tcp_addr: &str, talker_path: &std::path::Path) -> boo
     count_pattern(&output, "data:") > 0
 }
 
-fn test_ros2_to_nano_inner(tcp_addr: &str, listener_path: &std::path::Path) -> bool {
+fn test_ros2_to_nano_inner(tcp_addr: &str, listener_path: &Path) -> bool {
     // Start nano-ros listener
-    let mut listener = NativeProcess::spawn(listener_path, &["--tcp", tcp_addr], "native-listener")
-        .expect("Failed to start listener");
+    let mut listener =
+        ManagedProcess::spawn(listener_path, &["--tcp", tcp_addr], "native-listener")
+            .expect("Failed to start listener");
 
     std::thread::sleep(Duration::from_secs(3));
 
@@ -417,20 +310,12 @@ fn test_ros2_to_nano_inner(tcp_addr: &str, listener_path: &std::path::Path) -> b
 // =============================================================================
 
 #[rstest]
-fn test_keyexpr_format(zenohd_unique: ZenohRouter) {
-    let talker_path = match build_native_talker() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-talker: {}", e);
-            return;
-        }
-    };
-
+fn test_keyexpr_format(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     let locator = zenohd_unique.locator();
     let tcp_addr = locator.replace("tcp/", "");
 
     // Start talker briefly to register key expression
-    let mut talker = NativeProcess::spawn(talker_path, &["--tcp", &tcp_addr], "native-talker")
+    let mut talker = ManagedProcess::spawn(&talker_binary, &["--tcp", &tcp_addr], "native-talker")
         .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(2));
@@ -444,18 +329,10 @@ fn test_keyexpr_format(zenohd_unique: ZenohRouter) {
 }
 
 #[rstest]
-fn test_qos_compatibility(zenohd_unique: ZenohRouter) {
+fn test_qos_compatibility(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     if !require_ros2() {
         return;
     }
-
-    let talker_path = match build_native_talker() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Skipping test: Failed to build native-talker: {}", e);
-            return;
-        }
-    };
 
     let locator = zenohd_unique.locator();
     let tcp_addr = locator.replace("tcp/", "");
@@ -476,7 +353,7 @@ fn test_qos_compatibility(zenohd_unique: ZenohRouter) {
     std::thread::sleep(Duration::from_secs(3));
 
     // Start nano-ros talker (uses BEST_EFFORT by default)
-    let mut talker = NativeProcess::spawn(talker_path, &["--tcp", &tcp_addr], "native-talker")
+    let mut talker = ManagedProcess::spawn(&talker_binary, &["--tcp", &tcp_addr], "native-talker")
         .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(6));

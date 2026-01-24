@@ -18,6 +18,9 @@
 //! ```
 
 pub mod fixtures;
+pub mod process;
+pub mod qemu;
+pub mod ros2;
 
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
