@@ -2,6 +2,45 @@
 
 This document describes how to integrate nano-ros with embedded real-time systems.
 
+## Architecture Overview
+
+nano-ros provides a unified architecture for both desktop and embedded platforms using the `zenoh-pico-shim` crate:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Application Layer                                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────────────────┐       ┌────────────────────────────┐  │
+│  │  Native/std              │       │  Embedded (RTIC/Zephyr)    │  │
+│  │  (shim-posix feature)    │       │  (shim-smoltcp/zephyr)     │  │
+│  └────────────┬─────────────┘       └───────────────┬────────────┘  │
+│               │                                     │                │
+│               └─────────────────┬───────────────────┘                │
+│                                 │                                    │
+│                                 ▼                                    │
+│               ┌────────────────────────────────────────┐             │
+│               │  zenoh-pico-shim (High-level Rust API) │             │
+│               │  ├── Session, Publisher, Subscriber    │             │
+│               │  ├── LivelinessToken, ZenohId          │             │
+│               │  └── Queryable (for ROS 2 services)    │             │
+│               └────────────────────┬───────────────────┘             │
+│                                    │                                 │
+│                                    ▼                                 │
+│               ┌────────────────────────────────────────┐             │
+│               │  zenoh-pico-shim-sys (FFI + C code)    │             │
+│               │  ├── c/shim/zenoh_shim.c (C API)       │             │
+│               │  ├── c/platform_smoltcp/*.c (smoltcp)  │             │
+│               │  └── zenoh-pico/ (submodule)           │             │
+│               └────────────────────────────────────────┘             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Platform selection via feature flags:**
+- `shim-posix` - Desktop Linux/macOS with POSIX threads
+- `shim-zephyr` - Zephyr RTOS (built by west/CMake)
+- `shim-smoltcp` - Bare-metal with smoltcp network stack
+
 ## Memory Allocation Requirements
 
 ### Zenoh-Pico Heap Requirements
@@ -26,6 +65,7 @@ Zenoh-pico **requires heap allocation** for its core operations. After analyzing
 | Unix/Linux | Standard malloc/free | Full heap support |
 | FreeRTOS | pvPortMalloc/vPortFree | realloc not available |
 | Zephyr | k_malloc/k_free | Requires heap pool |
+| smoltcp (bare-metal) | embedded-alloc | 16KB static heap |
 
 ### Implications for Rust Integration
 
@@ -37,25 +77,53 @@ Because zenoh-pico requires heap allocation:
 
 ## Integration Patterns
 
-### Pattern 1: C Shim (Recommended for Embedded)
+### Pattern 1: zenoh-pico-shim (Unified API)
 
-The C shim pattern hides zenoh-pico's complexity behind simple C functions:
+The `zenoh-pico-shim` crate provides a safe Rust API that works across all platforms:
 
-```c
-// zenoh_shim.c
-static z_owned_session_t g_session;
-static z_owned_publisher_t g_publisher;
+```rust
+use zenoh_pico_shim::{ShimContext, ShimError};
 
-int zenoh_init(const char *locator);
-int zenoh_publish(const uint8_t *data, size_t len);
-void zenoh_close(void);
+// Open session
+let ctx = ShimContext::new(b"tcp/192.168.1.1:7447\0")?;
+
+// Create publisher
+let publisher = ctx.declare_publisher(b"demo/chatter\0")?;
+
+// Publish data
+publisher.publish(b"Hello, world!")?;
+
+// Optional: Publish with RMW attachment (for ROS 2 compatibility)
+let attachment = [0u8; 33];  // RMW GID format
+publisher.publish_with_attachment(b"data", Some(&attachment))?;
 ```
 
-Rust calls the shim:
+**Features:**
+- `no_std` compatible (requires `alloc`)
+- Safe Rust API with RAII resource management
+- Platform-specific backends selected via features
+- ROS 2 discovery via liveliness tokens
+- RMW attachment support for rmw_zenoh compatibility
+
+### Pattern 2: C Shim Direct (for Zephyr)
+
+For Zephyr RTOS, the C shim is compiled by west/CMake rather than Cargo:
+
+```c
+// zenoh_shim.c (provided by zenoh-pico-shim-sys)
+int zenoh_shim_init_config(const char *locator);
+int zenoh_shim_open_session(void);
+int zenoh_shim_declare_publisher(const char *keyexpr);
+int zenoh_shim_publish(int handle, const uint8_t *data, size_t len);
+void zenoh_shim_close(void);
+```
+
+Rust FFI declarations:
 ```rust
 extern "C" {
-    fn zenoh_init(locator: *const c_char) -> i32;
-    fn zenoh_publish(data: *const u8, len: usize) -> i32;
+    fn zenoh_shim_init_config(locator: *const c_char) -> i32;
+    fn zenoh_shim_open_session() -> i32;
+    fn zenoh_shim_publish(handle: i32, data: *const u8, len: usize) -> i32;
 }
 ```
 
@@ -63,11 +131,11 @@ extern "C" {
 - Avoids FFI struct layout issues
 - Zenoh allocates on RTOS heap (managed by C)
 - Rust code stays simple and no_std compatible
-- Used by Zephyr examples (`examples/zephyr-talker-rs/`)
+- Used by Zephyr examples (`examples/zephyr-talker/`)
 
-### Pattern 2: Direct FFI (Desktop/Linux)
+### Pattern 3: High-level Node API (Desktop/Linux)
 
-For systems with full std support, use the Rust FFI bindings directly:
+For systems with full std support, use the high-level nano-ros API:
 
 ```rust
 use nano_ros_node::{ConnectedNode, NodeConfig};
@@ -75,21 +143,81 @@ use nano_ros_node::{ConnectedNode, NodeConfig};
 let config = NodeConfig::new("my_node", "/demo");
 let node = ConnectedNode::connect(config, "tcp/127.0.0.1:7447")?;
 let publisher = node.create_publisher::<Int32>("/counter")?;
+
+publisher.publish(&Int32 { data: 42 })?;
 ```
 
-This requires `std` or `alloc` feature.
+This provides ROS 2 compatible topic naming, liveliness tokens, and RMW attachments automatically.
 
-### Pattern 3: Transport Abstraction (Future)
+## smoltcp Integration (Bare-Metal Ethernet)
 
-A future pattern could provide static buffer transport:
+For bare-metal systems with Ethernet (STM32, etc.), use the smoltcp platform layer.
 
-```rust
-// Hypothetical static transport (not yet implemented)
-let transport = StaticTransport::<1024>::new();
-let node = Node::with_transport(config, transport);
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Application (RTIC / polling loop)                                   │
+│  ├── Poll smoltcp interface periodically                            │
+│  └── Call zenoh_shim_poll() to process zenoh protocol               │
+├─────────────────────────────────────────────────────────────────────┤
+│  nano-ros-node + nano-ros-transport                                  │
+│  ├── ShimExecutor, ShimNode API                                     │
+│  └── ShimPublisher, ShimSubscriber with CDR serialization           │
+├─────────────────────────────────────────────────────────────────────┤
+│  zenoh-pico-shim (shim-smoltcp feature)                              │
+│  ├── Rust FFI for smoltcp_* functions                               │
+│  └── Bridges smoltcp sockets to zenoh-pico                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  smoltcp + stm32-eth                                                 │
+│  └── TCP/IP stack with Ethernet DMA                                  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-This would require significant zenoh-pico modifications.
+### Integration Steps
+
+1. **Initialize Ethernet and smoltcp**:
+   ```rust
+   // Configure Ethernet peripheral
+   let (eth_dma, eth_mac) = stm32_eth::new(...)?;
+
+   // Create smoltcp interface
+   let config = Config::new(HardwareAddress::Ethernet(mac_addr));
+   let mut iface = Interface::new(config, &mut eth_dma, Instant::ZERO);
+   iface.update_ip_addrs(|addrs| {
+       addrs.push(IpCidr::new(IpAddress::v4(192, 168, 1, 10), 24)).unwrap();
+   });
+   ```
+
+2. **Register poll callback**:
+   ```rust
+   use zenoh_pico_shim::platform_smoltcp;
+
+   // Set callback that smoltcp platform layer will call
+   platform_smoltcp::smoltcp_set_poll_callback(my_poll_callback);
+   ```
+
+3. **Poll in main loop or RTIC task**:
+   ```rust
+   loop {
+       // Update clock for zenoh-pico timing
+       platform_smoltcp::smoltcp_set_clock_ms(now_ms);
+
+       // Poll smoltcp interface
+       iface.poll(timestamp, &mut eth_dma, &mut sockets);
+
+       // Poll zenoh (processes incoming messages)
+       zenoh_shim_poll(10);  // 10ms timeout
+
+       delay(10.millis());
+   }
+   ```
+
+### Examples
+
+- `examples/rtic-stm32f4/` - RTIC 2.x with smoltcp + stm32-eth
+- `examples/polling-stm32f4/` - Bare-metal polling loop
+- `examples/smoltcp-test/` - smoltcp validation without zenoh
 
 ## RTOS Integration
 
@@ -164,19 +292,32 @@ See `examples/polling-stm32f4/` for complete example.
 
 ### Zephyr RTOS
 
-Zephyr uses the C shim pattern with west build system:
+Zephyr uses the C shim pattern with west build system. The C shim is provided by
+`zenoh-pico-shim-sys` and compiled by Zephyr's CMake build system.
 
 ```
-examples/zephyr-talker-rs/
-├── CMakeLists.txt      # Zephyr build config
+examples/zephyr-talker/
+├── CMakeLists.txt      # Zephyr build config (includes zenoh_shim.c)
 ├── prj.conf            # Kconfig options
 ├── src/
-│   ├── lib.rs          # Rust application
-│   └── zenoh_shim.c    # C shim for zenoh-pico
-└── Cargo.toml
+│   └── lib.rs          # Rust application using zenoh-pico-shim
+└── Cargo.toml          # Depends on zenoh-pico-shim with zephyr feature
 ```
 
-See `examples/zephyr-talker-rs/` and `examples/zephyr-listener-rs/`.
+The Rust code uses the same `zenoh-pico-shim` API but with the `zephyr` feature:
+
+```rust
+use zenoh_pico_shim::{ShimContext, ShimPublisher};
+
+// FFI declarations for Zephyr (C shim compiled by Zephyr)
+extern "C" {
+    fn zenoh_shim_init_config(locator: *const c_char) -> i32;
+    fn zenoh_shim_open_session() -> i32;
+    // ...
+}
+```
+
+See `examples/zephyr-talker/` and `examples/zephyr-listener/`.
 
 ## Timing Constants
 
@@ -293,9 +434,52 @@ This compile error means you enabled `zenoh` without `alloc`. Either:
 - Reduce buffer sizes via const generics
 - Check for recursive calls in callbacks
 
+## ROS 2 Interoperability
+
+nano-ros is designed for interoperability with ROS 2 via `rmw_zenoh_cpp`.
+
+### Tested Configurations
+
+| Direction | Status | Notes |
+|-----------|--------|-------|
+| nano-ros ↔ nano-ros | ✅ Working | Full pub/sub communication |
+| ROS 2 → nano-ros | ✅ Working | Uses wildcard subscriber for type hash matching |
+| nano-ros → ROS 2 | ✅ Working | Tested with ROS 2 Humble + rmw_zenoh_cpp |
+
+### Testing with ROS 2
+
+```bash
+# Terminal 1: Start zenoh router
+zenohd --listen tcp/127.0.0.1:7447
+
+# Terminal 2: Run nano-ros talker
+cargo run -p native-talker --features zenoh -- --tcp 127.0.0.1:7447
+
+# Terminal 3: Run ROS 2 listener (requires rmw_zenoh_cpp)
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+```
+
+### Key Implementation Details
+
+- **Data key expression format** (Humble): `<domain_id>/<topic>/<type>/TypeHashNotSupported`
+- **Liveliness tokens**: Use `RIHS01_` prefix, `%` for topic names, LSB-first ZenohId
+- **QoS string**: Explicit values like `2:2:1,1:,:,:,,` for BEST_EFFORT/VOLATILE
+- **RMW Attachment**: 33 bytes (sequence_number + timestamp + gid_size + gid)
+
+See `docs/rmw_zenoh_interop.md` for detailed protocol documentation.
+
+### Test Scripts
+
+- `scripts/test-ros2-interop.sh` - Automated ROS 2 interop testing
+- `scripts/test-pubsub.sh` - nano-ros pub/sub testing (requires zenohd)
+
 ## References
 
 - [RTIC Book](https://rtic.rs/)
 - [Embassy Documentation](https://embassy.dev/)
 - [Zephyr Project](https://zephyrproject.org/)
 - [zenoh-pico](https://github.com/eclipse-zenoh/zenoh-pico)
+- [rmw_zenoh](https://github.com/ros2/rmw_zenoh)
