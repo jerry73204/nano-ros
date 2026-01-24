@@ -50,21 +50,21 @@ test_attachment_via_ros2() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/attach_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile attach_talker.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # ROS 2 subscriber - if attachment is wrong, rmw_zenoh_cpp will reject
     log_info "Starting ROS 2 subscriber..."
     timeout 15 ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort \
-        > /tmp/attach_ros2.txt 2>&1 &
+        > "$(tmpfile attach_ros2.txt)" 2>&1 &
     register_pid $!
 
     sleep 10
 
-    if grep -q "data:" /tmp/attach_ros2.txt 2>/dev/null; then
+    if grep -q "data:" "$(tmpfile attach_ros2.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/attach_ros2.txt "data:")
+        count=$(count_pattern "$(tmpfile attach_ros2.txt)" "data:")
         log_success "ROS 2 received $count messages"
         log_success "RMW attachment format is correct (rmw_zenoh_cpp accepted messages)"
         return 0
@@ -87,13 +87,13 @@ test_sequence_numbers() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/seq_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile seq_talker.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # Use Python to check sequence numbers
     log_info "Checking sequence numbers via Python subscriber..."
-    python3 << 'PYTHON_EOF' > /tmp/seq_check.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile seq_check.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -140,17 +140,17 @@ if __name__ == '__main__':
     main()
 PYTHON_EOF
 
-    if grep -q "SUCCESS:" /tmp/seq_check.txt 2>/dev/null; then
+    if grep -q "SUCCESS:" "$(tmpfile seq_check.txt)" 2>/dev/null; then
         log_success "Sequence numbers incrementing correctly"
-        [ "$VERBOSE" = true ] && cat /tmp/seq_check.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile seq_check.txt)"
         return 0
-    elif grep -q "WARNING:" /tmp/seq_check.txt 2>/dev/null; then
+    elif grep -q "WARNING:" "$(tmpfile seq_check.txt)" 2>/dev/null; then
         log_warn "Non-sequential values detected"
-        cat /tmp/seq_check.txt
+        cat "$(tmpfile seq_check.txt)"
         return 0  # Don't fail, might be message drops
     else
         log_error "Sequence check failed"
-        cat /tmp/seq_check.txt 2>/dev/null
+        cat "$(tmpfile seq_check.txt)" 2>/dev/null
         return 1
     fi
 }
@@ -167,7 +167,7 @@ test_gid_consistency() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/gid_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile gid_talker.txt)" 2>&1 &
     register_pid $!
     sleep 3
 
@@ -210,29 +210,29 @@ test_timestamp() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker (1 Hz)..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/ts_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile ts_talker.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # Use ros2 topic hz to check rate
     log_info "Checking message rate..."
     timeout 10 ros2 topic hz /chatter --qos-reliability best_effort \
-        > /tmp/ts_hz.txt 2>&1 &
+        > "$(tmpfile ts_hz.txt)" 2>&1 &
     register_pid $!
     sleep 8
 
-    if grep -qE "average rate: [0-9]" /tmp/ts_hz.txt 2>/dev/null; then
+    if grep -qE "average rate: [0-9]" "$(tmpfile ts_hz.txt)" 2>/dev/null; then
         local rate
-        rate=$(grep "average rate:" /tmp/ts_hz.txt | tail -1 | grep -oE "[0-9]+\.[0-9]+")
+        rate=$(grep "average rate:" "$(tmpfile ts_hz.txt)" | tail -1 | grep -oE "[0-9]+\.[0-9]+")
         log_success "ros2 topic hz reports rate: ~${rate} Hz"
 
         if [ "$VERBOSE" = true ]; then
-            cat /tmp/ts_hz.txt
+            cat "$(tmpfile ts_hz.txt)"
         fi
         return 0
     else
         log_warn "Could not measure rate (may need more time)"
-        [ "$VERBOSE" = true ] && cat /tmp/ts_hz.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile ts_hz.txt)"
         return 0
     fi
 }

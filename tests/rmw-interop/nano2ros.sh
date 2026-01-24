@@ -53,41 +53,41 @@ test_with_topic_echo() {
     # Start ROS 2 listener (ros2 topic echo)
     log_info "Starting ROS 2 topic echo..."
     timeout 20 ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort \
-        > /tmp/ros2_listener.txt 2>&1 &
+        > "$(tmpfile ros2_listener.txt)" 2>&1 &
     local ros2_pid=$!
     register_pid $ros2_pid
     sleep 3
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile nano_talker.txt)" 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
 
     # Wait for messages
     log_info "Waiting for ROS 2 to receive messages..."
-    if wait_for_pattern /tmp/ros2_listener.txt "data:" "$TEST_TIMEOUT"; then
+    if wait_for_pattern "$(tmpfile ros2_listener.txt)" "data:" "$TEST_TIMEOUT"; then
         local count
-        count=$(count_pattern /tmp/ros2_listener.txt "data:")
+        count=$(count_pattern "$(tmpfile ros2_listener.txt)" "data:")
         log_success "ROS 2 received $count messages from nano-ros"
 
         if [ "$VERBOSE" = true ]; then
             echo ""
             echo "=== nano-ros Talker Output ==="
-            cat /tmp/nano_talker.txt | head -10
+            cat "$(tmpfile nano_talker.txt)" | head -10
             echo ""
             echo "=== ROS 2 Listener Output ==="
-            cat /tmp/ros2_listener.txt | head -20
+            cat "$(tmpfile ros2_listener.txt)" | head -20
         fi
         return 0
     else
         log_error "ROS 2 did not receive messages"
         echo ""
         echo "=== nano-ros Talker Output ==="
-        cat /tmp/nano_talker.txt 2>/dev/null || echo "(no output)"
+        cat "$(tmpfile nano_talker.txt)" 2>/dev/null || echo "(no output)"
         echo ""
         echo "=== ROS 2 Listener Output ==="
-        cat /tmp/ros2_listener.txt 2>/dev/null || echo "(no output)"
+        cat "$(tmpfile ros2_listener.txt)" 2>/dev/null || echo "(no output)"
         return 1
     fi
 }
@@ -106,14 +106,14 @@ test_with_python_subscriber() {
 
     # Start nano-ros talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile nano_talker2.txt)" 2>&1 &
     local talker_pid=$!
     register_pid $talker_pid
     sleep 2
 
     # Run Python subscriber
     log_info "Running Python subscriber..."
-    python3 << 'PYTHON_EOF' > /tmp/ros2_python.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile ros2_python.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
@@ -162,15 +162,15 @@ if __name__ == '__main__':
     main()
 PYTHON_EOF
 
-    if grep -q "SUCCESS:" /tmp/ros2_python.txt 2>/dev/null; then
+    if grep -q "SUCCESS:" "$(tmpfile ros2_python.txt)" 2>/dev/null; then
         log_success "Python subscriber received messages"
         if [ "$VERBOSE" = true ]; then
-            cat /tmp/ros2_python.txt
+            cat "$(tmpfile ros2_python.txt)"
         fi
         return 0
     else
         log_error "Python subscriber failed"
-        cat /tmp/ros2_python.txt 2>/dev/null
+        cat "$(tmpfile ros2_python.txt)" 2>/dev/null
         return 1
     fi
 }

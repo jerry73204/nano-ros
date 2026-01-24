@@ -45,13 +45,13 @@ test_best_effort_match() {
 
     # Start nano-ros talker (BEST_EFFORT)
     log_info "Starting nano-ros talker (BEST_EFFORT)..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile qos_talker.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # ROS 2 subscriber with matching QoS
     log_info "Starting ROS 2 subscriber (BEST_EFFORT)..."
-    python3 << 'PYTHON_EOF' > /tmp/qos_sub_be.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile qos_sub_be.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -91,13 +91,13 @@ if __name__ == '__main__':
     main()
 PYTHON_EOF
 
-    if grep -q "SUCCESS" /tmp/qos_sub_be.txt 2>/dev/null; then
+    if grep -q "SUCCESS" "$(tmpfile qos_sub_be.txt)" 2>/dev/null; then
         log_success "BEST_EFFORT → BEST_EFFORT communication works"
-        [ "$VERBOSE" = true ] && cat /tmp/qos_sub_be.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile qos_sub_be.txt)"
         return 0
     else
         log_error "BEST_EFFORT → BEST_EFFORT communication failed"
-        cat /tmp/qos_sub_be.txt 2>/dev/null
+        cat "$(tmpfile qos_sub_be.txt)" 2>/dev/null
         return 1
     fi
 }
@@ -115,13 +115,13 @@ test_best_effort_to_reliable() {
 
     # Start nano-ros talker (BEST_EFFORT)
     log_info "Starting nano-ros talker (BEST_EFFORT)..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile qos_talker2.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # ROS 2 subscriber with RELIABLE QoS (stricter)
     log_info "Starting ROS 2 subscriber (RELIABLE - mismatched)..."
-    python3 << 'PYTHON_EOF' > /tmp/qos_sub_rel.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile qos_sub_rel.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -164,13 +164,13 @@ if __name__ == '__main__':
 PYTHON_EOF
 
     # This is expected behavior - log as info, not error
-    if grep -q "EXPECTED:" /tmp/qos_sub_rel.txt 2>/dev/null; then
+    if grep -q "EXPECTED:" "$(tmpfile qos_sub_rel.txt)" 2>/dev/null; then
         log_success "QoS mismatch correctly prevents communication"
-    elif grep -q "UNEXPECTED:" /tmp/qos_sub_rel.txt 2>/dev/null; then
+    elif grep -q "UNEXPECTED:" "$(tmpfile qos_sub_rel.txt)" 2>/dev/null; then
         log_warn "Messages received despite QoS mismatch (rmw_zenoh may be lenient)"
     fi
 
-    [ "$VERBOSE" = true ] && cat /tmp/qos_sub_rel.txt
+    [ "$VERBOSE" = true ] && cat "$(tmpfile qos_sub_rel.txt)"
     return 0
 }
 
@@ -184,7 +184,7 @@ test_qos_in_liveliness() {
 
     # Start nano-ros talker with debug output
     log_info "Starting nano-ros talker..."
-    RUST_LOG=debug "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_talker3.txt 2>&1 &
+    RUST_LOG=debug "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile qos_talker3.txt)" 2>&1 &
     register_pid $!
     sleep 3
 
@@ -192,9 +192,9 @@ test_qos_in_liveliness() {
     # Expected: .../RIHS01_<hash>/2:2:1,1:,:,:,,
     # 2:2:1,1 = BEST_EFFORT(2):VOLATILE(2):KEEP_LAST(1),depth(1)
 
-    if grep -q "Publisher liveliness keyexpr:" /tmp/qos_talker3.txt 2>/dev/null; then
+    if grep -q "Publisher liveliness keyexpr:" "$(tmpfile qos_talker3.txt)" 2>/dev/null; then
         local token
-        token=$(grep "Publisher liveliness keyexpr:" /tmp/qos_talker3.txt | head -1)
+        token=$(grep "Publisher liveliness keyexpr:" "$(tmpfile qos_talker3.txt)" | head -1)
 
         if echo "$token" | grep -q "2:2:1,1"; then
             log_success "QoS string found in liveliness token: 2:2:1,1..."
@@ -219,7 +219,7 @@ test_qos_in_liveliness() {
         fi
     else
         log_warn "Publisher liveliness token not found in output"
-        [ "$VERBOSE" = true ] && cat /tmp/qos_talker3.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile qos_talker3.txt)"
         return 1
     fi
 }
@@ -236,13 +236,13 @@ test_qos_combinations() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/qos_nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile qos_nano_listener.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     # ROS 2 publisher with BEST_EFFORT
     log_info "Testing ROS 2 BEST_EFFORT publisher..."
-    python3 << 'PYTHON_EOF' > /tmp/qos_ros2_pub.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile qos_ros2_pub.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -284,18 +284,18 @@ PYTHON_EOF
 
     sleep 2
 
-    if grep -q "Received:" /tmp/qos_nano_listener.txt 2>/dev/null; then
+    if grep -q "Received:" "$(tmpfile qos_nano_listener.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/qos_nano_listener.txt "Received:")
+        count=$(count_pattern "$(tmpfile qos_nano_listener.txt)" "Received:")
         log_success "nano-ros received $count messages from ROS 2 BEST_EFFORT publisher"
 
-        if grep -q "data=20[0-9]" /tmp/qos_nano_listener.txt 2>/dev/null; then
+        if grep -q "data=20[0-9]" "$(tmpfile qos_nano_listener.txt)" 2>/dev/null; then
             log_success "Data values verified (200+)"
         fi
         return 0
     else
         log_error "nano-ros did not receive messages"
-        cat /tmp/qos_nano_listener.txt 2>/dev/null
+        cat "$(tmpfile qos_nano_listener.txt)" 2>/dev/null
         return 1
     fi
 }

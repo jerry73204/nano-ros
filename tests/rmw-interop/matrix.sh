@@ -84,21 +84,21 @@ run_test() {
 # Test 1: nano-ros talker → nano-ros listener
 test_nano_to_nano() {
     log_info "Starting nano-ros listener..."
-    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile matrix_nano_listener.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile matrix_nano_talker.txt)" 2>&1 &
     register_pid $!
 
     sleep 8
 
-    if grep -q "Received:" /tmp/matrix_nano_listener.txt 2>/dev/null; then
+    if grep -q "Received:" "$(tmpfile matrix_nano_listener.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/matrix_nano_listener.txt "Received:")
+        count=$(count_pattern "$(tmpfile matrix_nano_listener.txt)" "Received:")
         log_info "Received $count messages"
-        [ "$VERBOSE" = true ] && head -10 /tmp/matrix_nano_listener.txt
+        [ "$VERBOSE" = true ] && head -10 "$(tmpfile matrix_nano_listener.txt)"
         return 0
     fi
     return 1
@@ -110,21 +110,21 @@ test_nano_to_ros2() {
 
     log_info "Starting ROS 2 topic echo..."
     timeout 15 ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort \
-        > /tmp/matrix_ros2_listener.txt 2>&1 &
+        > "$(tmpfile matrix_ros2_listener.txt)" 2>&1 &
     register_pid $!
     sleep 3
 
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_talker2.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile matrix_nano_talker2.txt)" 2>&1 &
     register_pid $!
 
     sleep 10
 
-    if grep -q "data:" /tmp/matrix_ros2_listener.txt 2>/dev/null; then
+    if grep -q "data:" "$(tmpfile matrix_ros2_listener.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/matrix_ros2_listener.txt "data:")
+        count=$(count_pattern "$(tmpfile matrix_ros2_listener.txt)" "data:")
         log_info "ROS 2 received $count messages"
-        [ "$VERBOSE" = true ] && head -15 /tmp/matrix_ros2_listener.txt
+        [ "$VERBOSE" = true ] && head -15 "$(tmpfile matrix_ros2_listener.txt)"
         return 0
     fi
     return 1
@@ -135,22 +135,22 @@ test_ros2_to_nano() {
     setup_ros2_env "$ROS_DISTRO"
 
     log_info "Starting nano-ros listener..."
-    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/matrix_nano_listener2.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile matrix_nano_listener2.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
     log_info "Starting ROS 2 topic pub..."
     timeout 12 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 99}" \
-        --qos-reliability best_effort > /tmp/matrix_ros2_pub.txt 2>&1 &
+        --qos-reliability best_effort > "$(tmpfile matrix_ros2_pub.txt)" 2>&1 &
     register_pid $!
 
     sleep 10
 
-    if grep -q "Received:" /tmp/matrix_nano_listener2.txt 2>/dev/null; then
+    if grep -q "Received:" "$(tmpfile matrix_nano_listener2.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/matrix_nano_listener2.txt "Received:")
+        count=$(count_pattern "$(tmpfile matrix_nano_listener2.txt)" "Received:")
         log_info "nano-ros received $count messages"
-        [ "$VERBOSE" = true ] && head -10 /tmp/matrix_nano_listener2.txt
+        [ "$VERBOSE" = true ] && head -10 "$(tmpfile matrix_nano_listener2.txt)"
         return 0
     fi
     return 1
@@ -162,22 +162,22 @@ test_ros2_to_ros2() {
 
     log_info "Starting ROS 2 topic echo..."
     timeout 15 ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort \
-        > /tmp/matrix_ros2_listener2.txt 2>&1 &
+        > "$(tmpfile matrix_ros2_listener2.txt)" 2>&1 &
     register_pid $!
     sleep 3
 
     log_info "Starting ROS 2 topic pub..."
     timeout 12 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 77}" \
-        --qos-reliability best_effort > /tmp/matrix_ros2_pub2.txt 2>&1 &
+        --qos-reliability best_effort > "$(tmpfile matrix_ros2_pub2.txt)" 2>&1 &
     register_pid $!
 
     sleep 10
 
-    if grep -q "data:" /tmp/matrix_ros2_listener2.txt 2>/dev/null; then
+    if grep -q "data:" "$(tmpfile matrix_ros2_listener2.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/matrix_ros2_listener2.txt "data:")
+        count=$(count_pattern "$(tmpfile matrix_ros2_listener2.txt)" "data:")
         log_info "ROS 2 received $count messages"
-        [ "$VERBOSE" = true ] && head -15 /tmp/matrix_ros2_listener2.txt
+        [ "$VERBOSE" = true ] && head -15 "$(tmpfile matrix_ros2_listener2.txt)"
         return 0
     fi
     return 1

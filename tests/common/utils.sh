@@ -19,6 +19,10 @@ ZENOH_LOCATOR="${ZENOH_LOCATOR:-tcp/127.0.0.1:7447}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-15}"
 
+# Create unique temp directory for this test run
+# This prevents conflicts when multiple test suites run concurrently
+TEST_TMPDIR="${TEST_TMPDIR:-$(mktemp -d /tmp/nano-ros-test.XXXXXX)}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -33,6 +37,12 @@ log_success() { echo -e "${GREEN}[PASS]${NC} $*"; }
 log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error()   { echo -e "${RED}[FAIL]${NC} $*"; }
 log_header()  { echo -e "\n${CYAN}=== $* ===${NC}"; }
+
+# Get a temp file path (unique to this test run)
+# Usage: tmpfile "name.txt" -> /tmp/nano-ros-test.XXXXXX/name.txt
+tmpfile() {
+    echo "$TEST_TMPDIR/$1"
+}
 
 # PIDs for cleanup
 declare -a CLEANUP_PIDS=()
@@ -64,8 +74,10 @@ cleanup() {
     pkill -f "/talker" 2>/dev/null || true
     pkill -f "/listener" 2>/dev/null || true
 
-    # Clean up temp files
-    rm -f /tmp/zenohd_test.log /tmp/nano_*.txt /tmp/ros2_*.txt
+    # Clean up temp directory
+    if [ -n "$TEST_TMPDIR" ] && [ -d "$TEST_TMPDIR" ]; then
+        rm -rf "$TEST_TMPDIR"
+    fi
 
     CLEANUP_PIDS=()
     ZENOHD_PID=""
@@ -84,13 +96,13 @@ start_zenohd() {
     pkill -x zenohd 2>/dev/null || true
     sleep 1
 
-    zenohd --listen "$ZENOH_LOCATOR" > /tmp/zenohd_test.log 2>&1 &
+    zenohd --listen "$ZENOH_LOCATOR" > "$(tmpfile zenohd.log)" 2>&1 &
     ZENOHD_PID=$!
     sleep 2
 
     if ! kill -0 "$ZENOHD_PID" 2>/dev/null; then
         log_error "Failed to start zenohd"
-        cat /tmp/zenohd_test.log
+        cat "$(tmpfile zenohd.log)"
         return 1
     fi
 

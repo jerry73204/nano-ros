@@ -43,14 +43,14 @@ test_node_liveliness() {
 
     # Start nano-ros talker with debug logging
     log_info "Starting nano-ros talker..."
-    RUST_LOG=debug timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_lv.txt 2>&1 &
+    RUST_LOG=debug timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile talker_lv.txt)" 2>&1 &
     register_pid $!
     sleep 4
 
     # Check for node liveliness keyexpr in output
-    if grep -q "Node liveliness keyexpr:" /tmp/talker_lv.txt 2>/dev/null; then
+    if grep -q "Node liveliness keyexpr:" "$(tmpfile talker_lv.txt)" 2>/dev/null; then
         local token
-        token=$(grep "Node liveliness keyexpr:" /tmp/talker_lv.txt | head -1)
+        token=$(grep "Node liveliness keyexpr:" "$(tmpfile talker_lv.txt)" | head -1)
         log_success "Node liveliness token declared"
 
         # Verify format: @ros2_lv/<domain>/<zid>/0/0/NN/%/%/<node>
@@ -66,7 +66,7 @@ test_node_liveliness() {
         return 0
     else
         log_error "Node liveliness token not found in output"
-        [ "$VERBOSE" = true ] && cat /tmp/talker_lv.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile talker_lv.txt)"
         return 1
     fi
 }
@@ -76,9 +76,9 @@ test_publisher_liveliness() {
     log_header "Test: Publisher Liveliness Token"
 
     # Check for publisher liveliness keyexpr (from same output)
-    if grep -q "Publisher liveliness keyexpr:" /tmp/talker_lv.txt 2>/dev/null; then
+    if grep -q "Publisher liveliness keyexpr:" "$(tmpfile talker_lv.txt)" 2>/dev/null; then
         local token
-        token=$(grep "Publisher liveliness keyexpr:" /tmp/talker_lv.txt | head -1)
+        token=$(grep "Publisher liveliness keyexpr:" "$(tmpfile talker_lv.txt)" | head -1)
         log_success "Publisher liveliness token declared"
 
         # Check format components
@@ -131,22 +131,22 @@ test_ros2_discovery() {
 
     # Start talker
     log_info "Starting nano-ros talker..."
-    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_disc.txt 2>&1 &
+    RUST_LOG=info "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile talker_disc.txt)" 2>&1 &
     register_pid $!
     sleep 3
 
     # Test that ROS 2 can receive messages (implies discovery working)
     log_info "Testing ROS 2 can receive messages..."
-    if timeout 12 ros2 topic echo /chatter std_msgs/msg/Int32 --once --qos-reliability best_effort > /tmp/ros2_disc.txt 2>&1; then
-        if grep -q "data:" /tmp/ros2_disc.txt 2>/dev/null; then
+    if timeout 12 ros2 topic echo /chatter std_msgs/msg/Int32 --once --qos-reliability best_effort > "$(tmpfile ros2_disc.txt)" 2>&1; then
+        if grep -q "data:" "$(tmpfile ros2_disc.txt)" 2>/dev/null; then
             log_success "ROS 2 received message (discovery working)"
-            [ "$VERBOSE" = true ] && cat /tmp/ros2_disc.txt
+            [ "$VERBOSE" = true ] && cat "$(tmpfile ros2_disc.txt)"
             return 0
         fi
     fi
 
     log_warn "ROS 2 discovery test inconclusive"
-    [ "$VERBOSE" = true ] && cat /tmp/ros2_disc.txt
+    [ "$VERBOSE" = true ] && cat "$(tmpfile ros2_disc.txt)"
     return 0  # Don't fail - discovery might just be slow
 }
 

@@ -43,14 +43,14 @@ test_data_keyexpr() {
 
     # Start nano-ros talker with debug logging
     log_info "Starting nano-ros talker..."
-    RUST_LOG=debug timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/talker_keyexpr.txt 2>&1 &
+    RUST_LOG=debug timeout 8 "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile talker_keyexpr.txt)" 2>&1 &
     register_pid $!
     sleep 4
 
     # Check for data keyexpr in output
-    if grep -q "Publisher data keyexpr:" /tmp/talker_keyexpr.txt 2>/dev/null; then
+    if grep -q "Publisher data keyexpr:" "$(tmpfile talker_keyexpr.txt)" 2>/dev/null; then
         local line keyexpr
-        line=$(grep "Publisher data keyexpr:" /tmp/talker_keyexpr.txt | head -1)
+        line=$(grep "Publisher data keyexpr:" "$(tmpfile talker_keyexpr.txt)" | head -1)
         # Extract the keyexpr part after the colon
         keyexpr=$(echo "$line" | sed 's/.*Publisher data keyexpr: //')
 
@@ -103,7 +103,7 @@ test_data_keyexpr() {
         return 0
     else
         log_error "Data keyexpr not found in output"
-        [ "$VERBOSE" = true ] && cat /tmp/talker_keyexpr.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile talker_keyexpr.txt)"
         return 1
     fi
 }
@@ -113,9 +113,9 @@ test_keyexpr_components() {
     log_header "Test: Key Expression Components"
 
     # The keyexpr should already be captured from test 1
-    if grep -q "Publisher data keyexpr:" /tmp/talker_keyexpr.txt 2>/dev/null; then
+    if grep -q "Publisher data keyexpr:" "$(tmpfile talker_keyexpr.txt)" 2>/dev/null; then
         local keyexpr
-        keyexpr=$(grep "Publisher data keyexpr:" /tmp/talker_keyexpr.txt | head -1 | sed 's/.*Publisher data keyexpr: //')
+        keyexpr=$(grep "Publisher data keyexpr:" "$(tmpfile talker_keyexpr.txt)" | head -1 | sed 's/.*Publisher data keyexpr: //')
 
         # Count components (should be 4: domain/topic/type/hash)
         local count
@@ -156,7 +156,7 @@ test_wildcard_subscriber() {
     log_info "Testing wildcard matching..."
 
     # Start nano-ros listener
-    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/wildcard_test.txt 2>&1 &
+    RUST_LOG=info timeout 15 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile wildcard_test.txt)" 2>&1 &
     register_pid $!
     sleep 2
 
@@ -164,33 +164,33 @@ test_wildcard_subscriber() {
     if setup_ros2_env "humble" 2>/dev/null; then
         # ROS 2 publisher
         timeout 10 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 555}" \
-            --qos-reliability best_effort > /tmp/ros2_wc.txt 2>&1 &
+            --qos-reliability best_effort > "$(tmpfile ros2_wc.txt)" 2>&1 &
         register_pid $!
         sleep 6
 
-        if grep -q "Received:" /tmp/wildcard_test.txt 2>/dev/null; then
+        if grep -q "Received:" "$(tmpfile wildcard_test.txt)" 2>/dev/null; then
             log_success "Wildcard subscriber receives ROS 2 messages"
 
-            if grep -q "data=555" /tmp/wildcard_test.txt 2>/dev/null; then
+            if grep -q "data=555" "$(tmpfile wildcard_test.txt)" 2>/dev/null; then
                 log_success "Data integrity verified (data=555)"
             fi
 
-            [ "$VERBOSE" = true ] && head -10 /tmp/wildcard_test.txt
+            [ "$VERBOSE" = true ] && head -10 "$(tmpfile wildcard_test.txt)"
             return 0
         else
             log_error "Wildcard subscriber did not receive messages"
-            [ "$VERBOSE" = true ] && cat /tmp/wildcard_test.txt
+            [ "$VERBOSE" = true ] && cat "$(tmpfile wildcard_test.txt)"
             return 1
         fi
     else
         log_warn "ROS 2 not available, testing with nano-ros only"
 
         # Test with nano-ros talker instead
-        RUST_LOG=info timeout 10 "$TALKER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_wc.txt 2>&1 &
+        RUST_LOG=info timeout 10 "$TALKER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile nano_wc.txt)" 2>&1 &
         register_pid $!
         sleep 5
 
-        if grep -q "Received:" /tmp/wildcard_test.txt 2>/dev/null; then
+        if grep -q "Received:" "$(tmpfile wildcard_test.txt)" 2>/dev/null; then
             log_success "Wildcard subscriber receives nano-ros messages"
             return 0
         fi

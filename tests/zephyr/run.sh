@@ -195,11 +195,11 @@ build_zephyr_examples() {
 
     # Build talker for native_sim/native/64
     log_info "Building zephyr-talker-rs for native_sim/native/64..."
-    if west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -p auto 2>&1 | tee /tmp/zephyr_build.txt | tail -10; then
+    if west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -p auto 2>&1 | tee "$(tmpfile zephyr_build.txt)" | tail -10; then
         log_success "Talker build complete"
     else
         log_error "Talker build failed"
-        [ "$VERBOSE" = true ] && cat /tmp/zephyr_build.txt
+        [ "$VERBOSE" = true ] && cat "$(tmpfile zephyr_build.txt)"
         return 1
     fi
 
@@ -217,14 +217,14 @@ test_zephyr_to_native() {
     log_info "Starting zenoh router..."
     pkill -x zenohd 2>/dev/null || true
     sleep 1
-    zenohd --listen tcp/0.0.0.0:7447 > /tmp/zephyr_zenohd.txt 2>&1 &
+    zenohd --listen tcp/0.0.0.0:7447 > "$(tmpfile zephyr_zenohd.txt)" 2>&1 &
     local zenohd_pid=$!
     register_pid $zenohd_pid
     sleep 2
 
     if ! kill -0 $zenohd_pid 2>/dev/null; then
         log_error "Failed to start zenohd"
-        cat /tmp/zephyr_zenohd.txt
+        cat "$(tmpfile zephyr_zenohd.txt)"
         return 1
     fi
     log_success "zenohd started (PID: $zenohd_pid)"
@@ -233,7 +233,7 @@ test_zephyr_to_native() {
     log_info "Starting native subscriber..."
     cd "$PROJECT_ROOT"
     timeout "$TEST_TIMEOUT" cargo run -p zenoh-pico --example sub_test --features std \
-        > /tmp/zephyr_native_sub.txt 2>&1 &
+        > "$(tmpfile zephyr_native_sub.txt)" 2>&1 &
     local sub_pid=$!
     register_pid $sub_pid
     sleep 2
@@ -241,7 +241,7 @@ test_zephyr_to_native() {
     # Start Zephyr talker
     log_info "Starting Zephyr talker..."
     cd "$ZEPHYR_WORKSPACE"
-    timeout "$TEST_TIMEOUT" ./build/zephyr/zephyr.exe > /tmp/zephyr_talker.txt 2>&1 &
+    timeout "$TEST_TIMEOUT" ./build/zephyr/zephyr.exe > "$(tmpfile zephyr_talker.txt)" 2>&1 &
     local zephyr_pid=$!
     register_pid $zephyr_pid
 
@@ -251,10 +251,10 @@ test_zephyr_to_native() {
     # Wait for subscriber to receive messages or timeout
     local elapsed=0
     while [ $elapsed -lt $TEST_TIMEOUT ]; do
-        if grep -q "SUCCESS" /tmp/zephyr_native_sub.txt 2>/dev/null; then
+        if grep -q "SUCCESS" "$(tmpfile zephyr_native_sub.txt)" 2>/dev/null; then
             break
         fi
-        if grep -q "TIMEOUT" /tmp/zephyr_native_sub.txt 2>/dev/null; then
+        if grep -q "TIMEOUT" "$(tmpfile zephyr_native_sub.txt)" 2>/dev/null; then
             break
         fi
         sleep 1
@@ -262,31 +262,31 @@ test_zephyr_to_native() {
     done
 
     # Check results
-    if grep -q "SUCCESS" /tmp/zephyr_native_sub.txt 2>/dev/null; then
+    if grep -q "SUCCESS" "$(tmpfile zephyr_native_sub.txt)" 2>/dev/null; then
         local count
-        count=$(grep -c "Received Int32:" /tmp/zephyr_native_sub.txt 2>/dev/null || echo 0)
+        count=$(grep -c "Received Int32:" "$(tmpfile zephyr_native_sub.txt)" 2>/dev/null || echo 0)
         log_success "Native subscriber received $count messages from Zephyr!"
 
         if [ "$VERBOSE" = true ]; then
             echo ""
             echo "=== Subscriber Output ==="
-            cat /tmp/zephyr_native_sub.txt
+            cat "$(tmpfile zephyr_native_sub.txt)"
             echo ""
             echo "=== Zephyr Output ==="
-            head -25 /tmp/zephyr_talker.txt
+            head -25 "$(tmpfile zephyr_talker.txt)"
         fi
         return 0
     else
         log_error "Native subscriber did not receive messages from Zephyr"
         echo ""
         echo "=== Subscriber Output ==="
-        cat /tmp/zephyr_native_sub.txt 2>/dev/null || echo "(empty)"
+        cat "$(tmpfile zephyr_native_sub.txt)" 2>/dev/null || echo "(empty)"
         echo ""
         echo "=== Zephyr Output ==="
-        cat /tmp/zephyr_talker.txt 2>/dev/null | head -30
+        cat "$(tmpfile zephyr_talker.txt)" 2>/dev/null | head -30
         echo ""
         echo "=== zenohd Output ==="
-        cat /tmp/zephyr_zenohd.txt 2>/dev/null | tail -10
+        cat "$(tmpfile zephyr_zenohd.txt)" 2>/dev/null | tail -10
         return 1
     fi
 }

@@ -52,7 +52,7 @@ test_with_topic_pub() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    RUST_LOG=info timeout 25 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener.txt 2>&1 &
+    RUST_LOG=info timeout 25 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile nano_listener.txt)" 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
     sleep 3
@@ -60,39 +60,39 @@ test_with_topic_pub() {
     # Start ROS 2 publisher
     log_info "Starting ROS 2 topic pub..."
     timeout 20 ros2 topic pub -r 1 /chatter std_msgs/msg/Int32 "{data: 42}" \
-        --qos-reliability best_effort > /tmp/ros2_pub.txt 2>&1 &
+        --qos-reliability best_effort > "$(tmpfile ros2_pub.txt)" 2>&1 &
     local ros2_pid=$!
     register_pid $ros2_pid
 
     # Wait for messages
     log_info "Waiting for nano-ros to receive messages..."
-    if wait_for_pattern /tmp/nano_listener.txt "Received:" "$TEST_TIMEOUT"; then
+    if wait_for_pattern "$(tmpfile nano_listener.txt)" "Received:" "$TEST_TIMEOUT"; then
         local count
-        count=$(count_pattern /tmp/nano_listener.txt "Received:")
+        count=$(count_pattern "$(tmpfile nano_listener.txt)" "Received:")
         log_success "nano-ros received $count messages from ROS 2"
 
         # Check data integrity
-        if grep -q "data=42" /tmp/nano_listener.txt 2>/dev/null; then
+        if grep -q "data=42" "$(tmpfile nano_listener.txt)" 2>/dev/null; then
             log_success "Data integrity verified (data=42)"
         fi
 
         if [ "$VERBOSE" = true ]; then
             echo ""
             echo "=== ROS 2 Publisher Output ==="
-            cat /tmp/ros2_pub.txt | head -10
+            cat "$(tmpfile ros2_pub.txt)" | head -10
             echo ""
             echo "=== nano-ros Listener Output ==="
-            cat /tmp/nano_listener.txt | head -15
+            cat "$(tmpfile nano_listener.txt)" | head -15
         fi
         return 0
     else
         log_error "nano-ros did not receive messages"
         echo ""
         echo "=== ROS 2 Publisher Output ==="
-        cat /tmp/ros2_pub.txt 2>/dev/null || echo "(no output)"
+        cat "$(tmpfile ros2_pub.txt)" 2>/dev/null || echo "(no output)"
         echo ""
         echo "=== nano-ros Listener Output ==="
-        cat /tmp/nano_listener.txt 2>/dev/null || echo "(no output)"
+        cat "$(tmpfile nano_listener.txt)" 2>/dev/null || echo "(no output)"
         return 1
     fi
 }
@@ -111,14 +111,14 @@ test_with_python_publisher() {
 
     # Start nano-ros listener
     log_info "Starting nano-ros listener..."
-    RUST_LOG=info timeout 20 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > /tmp/nano_listener2.txt 2>&1 &
+    RUST_LOG=info timeout 20 "$LISTENER_BIN" --tcp 127.0.0.1:7447 > "$(tmpfile nano_listener2.txt)" 2>&1 &
     local listener_pid=$!
     register_pid $listener_pid
     sleep 2
 
     # Run Python publisher
     log_info "Running Python publisher..."
-    python3 << 'PYTHON_EOF' > /tmp/ros2_python_pub.txt 2>&1
+    python3 << 'PYTHON_EOF' > "$(tmpfile ros2_python_pub.txt)" 2>&1
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
@@ -166,23 +166,23 @@ PYTHON_EOF
 
     # Check if nano-ros received
     sleep 2
-    if grep -q "Received:" /tmp/nano_listener2.txt 2>/dev/null; then
+    if grep -q "Received:" "$(tmpfile nano_listener2.txt)" 2>/dev/null; then
         local count
-        count=$(count_pattern /tmp/nano_listener2.txt "Received:")
+        count=$(count_pattern "$(tmpfile nano_listener2.txt)" "Received:")
         log_success "nano-ros received $count messages from Python publisher"
 
         # Check for values >= 100 (from Python publisher)
-        if grep -q "data=10[0-9]" /tmp/nano_listener2.txt 2>/dev/null; then
+        if grep -q "data=10[0-9]" "$(tmpfile nano_listener2.txt)" 2>/dev/null; then
             log_success "Received correct data values (100+)"
         fi
 
         if [ "$VERBOSE" = true ]; then
-            cat /tmp/nano_listener2.txt | head -15
+            cat "$(tmpfile nano_listener2.txt)" | head -15
         fi
         return 0
     else
         log_error "nano-ros did not receive messages"
-        cat /tmp/nano_listener2.txt 2>/dev/null
+        cat "$(tmpfile nano_listener2.txt)" 2>/dev/null
         return 1
     fi
 }
