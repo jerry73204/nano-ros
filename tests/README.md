@@ -2,11 +2,49 @@
 
 Integration tests for nano-ros communication with itself and ROS 2.
 
+## Test Frameworks
+
+nano-ros uses two test frameworks:
+
+### Rust Tests (Recommended)
+Type-safe tests using rstest fixtures in `crates/nano-ros-tests/`:
+- RAII-based resource management (auto cleanup)
+- Parallel test execution support
+- Cached binary builds
+
+```bash
+# Run all Rust tests
+just test-rust
+
+# Run specific test suites
+just test-rust-emulator   # QEMU Cortex-M3 tests
+just test-rust-nano2nano  # Native pub/sub tests
+just test-rust-platform   # Platform detection tests
+
+# Or via wrapper script
+./tests/rust-tests.sh
+```
+
+### Shell Tests (Legacy)
+Shell scripts in `tests/` for complex orchestration:
+- ROS 2 interop tests (require sourced ROS environment)
+- Zephyr workspace tests
+- Detailed protocol tests
+
+```bash
+# Run all shell tests
+./tests/run-all.sh
+
+# Quick smoke test
+./tests/run-all.sh --quick
+```
+
 ## Directory Structure
 
 ```
 tests/
-├── run-all.sh           # Main test runner
+├── rust-tests.sh        # Rust tests wrapper script
+├── run-all.sh           # Shell tests runner
 ├── README.md
 ├── common/              # Shared utilities
 │   ├── utils.sh         # Logging, cleanup, helpers
@@ -48,6 +86,18 @@ tests/
 │   └── README.md
 └── zephyr/              # Zephyr integration tests
     └── run.sh
+
+crates/nano-ros-tests/   # Rust test crate
+├── src/
+│   ├── lib.rs           # Shared utilities
+│   └── fixtures/        # rstest fixtures
+│       ├── binaries.rs  # Binary build helpers
+│       ├── qemu.rs      # QemuProcess fixture
+│       └── zenohd_fixture.rs # ZenohRouter fixture
+└── tests/
+    ├── emulator.rs      # QEMU Cortex-M3 tests
+    ├── nano2nano.rs     # Native pub/sub tests
+    └── platform.rs      # Platform detection tests
 ```
 
 ## Quick Start

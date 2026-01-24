@@ -1,0 +1,44 @@
+[package]
+name = "nano-ros-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Integration tests for nano-ros"
+
+[dependencies]
+# Test framework
+rstest = "0.24"
+duct = "0.13"
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.15"
+thiserror = "2.0"
+once_cell = "1.20"
+
+# Async support for waiting
+parking_lot = "0.12"
+
+# Workspace dependencies for type access (optional)
+nano-ros-core = { path = "../nano-ros-core", optional = true }
+nano-ros-serdes = { path = "../nano-ros-serdes", optional = true }
+
+[features]
+default = []
+types = ["nano-ros-core", "nano-ros-serdes"]
+
+[lib]
+name = "nano_ros_tests"
+path = "src/lib.rs"
+
+# Integration tests
+[[test]]
+name = "emulator"
+path = "tests/emulator.rs"
+
+[[test]]
+name = "nano2nano"
+path = "tests/nano2nano.rs"
+
+[[test]]
+name = "platform"
+path = "tests/platform.rs"

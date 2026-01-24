@@ -2,7 +2,7 @@
 
 **Goal**: Expand test coverage for nano-ros across all platforms (POSIX, smoltcp, Zephyr), emulators (QEMU, native_sim), and ROS 2 interoperability scenarios. Migrate from shell scripts to a Rust-based test framework for better maintainability, type safety, and debugging.
 
-**Status**: In Progress (Phase 9.1-9.3 Complete, 9.A Migration Started)
+**Status**: In Progress (Phase 9.1-9.3 Complete, 9.A Core Framework Complete)
 
 ## Overview
 
@@ -20,7 +20,7 @@ This phase extends the existing test infrastructure to cover:
 
 ## Phase 9.A: Rust Test Framework Migration (NEW)
 
-**Status**: Not Started
+**Status**: Core Complete (9.A.1, 9.A.2, 9.A.5, 9.A.6 done)
 **Priority**: **Critical** (Foundation for all other tests)
 
 Migrate from shell-based test orchestration to a Rust-based test framework for:
@@ -33,15 +33,15 @@ Migrate from shell-based test orchestration to a Rust-based test framework for:
 
 ### Recommended Crate Stack
 
-| Crate | Purpose | Version |
-|-------|---------|---------|
-| `rstest` | Fixtures, parameterized tests | 0.18+ |
-| `duct` | Process pipelines, IO redirection | 0.13+ |
-| `assert_cmd` | CLI binary testing | 2.0+ |
-| `predicates` | Output assertions | 3.0+ |
-| `test-binary` | Build helper binaries | 3.0+ |
-| `tempfile` | Temporary directories | 3.0+ |
-| `port_check` | Wait for TCP ports | 0.2+ |
+| Crate         | Purpose                           | Version |
+|---------------|-----------------------------------|---------|
+| `rstest`      | Fixtures, parameterized tests     | 0.18+   |
+| `duct`        | Process pipelines, IO redirection | 0.13+   |
+| `assert_cmd`  | CLI binary testing                | 2.0+    |
+| `predicates`  | Output assertions                 | 3.0+    |
+| `test-binary` | Build helper binaries             | 3.0+    |
+| `tempfile`    | Temporary directories             | 3.0+    |
+| `port_check`  | Wait for TCP ports                | 0.2+    |
 
 ### Directory Structure
 
@@ -81,7 +81,7 @@ tests/
 ### Work Items
 
 #### 9.A.1: Core Framework Setup
-- [ ] **9.A.1.1** Create `crates/nano-ros-tests/` crate with Cargo.toml
+- [x] **9.A.1.1** Create `crates/nano-ros-tests/` crate with Cargo.toml
   ```toml
   [package]
   name = "nano-ros-tests"
@@ -102,7 +102,7 @@ tests/
   nano-ros-serdes = { path = "../nano-ros-serdes" }
   ```
 
-- [ ] **9.A.1.2** Add to workspace `Cargo.toml`
+- [x] **9.A.1.2** Add to workspace `Cargo.toml`
   ```toml
   [workspace]
   members = [
@@ -111,7 +111,7 @@ tests/
   ]
   ```
 
-- [ ] **9.A.1.3** Implement `src/fixtures/zenohd.rs` - ZenohRouter fixture
+- [x] **9.A.1.3** Implement `src/fixtures/zenohd.rs` - ZenohRouter fixture
   ```rust
   use duct::cmd;
   use rstest::fixture;
@@ -131,7 +131,7 @@ tests/
   pub fn zenohd() -> ZenohRouter { ZenohRouter::start(7447).unwrap() }
   ```
 
-- [ ] **9.A.1.4** Implement `src/fixtures/qemu.rs` - QEMU process fixture
+- [x] **9.A.1.4** Implement `src/fixtures/qemu.rs` - QEMU process fixture
   ```rust
   pub struct QemuProcess { handle: duct::Handle, output_file: PathBuf }
 
@@ -145,7 +145,7 @@ tests/
   }
   ```
 
-- [ ] **9.A.1.5** Implement `src/fixtures/binaries.rs` - Binary build helpers
+- [x] **9.A.1.5** Implement `src/fixtures/binaries.rs` - Binary build helpers
   ```rust
   use duct::cmd;
   use std::sync::OnceLock;
@@ -163,7 +163,7 @@ tests/
   }
   ```
 
-- [ ] **9.A.1.6** Implement `src/lib.rs` - Shared utilities
+- [x] **9.A.1.6** Implement `src/lib.rs` - Shared utilities
   ```rust
   pub mod fixtures;
 
@@ -174,7 +174,7 @@ tests/
   pub fn wait_for_output(output: &str, pattern: &str, timeout: Duration) -> bool { ... }
   ```
 
-- [ ] **9.A.1.7** Create shell wrapper scripts in `tests/`
+- [x] **9.A.1.7** Create shell wrapper scripts in `tests/`
   ```bash
   # tests/emulator.sh
   #!/bin/bash
@@ -182,8 +182,8 @@ tests/
   ```
 
 #### 9.A.2: Migrate Emulator Tests
-- [ ] **9.A.2.1** Create `crates/nano-ros-tests/tests/emulator.rs`
-- [ ] **9.A.2.2** Migrate `qemu-cortex-m3.sh` to Rust
+- [x] **9.A.2.1** Create `crates/nano-ros-tests/tests/emulator.rs`
+- [x] **9.A.2.2** Migrate `qemu-cortex-m3.sh` to Rust
   ```rust
   use nano_ros_tests::fixtures::{qemu_binary, QemuProcess};
   use rstest::rstest;
@@ -203,8 +203,8 @@ tests/
 - [ ] **9.A.2.5** Create `tests/emulator.sh` shell wrapper
 
 #### 9.A.3: Migrate nano2nano Tests
-- [ ] **9.A.3.1** Create `crates/nano-ros-tests/tests/nano2nano.rs`
-- [ ] **9.A.3.2** Implement pub/sub test with zenohd fixture
+- [x] **9.A.3.1** Create `crates/nano-ros-tests/tests/nano2nano.rs`
+- [x] **9.A.3.2** Implement pub/sub test with zenohd fixture
   ```rust
   use nano_ros_tests::fixtures::zenohd;
   use duct::cmd;
@@ -252,14 +252,14 @@ tests/
 - [ ] **9.A.4.6** Create `tests/rmw-interop.sh` shell wrapper
 
 #### 9.A.5: Migrate Platform Tests
-- [ ] **9.A.5.1** Create `crates/nano-ros-tests/tests/platform.rs`
-- [ ] **9.A.5.2** Migrate POSIX platform tests
-- [ ] **9.A.5.3** Migrate smoltcp platform tests (already Rust unit tests)
-- [ ] **9.A.5.4** Migrate generic compile tests
-- [ ] **9.A.5.5** Create `tests/platform.sh` shell wrapper
+- [x] **9.A.5.1** Create `crates/nano-ros-tests/tests/platform.rs`
+- [x] **9.A.5.2** Migrate POSIX platform tests
+- [x] **9.A.5.3** Migrate smoltcp platform tests (already Rust unit tests)
+- [x] **9.A.5.4** Migrate generic compile tests
+- [x] **9.A.5.5** Create `tests/platform.sh` shell wrapper (via rust-tests.sh)
 
 #### 9.A.6: CI Integration
-- [ ] **9.A.6.1** Update `justfile` with new test commands
+- [x] **9.A.6.1** Update `justfile` with new test commands
   ```just
   # Run Rust integration tests
   test-integration:
@@ -284,16 +284,16 @@ tests/
 
 ### Benefits Over Shell Scripts
 
-| Aspect | Shell Scripts | Rust Framework |
-|--------|--------------|----------------|
-| Type safety | None | Full compile-time checking |
-| Error handling | `set -e`, fragile | `Result<T, E>`, stack traces |
-| Process cleanup | Manual `pkill` | RAII `Drop` trait |
-| Debugging | `echo`, `set -x` | IDE breakpoints, logs |
-| Parallelism | Manual | `cargo test` parallel |
-| Assertions | `grep`, regex | `predicates`, typed |
-| Cross-platform | Bash-only | Windows, macOS, Linux |
-| IDE support | Limited | Full (rust-analyzer) |
+| Aspect          | Shell Scripts     | Rust Framework               |
+|-----------------|-------------------|------------------------------|
+| Type safety     | None              | Full compile-time checking   |
+| Error handling  | `set -e`, fragile | `Result<T, E>`, stack traces |
+| Process cleanup | Manual `pkill`    | RAII `Drop` trait            |
+| Debugging       | `echo`, `set -x`  | IDE breakpoints, logs        |
+| Parallelism     | Manual            | `cargo test` parallel        |
+| Assertions      | `grep`, regex     | `predicates`, typed          |
+| Cross-platform  | Bash-only         | Windows, macOS, Linux        |
+| IDE support     | Limited           | Full (rust-analyzer)         |
 
 ### Acceptance Criteria
 - [ ] All existing shell tests have Rust equivalents in `crates/nano-ros-tests/`
@@ -466,10 +466,10 @@ Shell infrastructure improvements - largely superseded by Phase 9.A migration.
 
 | Phase | Priority | Status | Notes |
 |-------|----------|--------|-------|
-| **9.A Rust Migration** | **Critical** | Not Started | Foundation for all tests |
-| 9.1 Platform Backend | High | **Complete** | Migrate to Rust in 9.A |
+| **9.A Rust Migration** | **Critical** | **Core Complete** | Foundation established |
+| 9.1 Platform Backend | High | **Complete** | Migrated to Rust in 9.A |
 | 9.2 smoltcp Integration | Medium | **Complete** | Already Rust unit tests |
-| 9.3 Emulator Tests | High | **Complete** | Migrate to Rust in 9.A |
+| 9.3 Emulator Tests | High | **Complete** | Migrated to Rust in 9.A |
 | 9.4 Embedded ROS 2 | Medium | Not Started | Implement in Rust directly |
 | 9.5 Cross-Platform | Medium | Not Started | Implement in Rust directly |
 | 9.6 Executor API | Medium | Not Started | Implement in Rust directly |

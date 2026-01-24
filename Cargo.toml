@@ -12,6 +12,8 @@ members = [
     # zenoh-pico shim for cross-platform support (POSIX, Zephyr, smoltcp)
     "crates/zenoh-pico-shim-sys",
     "crates/zenoh-pico-shim",
+    # Integration tests
+    "crates/nano-ros-tests",
 ]
 
 # Examples are excluded from workspace - they are standalone packages

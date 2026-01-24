@@ -20,8 +20,8 @@ format: format-workspace format-examples
 check: check-workspace check-workspace-embedded check-workspace-features check-examples
     @echo "All checks passed!"
 
-# Test everything: workspace tests, Miri, QEMU, and integration tests
-test: test-workspace test-miri test-qemu test-integration
+# Test everything: workspace tests, Miri, QEMU, Rust integration, and shell integration tests
+test: test-workspace test-miri test-qemu test-rust test-integration
     @echo "All tests passed!"
 
 # Run all quality checks (check + test)
@@ -281,6 +281,30 @@ test-rmw-detailed:
 # Run Zephyr QEMU tests (requires west workspace)
 test-zephyr:
     ./tests/run-all.sh zephyr
+
+# =============================================================================
+# Rust Integration Tests (crates/nano-ros-tests)
+# =============================================================================
+
+# Run all Rust integration tests
+test-rust:
+    cargo test -p nano-ros-tests --tests -- --nocapture
+
+# Run Rust emulator tests (QEMU Cortex-M3)
+test-rust-emulator:
+    cargo test -p nano-ros-tests --test emulator -- --nocapture
+
+# Run Rust native pub/sub tests
+test-rust-nano2nano:
+    cargo test -p nano-ros-tests --test nano2nano -- --nocapture
+
+# Run Rust platform detection tests
+test-rust-platform:
+    cargo test -p nano-ros-tests --test platform -- --nocapture
+
+# Run Rust tests via wrapper script (with nice output)
+test-rust-full:
+    ./tests/rust-tests.sh
 
 # =============================================================================
 # Setup & Cleanup
