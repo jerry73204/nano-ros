@@ -108,7 +108,7 @@ impl RmwAttachment {
     }
 
     /// Generate a random GID using a simple PRNG
-    fn generate_gid() -> [u8; RMW_GID_SIZE] {
+    pub fn generate_gid() -> [u8; RMW_GID_SIZE] {
         let mut gid = [0u8; RMW_GID_SIZE];
         static COUNTER: AtomicI64 = AtomicI64::new(0);
         let seed = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
@@ -182,7 +182,8 @@ impl Ros2Liveliness {
 
     /// Build a publisher liveliness key expression
     ///
-    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MP/%/%/<node_name>/<topic>/<type>/<hash>/<qos>`
+    /// Note: type_hash already includes the `RIHS01_` prefix from generated code
     pub fn publisher_keyexpr<const N: usize>(
         domain_id: u32,
         zid: &ShimZenohId,
@@ -198,7 +199,7 @@ impl Ros2Liveliness {
         let _ = core::fmt::write(
             &mut key,
             format_args!(
-                "@ros2_lv/{}/{}/0/11/MP/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
+                "@ros2_lv/{}/{}/0/11/MP/%/%/{}/{}/{}/{}/2:2:1,1:,:,:,,",
                 domain_id,
                 zid_str,
                 node_name,
@@ -212,7 +213,8 @@ impl Ros2Liveliness {
 
     /// Build a subscriber liveliness key expression
     ///
-    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/<topic>/<type>/RIHS01_<hash>/<qos>`
+    /// Format: `@ros2_lv/<domain_id>/<zid>/0/11/MS/%/%/<node_name>/<topic>/<type>/<hash>/<qos>`
+    /// Note: type_hash already includes the `RIHS01_` prefix from generated code
     pub fn subscriber_keyexpr<const N: usize>(
         domain_id: u32,
         zid: &ShimZenohId,
@@ -227,7 +229,7 @@ impl Ros2Liveliness {
         let _ = core::fmt::write(
             &mut key,
             format_args!(
-                "@ros2_lv/{}/{}/0/11/MS/%/%/{}/{}/{}/RIHS01_{}/2:2:1,1:,:,:,,",
+                "@ros2_lv/{}/{}/0/11/MS/%/%/{}/{}/{}/{}/2:2:1,1:,:,:,,",
                 domain_id,
                 zid_str,
                 node_name,
@@ -446,9 +448,11 @@ impl Session for ShimSession {
 /// Includes RMW attachment support for rmw_zenoh compatibility.
 pub struct ShimPublisher {
     publisher: zenoh_pico_shim::ShimPublisher<'static>,
-    /// RMW attachment with GID and sequence counter
-    attachment: RmwAttachment,
-    /// Static timestamp counter (until platform time is available)
+    /// RMW GID (generated once per publisher)
+    rmw_gid: [u8; RMW_GID_SIZE],
+    /// Sequence number counter (atomic for interior mutability)
+    sequence_counter: AtomicI64,
+    /// Timestamp counter (until platform time is available)
     timestamp_counter: AtomicI64,
 }
 
@@ -457,6 +461,9 @@ impl ShimPublisher {
     pub fn new(context: &ShimContext, topic: &TopicInfo) -> Result<Self, TransportError> {
         // Generate the topic key with null terminator
         let key: heapless::String<256> = topic.to_key();
+
+        #[cfg(feature = "std")]
+        log::debug!("Publisher data keyexpr: {}", key.as_str());
 
         // Create null-terminated keyexpr
         let mut keyexpr_buf = [0u8; 257];
@@ -485,7 +492,8 @@ impl ShimPublisher {
 
         Ok(Self {
             publisher,
-            attachment: RmwAttachment::new(),
+            rmw_gid: RmwAttachment::generate_gid(),
+            sequence_counter: AtomicI64::new(0),
             timestamp_counter: AtomicI64::new(0),
         })
     }
@@ -496,22 +504,41 @@ impl ShimPublisher {
         self.timestamp_counter
             .fetch_add(1_000_000, Ordering::Relaxed)
     }
+
+    /// Serialize attachment for RMW compatibility
+    fn serialize_attachment(&self, seq: i64, ts: i64, buf: &mut [u8; RMW_ATTACHMENT_SIZE]) {
+        // Sequence number (little-endian)
+        buf[0..8].copy_from_slice(&seq.to_le_bytes());
+        // Timestamp (little-endian)
+        buf[8..16].copy_from_slice(&ts.to_le_bytes());
+        // VLE length (16 fits in single byte)
+        buf[16] = RMW_GID_SIZE as u8;
+        // GID bytes
+        buf[17..33].copy_from_slice(&self.rmw_gid);
+    }
 }
 
 impl Publisher for ShimPublisher {
     type Error = TransportError;
 
     fn publish_raw(&self, data: &[u8]) -> Result<(), Self::Error> {
-        // Update attachment with new sequence number and timestamp
-        // Note: We need interior mutability here, using a simple workaround
-        // since we can't use Mutex in no_std without extra dependencies
-        let mut att = self.attachment;
-        att.sequence_number += 1;
-        att.timestamp = self.current_timestamp();
+        // Get next sequence number and timestamp atomically
+        let seq = self.sequence_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let ts = self.current_timestamp();
 
         // Serialize the attachment
         let mut att_buf = [0u8; RMW_ATTACHMENT_SIZE];
-        att.serialize(&mut att_buf);
+        self.serialize_attachment(seq, ts, &mut att_buf);
+
+        #[cfg(feature = "std")]
+        log::trace!(
+            "Publishing {} bytes with attachment: seq={}, ts={}, gid={:02x?}, raw={:02x?}",
+            data.len(),
+            seq,
+            ts,
+            &self.rmw_gid[..4],
+            &att_buf[..]
+        );
 
         // Publish with attachment
         self.publisher

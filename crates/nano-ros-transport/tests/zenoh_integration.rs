@@ -49,8 +49,11 @@ fn test_topic_info_key_generation() {
         key.contains("std_msgs::msg::dds_::Int32_"),
         "Key should contain type name"
     );
-    assert!(key.contains("abc123def456"), "Key should contain hash");
-    // Note: For Humble, no RIHS01_ prefix in data keyexprs
+    // For Humble, data keyexprs use TypeHashNotSupported (liveliness uses RIHS01_ prefix)
+    assert!(
+        key.contains("TypeHashNotSupported"),
+        "Key should use TypeHashNotSupported for Humble"
+    );
 }
 
 /// Test CDR message format for Int32

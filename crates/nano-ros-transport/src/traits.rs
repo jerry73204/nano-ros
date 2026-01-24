@@ -35,7 +35,7 @@ impl<'a> TopicInfo<'a> {
     }
 
     /// Generate the full topic key in rmw_zenoh format
-    /// Format: `<domain_id>/<topic_name>/<type_name>/<hash>`
+    /// Format: `<domain_id>/<topic_name>/<type_name>/TypeHashNotSupported`
     /// Note: Leading/trailing slashes are stripped from topic name
     /// Note: For Humble, the hash is `TypeHashNotSupported` (no RIHS01_ prefix)
     /// Note: For newer versions (Iron+), use `RIHS01_<hash>` format
@@ -44,11 +44,12 @@ impl<'a> TopicInfo<'a> {
         // Strip leading/trailing slashes from topic name (matching rmw_zenoh's strip_slashes)
         let topic_stripped = self.name.trim_matches('/');
         // Best effort - ignore errors if key is too long
+        // Use TypeHashNotSupported for Humble compatibility
         let _ = core::fmt::write(
             &mut key,
             format_args!(
-                "{}/{}/{}/{}",
-                self.domain_id, topic_stripped, self.type_name, self.type_hash
+                "{}/{}/{}/TypeHashNotSupported",
+                self.domain_id, topic_stripped, self.type_name
             ),
         );
         key
@@ -672,7 +673,8 @@ mod tests {
         let key: heapless::String<128> = topic.to_key();
         assert!(key.contains("42"));
         assert!(key.contains("chatter")); // Leading slash stripped
-        assert!(key.contains("/abc123")); // Type hash at the end (no RIHS01_ prefix for Humble)
+                                          // For Humble, data keyexprs use TypeHashNotSupported (liveliness uses RIHS01_ prefix)
+        assert!(key.contains("TypeHashNotSupported"));
     }
 
     #[test]
