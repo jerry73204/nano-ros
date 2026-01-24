@@ -208,13 +208,20 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         let _ = namespace.push_str(config.namespace);
 
         // Get session ID for liveliness tokens
-        let zid = session.zid();
+        let zid = session.zid()?;
 
         // Declare node liveliness token for ROS 2 discovery
-        let node_keyexpr = Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
+        let node_keyexpr: heapless::String<256> =
+            Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
         #[cfg(feature = "log")]
         log::debug!("Node liveliness keyexpr: {}", node_keyexpr);
-        let node_token = session.declare_liveliness(&node_keyexpr).ok();
+        // Create null-terminated keyexpr buffer for C API
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = node_keyexpr.as_bytes();
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        let node_token = session
+            .declare_liveliness(&keyexpr_buf[..=bytes.len()])
+            .ok();
 
         Ok(Self {
             name,
@@ -253,13 +260,20 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         let _ = namespace.push_str(config.namespace);
 
         // Get session ID for liveliness tokens
-        let zid = session.zid();
+        let zid = session.zid()?;
 
         // Declare node liveliness token for ROS 2 discovery
-        let node_keyexpr = Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
+        let node_keyexpr: heapless::String<256> =
+            Ros2Liveliness::node_keyexpr(config.domain_id, &zid, config.name);
         #[cfg(feature = "log")]
         log::debug!("Node liveliness keyexpr: {}", node_keyexpr);
-        let node_token = session.declare_liveliness(&node_keyexpr).ok();
+        // Create null-terminated keyexpr buffer for C API
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = node_keyexpr.as_bytes();
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        let node_token = session
+            .declare_liveliness(&keyexpr_buf[..=bytes.len()])
+            .ok();
 
         Ok(Self {
             name,
@@ -424,11 +438,18 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         let publisher = self.session.create_publisher(&topic_info, options.qos)?;
 
         // Declare publisher liveliness token for ROS 2 discovery
-        let pub_keyexpr =
+        let pub_keyexpr: heapless::String<256> =
             Ros2Liveliness::publisher_keyexpr(self.domain_id, &self.zid, &self.name, &topic_info);
         #[cfg(feature = "log")]
         log::debug!("Publisher liveliness keyexpr: {}", pub_keyexpr);
-        if let Ok(token) = self.session.declare_liveliness(&pub_keyexpr) {
+        // Create null-terminated keyexpr buffer for C API
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = pub_keyexpr.as_bytes();
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        if let Ok(token) = self
+            .session
+            .declare_liveliness(&keyexpr_buf[..=bytes.len()])
+        {
             // Silently ignore if token storage is full (MAX_TOKENS exceeded)
             let _ = self._entity_tokens.push(token);
         }
@@ -478,9 +499,16 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
         let subscriber = self.session.create_subscriber(&topic_info, options.qos)?;
 
         // Declare subscriber liveliness token for ROS 2 discovery
-        let sub_keyexpr =
+        let sub_keyexpr: heapless::String<256> =
             Ros2Liveliness::subscriber_keyexpr(self.domain_id, &self.zid, &self.name, &topic_info);
-        if let Ok(token) = self.session.declare_liveliness(&sub_keyexpr) {
+        // Create null-terminated keyexpr buffer for C API
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = sub_keyexpr.as_bytes();
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        if let Ok(token) = self
+            .session
+            .declare_liveliness(&keyexpr_buf[..=bytes.len()])
+        {
             // Silently ignore if token storage is full (MAX_TOKENS exceeded)
             let _ = self._entity_tokens.push(token);
         }

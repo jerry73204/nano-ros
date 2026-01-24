@@ -1,13 +1,17 @@
 //! Transport abstraction layer for nano-ros
 //!
 //! This crate provides the transport layer abstraction for nano-ros,
-//! allowing different backends (zenoh-pico, etc.) to be used interchangeably.
+//! allowing different backends to be used interchangeably.
 //!
 //! # Features
 //!
 //! - `std` - Enable standard library support
 //! - `alloc` - Enable heap allocation
-//! - `zenoh` - Enable zenoh-pico backend
+//! - `zenoh` - Enable zenoh backend (alias for `shim-posix`)
+//! - `shim` - Base shim feature (requires platform selection)
+//! - `shim-posix` - POSIX platform (desktop testing)
+//! - `shim-zephyr` - Zephyr RTOS platform
+//! - `shim-smoltcp` - smoltcp platform (bare-metal)
 //!
 //! # Executor Support
 //!
@@ -24,7 +28,7 @@
 
 #![no_std]
 
-// Compile-time check: zenoh requires alloc
+// Compile-time check: zenoh requires alloc (zenoh implies shim-posix which works with alloc)
 #[cfg(all(feature = "zenoh", not(feature = "alloc")))]
 compile_error!("The `zenoh` feature requires `alloc`. Enable the `alloc` feature or use `zenoh` feature which implies `alloc`.");
 
@@ -37,9 +41,6 @@ extern crate alloc;
 pub mod sync;
 pub mod traits;
 
-#[cfg(feature = "zenoh")]
-pub mod zenoh;
-
 #[cfg(feature = "shim")]
 pub mod shim;
 
@@ -50,18 +51,7 @@ pub use traits::{
     SessionMode, Subscriber, TopicInfo, Transport, TransportConfig, TransportError,
 };
 
-// Re-export zenoh types when feature is enabled
-#[cfg(feature = "zenoh")]
-pub use zenoh::{
-    RmwAttachment, Ros2Liveliness, ZenohPublisher, ZenohServiceClient, ZenohServiceServer,
-    ZenohSession, ZenohSubscriber, ZenohTransport,
-};
-
-// Re-export zenoh-pico types for liveliness support
-#[cfg(feature = "zenoh")]
-pub use zenoh_pico::{LivelinessToken, ZenohId};
-
-// Re-export shim types when feature is enabled
+// Re-export shim types when shim feature is enabled
 #[cfg(feature = "shim")]
 pub use shim::{
     RmwAttachment as ShimRmwAttachment, Ros2Liveliness as ShimRos2Liveliness, ShimPublisher,
@@ -72,3 +62,17 @@ pub use shim::{
 // Re-export zenoh-pico-shim types for liveliness support
 #[cfg(feature = "shim")]
 pub use zenoh_pico_shim::ShimLivelinessToken;
+
+// Backward compatibility: When "zenoh" feature is enabled, re-export shim types with Zenoh* names
+// This allows existing code using ZenohTransport, ZenohSession, etc. to continue working
+#[cfg(feature = "zenoh")]
+pub use shim::{
+    RmwAttachment, Ros2Liveliness, ShimPublisher as ZenohPublisher,
+    ShimServiceClient as ZenohServiceClient, ShimServiceServer as ZenohServiceServer,
+    ShimSession as ZenohSession, ShimSubscriber as ZenohSubscriber,
+    ShimTransport as ZenohTransport, ZenohId, RMW_GID_SIZE,
+};
+
+// Re-export liveliness token with backward-compatible name
+#[cfg(feature = "zenoh")]
+pub use zenoh_pico_shim::ShimLivelinessToken as LivelinessToken;

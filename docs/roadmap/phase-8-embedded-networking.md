@@ -2,7 +2,7 @@
 
 **Goal**: Enable network connectivity for all embedded nano-ros examples using smoltcp + zenoh-pico for bare-metal RTIC/polling, and verify native examples work correctly.
 
-**Status**: In Progress (Phase 8.1-8.7 Complete, Phase 8.8.A-B Complete, Phase 8.8.C-D and 8.9 Pending)
+**Status**: In Progress (Phase 8.1-8.8.8 Complete, Phase 8.8.9, 8.8.C-D and 8.9 Pending)
 
 ## Overview
 
@@ -1060,7 +1060,7 @@ Verified all native examples work correctly with executor API.
 
 ## Phase 8.8: Migration, Cleanup, Interop Testing, and Documentation
 
-**Status**: In Progress (8.8.A-B Complete, 8.8.C-D Pending)
+**Status**: In Progress (8.8.A-B Complete, 8.8.8 Complete, 8.8.9-D Pending)
 **Priority**: Medium
 **Depends on**: 8.6, 8.7
 
@@ -1128,16 +1128,20 @@ The goal is a single unified API that works for both desktop and embedded platfo
   - Service client still returns error (z_get not yet implemented)
   - Both `zenoh` and `shim` backends now have equivalent features
 
-- [ ] **8.8.8** Remove legacy zenoh-pico crates
-  - Delete `crates/zenoh-pico-sys/` directory
-  - Delete `crates/zenoh-pico/` directory
-  - Remove from workspace Cargo.toml
-  - Update CLAUDE.md crate descriptions
+- [x] **8.8.8** Remove legacy zenoh-pico crates
+  - Deleted `crates/zenoh-pico-sys/` directory
+  - Deleted `crates/zenoh-pico/` directory
+  - Deleted `examples/zenoh-sub-test/` (used old zenoh-pico)
+  - Removed from workspace Cargo.toml
+  - Made `zenoh` feature an alias for `shim-posix` in nano-ros-transport
+  - Added backward-compatible type aliases (ZenohSession, ZenohPublisher, etc.)
 
-- [ ] **8.8.9** Test infrastructure migration
-  - Move `crates/zenoh-pico/tests/common/mod.rs` to `crates/zenoh-pico-shim/tests/`
-  - Update singleton zenohd manager for shim tests
-  - Verify all tests pass with new crate structure
+- [ ] **8.8.9** Test infrastructure for zenoh-pico-shim
+  - Create `crates/zenoh-pico-shim/tests/` with integration tests
+  - Test pub/sub with POSIX backend
+  - Test session lifecycle (open/close)
+  - Test liveliness token declaration
+  - Consider zenohd singleton manager from old test infrastructure
 
 ### 8.8.C: ROS 2 Interop Testing
 

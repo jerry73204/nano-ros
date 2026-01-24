@@ -1,7 +1,0 @@
-[package]
-name = "zenoh-sub-test"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-zenoh-pico = { path = "../../crates/zenoh-pico", features = ["std"] }

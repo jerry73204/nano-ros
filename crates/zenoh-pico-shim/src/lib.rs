@@ -178,14 +178,16 @@ impl ShimZenohId {
 /// if it's lost.
 ///
 /// Liveliness tokens are automatically undeclared when dropped.
+///
+/// Note: The C shim manages tokens via static storage with integer handles,
+/// so the token does not need a lifetime parameter.
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-pub struct ShimLivelinessToken<'a> {
+pub struct ShimLivelinessToken {
     handle: i32,
-    _ctx: PhantomData<&'a ShimContext>,
 }
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-impl<'a> ShimLivelinessToken<'a> {
+impl ShimLivelinessToken {
     /// Get the liveliness handle
     pub fn handle(&self) -> i32 {
         self.handle
@@ -193,7 +195,7 @@ impl<'a> ShimLivelinessToken<'a> {
 }
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-impl<'a> Drop for ShimLivelinessToken<'a> {
+impl Drop for ShimLivelinessToken {
     fn drop(&mut self) {
         unsafe {
             zenoh_shim_undeclare_liveliness(self.handle);
@@ -209,14 +211,16 @@ impl<'a> Drop for ShimLivelinessToken<'a> {
 ///
 /// Queryables receive queries and can send replies. This is used to implement
 /// ROS 2 service servers.
+///
+/// Note: The C shim manages queryables via static storage with integer handles,
+/// so the queryable does not need a lifetime parameter.
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-pub struct ShimQueryable<'a> {
+pub struct ShimQueryable {
     handle: i32,
-    _ctx: PhantomData<&'a ShimContext>,
 }
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-impl<'a> ShimQueryable<'a> {
+impl ShimQueryable {
     /// Get the queryable handle
     pub fn handle(&self) -> i32 {
         self.handle
@@ -224,7 +228,7 @@ impl<'a> ShimQueryable<'a> {
 }
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
-impl<'a> Drop for ShimQueryable<'a> {
+impl Drop for ShimQueryable {
     fn drop(&mut self) {
         unsafe {
             zenoh_shim_undeclare_queryable(self.handle);
@@ -403,16 +407,13 @@ impl ShimContext {
     ///
     /// Returns an error if the session is not open, the key expression is invalid,
     /// or the maximum number of liveliness tokens has been reached.
-    pub fn declare_liveliness(&self, keyexpr: &[u8]) -> Result<ShimLivelinessToken<'_>> {
+    pub fn declare_liveliness(&self, keyexpr: &[u8]) -> Result<ShimLivelinessToken> {
         let handle = unsafe { zenoh_shim_declare_liveliness(keyexpr.as_ptr().cast()) };
         if handle < 0 {
             return Err(ShimError::from_code(handle));
         }
 
-        Ok(ShimLivelinessToken {
-            handle,
-            _ctx: PhantomData,
-        })
+        Ok(ShimLivelinessToken { handle })
     }
 
     /// Declare a queryable for receiving service requests
@@ -429,21 +430,18 @@ impl ShimContext {
     ///
     /// Returns an error if the session is not open, the key expression is invalid,
     /// or the maximum number of queryables has been reached.
-    pub unsafe fn declare_queryable_raw<'a>(
-        &'a self,
+    pub unsafe fn declare_queryable_raw(
+        &self,
         keyexpr: &[u8],
         callback: ShimQueryCallback,
         ctx: *mut c_void,
-    ) -> Result<ShimQueryable<'a>> {
+    ) -> Result<ShimQueryable> {
         let handle = zenoh_shim_declare_queryable(keyexpr.as_ptr().cast(), callback, ctx);
         if handle < 0 {
             return Err(ShimError::from_code(handle));
         }
 
-        Ok(ShimQueryable {
-            handle,
-            _ctx: PhantomData,
-        })
+        Ok(ShimQueryable { handle })
     }
 
     /// Reply to a query (must be called within query callback)

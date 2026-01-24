@@ -53,7 +53,7 @@ pub use zenoh_pico_shim::ShimZenohId as ZenohId;
 // ============================================================================
 
 /// RMW GID size for attachment serialization (16 bytes for Humble)
-pub const RMW_GID_SIZE: usize = ZENOH_SHIM_RMW_GID_SIZE as usize;
+pub const RMW_GID_SIZE: usize = ZENOH_SHIM_RMW_GID_SIZE;
 
 /// Size of serialized RMW attachment
 /// Format: sequence_number (8) + timestamp (8) + VLE length (1) + gid (16) = 33 bytes
@@ -386,7 +386,7 @@ impl ShimSession {
     pub fn declare_liveliness(
         &self,
         keyexpr: &[u8],
-    ) -> Result<ShimLivelinessToken<'_>, TransportError> {
+    ) -> Result<ShimLivelinessToken, TransportError> {
         self.context
             .declare_liveliness(keyexpr)
             .map_err(TransportError::from)
@@ -784,7 +784,7 @@ extern "C" fn queryable_callback(
 /// Note: The reply mechanism is limited due to the callback model.
 pub struct ShimServiceServer {
     /// The queryable handle (kept alive to maintain registration)
-    _queryable: zenoh_pico_shim::ShimQueryable<'static>,
+    _queryable: zenoh_pico_shim::ShimQueryable,
     /// Index into the static buffer array
     buffer_index: usize,
     /// Keyexpr buffer for replying (copied from last request)
@@ -821,19 +821,13 @@ impl ShimServiceServer {
 
         // Create queryable with callback
         let queryable = unsafe {
-            let result = context.declare_queryable_raw(
+            context.declare_queryable_raw(
                 &keyexpr_buf,
                 queryable_callback,
                 buffer_index as *mut core::ffi::c_void,
-            );
-            match result {
-                Ok(q) => core::mem::transmute::<
-                    zenoh_pico_shim::ShimQueryable<'_>,
-                    zenoh_pico_shim::ShimQueryable<'static>,
-                >(q),
-                Err(e) => return Err(TransportError::from(e)),
-            }
-        };
+            )
+        }
+        .map_err(TransportError::from)?;
 
         Ok(Self {
             _queryable: queryable,

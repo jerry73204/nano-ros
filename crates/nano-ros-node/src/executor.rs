@@ -568,7 +568,7 @@ impl<'a, const MAX_TOKENS: usize, const MAX_TIMERS: usize, const MAX_SUBS: usize
             .node
             .inner
             .create_service::<S>(service_name)
-            .map_err(|e| RclrsError::from(e))?;
+            .map_err(RclrsError::from)?;
 
         let entry = ServiceEntry { server, callback };
 
