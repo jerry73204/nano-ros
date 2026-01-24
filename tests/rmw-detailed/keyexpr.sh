@@ -147,7 +147,7 @@ test_wildcard_subscriber() {
     log_header "Test: Wildcard Subscriber"
 
     # Clear previous
-    pkill -f "target/release" 2>/dev/null || true
+    pkill -f "/talker"; pkill -f "/listener" 2>/dev/null || true
     sleep 2
 
     # nano-ros uses wildcard subscriber: 0/chatter/std_msgs::msg::dds_::Int32_/*

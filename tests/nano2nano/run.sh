@@ -98,8 +98,8 @@ test_multiple_messages() {
     log_header "Test: Multiple Messages"
 
     # Kill previous processes
-    pkill -f "target/release/talker" 2>/dev/null || true
-    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
+    pkill -f "/listener" 2>/dev/null || true
     sleep 1
 
     # Start listener first this time

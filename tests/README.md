@@ -125,7 +125,7 @@ sudo apt install ros-humble-rmw-zenoh-cpp
 
 ### Tests hang or timeout
 - Ensure zenohd is not already running
-- Check for leftover processes: `pkill -x zenohd; pkill -f target/release`
+- Check for leftover processes: `pkill -x zenohd; pkill -f /talker`
 
 ### ROS 2 interop fails
 1. Verify rmw_zenoh_cpp is installed

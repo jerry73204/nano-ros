@@ -20,8 +20,8 @@ format: format-workspace format-examples
 check: check-workspace check-workspace-embedded check-workspace-features check-examples
     @echo "All checks passed!"
 
-# Test everything: workspace tests, Miri, and QEMU
-test: test-workspace test-miri qemu-test
+# Test everything: workspace tests, Miri, QEMU, and integration tests
+test: test-workspace test-miri test-qemu test-integration
     @echo "All tests passed!"
 
 # Run all quality checks (check + test)
@@ -195,7 +195,7 @@ check-examples-qemu:
     cd examples/qemu-test && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
 
 # Run QEMU test
-qemu-test: build-examples-qemu
+test-qemu: build-examples-qemu
     qemu-system-arm \
         -cpu cortex-m3 \
         -machine lm3s6965evb \
@@ -254,13 +254,33 @@ test-zenoh-shim:
     @echo "Testing zenoh-pico-shim (requires: zenohd --listen tcp/127.0.0.1:7447)"
     cargo test -p zenoh-pico-shim --features "posix std" -- --test-threads=1
 
-# Run ROS 2 interoperability tests (requires ROS 2 + rmw_zenoh_cpp)
-test-ros2-interop:
-    ./scripts/test-ros2-interop.sh
+# =============================================================================
+# Integration Tests (tests/)
+# =============================================================================
 
-# Run nano-ros pub/sub test (requires zenohd)
-test-pubsub:
-    ./scripts/test-pubsub.sh
+# Run all integration tests (requires zenohd, optionally ROS 2)
+test-integration:
+    ./tests/run-all.sh
+
+# Run quick integration tests
+test-integration-quick:
+    ./tests/run-all.sh --quick
+
+# Run nano-ros ↔ nano-ros tests only
+test-nano2nano:
+    ./tests/run-all.sh nano2nano
+
+# Run ROS 2 interop tests (requires ROS 2 + rmw_zenoh_cpp)
+test-rmw-interop:
+    ./tests/run-all.sh rmw-interop
+
+# Run detailed RMW protocol tests
+test-rmw-detailed:
+    ./tests/run-all.sh rmw-detailed
+
+# Run Zephyr QEMU tests (requires west workspace)
+test-zephyr:
+    ./tests/run-all.sh zephyr
 
 # =============================================================================
 # Setup & Cleanup

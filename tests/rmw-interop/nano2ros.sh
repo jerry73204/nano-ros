@@ -97,7 +97,7 @@ test_with_python_subscriber() {
     log_header "Test: Using Python Subscriber"
 
     # Kill previous processes
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     pkill -f "ros2 topic echo" 2>/dev/null || true
     sleep 2
 

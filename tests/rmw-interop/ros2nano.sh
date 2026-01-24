@@ -102,7 +102,7 @@ test_with_python_publisher() {
     log_header "Test: Using Python Publisher"
 
     # Kill previous processes
-    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "/listener" 2>/dev/null || true
     pkill -f "ros2 topic pub" 2>/dev/null || true
     sleep 2
 

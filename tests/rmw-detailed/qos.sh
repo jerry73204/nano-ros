@@ -108,7 +108,7 @@ test_best_effort_to_reliable() {
     log_info "Note: This combination may not receive messages (QoS mismatch)"
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 1
 
     setup_ros2_env "humble"
@@ -179,7 +179,7 @@ test_qos_in_liveliness() {
     log_header "Test: QoS String in Liveliness Token"
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 1
 
     # Start nano-ros talker with debug output
@@ -229,7 +229,7 @@ test_qos_combinations() {
     log_header "Test: ROS 2 Publisher QoS → nano-ros"
 
     # Clear previous
-    pkill -f "target/release" 2>/dev/null || true
+    pkill -f "/talker"; pkill -f "/listener" 2>/dev/null || true
     sleep 1
 
     setup_ros2_env "humble"

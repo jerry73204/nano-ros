@@ -66,8 +66,8 @@ run_suite() {
 
     # Cleanup before starting each suite
     pkill -x zenohd 2>/dev/null || true
-    pkill -f "target/release/talker" 2>/dev/null || true
-    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
+    pkill -f "/listener" 2>/dev/null || true
     pkill -f "ros2 topic" 2>/dev/null || true
     sleep 2
 
@@ -99,8 +99,8 @@ echo ""
 
 # Ensure we start clean
 pkill -x zenohd 2>/dev/null || true
-pkill -f "target/release/talker" 2>/dev/null || true
-pkill -f "target/release/listener" 2>/dev/null || true
+pkill -f "/talker" 2>/dev/null || true
+pkill -f "/listener" 2>/dev/null || true
 sleep 1
 
 # Build first
@@ -169,8 +169,8 @@ esac
 
 # Final cleanup
 pkill -x zenohd 2>/dev/null || true
-pkill -f "target/release/talker" 2>/dev/null || true
-pkill -f "target/release/listener" 2>/dev/null || true
+pkill -f "/talker" 2>/dev/null || true
+pkill -f "/listener" 2>/dev/null || true
 
 # Summary
 log_header "Test Summary"

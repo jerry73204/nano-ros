@@ -471,10 +471,22 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 
 See `docs/rmw_zenoh_interop.md` for detailed protocol documentation.
 
-### Test Scripts
+### Test Commands
 
-- `scripts/test-ros2-interop.sh` - Automated ROS 2 interop testing
-- `scripts/test-pubsub.sh` - nano-ros pub/sub testing (requires zenohd)
+```bash
+# Run all integration tests
+just test-integration
+
+# Quick smoke test
+just test-integration-quick
+
+# Specific test suites
+just test-nano2nano      # nano-ros ↔ nano-ros
+just test-rmw-interop    # ROS 2 interop (requires rmw_zenoh_cpp)
+just test-rmw-detailed   # Protocol-level tests
+```
+
+See `tests/README.md` for detailed test documentation.
 
 ## References
 

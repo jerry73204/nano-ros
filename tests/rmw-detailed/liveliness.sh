@@ -121,7 +121,7 @@ test_ros2_discovery() {
     log_header "Test: ROS 2 Discovery (Functional)"
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 2
 
     setup_ros2_env "humble" 2>/dev/null || {

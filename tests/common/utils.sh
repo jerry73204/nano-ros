@@ -8,11 +8,11 @@
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_ROOT="$(dirname "$TESTS_DIR")"
 
-# Paths
-TALKER_BIN="$PROJECT_ROOT/target/release/talker"
-LISTENER_BIN="$PROJECT_ROOT/target/release/listener"
-Z_SUB="$PROJECT_ROOT/crates/zenoh-pico-sys/zenoh-pico/build/examples/z_sub"
-Z_PUB="$PROJECT_ROOT/crates/zenoh-pico-sys/zenoh-pico/build/examples/z_pub"
+# Paths - native examples are standalone packages with their own target directories
+TALKER_BIN="$PROJECT_ROOT/examples/native-talker/target/release/talker"
+LISTENER_BIN="$PROJECT_ROOT/examples/native-listener/target/release/listener"
+Z_SUB="$PROJECT_ROOT/crates/zenoh-pico-shim-sys/zenoh-pico/build/examples/z_sub"
+Z_PUB="$PROJECT_ROOT/crates/zenoh-pico-shim-sys/zenoh-pico/build/examples/z_pub"
 
 # Default configuration
 ZENOH_LOCATOR="${ZENOH_LOCATOR:-tcp/127.0.0.1:7447}"
@@ -61,8 +61,8 @@ cleanup() {
 
     # Also kill by name as fallback
     pkill -x zenohd 2>/dev/null || true
-    pkill -f "target/release/talker" 2>/dev/null || true
-    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
+    pkill -f "/listener" 2>/dev/null || true
 
     # Clean up temp files
     rm -f /tmp/zenohd_test.log /tmp/nano_*.txt /tmp/ros2_*.txt
@@ -101,10 +101,16 @@ start_zenohd() {
 # Build nano-ros examples
 build_nano_ros() {
     log_info "Building nano-ros examples..."
-    cd "$PROJECT_ROOT"
 
-    if ! cargo build --release -p native-talker -p native-listener --features zenoh 2>&1 | tail -5; then
-        log_error "Build failed"
+    # Build native-talker (standalone package) with zenoh transport
+    if ! (cd "$PROJECT_ROOT/examples/native-talker" && cargo build --release --features zenoh 2>&1 | tail -5); then
+        log_error "Failed to build native-talker"
+        return 1
+    fi
+
+    # Build native-listener (standalone package) with zenoh transport
+    if ! (cd "$PROJECT_ROOT/examples/native-listener" && cargo build --release --features zenoh 2>&1 | tail -5); then
+        log_error "Failed to build native-listener"
         return 1
     fi
 

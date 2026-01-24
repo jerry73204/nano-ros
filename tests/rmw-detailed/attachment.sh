@@ -80,7 +80,7 @@ test_sequence_numbers() {
     log_header "Test: Sequence Number Increment"
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 1
 
     setup_ros2_env "humble"
@@ -160,7 +160,7 @@ test_gid_consistency() {
     log_header "Test: Publisher GID Consistency"
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 1
 
     setup_ros2_env "humble"
@@ -203,7 +203,7 @@ test_timestamp() {
     # rmw_zenoh_cpp might reject messages or tools like ros2 topic hz would fail
 
     # Clear previous
-    pkill -f "target/release/talker" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
     sleep 1
 
     setup_ros2_env "humble"

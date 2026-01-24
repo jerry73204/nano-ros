@@ -44,11 +44,7 @@ use panic_probe as _;
 use rtic::app;
 use rtic_monotonics::systick::prelude::*;
 
-use stm32f4xx_hal::{
-    gpio::GpioExt,
-    prelude::*,
-    rcc::RccExt,
-};
+use stm32f4xx_hal::{gpio::GpioExt, prelude::*, rcc::RccExt};
 
 use stm32_eth::{
     dma::{EthernetDMA, RxRingEntry, TxRingEntry},
@@ -193,6 +189,9 @@ mod app {
             ptp: dp.ETHERNET_PTP,
         };
 
+        // SAFETY: RX_RING and TX_RING are only accessed once during initialization
+        // and the stm32_eth crate requires mutable references for the DMA ring buffers.
+        #[allow(static_mut_refs)]
         let Parts { mut dma, .. } = unsafe {
             stm32_eth::new_with_mii(
                 eth_parts_in,

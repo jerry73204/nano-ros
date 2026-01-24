@@ -73,8 +73,8 @@ run_test() {
     RESULTS["$name"]=$result
 
     # Cleanup between tests
-    pkill -f "target/release/talker" 2>/dev/null || true
-    pkill -f "target/release/listener" 2>/dev/null || true
+    pkill -f "/talker" 2>/dev/null || true
+    pkill -f "/listener" 2>/dev/null || true
     pkill -f "ros2 topic" 2>/dev/null || true
     sleep 2
 
