@@ -72,6 +72,7 @@ fn test_cdr_int32_format() {
 /// Test full pub/sub cycle (requires working zenoh network)
 /// This test requires a zenoh router running: zenohd --listen tcp/127.0.0.1:7447
 #[test]
+#[ignore = "requires zenohd router on tcp/127.0.0.1:7447"]
 fn test_pubsub_loopback() {
     // Connect to router as client
     let config = TransportConfig {
@@ -157,6 +158,7 @@ fn test_pubsub_loopback() {
 
 /// Test pub/sub with separate sessions (more realistic scenario)
 #[test]
+#[ignore = "requires zenohd router on tcp/127.0.0.1:7447"]
 fn test_pubsub_separate_sessions() {
     // Connect to router as client
     let config = TransportConfig {
@@ -224,6 +226,7 @@ fn test_pubsub_separate_sessions() {
 
 /// Test multiple publishers on same session
 #[test]
+#[ignore = "requires zenohd router on tcp/127.0.0.1:7447"]
 fn test_multiple_publishers() {
     let config = TransportConfig {
         locator: Some("tcp/127.0.0.1:7447"),
@@ -254,6 +257,7 @@ fn test_multiple_publishers() {
 
 /// Test multiple subscribers on same session
 #[test]
+#[ignore = "requires zenohd router on tcp/127.0.0.1:7447"]
 fn test_multiple_subscribers() {
     let config = TransportConfig {
         locator: Some("tcp/127.0.0.1:7447"),

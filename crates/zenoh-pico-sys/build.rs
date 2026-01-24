@@ -86,9 +86,9 @@ fn copy_source_tree(src: &Path, dst: &Path) {
         let _ = std::fs::remove_dir_all(dst);
     }
 
-    // Use cp -r for efficiency
+    // Use cp -rL to follow symlinks (zenoh-pico may be a symlink)
     let status = Command::new("cp")
-        .args(["-r", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args(["-rL", src.to_str().unwrap(), dst.to_str().unwrap()])
         .status()
         .expect("Failed to copy zenoh-pico source");
 

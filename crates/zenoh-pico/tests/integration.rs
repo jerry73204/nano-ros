@@ -1,11 +1,30 @@
 //! Integration tests for zenoh-pico
+//!
+//! Tests requiring a zenoh router will automatically start zenohd if available.
+//! If zenohd is not installed, those tests are skipped gracefully.
+//!
+//! To install zenohd: https://zenoh.io/docs/getting-started/installation/
+
+mod common;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use common::{ensure_router, open_session_with_retry};
 use zenoh_pico::{Config, Error, KeyExpr, Sample, Session};
+
+/// Helper macro for tests that require a router.
+/// Skips the test if zenohd is not available.
+macro_rules! require_router {
+    () => {
+        if let Err(e) = ensure_router() {
+            eprintln!("Skipping test: {}", e);
+            return;
+        }
+    };
+}
 
 // ============================================================================
 // Error Tests
@@ -289,17 +308,18 @@ fn test_session_peer_mode() {
     }
 }
 
-/// Test full pub/sub cycle with separate sessions (requires zenohd router)
+/// Test full pub/sub cycle with separate sessions.
 #[test]
 fn test_pubsub() {
+    require_router!();
+
     let received = Arc::new(AtomicBool::new(false));
     let received_count = Arc::new(AtomicUsize::new(0));
     let received_clone = received.clone();
     let count_clone = received_count.clone();
 
-    // Create subscriber session first
-    let sub_config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create sub config");
-    let sub_session = Session::open(sub_config).expect("Failed to open sub session");
+    // Create subscriber session first (with retry for robustness)
+    let sub_session = open_session_with_retry().expect("Failed to open sub session");
 
     let sub_keyexpr = KeyExpr::new("test/zenoh-pico-rust").expect("Failed to create keyexpr");
     let _subscriber = sub_session
@@ -312,9 +332,8 @@ fn test_pubsub() {
     // Give subscriber time to be discovered
     thread::sleep(Duration::from_secs(1));
 
-    // Create publisher session (separate)
-    let pub_config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create pub config");
-    let pub_session = Session::open(pub_config).expect("Failed to open pub session");
+    // Create publisher session (separate, with retry for robustness)
+    let pub_session = open_session_with_retry().expect("Failed to open pub session");
 
     let pub_keyexpr = KeyExpr::new("test/zenoh-pico-rust").expect("Failed to create keyexpr");
     let publisher = pub_session
@@ -344,14 +363,15 @@ fn test_pubsub() {
     sub_session.close().expect("Failed to close sub session");
 }
 
-/// Test pub/sub on same session (requires zenohd router and Z_FEATURE_LOCAL_SUBSCRIBER)
+/// Test pub/sub on same session (requires Z_FEATURE_LOCAL_SUBSCRIBER).
 #[test]
 fn test_pubsub_same_session() {
+    require_router!();
+
     let received = Arc::new(AtomicBool::new(false));
     let received_clone = received.clone();
 
-    let config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create config");
-    let session = Session::open(config).expect("Failed to open session");
+    let session = open_session_with_retry().expect("Failed to open session");
 
     let sub_keyexpr = KeyExpr::new("test/same-session").expect("Failed to create keyexpr");
     let pub_keyexpr = KeyExpr::new("test/same-session").expect("Failed to create keyexpr");
@@ -605,13 +625,15 @@ fn test_raw_subscriber_callback() {
 
 // ============================================================================
 // Publisher Tests (with router)
+// Run with: zenohd --listen tcp/127.0.0.1:7447
 // ============================================================================
 
-/// Test publishing empty payload
+/// Test publishing empty payload.
 #[test]
 fn test_publish_empty() {
-    let config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create config");
-    let session = Session::open(config).expect("Failed to open session");
+    require_router!();
+
+    let session = open_session_with_retry().expect("Failed to open session");
 
     let keyexpr = KeyExpr::new("test/empty").expect("Failed to create keyexpr");
     let publisher = session
@@ -624,11 +646,12 @@ fn test_publish_empty() {
     session.close().expect("Failed to close session");
 }
 
-/// Test publishing large payload
+/// Test publishing large payload.
 #[test]
 fn test_publish_large() {
-    let config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create config");
-    let session = Session::open(config).expect("Failed to open session");
+    require_router!();
+
+    let session = open_session_with_retry().expect("Failed to open session");
 
     let keyexpr = KeyExpr::new("test/large").expect("Failed to create keyexpr");
     let publisher = session
@@ -644,11 +667,12 @@ fn test_publish_large() {
     session.close().expect("Failed to close session");
 }
 
-/// Test multiple publishes in sequence
+/// Test multiple publishes in sequence.
 #[test]
 fn test_publish_sequence() {
-    let config = Config::client("tcp/127.0.0.1:7447").expect("Failed to create config");
-    let session = Session::open(config).expect("Failed to open session");
+    require_router!();
+
+    let session = open_session_with_retry().expect("Failed to open session");
 
     let keyexpr = KeyExpr::new("test/sequence").expect("Failed to create keyexpr");
     let publisher = session
