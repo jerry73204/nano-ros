@@ -18,9 +18,17 @@ This phase extends the existing test infrastructure to cover:
 
 ---
 
-## Phase 9.A: Rust Test Framework Migration (NEW)
+## Phase 9.A: Rust Test Framework Migration
 
-**Status**: Core Complete (9.A.1, 9.A.2, 9.A.5, 9.A.6 done)
+**Status**: In Progress
+- ✅ 9.A.1: Core Framework Setup (complete)
+- ✅ 9.A.2: Emulator Tests (complete)
+- ✅ 9.A.3: nano2nano Tests (partial - basic tests done)
+- ✅ 9.A.4: RMW Interop Tests (complete)
+- ✅ 9.A.5: Platform Tests (complete)
+- ✅ 9.A.6: CI Integration (justfile done, GitHub Actions pending)
+- ⏳ 9.A.7: Cleanup (ready to start)
+
 **Priority**: **Critical** (Foundation for all other tests)
 
 Migrate from shell-based test orchestration to a Rust-based test framework for:
@@ -43,7 +51,9 @@ Migrate from shell-based test orchestration to a Rust-based test framework for:
 | `tempfile`    | Temporary directories             | 3.0+    |
 | `port_check`  | Wait for TCP ports                | 0.2+    |
 
-### Directory Structure
+### Directory Structure (Target State)
+
+After migration is complete:
 
 ```
 crates/
@@ -53,30 +63,22 @@ crates/
     │   ├── lib.rs               # Shared test utilities
     │   └── fixtures/
     │       ├── mod.rs           # Fixture module
-    │       ├── zenohd.rs        # ZenohRouter fixture
+    │       ├── zenohd_fixture.rs # ZenohRouter fixture
     │       ├── qemu.rs          # QEMU process fixture
-    │       ├── zephyr.rs        # Zephyr workspace fixture
+    │       ├── ros2.rs          # ROS 2 process helpers
     │       └── binaries.rs      # Binary build helpers
     └── tests/
-        ├── emulator.rs          # QEMU/Zephyr tests
+        ├── emulator.rs          # QEMU Cortex-M3 tests
         ├── nano2nano.rs         # nano-ros ↔ nano-ros tests
         ├── rmw_interop.rs       # ROS 2 interop tests
-        ├── platform.rs          # Platform backend tests
-        └── executor.rs          # Executor API tests
+        └── platform.rs          # Platform detection tests
 
 tests/
-├── run-all.sh                   # Shell runner (invokes cargo test)
-├── README.md                    # Test documentation
-├── emulator.sh                  # Invokes: cargo test -p nano-ros-tests emulator
-├── nano2nano.sh                 # Invokes: cargo test -p nano-ros-tests nano2nano
-├── rmw-interop.sh               # Invokes: cargo test -p nano-ros-tests rmw_interop
-├── platform.sh                  # Invokes: cargo test -p nano-ros-tests platform
-└── legacy/                      # Legacy shell-based tests (deprecated)
-    ├── emulator/
-    ├── platform/
-    ├── smoltcp/
-    └── ...
+├── README.md                    # Test documentation (Rust-only workflow)
+└── rust-tests.sh                # Optional wrapper for nice output
 ```
+
+**Note:** All shell scripts in `tests/` will be deleted after migration (see 9.A.7).
 
 ### Work Items
 
@@ -230,26 +232,23 @@ tests/
 - [ ] **9.A.3.4** Create `tests/nano2nano.sh` shell wrapper
 
 #### 9.A.4: Migrate RMW Interop Tests
-- [ ] **9.A.4.1** Create `crates/nano-ros-tests/tests/rmw_interop.rs`
-- [ ] **9.A.4.2** Implement `src/fixtures/ros2.rs` - ROS 2 process helpers
-- [ ] **9.A.4.3** Migrate nano→ROS2 test
-- [ ] **9.A.4.4** Migrate ROS2→nano test
-- [ ] **9.A.4.5** Implement matrix test with rstest parameterization
+- [x] **9.A.4.1** Create `crates/nano-ros-tests/tests/rmw_interop.rs`
+- [x] **9.A.4.2** Implement `src/fixtures/ros2.rs` - ROS 2 process helpers
+- [x] **9.A.4.3** Migrate nano→ROS2 test (`test_nano_to_ros2`)
+- [x] **9.A.4.4** Migrate ROS2→nano test (`test_ros2_to_nano`)
+- [x] **9.A.4.5** Implement matrix test with rstest parameterization
   ```rust
-  use rstest::rstest;
-
   #[rstest]
-  #[case("native-talker", "ros2_listener_cpp")]
-  #[case("native-talker", "ros2_listener_py")]
-  #[case("ros2_talker_cpp", "native-listener")]
-  #[case("ros2_talker_py", "native-listener")]
-  fn test_interop_matrix(
-      zenohd: ZenohRouter,
-      #[case] talker: &str,
-      #[case] listener: &str,
+  #[case(Direction::NanoToNano)]
+  #[case(Direction::NanoToRos2)]
+  #[case(Direction::Ros2ToNano)]
+  fn test_communication_matrix(
+      zenohd_unique: ZenohRouter,
+      #[case] direction: Direction,
   ) { ... }
   ```
-- [ ] **9.A.4.6** Create `tests/rmw-interop.sh` shell wrapper
+- [x] **9.A.4.6** Add shell wrapper support (via `rust-tests.sh rmw_interop`)
+- [x] **9.A.4.7** Add `just test-rust-rmw-interop` recipe
 
 #### 9.A.5: Migrate Platform Tests
 - [x] **9.A.5.1** Create `crates/nano-ros-tests/tests/platform.rs`
@@ -262,25 +261,37 @@ tests/
 - [x] **9.A.6.1** Update `justfile` with new test commands
   ```just
   # Run Rust integration tests
-  test-integration:
-      cargo test -p nano-ros-tests
+  test-rust:
+      cargo test -p nano-ros-tests --tests
 
   # Run specific test suite
-  test-emulator:
+  test-rust-emulator:
       cargo test -p nano-ros-tests --test emulator
+  ```
+- [ ] **9.A.6.2** Update GitHub Actions workflow
 
-  # Run all tests (unit + integration)
-  test-all:
-      cargo nextest run --workspace
-  ```
-- [ ] **9.A.6.2** Update `tests/run-all.sh` to invoke Rust tests
-  ```bash
-  #!/bin/bash
-  # Run all nano-ros integration tests
-  cargo test -p nano-ros-tests "$@"
-  ```
-- [ ] **9.A.6.3** Update GitHub Actions workflow
-- [ ] **9.A.6.4** Move legacy shell tests to `tests/legacy/`
+#### 9.A.7: Cleanup Legacy Shell Scripts
+After migrating all tests to Rust, remove the legacy shell scripts:
+
+- [ ] **9.A.7.1** Delete `tests/emulator/` directory (migrated to `emulator.rs`)
+- [ ] **9.A.7.2** Delete `tests/nano2nano/` directory (migrated to `nano2nano.rs`)
+- [ ] **9.A.7.3** Delete `tests/platform/` directory (migrated to `platform.rs`)
+- [ ] **9.A.7.4** Delete `tests/smoltcp/` directory (already Rust unit tests)
+- [ ] **9.A.7.5** Delete `tests/rmw-interop/` directory (migrate to `rmw_interop.rs` first)
+- [ ] **9.A.7.6** Delete `tests/rmw-detailed/` directory (migrate to `rmw_interop.rs` first)
+- [ ] **9.A.7.7** Delete `tests/zephyr/` directory (migrate to Rust first)
+- [ ] **9.A.7.8** Delete `tests/common/` directory (utilities moved to `nano-ros-tests/src/lib.rs`)
+- [ ] **9.A.7.9** Delete `tests/run-all.sh` (replaced by `just test-rust`)
+- [ ] **9.A.7.10** Update `tests/README.md` to document Rust-only workflow
+
+**Final `tests/` directory structure:**
+```
+tests/
+├── README.md                # Documentation for Rust tests
+├── rust-tests.sh            # Optional wrapper for nice output
+└── rmw-interop/             # ROS 2 interop tests (keep until migrated)
+    └── ...                  # Delete after 9.A.4 complete
+```
 
 ### Benefits Over Shell Scripts
 
@@ -297,12 +308,12 @@ tests/
 
 ### Acceptance Criteria
 - [ ] All existing shell tests have Rust equivalents in `crates/nano-ros-tests/`
-- [ ] Tests run with `cargo test -p nano-ros-tests`
-- [ ] Process cleanup is automatic (no orphan processes)
-- [ ] Test failures produce clear error messages with context
+- [x] Tests run with `cargo test -p nano-ros-tests` or `just test-rust`
+- [x] Process cleanup is automatic (no orphan processes via RAII)
+- [x] Test failures produce clear error messages with context
 - [ ] CI runs Rust integration tests
-- [ ] Shell wrappers in `tests/` invoke Rust tests
-- [ ] Legacy shell tests moved to `tests/legacy/` (deprecated)
+- [ ] Legacy shell scripts deleted from `tests/` directory
+- [ ] `tests/` directory contains only README and optional wrapper script
 
 ---
 

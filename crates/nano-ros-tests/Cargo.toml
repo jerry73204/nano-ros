@@ -42,3 +42,7 @@ path = "tests/nano2nano.rs"
 [[test]]
 name = "platform"
 path = "tests/platform.rs"
+
+[[test]]
+name = "rmw_interop"
+path = "tests/rmw_interop.rs"

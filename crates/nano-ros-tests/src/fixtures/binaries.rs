@@ -47,8 +47,7 @@ pub fn build_qemu_test() -> TestResult<&'static Path> {
                 ));
             }
 
-            let binary_path =
-                example_dir.join("target/thumbv7m-none-eabi/release/qemu-test");
+            let binary_path = example_dir.join("target/thumbv7m-none-eabi/release/qemu-test");
 
             if !binary_path.exists() {
                 return Err(TestError::BuildFailed(format!(

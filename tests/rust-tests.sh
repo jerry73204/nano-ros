@@ -19,6 +19,7 @@ TEST NAMES:
   emulator    Run QEMU emulator tests
   nano2nano   Run native pub/sub tests
   platform    Run platform detection tests
+  rmw_interop Run ROS 2 rmw_zenoh interop tests
   all         Run all Rust tests (default)
 
 OPTIONS:
@@ -30,6 +31,7 @@ EXAMPLES:
   $(basename "$0") emulator           # Run only emulator tests
   $(basename "$0") nano2nano          # Run native pub/sub tests
   $(basename "$0") platform           # Run platform tests
+  $(basename "$0") rmw_interop        # Run ROS 2 interop tests
   $(basename "$0") -v all             # Verbose all tests
 EOF
 }
@@ -47,7 +49,7 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
-        emulator|nano2nano|platform|all)
+        emulator|nano2nano|platform|rmw_interop|all)
             TEST_NAME="$1"
             shift
             ;;
@@ -88,12 +90,16 @@ case "$TEST_NAME" in
     platform)
         run_test platform || FAILED=1
         ;;
+    rmw_interop)
+        run_test rmw_interop || FAILED=1
+        ;;
     all)
         log_info "Running all Rust integration tests..."
 
         run_test emulator || FAILED=1
         run_test nano2nano || FAILED=1
         run_test platform || FAILED=1
+        run_test rmw_interop || FAILED=1
         ;;
 esac
 

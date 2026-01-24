@@ -18,7 +18,11 @@ struct ManagedProcess {
 }
 
 impl ManagedProcess {
-    fn spawn(binary: &std::path::Path, args: &[&str], name: &'static str) -> Result<Self, TestError> {
+    fn spawn(
+        binary: &std::path::Path,
+        args: &[&str],
+        name: &'static str,
+    ) -> Result<Self, TestError> {
         let handle = Command::new(binary)
             .args(args)
             .stdout(Stdio::piped())
@@ -36,7 +40,10 @@ impl ManagedProcess {
         let start = std::time::Instant::now();
         let mut output = String::new();
 
-        let mut stdout = self.handle.stdout.take()
+        let mut stdout = self
+            .handle
+            .stdout
+            .take()
             .ok_or_else(|| TestError::ProcessFailed(format!("No stdout for {}", self.name)))?;
 
         let mut buffer = [0u8; 4096];
@@ -54,18 +61,16 @@ impl ManagedProcess {
                     let _ = stdout.read_to_string(&mut output);
                     break;
                 }
-                Ok(None) => {
-                    match stdout.read(&mut buffer) {
-                        Ok(0) => std::thread::sleep(Duration::from_millis(50)),
-                        Ok(n) => {
-                            output.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(Duration::from_millis(50));
-                        }
-                        Err(_) => break,
+                Ok(None) => match stdout.read(&mut buffer) {
+                    Ok(0) => std::thread::sleep(Duration::from_millis(50)),
+                    Ok(n) => {
+                        output.push_str(&String::from_utf8_lossy(&buffer[..n]));
                     }
-                }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(_) => break,
+                },
                 Err(_) => break,
             }
         }
@@ -211,23 +216,16 @@ fn test_talker_listener_communication(zenohd_unique: ZenohRouter) {
     let tcp_addr = locator.replace("tcp/", "");
 
     // Start listener first
-    let mut listener = ManagedProcess::spawn(
-        listener_path,
-        &["--tcp", &tcp_addr],
-        "native-listener",
-    )
-    .expect("Failed to start listener");
+    let mut listener =
+        ManagedProcess::spawn(listener_path, &["--tcp", &tcp_addr], "native-listener")
+            .expect("Failed to start listener");
 
     // Give listener time to subscribe
     std::thread::sleep(Duration::from_secs(1));
 
     // Start talker
-    let mut talker = ManagedProcess::spawn(
-        talker_path,
-        &["--tcp", &tcp_addr],
-        "native-talker",
-    )
-    .expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn(talker_path, &["--tcp", &tcp_addr], "native-talker")
+        .expect("Failed to start talker");
 
     // Let them communicate for a few seconds
     std::thread::sleep(Duration::from_secs(5));

@@ -46,7 +46,10 @@ fn zephyr_workspace() -> Option<PathBuf> {
 #[test]
 fn test_arm_toolchain_detection() {
     let available = is_arm_toolchain_available();
-    eprintln!("ARM toolchain (thumbv7m-none-eabi) available: {}", available);
+    eprintln!(
+        "ARM toolchain (thumbv7m-none-eabi) available: {}",
+        available
+    );
 }
 
 #[test]
@@ -106,7 +109,10 @@ fn test_zephyr_talker_build() {
     // Verify the example exists
     let example_path = workspace.join("nano-ros/examples/zephyr-talker-rs");
     if !example_path.exists() {
-        eprintln!("Skipping test: zephyr-talker-rs example not found at {}", example_path.display());
+        eprintln!(
+            "Skipping test: zephyr-talker-rs example not found at {}",
+            example_path.display()
+        );
         return;
     }
 
@@ -139,11 +145,17 @@ fn test_zephyr_listener_build() {
     // Verify the example exists
     let example_path = workspace.join("nano-ros/examples/zephyr-listener-rs");
     if !example_path.exists() {
-        eprintln!("Skipping test: zephyr-listener-rs example not found at {}", example_path.display());
+        eprintln!(
+            "Skipping test: zephyr-listener-rs example not found at {}",
+            example_path.display()
+        );
         return;
     }
 
-    eprintln!("Zephyr listener example found at: {}", example_path.display());
+    eprintln!(
+        "Zephyr listener example found at: {}",
+        example_path.display()
+    );
 }
 
 // =============================================================================

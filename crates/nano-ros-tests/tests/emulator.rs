@@ -36,8 +36,7 @@ fn test_qemu_cdr_serialization(qemu_binary: PathBuf) {
     require_qemu();
     require_arm_toolchain();
 
-    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary)
-        .expect("Failed to start QEMU");
+    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary).expect("Failed to start QEMU");
 
     let output = qemu
         .wait_for_output(Duration::from_secs(30))
@@ -63,8 +62,7 @@ fn test_qemu_node_api(qemu_binary: PathBuf) {
     require_qemu();
     require_arm_toolchain();
 
-    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary)
-        .expect("Failed to start QEMU");
+    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary).expect("Failed to start QEMU");
 
     let output = qemu
         .wait_for_output(Duration::from_secs(30))
@@ -87,8 +85,7 @@ fn test_qemu_type_metadata(qemu_binary: PathBuf) {
     require_qemu();
     require_arm_toolchain();
 
-    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary)
-        .expect("Failed to start QEMU");
+    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary).expect("Failed to start QEMU");
 
     let output = qemu
         .wait_for_output(Duration::from_secs(30))
@@ -103,8 +100,7 @@ fn test_qemu_all_tests_pass(qemu_binary: PathBuf) {
     require_qemu();
     require_arm_toolchain();
 
-    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary)
-        .expect("Failed to start QEMU");
+    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary).expect("Failed to start QEMU");
 
     let output = qemu
         .wait_for_output(Duration::from_secs(30))
@@ -133,8 +129,7 @@ fn test_qemu_output_format(qemu_binary: PathBuf) {
     require_qemu();
     require_arm_toolchain();
 
-    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary)
-        .expect("Failed to start QEMU");
+    let mut qemu = QemuProcess::start_cortex_m3(&qemu_binary).expect("Failed to start QEMU");
 
     let output = qemu
         .wait_for_output(Duration::from_secs(30))

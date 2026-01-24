@@ -315,6 +315,10 @@ test-rust-nano2nano:
 test-rust-platform:
     cargo test -p nano-ros-tests --test platform -- --nocapture
 
+# Run Rust RMW interop tests (requires ROS 2 + rmw_zenoh_cpp)
+test-rust-rmw-interop:
+    cargo test -p nano-ros-tests --test rmw_interop -- --nocapture
+
 # Run Rust tests via wrapper script (with nice output)
 test-rust-full:
     ./tests/rust-tests.sh
