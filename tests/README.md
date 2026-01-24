@@ -38,6 +38,14 @@ tests/
 │   ├── clock-sync.sh    # Clock synchronization tests
 │   ├── poll-callback.sh # Poll callback tests
 │   └── README.md
+├── emulator/            # Emulator tests (QEMU, Zephyr)
+│   ├── run.sh           # Emulator test runner
+│   ├── qemu-cortex-m3.sh    # QEMU bare-metal tests
+│   ├── zephyr-native-sim.sh # Zephyr native_sim tests
+│   ├── zephyr-qemu-arm.sh   # Zephyr QEMU ARM tests
+│   ├── common/
+│   │   └── qemu-utils.sh    # QEMU utilities
+│   └── README.md
 └── zephyr/              # Zephyr integration tests
     └── run.sh
 ```
@@ -57,6 +65,7 @@ tests/
 ./tests/run-all.sh rmw-detailed
 ./tests/run-all.sh platform
 ./tests/run-all.sh smoltcp
+./tests/run-all.sh emulator
 
 # With verbose output
 ./tests/run-all.sh --verbose
@@ -105,6 +114,15 @@ Tests the smoltcp platform layer implementation.
 - Poll callback (registration, invocation)
 
 **Requirements:** cargo (no zenohd required)
+
+### emulator
+Tests on emulated hardware (QEMU, Zephyr native_sim).
+- QEMU Cortex-M3 bare-metal (CDR serialization, Node API)
+- Zephyr native_sim (network communication)
+- Zephyr QEMU ARM (optional, limited network support)
+
+**Requirements:** qemu-system-arm, thumbv7m-none-eabi target
+**Optional:** Zephyr workspace (for Zephyr tests)
 
 ## Requirements
 
@@ -158,6 +176,12 @@ sudo apt install ros-humble-rmw-zenoh-cpp
 ./tests/smoltcp/socket-buffers.sh # Socket buffer tests
 ./tests/smoltcp/clock-sync.sh     # Clock tests
 ./tests/smoltcp/poll-callback.sh  # Poll callback tests
+
+# emulator
+./tests/emulator/run.sh               # All emulator tests
+./tests/emulator/qemu-cortex-m3.sh    # QEMU bare-metal
+./tests/emulator/zephyr-native-sim.sh # Zephyr native_sim
+./tests/emulator/zephyr-qemu-arm.sh   # Zephyr QEMU ARM
 ```
 
 ## Environment Variables

@@ -22,7 +22,7 @@ QUICK=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        nano2nano|rmw-interop|rmw-detailed|platform|smoltcp|zephyr)
+        nano2nano|rmw-interop|rmw-detailed|platform|smoltcp|emulator|zephyr)
             TEST_SUITE="$1"
             shift
             ;;
@@ -43,6 +43,7 @@ while [[ $# -gt 0 ]]; do
             echo "  rmw-detailed  - Detailed RMW protocol tests"
             echo "  platform      - Platform backend tests (posix, smoltcp, generic)"
             echo "  smoltcp       - smoltcp integration tests (allocator, sockets, clock, poll)"
+            echo "  emulator      - Emulator tests (QEMU Cortex-M3, Zephyr native_sim/QEMU)"
             echo "  zephyr        - Zephyr QEMU integration tests (requires setup)"
             echo ""
             echo "Options:"
@@ -161,6 +162,16 @@ case "$TEST_SUITE" in
             run_suite "smoltcp/poll-callback" "$SCRIPT_DIR/smoltcp/poll-callback.sh"
         fi
         ;;
+    emulator)
+        if [ "$QUICK" = true ]; then
+            # Quick mode: QEMU Cortex-M3 only (fastest)
+            run_suite "emulator/qemu-cortex-m3" "$SCRIPT_DIR/emulator/qemu-cortex-m3.sh"
+        else
+            run_suite "emulator/qemu-cortex-m3" "$SCRIPT_DIR/emulator/qemu-cortex-m3.sh"
+            run_suite "emulator/zephyr-native-sim" "$SCRIPT_DIR/emulator/zephyr-native-sim.sh"
+            run_suite "emulator/zephyr-qemu-arm" "$SCRIPT_DIR/emulator/zephyr-qemu-arm.sh"
+        fi
+        ;;
     zephyr)
         # Zephyr tests require separate setup
         log_info "Running Zephyr QEMU tests..."
@@ -201,6 +212,13 @@ case "$TEST_SUITE" in
             run_suite "rmw-detailed/keyexpr" "$SCRIPT_DIR/rmw-detailed/keyexpr.sh"
             run_suite "rmw-detailed/qos" "$SCRIPT_DIR/rmw-detailed/qos.sh"
             run_suite "rmw-detailed/attachment" "$SCRIPT_DIR/rmw-detailed/attachment.sh"
+
+            # emulator tests (QEMU, Zephyr native_sim)
+            run_suite "emulator/qemu-cortex-m3" "$SCRIPT_DIR/emulator/qemu-cortex-m3.sh"
+            # Note: Zephyr emulator tests are optional - require Zephyr setup
+            if [ -d "${ZEPHYR_NANO_ROS:-$HOME/nano-ros-workspace}/zephyr" ]; then
+                run_suite "emulator/zephyr-native-sim" "$SCRIPT_DIR/emulator/zephyr-native-sim.sh"
+            fi
         fi
         ;;
 esac
