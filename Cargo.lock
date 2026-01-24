@@ -536,6 +536,7 @@ dependencies = [
  "portable-atomic",
  "spin",
  "zenoh-pico",
+ "zenoh-pico-shim",
 ]
 
 [[package]]

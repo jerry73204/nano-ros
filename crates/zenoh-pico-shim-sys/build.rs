@@ -62,13 +62,14 @@ fn main() {
     };
 
     // Build C shim
-    if backend_count > 0 {
+    // For Zephyr, the C code is built by Zephyr's build system, not Cargo
+    // The Rust code just needs the FFI declarations
+    if backend_count > 0 && !use_zephyr {
         build_c_shim(
             &c_dir,
             &include_dir,
             &zenoh_pico_include,
             use_posix,
-            use_zephyr,
             use_smoltcp,
             &target,
         );
@@ -268,12 +269,13 @@ fn generate_version_header(build_dir: &Path) {
 }
 
 /// Build the C shim library
+///
+/// Note: For Zephyr, C code is built by Zephyr's build system, not here.
 fn build_c_shim(
     c_dir: &Path,
     include_dir: &Path,
     zenoh_pico_include: &Path,
     use_posix: bool,
-    use_zephyr: bool,
     use_smoltcp: bool,
     target: &str,
 ) {
@@ -292,9 +294,6 @@ fn build_c_shim(
         build.define("ZENOH_LINUX", None);
         #[cfg(target_os = "macos")]
         build.define("ZENOH_MACOS", None);
-    } else if use_zephyr {
-        build.define("__ZEPHYR__", None);
-        build.define("ZENOH_ZEPHYR", None);
     } else if use_smoltcp {
         let platform_dir = c_dir.join("platform_smoltcp");
 

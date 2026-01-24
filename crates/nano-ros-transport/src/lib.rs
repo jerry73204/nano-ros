@@ -40,6 +40,9 @@ pub mod traits;
 #[cfg(feature = "zenoh")]
 pub mod zenoh;
 
+#[cfg(feature = "shim")]
+pub mod shim;
+
 // Re-export main types
 pub use traits::{
     ActionInfo, Publisher, QosDurabilityPolicy, QosHistoryPolicy, QosReliabilityPolicy,
@@ -57,3 +60,7 @@ pub use zenoh::{
 // Re-export zenoh-pico types for liveliness support
 #[cfg(feature = "zenoh")]
 pub use zenoh_pico::{LivelinessToken, ZenohId};
+
+// Re-export shim types when feature is enabled
+#[cfg(feature = "shim")]
+pub use shim::{ShimPublisher, ShimSession, ShimSubscriber, ShimTransport};

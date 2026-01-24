@@ -13,6 +13,13 @@ zenoh = ["nano-ros-transport/zenoh", "alloc"]
 log = ["dep:log"]
 defmt = ["dep:defmt"]
 
+# Shim transport backend (for embedded platforms without full zenoh features)
+# Select one platform: shim-posix (desktop), shim-zephyr, or shim-smoltcp (bare-metal)
+shim = ["nano-ros-transport/shim"]  # Base shim feature
+shim-posix = ["shim", "nano-ros-transport/shim-posix"]  # POSIX platform (desktop testing)
+shim-zephyr = ["shim", "nano-ros-transport/shim-zephyr"]  # Zephyr RTOS platform
+shim-smoltcp = ["shim", "nano-ros-transport/shim-smoltcp"]  # smoltcp platform (bare-metal)
+
 # Executor support
 rtic = ["nano-ros-transport/rtic"]    # RTIC executor - no background threads
 polling = ["nano-ros-transport/polling"]  # Manual polling mode

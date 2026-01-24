@@ -105,6 +105,9 @@ pub mod executor;
 #[cfg(all(feature = "zenoh", feature = "rtic"))]
 pub mod rtic;
 
+#[cfg(feature = "shim")]
+pub mod shim;
+
 // Export standalone node (without transport)
 pub use node::{Node as StandaloneNode, NodeConfig, NodeError};
 
@@ -180,3 +183,7 @@ pub use nano_ros_transport::SessionMode;
 pub use timer::{
     TimerCallbackFn, TimerDuration, TimerHandle, TimerMode, TimerState, DEFAULT_MAX_TIMERS,
 };
+
+// Re-export shim types when shim feature is enabled
+#[cfg(feature = "shim")]
+pub use shim::{ShimExecutor, ShimNode, ShimNodePublisher, ShimNodeSubscriber};

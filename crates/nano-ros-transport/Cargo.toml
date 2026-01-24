@@ -13,6 +13,13 @@ alloc = ["nano-ros-core/alloc"]
 # Transport backend
 zenoh = ["dep:zenoh-pico", "alloc"]  # Enable zenoh-pico backend (requires alloc for callback buffers)
 
+# Shim transport backend (for embedded platforms)
+# Select one platform: shim-posix (desktop), shim-zephyr, or shim-smoltcp (bare-metal)
+shim = ["dep:zenoh-pico-shim"]  # Base shim feature (requires platform selection)
+shim-posix = ["shim", "zenoh-pico-shim/posix"]  # POSIX platform (desktop testing)
+shim-zephyr = ["shim", "zenoh-pico-shim/zephyr"]  # Zephyr RTOS platform
+shim-smoltcp = ["shim", "zenoh-pico-shim/smoltcp"]  # smoltcp platform (bare-metal)
+
 # Executor backends (informational - affects sync primitive choice)
 rtic = []       # RTIC executor - uses critical sections, no background threads
 embassy = []    # Embassy executor - uses embassy-sync primitives
@@ -34,6 +41,7 @@ defmt = ["dep:defmt"]
 nano-ros-core = { workspace = true, default-features = false }
 heapless = { workspace = true }
 zenoh-pico = { path = "../zenoh-pico", optional = true, default-features = false }
+zenoh-pico-shim = { path = "../zenoh-pico-shim", optional = true, default-features = false }
 
 # Synchronization backends (optional)
 spin = { version = "0.9", optional = true, default-features = false, features = ["mutex", "spin_mutex"] }

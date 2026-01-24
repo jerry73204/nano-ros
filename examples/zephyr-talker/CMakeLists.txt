@@ -15,8 +15,11 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(nano_ros_talker_rs)
 
-# C shim for zenoh-pico FFI
-target_sources(app PRIVATE src/zenoh_shim.c)
+# Use shared C shim from zenoh-pico-shim-sys
+# This provides the zenoh_shim_* API used by the Rust crate
+set(SHIM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/zenoh-pico-shim-sys/c)
+target_sources(app PRIVATE ${SHIM_DIR}/shim/zenoh_shim.c)
+target_include_directories(app PRIVATE ${SHIM_DIR}/include)
 
 # Build Rust application (zephyr-lang-rust is in west manifest)
 rust_cargo_application()

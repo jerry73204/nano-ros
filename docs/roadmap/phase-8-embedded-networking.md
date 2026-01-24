@@ -2,7 +2,7 @@
 
 **Goal**: Enable network connectivity for all embedded nano-ros examples using smoltcp + zenoh-pico for bare-metal RTIC/polling, and verify native examples work correctly.
 
-**Status**: In Progress (Phase 8.1-8.4 Core Complete, Phase 8.4.5 Library Restructure Partially Complete)
+**Status**: In Progress (Phase 8.1-8.5 Complete, Phase 8.6 Hardware Testing Pending)
 
 ## Overview
 
@@ -189,11 +189,11 @@ See [modular-c-shim-design.md](../architecture/modular-c-shim-design.md) for det
   - `no_std` compatible with optional std support
   - Safe API with proper lifetime management
 
-- [ ] **8.2.11** Migrate zephyr-talker to use `zenoh-pico-shim` crate
-  - Deferred to Phase 8.6 (requires testing Zephyr backend)
+- [x] **8.2.11** Migrate zephyr-talker to use `zenoh-pico-shim` crate
+  - Completed in Phase 8.5.9
 
-- [ ] **8.2.12** Migrate zephyr-listener to use `zenoh-pico-shim` crate
-  - Deferred to Phase 8.6 (requires testing Zephyr backend)
+- [x] **8.2.12** Migrate zephyr-listener to use `zenoh-pico-shim` crate
+  - Completed in Phase 8.5.9
 
 - [ ] **8.2.13** Test Zephyr examples still work after migration
   - Deferred to Phase 8.6 (requires Zephyr hardware/QEMU)
@@ -203,7 +203,7 @@ See [modular-c-shim-design.md](../architecture/modular-c-shim-design.md) for det
 - [x] POSIX backend enables desktop testing (tests pass)
 - [x] Directory structure ready for smoltcp platform layer (Phase 8.4)
 - [x] `no_std` compatible (builds for thumbv7em-none-eabihf without backend)
-- [ ] Zephyr examples migrated (deferred to Phase 8.6)
+- [x] Zephyr examples migrated (completed in Phase 8.5.9)
 
 ---
 
@@ -782,7 +782,7 @@ For smoltcp platform, C code declares extern functions satisfied by Rust at link
 
 ## Phase 8.5: nano-ros-node Integration with zenoh-pico-shim
 
-**Status**: Not Started
+**Status**: Complete
 **Priority**: High
 **Depends on**: 8.4.5
 
@@ -790,112 +790,100 @@ Integrate `zenoh-pico-shim` with `nano-ros-node` to enable embedded nano-ros app
 
 ### Work Items
 
-- [ ] **8.5.1** Add `shim` feature to nano-ros-node
+- [x] **8.5.1** Add `shim` feature to nano-ros-node
   ```toml
   # crates/nano-ros-node/Cargo.toml
   [features]
-  default = ["std"]
-  std = ["nano-ros-transport/std"]
-  zenoh = ["nano-ros-transport/zenoh"]
-  shim = ["dep:zenoh-pico-shim"]  # For embedded platforms
-
-  [dependencies.zenoh-pico-shim]
-  path = "../zenoh-pico-shim"
-  optional = true
+  shim = ["nano-ros-transport/shim"]
+  shim-posix = ["shim", "nano-ros-transport/shim-posix"]
+  shim-zephyr = ["shim", "nano-ros-transport/shim-zephyr"]
+  shim-smoltcp = ["shim", "nano-ros-transport/shim-smoltcp"]
   ```
 
-- [ ] **8.5.2** Create `ShimTransport` in nano-ros-transport
-  ```rust
-  // crates/nano-ros-transport/src/shim.rs
-  use zenoh_pico_shim::{ShimContext, ShimPublisher, ShimSubscriber};
+- [x] **8.5.2** Create `ShimTransport` in nano-ros-transport
+  - `crates/nano-ros-transport/src/shim.rs`
+  - Implements `Transport` trait with `ShimSession`, `ShimPublisher`, `ShimSubscriber`
 
-  pub struct ShimTransport {
-      context: ShimContext,
-  }
-
-  impl Transport for ShimTransport {
-      type Publisher = ShimTransportPublisher;
-      type Subscriber = ShimTransportSubscriber;
-      // ...
-  }
-  ```
-
-- [ ] **8.5.3** Implement `ShimTransportPublisher`
+- [x] **8.5.3** Implement `ShimTransportPublisher`
   - Wraps `zenoh_pico_shim::ShimPublisher`
-  - Handles CDR serialization before publish
+  - Implements `Publisher` trait
 
-- [ ] **8.5.4** Implement `ShimTransportSubscriber`
+- [x] **8.5.4** Implement `ShimTransportSubscriber`
   - Wraps `zenoh_pico_shim::ShimSubscriber`
-  - Handles CDR deserialization in callback
+  - Uses static buffer callback pattern for embedded compatibility
+  - Implements `Subscriber` trait
 
-- [ ] **8.5.5** Create `ShimExecutor` for embedded polling
-  ```rust
-  // crates/nano-ros-node/src/shim_executor.rs
-  pub struct ShimExecutor {
-      context: ShimContext,
-  }
+- [x] **8.5.5** Create `ShimExecutor` for embedded polling
+  - `crates/nano-ros-node/src/shim.rs`
+  - Provides `new(locator)`, `create_node()`, `spin_once()`, `poll()`
 
-  impl ShimExecutor {
-      pub fn new(locator: &[u8]) -> Result<Self, ShimError>;
-      pub fn create_node(&self, name: &str) -> Result<ShimNode, ShimError>;
-      pub fn spin_once(&self, timeout_ms: u32) -> Result<(), ShimError>;
-  }
-  ```
+- [x] **8.5.6** Create `ShimNode` with pub/sub support
+  - `ShimNode` with `create_publisher<M>()` and `create_subscriber<M>()`
+  - `ShimNodePublisher<M>` with typed `publish()` and CDR serialization
+  - `ShimNodeSubscriber<M, RX_BUF>` with typed `try_recv()` and CDR deserialization
 
-- [ ] **8.5.6** Create `ShimNode` with pub/sub support
-  ```rust
-  pub struct ShimNode { ... }
-
-  impl ShimNode {
-      pub fn create_publisher<M: RosMessage>(&self, topic: &str)
-          -> Result<ShimNodePublisher<M>, ShimError>;
-      pub fn create_subscriber<M, F>(&self, topic: &str, callback: F)
-          -> Result<ShimNodeSubscriber<M>, ShimError>
-      where M: RosMessage, F: FnMut(M) + 'static;
-  }
-  ```
-
-- [ ] **8.5.7** Add `shim` feature to nano-ros-transport
+- [x] **8.5.7** Add `shim` feature to nano-ros-transport
   ```toml
   [features]
   shim = ["dep:zenoh-pico-shim"]
-
-  [dependencies.zenoh-pico-shim]
-  path = "../zenoh-pico-shim"
-  optional = true
+  shim-posix = ["shim", "zenoh-pico-shim/posix"]
+  shim-zephyr = ["shim", "zenoh-pico-shim/zephyr"]
+  shim-smoltcp = ["shim", "zenoh-pico-shim/smoltcp"]
   ```
 
-- [ ] **8.5.8** Migrate nano-ros-transport from zenoh-pico to zenoh-pico-shim
-  - Add `shim` feature flag for embedded platforms
-  - Update `ZenohTransport` to use `zenoh-pico-shim` when `shim` feature enabled
-  - Add Liveliness token support to shim API (required for RMW compatibility)
-  - Add ZenohId support to shim API (required for liveliness tokens)
-  - Add Attachment support to shim API (required for RMW metadata)
-  - Maintain backward compatibility with existing `zenoh` feature
-  - Test both code paths work correctly
+- [ ] **8.5.8** Migrate nano-ros-transport from zenoh-pico to zenoh-pico-shim (DEFERRED)
+  - Note: Current `zenoh` feature still uses legacy `zenoh-pico` crate
+  - New `shim` feature provides alternative path for embedded platforms
+  - Full migration requires adding Liveliness tokens, ZenohId, Attachment to shim API
+  - Tracked for Phase 8.8 cleanup
 
-- [ ] **8.5.9** Update Zephyr examples to use zenoh-pico-shim crate
-  - Migrate zephyr-talker from inline C shim to crate
-  - Migrate zephyr-listener from inline C shim to crate
-  - Test Zephyr examples still work (QEMU or hardware)
+- [x] **8.5.9** Update Zephyr examples to use zenoh-pico-shim crate
+  - **zephyr-talker**: Updated CMakeLists.txt to use shared C shim from zenoh-pico-shim-sys
+  - **zephyr-talker**: Updated Cargo.toml to depend on zenoh-pico-shim with zephyr feature
+  - **zephyr-talker**: Simplified lib.rs to use ShimContext and ShimPublisher from crate
+  - **zephyr-talker**: Removed custom zenoh_shim.c (now using shared version)
+  - **zephyr-listener**: Same updates as zephyr-talker
+  - **zephyr-listener**: Uses ShimContext and ShimSubscriber from crate
+  - Hardware/QEMU testing pending (Phase 8.6)
+
+### Implementation Notes
+
+**Transport Layer (nano-ros-transport/src/shim.rs)**:
+- `ShimTransport` implements `Transport` trait
+- `ShimSession` implements `Session` trait with `create_publisher()`, `create_subscriber()`
+- Uses static buffers for subscriber callbacks (8 max subscribers)
+- Platform selection via feature flags: `shim-posix`, `shim-zephyr`, `shim-smoltcp`
+
+**Node Layer (nano-ros-node/src/shim.rs)**:
+- `ShimExecutor` provides polling-based execution
+- `ShimNode` provides typed publisher/subscriber creation
+- `ShimNodePublisher<M>` handles CDR serialization
+- `ShimNodeSubscriber<M, RX_BUF>` handles CDR deserialization with const generic buffer size
+
+**Zephyr Integration**:
+- C shim compiled by Zephyr's build system (west/CMake), not Cargo
+- Rust uses FFI declarations only (`zephyr` feature skips C compilation in build.rs)
+- Unified function naming (`zenoh_shim_*`) across all platforms
 
 ### Acceptance Criteria
-- nano-ros-node compiles with `shim` feature for thumbv7em-none-eabihf
-- `ShimExecutor` provides familiar executor API pattern
-- Can create publishers and subscribers through `ShimNode`
-- Polling-based execution works without threads
-- nano-ros-transport works with both `zenoh` and `shim` features
-- Zephyr examples use zenoh-pico-shim crate (not inline C shim)
+- [x] nano-ros-node compiles with `shim-posix` feature
+- [x] `ShimExecutor` provides familiar executor API pattern
+- [x] Can create publishers and subscribers through `ShimNode`
+- [x] Polling-based execution works without threads
+- [x] nano-ros-transport has `shim` features for embedded platforms
+- [x] Zephyr examples use zenoh-pico-shim crate (not inline C shim)
+- [ ] Hardware/QEMU testing (deferred to Phase 8.6)
 
 ---
 
-## Phase 8.6: RTIC/Polling Examples Update
+## Phase 8.6: RTIC/Polling Examples Update + Zephyr Testing
 
 **Status**: Not Started
 **Priority**: Medium
 **Depends on**: 8.5
 
 Update RTIC and polling examples to use zenoh-pico-shim with smoltcp backend.
+Also test Zephyr examples that were migrated in Phase 8.5.9.
 
 ### Work Items
 
@@ -984,11 +972,18 @@ Update RTIC and polling examples to use zenoh-pico-shim with smoltcp backend.
 - [ ] **8.6.7** Test polling example on NUCLEO-F429ZI
   - Same tests as RTIC
 
+- [ ] **8.6.8** Test Zephyr examples on native_sim/QEMU
+  - Build zephyr-talker: `west build -b native_sim/native/64 nano-ros/examples/zephyr-talker`
+  - Build zephyr-listener: `west build -b native_sim/native/64 nano-ros/examples/zephyr-listener`
+  - Run with zenoh router on host
+  - Verify communication with native examples
+
 ### Acceptance Criteria
 - RTIC example compiles and runs on hardware
 - Polling example compiles and runs on hardware
 - Can communicate with native nodes via zenoh router
 - Uses zenoh-pico-shim with smoltcp feature
+- Zephyr examples (zephyr-talker, zephyr-listener) work on native_sim/QEMU
 
 ---
 

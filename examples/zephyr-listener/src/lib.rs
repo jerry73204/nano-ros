@@ -1,20 +1,20 @@
 //! nano-ros Zephyr Listener Example (Rust)
 //!
 //! This example demonstrates a ROS 2 compatible subscriber running on
-//! Zephyr RTOS using the nano-ros executor API pattern.
+//! Zephyr RTOS using the zenoh-pico-shim crate.
 //!
 //! Architecture:
 //! ```text
 //! Rust Application (this file)
-//!     └── ZephyrExecutor (Rust wrapper)
-//!         └── zenoh_shim.c (C layer)
+//!     └── zenoh-pico-shim (Rust wrapper)
+//!         └── zenoh_shim.c (C shim, compiled by Zephyr)
 //!             └── zenoh-pico (C library)
 //!                 └── Zephyr network stack
 //! ```
 
 #![no_std]
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use log::{error, info};
@@ -23,157 +23,89 @@ use log::{error, info};
 use nano_ros_core::{Deserialize, RosMessage};
 use nano_ros_serdes::CdrReader;
 
+// zenoh-pico shim crate
+use zenoh_pico_shim::{ShimCallback, ShimContext, ShimError, ShimSubscriber};
+
 // Generated message types
 use std_msgs::msg::Int32;
 
 // =============================================================================
-// zenoh-pico shim FFI (from zenoh_shim.c)
+// Zephyr Node API (high-level wrapper over shim)
 // =============================================================================
 
-type RustSampleCallback = extern "C" fn(data: *const u8, len: usize, ctx: *mut c_void);
-
-extern "C" {
-    fn zenoh_init_config(locator: *const c_char) -> i32;
-    fn zenoh_open_session() -> i32;
-    fn zenoh_is_session_open() -> i32;
-    fn zenoh_declare_subscriber(
-        keyexpr: *const c_char,
-        callback: RustSampleCallback,
-        ctx: *mut c_void,
-    ) -> i32;
-    fn zenoh_undeclare_subscriber(handle: i32) -> i32;
-    fn zenoh_close();
-}
-
-// =============================================================================
-// Zephyr Executor API (mirrors native executor pattern)
-// =============================================================================
-
-/// Error type for Zephyr transport operations
+/// Error type for Zephyr operations
 #[derive(Debug, Clone, Copy)]
 pub enum ZephyrError {
-    ConfigError(i32),
-    SessionError(i32),
-    SubscriberError(i32),
+    /// Shim error
+    Shim(ShimError),
+    /// Deserialization error
     DeserializationError,
-    NotConnected,
+    /// Topic name too long
+    TopicTooLong,
 }
 
-/// Zephyr-specific context that manages the zenoh session
-pub struct ZephyrContext {
-    _private: (),
-}
-
-impl ZephyrContext {
-    /// Create a new context and connect to the zenoh router
-    pub fn new(locator: &[u8]) -> Result<Self, ZephyrError> {
-        unsafe {
-            let ret = zenoh_init_config(locator.as_ptr() as *const c_char);
-            if ret < 0 {
-                return Err(ZephyrError::ConfigError(ret));
-            }
-
-            let ret = zenoh_open_session();
-            if ret < 0 {
-                return Err(ZephyrError::SessionError(ret));
-            }
-        }
-
-        Ok(Self { _private: () })
-    }
-
-    /// Check if the session is open
-    pub fn is_connected(&self) -> bool {
-        unsafe { zenoh_is_session_open() == 1 }
-    }
-
-    /// Create a polling executor from this context
-    pub fn create_polling_executor(&self) -> ZephyrExecutor {
-        ZephyrExecutor { _private: () }
+impl From<ShimError> for ZephyrError {
+    fn from(err: ShimError) -> Self {
+        ZephyrError::Shim(err)
     }
 }
 
-impl Drop for ZephyrContext {
-    fn drop(&mut self) {
-        unsafe {
-            zenoh_close();
-        }
-    }
-}
-
-/// Zephyr polling executor (manages nodes)
-pub struct ZephyrExecutor {
-    _private: (),
-}
-
-impl ZephyrExecutor {
-    /// Create a node within this executor
-    pub fn create_node(&self, name: &str, namespace: &str) -> ZephyrNode {
-        info!("Created node: {}/{}", namespace, name);
-        ZephyrNode {
-            _name: name,
-            _namespace: namespace,
-        }
-    }
-
-    /// Spin once - process any pending callbacks
-    /// For Zephyr, callbacks are invoked from background tasks
-    pub fn spin_once(&mut self, _timeout_ms: u64) {
-        // zenoh-pico read/lease tasks run in background threads on Zephyr
-        // Callbacks are invoked directly from those tasks
-    }
-}
-
-/// Zephyr node that can create publishers and subscribers
+/// Zephyr node that provides a high-level API for subscribers
+///
+/// This wraps the ShimContext and provides node naming support.
 pub struct ZephyrNode<'a> {
-    _name: &'a str,
-    _namespace: &'a str,
+    ctx: &'a ShimContext,
+    #[allow(dead_code)] // Used for logging/diagnostics
+    name: &'a str,
+    #[allow(dead_code)] // Used for logging/diagnostics
+    namespace: &'a str,
 }
 
 impl<'a> ZephyrNode<'a> {
-    /// Create a subscriber for the given topic with a callback
+    /// Create a new node with the given context
+    pub fn new(ctx: &'a ShimContext, name: &'a str, namespace: &'a str) -> Self {
+        info!("Created node: {}/{}", namespace, name);
+        Self {
+            ctx,
+            name,
+            namespace,
+        }
+    }
+
+    /// Create a subscriber for the given topic with a raw callback
     ///
-    /// The callback function receives the raw payload bytes. For type-safe
-    /// message handling, use `create_subscription` instead.
-    pub fn create_subscriber_raw(
+    /// # Safety
+    ///
+    /// The callback and context must remain valid for the lifetime of the subscriber.
+    pub unsafe fn create_subscriber_raw(
         &self,
         topic: &str,
-        callback: RustSampleCallback,
+        callback: ShimCallback,
         ctx: *mut c_void,
-    ) -> Result<ZephyrSubscriber, ZephyrError> {
+    ) -> Result<ZephyrSubscriber<'a>, ZephyrError> {
         // Create null-terminated topic string
         let mut topic_buf = [0u8; 128];
         let topic_bytes = topic.as_bytes();
         if topic_bytes.len() >= topic_buf.len() {
-            return Err(ZephyrError::SubscriberError(-1));
+            return Err(ZephyrError::TopicTooLong);
         }
         topic_buf[..topic_bytes.len()].copy_from_slice(topic_bytes);
         topic_buf[topic_bytes.len()] = 0;
 
-        let handle = unsafe {
-            zenoh_declare_subscriber(topic_buf.as_ptr() as *const c_char, callback, ctx)
-        };
-        if handle < 0 {
-            return Err(ZephyrError::SubscriberError(handle));
-        }
+        let subscriber = self
+            .ctx
+            .declare_subscriber_raw(&topic_buf[..=topic_bytes.len()], callback, ctx)?;
 
         info!("Declared subscriber for '{}'", topic);
 
-        Ok(ZephyrSubscriber { handle })
+        Ok(ZephyrSubscriber { subscriber })
     }
 }
 
 /// Zephyr subscriber handle
-pub struct ZephyrSubscriber {
-    handle: i32,
-}
-
-impl Drop for ZephyrSubscriber {
-    fn drop(&mut self) {
-        unsafe {
-            zenoh_undeclare_subscriber(self.handle);
-        }
-    }
+pub struct ZephyrSubscriber<'a> {
+    #[allow(dead_code)] // Subscriber is kept alive for RAII drop
+    subscriber: ShimSubscriber<'a>,
 }
 
 // =============================================================================
@@ -225,26 +157,23 @@ extern "C" fn rust_main() {
 
     info!("Connecting to zenoh router at tcp/192.0.2.2:7447");
 
-    // Create context (connects to zenoh)
-    let ctx = match ZephyrContext::new(locator) {
+    // Create ShimContext (connects to zenoh)
+    let ctx = match ShimContext::new(locator) {
         Ok(ctx) => ctx,
         Err(e) => {
-            error!("Failed to create context: {:?}", e);
+            error!("Failed to create context: {}", e);
             return;
         }
     };
     info!("Session opened");
 
-    // Create executor and node (mirrors native API)
-    let mut executor = ctx.create_polling_executor();
-    let node = executor.create_node("listener", "/demo");
+    // Create node (high-level wrapper)
+    let node = ZephyrNode::new(&ctx, "listener", "/demo");
 
     // Create subscriber for Int32 messages
-    let _subscriber = match node.create_subscriber_raw(
-        "/chatter",
-        on_int32_message,
-        core::ptr::null_mut(),
-    ) {
+    let _subscriber = match unsafe {
+        node.create_subscriber_raw("/chatter", on_int32_message, core::ptr::null_mut())
+    } {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to create subscriber: {:?}", e);
@@ -254,11 +183,8 @@ extern "C" fn rust_main() {
 
     info!("Waiting for messages on /chatter...");
 
-    // Main loop - callbacks run in background
+    // Main loop - callbacks run in background threads on Zephyr
     loop {
-        // Spin the executor (no-op for Zephyr, but mirrors native API)
-        executor.spin_once(1000);
-
         // Sleep and report status periodically
         zephyr::time::sleep(zephyr::time::Duration::secs(10));
         let count = MSG_COUNT.load(Ordering::Relaxed);

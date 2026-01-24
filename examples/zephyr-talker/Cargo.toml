@@ -23,6 +23,10 @@ log = "0.4"
 nano-ros-core = { version = "*", default-features = false }
 nano-ros-serdes = { version = "*", default-features = false }
 
+# zenoh-pico shim (patched to local via .cargo/config.toml)
+# Zephyr feature: FFI declarations only, C code compiled by Zephyr's build system
+zenoh-pico-shim = { version = "*", default-features = false, features = ["zephyr"] }
+
 # Generated message types (patched to local via .cargo/config.toml)
 std_msgs = { version = "*", default-features = false }
 
