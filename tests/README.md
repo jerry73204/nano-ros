@@ -19,12 +19,20 @@ tests/
 │   ├── ros2nano.sh      # ROS 2 talker → nano-ros listener
 │   ├── matrix.sh        # All 4 combinations
 │   └── README.md
-└── rmw-detailed/        # Detailed protocol tests
-    ├── liveliness.sh    # Discovery tokens
-    ├── keyexpr.sh       # Key expression format
-    ├── qos.sh           # QoS compatibility
-    ├── attachment.sh    # RMW attachment metadata
-    └── README.md
+├── rmw-detailed/        # Detailed protocol tests
+│   ├── liveliness.sh    # Discovery tokens
+│   ├── keyexpr.sh       # Key expression format
+│   ├── qos.sh           # QoS compatibility
+│   ├── attachment.sh    # RMW attachment metadata
+│   └── README.md
+├── platform/            # Platform backend tests
+│   ├── run.sh           # Platform test runner
+│   ├── posix.sh         # POSIX platform (reference)
+│   ├── smoltcp-sim.sh   # smoltcp platform (simulation)
+│   ├── generic.sh       # Generic compile tests
+│   └── README.md
+└── zephyr/              # Zephyr integration tests
+    └── run.sh
 ```
 
 ## Quick Start
@@ -40,6 +48,7 @@ tests/
 ./tests/run-all.sh nano2nano
 ./tests/run-all.sh rmw-interop
 ./tests/run-all.sh rmw-detailed
+./tests/run-all.sh platform
 
 # With verbose output
 ./tests/run-all.sh --verbose
@@ -71,6 +80,14 @@ Tests specific protocol details.
 - RMW attachment format
 
 **Requirements:** zenohd, ROS 2 Humble, rmw_zenoh_cpp, z_sub (optional)
+
+### platform
+Tests zenoh-pico-shim platform backends.
+- POSIX platform (reference implementation)
+- smoltcp platform (simulation mode)
+- Generic compile tests (no platform backend)
+
+**Requirements:** zenohd (for posix tests), cargo
 
 ## Requirements
 
@@ -111,6 +128,12 @@ sudo apt install ros-humble-rmw-zenoh-cpp
 ./tests/rmw-detailed/keyexpr.sh
 ./tests/rmw-detailed/qos.sh
 ./tests/rmw-detailed/attachment.sh
+
+# platform
+./tests/platform/run.sh           # All platform tests
+./tests/platform/posix.sh         # POSIX platform
+./tests/platform/smoltcp-sim.sh   # smoltcp simulation
+./tests/platform/generic.sh       # Generic compile tests
 ```
 
 ## Environment Variables

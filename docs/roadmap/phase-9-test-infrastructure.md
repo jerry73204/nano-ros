@@ -33,7 +33,7 @@ tests/
 
 ## Phase 9.1: Platform Backend Tests
 
-**Status**: Not Started
+**Status**: Complete
 **Priority**: High
 
 Create tests that verify zenoh-pico-shim works correctly on each platform backend.
@@ -51,9 +51,9 @@ tests/platform/
 
 ### Work Items
 
-- [ ] **9.1.1** Create `tests/platform/` directory structure
-- [ ] **9.1.2** Create `tests/platform/README.md` with platform test documentation
-- [ ] **9.1.3** Implement `tests/platform/posix.sh`
+- [x] **9.1.1** Create `tests/platform/` directory structure
+- [x] **9.1.2** Create `tests/platform/README.md` with platform test documentation
+- [x] **9.1.3** Implement `tests/platform/posix.sh`
   - Session lifecycle (open, close, reconnect)
   - Publisher declaration and publishing
   - Subscriber declaration and callback invocation
@@ -62,20 +62,20 @@ tests/platform/
   - Queryable declaration (service server pattern)
   - Run zenoh-pico-shim integration tests with `--features posix`
 
-- [ ] **9.1.4** Implement `tests/platform/smoltcp-sim.sh`
+- [x] **9.1.4** Implement `tests/platform/smoltcp-sim.sh`
   - Compile-check smoltcp platform for x86_64
   - Test bump allocator (`smoltcp_alloc`, `smoltcp_free`)
   - Test clock functions (`smoltcp_set_clock_ms`, `smoltcp_clock_now_ms`)
   - Test socket buffer management (`smoltcp_socket_push_rx`, `smoltcp_socket_pop_tx`)
   - Note: Full network test requires hardware (Phase 8.9)
 
-- [ ] **9.1.5** Implement `tests/platform/generic.sh`
+- [x] **9.1.5** Implement `tests/platform/generic.sh`
   - Verify zenoh-pico-shim compiles without any platform backend
   - Compile-only test (no runtime execution)
   - Useful for CI to catch API breakage
 
-- [ ] **9.1.6** Create `tests/platform/run.sh` orchestrator
-- [ ] **9.1.7** Update `tests/run-all.sh` to include platform tests
+- [x] **9.1.6** Create `tests/platform/run.sh` orchestrator
+- [x] **9.1.7** Update `tests/run-all.sh` to include platform tests
 
 ### Acceptance Criteria
 - All platform tests pass on CI
