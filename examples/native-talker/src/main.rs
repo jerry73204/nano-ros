@@ -49,7 +49,7 @@ fn main() {
     let mut executor = context.create_basic_executor();
 
     // Create node through executor
-    let node = match executor.create_node("talker".namespace("/demo")) {
+    let mut node = match executor.create_node("talker".namespace("/demo")) {
         Ok(node) => {
             info!("Node created: talker in namespace /demo");
             node
@@ -62,17 +62,21 @@ fn main() {
 
     info!("Node: {}/{}", node.namespace(), node.name());
 
-    // Declare a typed parameter
-    let counter_start_value = node
-        .declare_parameter("start_value")
-        .default(0i64)
-        .description("Initial value for the counter")
-        .integer_range(0, 1000, 1)
-        .unwrap()
-        .mandatory()
-        .unwrap();
+    // Declare a typed parameter and get its value immediately
+    // (we need to release the borrow before creating publisher)
+    let counter_start_value: i64 = {
+        let param = node
+            .declare_parameter("start_value")
+            .default(0i64)
+            .description("Initial value for the counter")
+            .integer_range(0, 1000, 1)
+            .unwrap()
+            .mandatory()
+            .unwrap();
+        param.get()
+    };
 
-    info!("Counter start value: {}", counter_start_value.get());
+    info!("Counter start value: {}", counter_start_value);
 
     // Create a publisher for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
@@ -94,7 +98,7 @@ fn main() {
 
     // Publishing loop with spin_once() - demonstrates manual control pattern
     // This pattern is also used in RTIC/embedded where you control the main loop
-    let mut count: i32 = counter_start_value.get() as i32;
+    let mut count: i32 = counter_start_value as i32;
     loop {
         let msg = Int32 { data: count };
 

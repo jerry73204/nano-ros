@@ -55,7 +55,7 @@ fn main() {
     let mut executor = context.create_basic_executor();
 
     // Create node through executor
-    let node = match executor.create_node("listener".namespace("/demo")) {
+    let mut node = match executor.create_node("listener".namespace("/demo")) {
         Ok(node) => {
             info!("Node created: listener in namespace /demo");
             node
@@ -70,7 +70,7 @@ fn main() {
 
     // Create a subscription with callback for Int32 messages on /chatter topic
     // Using /chatter to match ROS 2 demo_nodes_cpp talker
-    match node.create_subscription::<Int32>(
+    match node.create_subscription::<Int32, _>(
         SubscriberOptions::new("/chatter").reliable().keep_last(10),
         |msg: &Int32| {
             let count = MESSAGE_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
