@@ -22,7 +22,7 @@ QUICK=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        nano2nano|rmw-interop|rmw-detailed|platform|zephyr)
+        nano2nano|rmw-interop|rmw-detailed|platform|smoltcp|zephyr)
             TEST_SUITE="$1"
             shift
             ;;
@@ -42,6 +42,7 @@ while [[ $# -gt 0 ]]; do
             echo "  rmw-interop   - RMW interop tests (nano-ros <-> ROS 2)"
             echo "  rmw-detailed  - Detailed RMW protocol tests"
             echo "  platform      - Platform backend tests (posix, smoltcp, generic)"
+            echo "  smoltcp       - smoltcp integration tests (allocator, sockets, clock, poll)"
             echo "  zephyr        - Zephyr QEMU integration tests (requires setup)"
             echo ""
             echo "Options:"
@@ -148,6 +149,18 @@ case "$TEST_SUITE" in
             run_suite "platform/posix" "$SCRIPT_DIR/platform/posix.sh"
         fi
         ;;
+    smoltcp)
+        if [ "$QUICK" = true ]; then
+            # Quick mode: allocator + clock only
+            run_suite "smoltcp/allocator" "$SCRIPT_DIR/smoltcp/allocator.sh"
+            run_suite "smoltcp/clock-sync" "$SCRIPT_DIR/smoltcp/clock-sync.sh"
+        else
+            run_suite "smoltcp/allocator" "$SCRIPT_DIR/smoltcp/allocator.sh"
+            run_suite "smoltcp/socket-buffers" "$SCRIPT_DIR/smoltcp/socket-buffers.sh"
+            run_suite "smoltcp/clock-sync" "$SCRIPT_DIR/smoltcp/clock-sync.sh"
+            run_suite "smoltcp/poll-callback" "$SCRIPT_DIR/smoltcp/poll-callback.sh"
+        fi
+        ;;
     zephyr)
         # Zephyr tests require separate setup
         log_info "Running Zephyr QEMU tests..."
@@ -168,6 +181,12 @@ case "$TEST_SUITE" in
             run_suite "platform/generic" "$SCRIPT_DIR/platform/generic.sh"
             run_suite "platform/smoltcp" "$SCRIPT_DIR/platform/smoltcp-sim.sh"
             run_suite "platform/posix" "$SCRIPT_DIR/platform/posix.sh"
+
+            # smoltcp integration tests (no zenohd required)
+            run_suite "smoltcp/allocator" "$SCRIPT_DIR/smoltcp/allocator.sh"
+            run_suite "smoltcp/socket-buffers" "$SCRIPT_DIR/smoltcp/socket-buffers.sh"
+            run_suite "smoltcp/clock-sync" "$SCRIPT_DIR/smoltcp/clock-sync.sh"
+            run_suite "smoltcp/poll-callback" "$SCRIPT_DIR/smoltcp/poll-callback.sh"
 
             # nano2nano
             run_suite "nano2nano" "$SCRIPT_DIR/nano2nano/run.sh"

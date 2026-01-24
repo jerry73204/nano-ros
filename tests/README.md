@@ -31,6 +31,13 @@ tests/
 │   ├── smoltcp-sim.sh   # smoltcp platform (simulation)
 │   ├── generic.sh       # Generic compile tests
 │   └── README.md
+├── smoltcp/             # smoltcp integration tests
+│   ├── run.sh           # smoltcp test runner
+│   ├── allocator.sh     # Bump allocator tests
+│   ├── socket-buffers.sh # Socket buffer operations
+│   ├── clock-sync.sh    # Clock synchronization tests
+│   ├── poll-callback.sh # Poll callback tests
+│   └── README.md
 └── zephyr/              # Zephyr integration tests
     └── run.sh
 ```
@@ -49,6 +56,7 @@ tests/
 ./tests/run-all.sh rmw-interop
 ./tests/run-all.sh rmw-detailed
 ./tests/run-all.sh platform
+./tests/run-all.sh smoltcp
 
 # With verbose output
 ./tests/run-all.sh --verbose
@@ -88,6 +96,15 @@ Tests zenoh-pico-shim platform backends.
 - Generic compile tests (no platform backend)
 
 **Requirements:** zenohd (for posix tests), cargo
+
+### smoltcp
+Tests the smoltcp platform layer implementation.
+- Bump allocator (alloc, realloc, free)
+- Socket buffer operations (push_rx, pop_tx)
+- Clock synchronization (set, get)
+- Poll callback (registration, invocation)
+
+**Requirements:** cargo (no zenohd required)
 
 ## Requirements
 
@@ -134,6 +151,13 @@ sudo apt install ros-humble-rmw-zenoh-cpp
 ./tests/platform/posix.sh         # POSIX platform
 ./tests/platform/smoltcp-sim.sh   # smoltcp simulation
 ./tests/platform/generic.sh       # Generic compile tests
+
+# smoltcp
+./tests/smoltcp/run.sh            # All smoltcp tests
+./tests/smoltcp/allocator.sh      # Allocator tests
+./tests/smoltcp/socket-buffers.sh # Socket buffer tests
+./tests/smoltcp/clock-sync.sh     # Clock tests
+./tests/smoltcp/poll-callback.sh  # Poll callback tests
 ```
 
 ## Environment Variables
