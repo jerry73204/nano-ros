@@ -36,10 +36,10 @@ build-workspace:
     cargo build --workspace --no-default-features
 
 # Build workspace for embedded target (Cortex-M4F)
-# Excludes zenoh-pico-sys and zenoh-pico which require native system headers
+# Excludes zenoh-pico-shim-sys which requires native system headers for CMake build
 build-workspace-embedded:
     cargo build --workspace --no-default-features --target thumbv7em-none-eabihf \
-        --exclude zenoh-pico-sys --exclude zenoh-pico
+        --exclude zenoh-pico-shim-sys
 
 # Format workspace code
 format-workspace:
@@ -51,11 +51,11 @@ check-workspace:
     cargo clippy --workspace --no-default-features -- {{CLIPPY_LINTS}}
 
 # Check workspace for embedded target (Cortex-M4F)
-# Excludes zenoh-pico-sys and zenoh-pico which require native system headers
+# Excludes zenoh-pico-shim-sys which requires native system headers for CMake build
 check-workspace-embedded:
     @echo "Checking workspace for embedded target..."
     cargo clippy --workspace --no-default-features --target thumbv7em-none-eabihf \
-        --exclude zenoh-pico-sys --exclude zenoh-pico -- {{CLIPPY_LINTS}}
+        --exclude zenoh-pico-shim-sys -- {{CLIPPY_LINTS}}
 
 # Check workspace with various feature combinations
 check-workspace-features:
@@ -139,6 +139,7 @@ build-examples-embedded:
     cd examples/rtic-stm32f4 && cargo build --release
     cd examples/embassy-stm32f4 && cargo build --release
     cd examples/polling-stm32f4 && cargo build --release
+    cd examples/smoltcp-test && cargo build --release
 
 # Format embedded examples
 format-examples-embedded:
@@ -146,6 +147,7 @@ format-examples-embedded:
     cd examples/rtic-stm32f4 && cargo +nightly fmt
     cd examples/embassy-stm32f4 && cargo +nightly fmt
     cd examples/polling-stm32f4 && cargo +nightly fmt
+    cd examples/smoltcp-test && cargo +nightly fmt
 
 # Check embedded examples
 check-examples-embedded:
@@ -153,6 +155,7 @@ check-examples-embedded:
     cd examples/rtic-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
     cd examples/embassy-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
     cd examples/polling-stm32f4 && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
+    cd examples/smoltcp-test && cargo +nightly fmt --check && cargo clippy --release -- {{CLIPPY_LINTS}}
 
 # Show embedded example binary sizes
 size-examples-embedded: build-examples-embedded
@@ -162,12 +165,14 @@ size-examples-embedded: build-examples-embedded
     @size examples/rtic-stm32f4/target/thumbv7em-none-eabihf/release/rtic-stm32f4-example 2>/dev/null || echo "RTIC: build failed"
     @size examples/embassy-stm32f4/target/thumbv7em-none-eabihf/release/embassy-stm32f4-example 2>/dev/null || echo "Embassy: build failed"
     @size examples/polling-stm32f4/target/thumbv7em-none-eabihf/release/polling-stm32f4-example 2>/dev/null || echo "Polling: build failed"
+    @size examples/smoltcp-test/target/thumbv7em-none-eabihf/release/smoltcp-test 2>/dev/null || echo "smoltcp-test: build failed"
 
 # Clean embedded example build artifacts
 clean-examples-embedded:
     rm -rf examples/rtic-stm32f4/target
     rm -rf examples/embassy-stm32f4/target
     rm -rf examples/polling-stm32f4/target
+    rm -rf examples/smoltcp-test/target
     @echo "Embedded example build artifacts cleaned"
 
 # =============================================================================
@@ -238,11 +243,24 @@ build-zenoh:
 check-zenoh:
     cargo clippy -p nano-ros-transport --features zenoh,std -- {{CLIPPY_LINTS}}
 
-# Build zenoh-pico C library
+# Build zenoh-pico C library (standalone, for debugging)
 build-zenoh-pico:
     @echo "Building zenoh-pico..."
-    cd crates/zenoh-pico-sys/zenoh-pico && mkdir -p build && cd build && cmake .. -DBUILD_SHARED_LIBS=OFF && make
-    @echo "zenoh-pico built at: crates/zenoh-pico-sys/zenoh-pico/build"
+    cd crates/zenoh-pico-shim-sys/zenoh-pico && mkdir -p build && cd build && cmake .. -DBUILD_SHARED_LIBS=OFF && make
+    @echo "zenoh-pico built at: crates/zenoh-pico-shim-sys/zenoh-pico/build"
+
+# Test zenoh-pico-shim (requires zenohd running)
+test-zenoh-shim:
+    @echo "Testing zenoh-pico-shim (requires: zenohd --listen tcp/127.0.0.1:7447)"
+    cargo test -p zenoh-pico-shim --features "posix std" -- --test-threads=1
+
+# Run ROS 2 interoperability tests (requires ROS 2 + rmw_zenoh_cpp)
+test-ros2-interop:
+    ./scripts/test-ros2-interop.sh
+
+# Run nano-ros pub/sub test (requires zenohd)
+test-pubsub:
+    ./scripts/test-pubsub.sh
 
 # =============================================================================
 # Setup & Cleanup
