@@ -18,8 +18,8 @@
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
-#[cfg(all(not(feature = "std"), feature = "smoltcp"))]
-extern crate alloc;
+// Note: The smoltcp platform uses a custom bump allocator for C FFI (zenoh-pico),
+// not Rust's global allocator. The `alloc` crate is NOT needed.
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 use core::ffi::c_void;

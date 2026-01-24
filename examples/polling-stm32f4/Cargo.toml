@@ -3,7 +3,7 @@ name = "polling-stm32f4-example"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Bare-metal polling example for nano-ros on STM32F4 (no executor)"
+description = "Bare-metal polling example for nano-ros on STM32F4 with zenoh-pico-shim"
 
 [[bin]]
 name = "polling-stm32f4-example"
@@ -15,15 +15,26 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 panic-halt = "0.2"
 
-# STM32F4 HAL (for NUCLEO-F429ZI or similar)
-stm32f4xx-hal = { version = "0.23", features = ["stm32f429"] }
+# STM32F4 HAL and Ethernet
+# Note: stm32-eth 0.8.x requires stm32f4xx-hal 0.21
+stm32f4xx-hal = { version = "0.21", features = ["stm32f429"] }
+stm32-eth = { version = "0.8", features = ["stm32f429", "smoltcp-phy"] }
 
-# nano-ros core crates (no zenoh - this is a demo of the polling pattern)
-# For actual nano-ros usage, you would add zenoh-pico via C shim (see zephyr examples)
+# TCP/IP stack
+smoltcp = { version = "0.12", default-features = false, features = [
+    "medium-ethernet",
+    "proto-ipv4",
+    "socket-tcp",
+] }
+
+# nano-ros crates
 nano-ros-core = { path = "../../crates/nano-ros-core", default-features = false }
 nano-ros-serdes = { path = "../../crates/nano-ros-serdes", default-features = false }
 
-# Logging (optional, for debugging)
+# zenoh-pico shim with smoltcp platform backend
+zenoh-pico-shim = { path = "../../crates/zenoh-pico-shim", default-features = false, features = ["smoltcp"] }
+
+# Logging
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }

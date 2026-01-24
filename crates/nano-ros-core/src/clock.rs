@@ -409,6 +409,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "std")]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support clock_gettime with isolation
     fn test_system_clock_returns_nonzero() {
         let clock = Clock::system();
         let now = clock.now();

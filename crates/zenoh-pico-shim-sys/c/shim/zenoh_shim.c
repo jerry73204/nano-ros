@@ -18,7 +18,7 @@
 
 #ifdef ZENOH_SHIM_SMOLTCP
 // External Rust FFI functions for smoltcp platform initialization
-extern int smoltcp_init(void);
+extern int32_t smoltcp_init(void);
 extern void smoltcp_cleanup(void);
 #endif
 
@@ -84,7 +84,7 @@ static void shim_sample_handler(z_loaned_sample_t *sample, void *arg) {
 // Session Lifecycle Implementation
 // ============================================================================
 
-int zenoh_shim_init(const char *locator) {
+int32_t zenoh_shim_init(const char *locator) {
     // Initialize storage
     memset(g_publishers, 0, sizeof(g_publishers));
     memset(g_subscribers, 0, sizeof(g_subscribers));
@@ -115,7 +115,7 @@ int zenoh_shim_init(const char *locator) {
     return ZENOH_SHIM_OK;
 }
 
-int zenoh_shim_open(void) {
+int32_t zenoh_shim_open(void) {
     if (!g_initialized) {
         return ZENOH_SHIM_ERR_GENERIC;
     }
@@ -142,7 +142,7 @@ int zenoh_shim_open(void) {
     return ZENOH_SHIM_OK;
 }
 
-int zenoh_shim_is_open(void) {
+int32_t zenoh_shim_is_open(void) {
     return g_session_open ? 1 : 0;
 }
 
@@ -186,7 +186,7 @@ void zenoh_shim_close(void) {
 // Publisher Implementation
 // ============================================================================
 
-int zenoh_shim_declare_publisher(const char *keyexpr) {
+int32_t zenoh_shim_declare_publisher(const char *keyexpr) {
     if (!g_session_open) {
         return ZENOH_SHIM_ERR_SESSION;
     }
@@ -217,7 +217,7 @@ int zenoh_shim_declare_publisher(const char *keyexpr) {
     return idx;
 }
 
-int zenoh_shim_publish(int handle, const uint8_t *data, size_t len) {
+int32_t zenoh_shim_publish(int32_t handle, const uint8_t *data, size_t len) {
     if (handle < 0 || handle >= ZENOH_SHIM_MAX_PUBLISHERS || !g_publishers[handle].active) {
         return ZENOH_SHIM_ERR_INVALID;
     }
@@ -235,7 +235,7 @@ int zenoh_shim_publish(int handle, const uint8_t *data, size_t len) {
     return ZENOH_SHIM_OK;
 }
 
-int zenoh_shim_undeclare_publisher(int handle) {
+int32_t zenoh_shim_undeclare_publisher(int32_t handle) {
     if (handle < 0 || handle >= ZENOH_SHIM_MAX_PUBLISHERS || !g_publishers[handle].active) {
         return ZENOH_SHIM_ERR_INVALID;
     }
@@ -249,9 +249,9 @@ int zenoh_shim_undeclare_publisher(int handle) {
 // Subscriber Implementation
 // ============================================================================
 
-int zenoh_shim_declare_subscriber(const char *keyexpr,
-                                   ShimCallback callback,
-                                   void *ctx) {
+int32_t zenoh_shim_declare_subscriber(const char *keyexpr,
+                                       ShimCallback callback,
+                                       void *ctx) {
     if (!g_session_open) {
         return ZENOH_SHIM_ERR_SESSION;
     }
@@ -293,7 +293,7 @@ int zenoh_shim_declare_subscriber(const char *keyexpr,
     return idx;
 }
 
-int zenoh_shim_undeclare_subscriber(int handle) {
+int32_t zenoh_shim_undeclare_subscriber(int32_t handle) {
     if (handle < 0 || handle >= ZENOH_SHIM_MAX_SUBSCRIBERS || !g_subscribers[handle].active) {
         return ZENOH_SHIM_ERR_INVALID;
     }
@@ -309,7 +309,7 @@ int zenoh_shim_undeclare_subscriber(int handle) {
 // Polling Implementation
 // ============================================================================
 
-int zenoh_shim_poll(uint32_t timeout_ms) {
+int32_t zenoh_shim_poll(uint32_t timeout_ms) {
     if (!g_session_open) {
         return ZENOH_SHIM_ERR_SESSION;
     }
@@ -322,7 +322,7 @@ int zenoh_shim_poll(uint32_t timeout_ms) {
     return zp_read(z_session_loan_mut(&g_session), NULL);
 }
 
-int zenoh_shim_spin_once(uint32_t timeout_ms) {
+int32_t zenoh_shim_spin_once(uint32_t timeout_ms) {
     if (!g_session_open) {
         return ZENOH_SHIM_ERR_SESSION;
     }
