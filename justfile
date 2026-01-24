@@ -20,12 +20,21 @@ format: format-workspace format-examples
 check: check-workspace check-workspace-embedded check-workspace-features check-examples
     @echo "All checks passed!"
 
+# Run quick tests: workspace unit tests only (no integration tests)
+test-quick: test-workspace
+    @echo "Quick tests passed!"
+
 # Test everything: workspace tests, Miri, QEMU, Rust integration, and shell integration tests
 test: test-workspace test-miri test-qemu test-rust test-integration
     @echo "All tests passed!"
 
-# Run all quality checks (check + test)
-quality: check test
+# Run code quality checks (formatting + clippy + unit tests) - no integration tests
+quality: check test-workspace test-miri
+    @echo "Quality checks passed!"
+
+# Run full CI suite (quality + all integration tests)
+ci: check test
+    @echo "Full CI suite passed!"
 
 # =============================================================================
 # Workspace
@@ -37,9 +46,11 @@ build-workspace:
 
 # Build workspace for embedded target (Cortex-M4F)
 # Excludes zenoh-pico-shim-sys which requires native system headers for CMake build
+# Excludes nano-ros-tests which requires std (test framework dependencies)
 build-workspace-embedded:
     cargo build --workspace --no-default-features --target thumbv7em-none-eabihf \
-        --exclude zenoh-pico-shim-sys
+        --exclude zenoh-pico-shim-sys \
+        --exclude nano-ros-tests
 
 # Format workspace code
 format-workspace:
@@ -52,10 +63,12 @@ check-workspace:
 
 # Check workspace for embedded target (Cortex-M4F)
 # Excludes zenoh-pico-shim-sys which requires native system headers for CMake build
+# Excludes nano-ros-tests which requires std (test framework dependencies)
 check-workspace-embedded:
     @echo "Checking workspace for embedded target..."
     cargo clippy --workspace --no-default-features --target thumbv7em-none-eabihf \
-        --exclude zenoh-pico-shim-sys -- {{CLIPPY_LINTS}}
+        --exclude zenoh-pico-shim-sys \
+        --exclude nano-ros-tests -- {{CLIPPY_LINTS}}
 
 # Check workspace with various feature combinations
 check-workspace-features:
