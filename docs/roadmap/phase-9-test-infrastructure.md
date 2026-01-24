@@ -2,7 +2,7 @@
 
 **Goal**: Expand test coverage for nano-ros across all platforms (POSIX, smoltcp, Zephyr), emulators (QEMU, native_sim), and ROS 2 interoperability scenarios. Migrate from shell scripts to a Rust-based test framework for better maintainability, type safety, and debugging.
 
-**Status**: In Progress (Phase 9.1-9.3 Complete, 9.A Core Framework Complete)
+**Status**: In Progress (Phase 9.A Core Complete, 9.1-9.3 Complete)
 
 ## Overview
 
@@ -20,9 +20,9 @@ This phase extends the existing test infrastructure to cover:
 
 ## Phase 9.A: Rust Test Framework Migration
 
-**Status**: Complete (except Zephyr migration and GitHub Actions)
+**Status**: Complete (core framework, Zephyr tests pending)
 - ✅ 9.A.1: Core Framework Setup (complete)
-- ✅ 9.A.2: Emulator Tests (complete)
+- ✅ 9.A.2: Emulator Tests (QEMU complete, Zephyr pending)
 - ✅ 9.A.3: nano2nano Tests (complete)
 - ✅ 9.A.4: RMW Interop Tests (complete)
 - ✅ 9.A.5: Platform Tests (complete)
@@ -31,42 +31,21 @@ This phase extends the existing test infrastructure to cover:
 
 **Priority**: **Critical** (Foundation for all other tests)
 
-Migrate from shell-based test orchestration to a Rust-based test framework for:
-- Type safety and compile-time error checking
-- Better error messages and stack traces
-- RAII-based process management (automatic cleanup)
-- IDE support (debugging, code navigation)
-- Cross-platform compatibility (Windows support)
-- Parallel test execution with proper isolation
-
-### Recommended Crate Stack
-
-| Crate         | Purpose                           | Version |
-|---------------|-----------------------------------|---------|
-| `rstest`      | Fixtures, parameterized tests     | 0.18+   |
-| `duct`        | Process pipelines, IO redirection | 0.13+   |
-| `assert_cmd`  | CLI binary testing                | 2.0+    |
-| `predicates`  | Output assertions                 | 3.0+    |
-| `test-binary` | Build helper binaries             | 3.0+    |
-| `tempfile`    | Temporary directories             | 3.0+    |
-| `port_check`  | Wait for TCP ports                | 0.2+    |
-
-### Directory Structure (Target State)
-
-After migration is complete:
+### Current Directory Structure
 
 ```
 crates/
-└── nano-ros-tests/              # Rust integration test crate (workspace member)
-    ├── Cargo.toml               # Test crate with dependencies
+└── nano-ros-tests/              # Rust integration test crate
+    ├── Cargo.toml
     ├── src/
-    │   ├── lib.rs               # Shared test utilities
+    │   ├── lib.rs               # Shared utilities (wait_for_port, count_pattern, etc.)
+    │   ├── process.rs           # ManagedProcess utility
+    │   ├── qemu.rs              # QemuProcess utility
+    │   ├── ros2.rs              # Ros2Process utility
     │   └── fixtures/
-    │       ├── mod.rs           # Fixture module
-    │       ├── zenohd_fixture.rs # ZenohRouter fixture
-    │       ├── qemu.rs          # QEMU process fixture
-    │       ├── ros2.rs          # ROS 2 process helpers
-    │       └── binaries.rs      # Binary build helpers
+    │       ├── mod.rs           # Re-exports fixtures and utilities
+    │       ├── binaries.rs      # #[fixture] qemu_binary, talker_binary, listener_binary
+    │       └── zenohd_router.rs # #[fixture] zenohd, zenohd_unique
     └── tests/
         ├── emulator.rs          # QEMU Cortex-M3 tests
         ├── nano2nano.rs         # nano-ros ↔ nano-ros tests
@@ -75,404 +54,226 @@ crates/
 
 tests/
 ├── README.md                    # Test documentation (Rust-only workflow)
-└── rust-tests.sh                # Optional wrapper for nice output
+├── rust-tests.sh                # Optional wrapper for nice output
+├── zephyr/                      # Zephyr tests (shell-based, requires west + TAP)
+│   └── run.sh
+└── simple-workspace/            # Standalone build verification
 ```
 
-**Note:** All shell scripts in `tests/` will be deleted after migration (see 9.A.7).
+### Remaining Work Items
 
-### Work Items
-
-#### 9.A.1: Core Framework Setup
-- [x] **9.A.1.1** Create `crates/nano-ros-tests/` crate with Cargo.toml
-  ```toml
-  [package]
-  name = "nano-ros-tests"
-  version = "0.1.0"
-  edition = "2021"
-  publish = false
-
-  [dependencies]
-  rstest = "0.18"
-  duct = "0.13"
-  assert_cmd = "2.0"
-  predicates = "3.0"
-  tempfile = "3.0"
-  thiserror = "1.0"
-
-  # Workspace dependencies for type access
-  nano-ros-core = { path = "../nano-ros-core" }
-  nano-ros-serdes = { path = "../nano-ros-serdes" }
-  ```
-
-- [x] **9.A.1.2** Add to workspace `Cargo.toml`
-  ```toml
-  [workspace]
-  members = [
-      # ... existing members
-      "crates/nano-ros-tests",
-  ]
-  ```
-
-- [x] **9.A.1.3** Implement `src/fixtures/zenohd.rs` - ZenohRouter fixture
+#### 9.A.2: Emulator Tests - Zephyr
+- [ ] **9.A.2.3** Create `ZephyrProcess` fixture in `src/fixtures/zephyr.rs`
   ```rust
-  use duct::cmd;
-  use rstest::fixture;
+  pub struct ZephyrProcess { handle: Child, platform: ZephyrPlatform }
 
-  pub struct ZenohRouter { handle: duct::Handle, port: u16 }
+  pub enum ZephyrPlatform { NativeSim, QemuArm }
 
-  impl ZenohRouter {
-      pub fn start(port: u16) -> Result<Self> { ... }
-      pub fn locator(&self) -> String { format!("tcp/127.0.0.1:{}", self.port) }
-  }
-
-  impl Drop for ZenohRouter {
-      fn drop(&mut self) { let _ = self.handle.kill(); }
-  }
-
-  #[fixture]
-  pub fn zenohd() -> ZenohRouter { ZenohRouter::start(7447).unwrap() }
-  ```
-
-- [x] **9.A.1.4** Implement `src/fixtures/qemu.rs` - QEMU process fixture
-  ```rust
-  pub struct QemuProcess { handle: duct::Handle, output_file: PathBuf }
-
-  impl QemuProcess {
-      pub fn start_cortex_m3(binary: &Path) -> Result<Self> { ... }
-      pub fn wait_for_output(&self, timeout: Duration) -> Result<String> { ... }
-  }
-
-  impl Drop for QemuProcess {
-      fn drop(&mut self) { let _ = self.handle.kill(); }
+  impl ZephyrProcess {
+      pub fn start(binary: &Path, platform: ZephyrPlatform) -> Result<Self>;
+      pub fn wait_for_output(&mut self, timeout: Duration) -> Result<String>;
   }
   ```
-
-- [x] **9.A.1.5** Implement `src/fixtures/binaries.rs` - Binary build helpers
-  ```rust
-  use duct::cmd;
-  use std::sync::OnceLock;
-
-  static QEMU_TEST_BINARY: OnceLock<PathBuf> = OnceLock::new();
-
-  pub fn build_qemu_test() -> &'static Path {
-      QEMU_TEST_BINARY.get_or_init(|| {
-          cmd!("cargo", "build", "--release",
-               "--target", "thumbv7m-none-eabi",
-               "-p", "qemu-test")
-              .run().expect("Failed to build qemu-test");
-          PathBuf::from("examples/qemu-test/target/thumbv7m-none-eabi/release/qemu-test")
-      })
-  }
-  ```
-
-- [x] **9.A.1.6** Implement `src/lib.rs` - Shared utilities
-  ```rust
-  pub mod fixtures;
-
-  use std::time::{Duration, Instant};
-  use std::net::TcpStream;
-
-  pub fn wait_for_port(port: u16, timeout: Duration) -> bool { ... }
-  pub fn wait_for_output(output: &str, pattern: &str, timeout: Duration) -> bool { ... }
-  ```
-
-- [x] **9.A.1.7** Create shell wrapper scripts in `tests/`
-  ```bash
-  # tests/emulator.sh
-  #!/bin/bash
-  cargo test -p nano-ros-tests --test emulator -- "$@"
-  ```
-
-#### 9.A.2: Migrate Emulator Tests
-- [x] **9.A.2.1** Create `crates/nano-ros-tests/tests/emulator.rs`
-- [x] **9.A.2.2** Migrate `qemu-cortex-m3.sh` to Rust
-  ```rust
-  use nano_ros_tests::fixtures::{qemu_binary, QemuProcess};
-  use rstest::rstest;
-
-  #[rstest]
-  fn test_qemu_cdr_serialization(qemu_binary: PathBuf) {
-      let qemu = QemuProcess::start_cortex_m3(&qemu_binary).unwrap();
-      let output = qemu.wait_for_output(Duration::from_secs(30)).unwrap();
-
-      assert!(output.contains("[PASS] Int32 roundtrip"));
-      assert!(output.contains("[PASS] Float64 roundtrip"));
-      assert!(output.contains("All tests passed"));
-  }
-  ```
-- [ ] **9.A.2.3** Migrate `zephyr-native-sim.sh` to Rust
-- [ ] **9.A.2.4** Migrate `zephyr-qemu-arm.sh` to Rust
-- [ ] **9.A.2.5** Create `tests/emulator.sh` shell wrapper
-
-#### 9.A.3: Migrate nano2nano Tests
-- [x] **9.A.3.1** Create `crates/nano-ros-tests/tests/nano2nano.rs`
-- [x] **9.A.3.2** Implement pub/sub test with zenohd fixture
-  ```rust
-  use nano_ros_tests::fixtures::zenohd;
-  use duct::cmd;
-  use rstest::rstest;
-
-  #[rstest]
-  fn test_nano_pubsub(zenohd: ZenohRouter) {
-      let _talker = cmd!("cargo", "run", "-p", "native-talker",
-                         "--features", "zenoh", "--",
-                         "--tcp", &zenohd.locator(), "--count", "5")
-          .start().unwrap();
-
-      let listener = cmd!("cargo", "run", "-p", "native-listener",
-                          "--features", "zenoh", "--",
-                          "--tcp", &zenohd.locator())
-          .stdout_capture()
-          .run().unwrap();
-
-      assert!(String::from_utf8_lossy(&listener.stdout).contains("Received"));
-  }
-  ```
-- [ ] **9.A.3.3** Implement peer mode test (no router)
-- [ ] **9.A.3.4** Create `tests/nano2nano.sh` shell wrapper
-
-#### 9.A.4: Migrate RMW Interop Tests
-- [x] **9.A.4.1** Create `crates/nano-ros-tests/tests/rmw_interop.rs`
-- [x] **9.A.4.2** Implement `src/fixtures/ros2.rs` - ROS 2 process helpers
-- [x] **9.A.4.3** Migrate nano→ROS2 test (`test_nano_to_ros2`)
-- [x] **9.A.4.4** Migrate ROS2→nano test (`test_ros2_to_nano`)
-- [x] **9.A.4.5** Implement matrix test with rstest parameterization
+- [ ] **9.A.2.4** Migrate `zephyr-native-sim` tests to `tests/zephyr.rs`
   ```rust
   #[rstest]
-  #[case(Direction::NanoToNano)]
-  #[case(Direction::NanoToRos2)]
-  #[case(Direction::Ros2ToNano)]
-  fn test_communication_matrix(
-      zenohd_unique: ZenohRouter,
-      #[case] direction: Direction,
-  ) { ... }
+  fn test_zephyr_native_sim_talker(zenohd_unique: ZenohRouter) {
+      // Requires: west workspace, TAP network
+      let zephyr = ZephyrProcess::start(&zephyr_binary, ZephyrPlatform::NativeSim)?;
+      // ...
+  }
   ```
-- [x] **9.A.4.6** Add shell wrapper support (via `rust-tests.sh rmw_interop`)
-- [x] **9.A.4.7** Add `just test-rust-rmw-interop` recipe
+- [ ] **9.A.2.5** Add `is_zephyr_available()` check to skip tests when west not configured
 
-#### 9.A.5: Migrate Platform Tests
-- [x] **9.A.5.1** Create `crates/nano-ros-tests/tests/platform.rs`
-- [x] **9.A.5.2** Migrate POSIX platform tests
-- [x] **9.A.5.3** Migrate smoltcp platform tests (already Rust unit tests)
-- [x] **9.A.5.4** Migrate generic compile tests
-- [x] **9.A.5.5** Create `tests/platform.sh` shell wrapper (via rust-tests.sh)
+#### 9.A.3: nano2nano Tests - Peer Mode
+- [ ] **9.A.3.3** Implement peer mode test (no router) in `nano2nano.rs`
+  ```rust
+  #[rstest]
+  fn test_peer_mode_communication(talker_binary: PathBuf, listener_binary: PathBuf) {
+      // Start listener with peer mode
+      let mut listener = ManagedProcess::spawn(&listener_binary, &["--peer"], "listener")?;
+      // Start talker with peer mode, connecting to listener
+      let mut talker = ManagedProcess::spawn(&talker_binary, &["--peer"], "talker")?;
+      // Verify communication without zenohd router
+  }
+  ```
 
 #### 9.A.6: CI Integration
-- [x] **9.A.6.1** Update `justfile` with new test commands
-  ```just
-  # Run Rust integration tests
-  test-rust:
-      cargo test -p nano-ros-tests --tests
+- [ ] **9.A.6.2** Create `.github/workflows/integration-tests.yml`
+  ```yaml
+  name: Integration Tests
+  on: [push, pull_request]
+  jobs:
+    rust-tests:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install zenohd
+          run: cargo install zenoh --features=zenohd
+        - name: Run integration tests
+          run: cargo test -p nano-ros-tests --tests
 
-  # Run specific test suite
-  test-rust-emulator:
-      cargo test -p nano-ros-tests --test emulator
+    ros2-interop:
+      runs-on: ubuntu-latest
+      container: ros:humble
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install rmw_zenoh
+          run: apt-get install -y ros-humble-rmw-zenoh-cpp
+        - name: Run RMW interop tests
+          run: cargo test -p nano-ros-tests --test rmw_interop
   ```
-- [ ] **9.A.6.2** Update GitHub Actions workflow
-
-#### 9.A.7: Cleanup Legacy Shell Scripts
-After migrating all tests to Rust, remove the legacy shell scripts:
-
-- [x] **9.A.7.1** Delete `tests/emulator/` directory (migrated to `emulator.rs`)
-- [x] **9.A.7.2** Delete `tests/nano2nano/` directory (migrated to `nano2nano.rs`)
-- [x] **9.A.7.3** Delete `tests/platform/` directory (migrated to `platform.rs`)
-- [x] **9.A.7.4** Delete `tests/smoltcp/` directory (already Rust unit tests)
-- [x] **9.A.7.5** Delete `tests/rmw-interop/` directory (migrated to `rmw_interop.rs`)
-- [x] **9.A.7.6** Delete `tests/rmw-detailed/` directory (migrated to `rmw_interop.rs`)
-- [ ] **9.A.7.7** Migrate `tests/zephyr/` to Rust (kept: requires west workspace + TAP network)
-- [x] **9.A.7.8** Delete `tests/common/` directory (utilities moved to `nano-ros-tests/src/lib.rs`)
-- [x] **9.A.7.9** Delete `tests/run-all.sh` (replaced by `just test-rust`)
-- [x] **9.A.7.10** Update `tests/README.md` to document Rust-only workflow
-- [x] **9.A.7.11** Update `justfile` to remove shell script references
-- [x] **9.A.7.12** Make `rust-tests.sh` and `zephyr/run.sh` self-contained
-
-**Final `tests/` directory structure:**
-```
-tests/
-├── README.md                # Documentation for Rust tests
-├── rust-tests.sh            # Optional wrapper for nice output
-├── zephyr/                  # Zephyr tests (not yet migrated to Rust)
-│   └── run.sh               # Self-contained, requires west + TAP network
-└── simple-workspace/        # Standalone build verification
-```
-
-### Benefits Over Shell Scripts
-
-| Aspect          | Shell Scripts     | Rust Framework               |
-|-----------------|-------------------|------------------------------|
-| Type safety     | None              | Full compile-time checking   |
-| Error handling  | `set -e`, fragile | `Result<T, E>`, stack traces |
-| Process cleanup | Manual `pkill`    | RAII `Drop` trait            |
-| Debugging       | `echo`, `set -x`  | IDE breakpoints, logs        |
-| Parallelism     | Manual            | `cargo test` parallel        |
-| Assertions      | `grep`, regex     | `predicates`, typed          |
-| Cross-platform  | Bash-only         | Windows, macOS, Linux        |
-| IDE support     | Limited           | Full (rust-analyzer)         |
-
-### Acceptance Criteria
-- [x] All existing shell tests have Rust equivalents in `crates/nano-ros-tests/` (except Zephyr)
-- [x] Tests run with `cargo test -p nano-ros-tests` or `just test-rust`
-- [x] Process cleanup is automatic (no orphan processes via RAII)
-- [x] Test failures produce clear error messages with context
-- [ ] CI runs Rust integration tests (GitHub Actions pending)
-- [x] Legacy shell scripts deleted from `tests/` directory (except Zephyr)
-- [x] `tests/` directory contains only README, wrapper script, and Zephyr tests
-
----
-
-## Phase 9.1: Platform Backend Tests
-
-**Status**: Complete
-**Priority**: High (shell-based, migrate to Rust in 9.A)
-
-Create tests that verify zenoh-pico-shim works correctly on each platform backend.
-
-### Directory Structure
-
-```
-tests/platform/
-├── run.sh               # Run all platform tests
-├── README.md            # Platform test documentation
-├── posix.sh             # POSIX platform (reference baseline)
-├── smoltcp-sim.sh       # smoltcp platform (x86_64 simulation)
-└── generic.sh           # Generic platform (compile-only, no network)
-```
-
-### Work Items
-
-- [x] **9.1.1** Create `tests/platform/` directory structure
-- [x] **9.1.2** Create `tests/platform/README.md` with platform test documentation
-- [x] **9.1.3** Implement `tests/platform/posix.sh`
-- [x] **9.1.4** Implement `tests/platform/smoltcp-sim.sh`
-- [x] **9.1.5** Implement `tests/platform/generic.sh`
-- [x] **9.1.6** Create `tests/platform/run.sh` orchestrator
-- [x] **9.1.7** Update `tests/run-all.sh` to include platform tests
-
-### Acceptance Criteria
-- All platform tests pass on CI
-- POSIX platform has full functional coverage
-- smoltcp platform has unit-level coverage (allocator, clock, buffers)
-- Generic platform compiles without errors
-
----
-
-## Phase 9.2: smoltcp Integration Tests
-
-**Status**: Complete
-**Priority**: Medium (already Rust-based unit tests)
-
-Tests for the smoltcp TCP/IP stack integration with zenoh-pico.
-
-### Directory Structure
-
-```
-tests/smoltcp/
-├── run.sh                   # Run all smoltcp tests
-├── README.md                # smoltcp test documentation
-├── allocator.sh             # Bump allocator tests
-├── socket-buffers.sh        # Socket buffer management
-├── clock-sync.sh            # Clock synchronization
-└── poll-callback.sh         # Poll callback mechanism
-```
-
-### Work Items
-
-- [x] **9.2.1** - **9.2.8** All complete (22 Rust unit tests)
-
-### Implementation Notes
-
-These tests are already implemented as Rust unit tests in `platform_smoltcp.rs`.
-Shell scripts just invoke `cargo test`. Migration to 9.A framework is straightforward.
-
----
-
-## Phase 9.3: Emulator Tests
-
-**Status**: Complete
-**Priority**: High (shell-based, migrate to Rust in 9.A)
-
-QEMU-based tests for embedded targets without requiring physical hardware.
-
-### Directory Structure
-
-```
-tests/emulator/
-├── run.sh                   # Run all emulator tests
-├── README.md                # Emulator test documentation
-├── common/
-│   └── qemu-utils.sh        # QEMU management utilities
-├── qemu-cortex-m3.sh        # Cortex-M3 QEMU tests
-├── zephyr-native-sim.sh     # Zephyr native_sim tests (enhanced)
-└── zephyr-qemu-arm.sh       # Zephyr QEMU ARM tests
-```
-
-### Work Items
-
-- [x] **9.3.1** - **9.3.9** All complete
 
 ---
 
 ## Phase 9.4: Embedded ROS 2 Interop Tests
 
 **Status**: Not Started
-**Priority**: Medium (implement in Rust framework from 9.A)
+**Priority**: Medium
 
-ROS 2 interoperability tests specifically for embedded platforms.
-**Note**: Implement directly in Rust framework (Phase 9.A) instead of shell scripts.
+ROS 2 interoperability tests for embedded platforms (Zephyr).
 
 ### Work Items
 
-- [ ] **9.4.1** Implement in `crates/nano-ros-tests/tests/rmw_interop.rs`
-  - Zephyr talker → ROS 2 listener
-  - ROS 2 talker → Zephyr listener
-  - Full matrix with rstest parameterization
+- [ ] **9.4.1** Add Zephyr → ROS 2 test cases to `tests/rmw_interop.rs`
+  ```rust
+  #[derive(Debug, Clone, Copy)]
+  enum Direction {
+      // ... existing
+      ZephyrToRos2,
+      Ros2ToZephyr,
+  }
+
+  #[rstest]
+  #[case(Direction::ZephyrToRos2)]
+  #[case(Direction::Ros2ToZephyr)]
+  fn test_zephyr_ros2_interop(
+      zenohd_unique: ZenohRouter,
+      #[case] direction: Direction,
+  ) {
+      if !require_ros2() || !require_zephyr() { return; }
+      // ...
+  }
+  ```
+
+- [ ] **9.4.2** Create `ZephyrTalker` and `ZephyrListener` fixtures
+  ```rust
+  #[fixture]
+  pub fn zephyr_talker_binary() -> PathBuf {
+      build_zephyr_example("zephyr-talker-rs", ZephyrPlatform::NativeSim)
+  }
+  ```
+
+- [ ] **9.4.3** Add QoS compatibility tests between Zephyr and ROS 2
 
 ---
 
 ## Phase 9.5: Cross-Platform Communication Tests
 
 **Status**: Not Started
-**Priority**: Medium (implement in Rust framework from 9.A)
+**Priority**: Medium
 
-Tests for communication between nano-ros nodes running on different platforms.
-**Note**: Implement directly in Rust framework (Phase 9.A) instead of shell scripts.
+Tests for communication between nano-ros nodes on different platforms.
 
 ### Work Items
 
-- [ ] **9.5.1** Implement in `crates/nano-ros-tests/tests/cross_platform.rs`
-  - POSIX talker → Zephyr listener
-  - Zephyr talker → POSIX listener
-  - Multi-node scenarios
+- [ ] **9.5.1** Create `tests/cross_platform.rs`
+  ```rust
+  use nano_ros_tests::fixtures::{
+      zenohd_unique, talker_binary, listener_binary,
+      zephyr_talker_binary, zephyr_listener_binary,
+      ZenohRouter, ManagedProcess, ZephyrProcess,
+  };
+
+  #[derive(Debug, Clone, Copy)]
+  enum Platform { Native, Zephyr }
+
+  #[rstest]
+  #[case(Platform::Native, Platform::Zephyr)]
+  #[case(Platform::Zephyr, Platform::Native)]
+  fn test_cross_platform_pubsub(
+      zenohd_unique: ZenohRouter,
+      #[case] talker_platform: Platform,
+      #[case] listener_platform: Platform,
+  ) { ... }
+  ```
+
+- [ ] **9.5.2** Add multi-node scenarios
+  ```rust
+  #[rstest]
+  fn test_multi_node_mixed_platforms(zenohd_unique: ZenohRouter) {
+      // 2 native talkers + 1 Zephyr listener
+      // Verify all messages received
+  }
+  ```
+
+- [ ] **9.5.3** Add latency measurement tests
+  ```rust
+  #[rstest]
+  fn test_cross_platform_latency(zenohd_unique: ZenohRouter) {
+      // Measure round-trip time between platforms
+      // Assert latency < threshold
+  }
+  ```
 
 ---
 
 ## Phase 9.6: Executor API Tests
 
 **Status**: Not Started
-**Priority**: Medium (implement in Rust framework from 9.A)
+**Priority**: Medium
 
-Tests for the executor API across different execution models.
-**Note**: Implement directly in Rust framework (Phase 9.A) instead of shell scripts.
+Tests for executor API consistency across execution models.
 
 ### Work Items
 
-- [ ] **9.6.1** Implement in `crates/nano-ros-tests/tests/executor.rs`
-  - ConnectedExecutor tests
-  - ShimExecutor tests
-  - API consistency verification
+- [ ] **9.6.1** Create `tests/executor.rs`
+  ```rust
+  //! Executor API tests
+  //!
+  //! Verifies executor patterns work consistently across backends.
 
----
+  use nano_ros_tests::fixtures::{zenohd_unique, ZenohRouter};
+  use rstest::rstest;
 
-## Phase 9.7: Test Infrastructure Improvements
+  #[rstest]
+  fn test_connected_executor_spin(zenohd_unique: ZenohRouter) {
+      // Test ConnectedExecutor::spin_once()
+      // Test ConnectedExecutor::spin()
+  }
 
-**Status**: Superseded by 9.A
-**Priority**: Low (most items addressed by Rust migration)
+  #[rstest]
+  fn test_shim_executor_poll(zenohd_unique: ZenohRouter) {
+      // Test ShimExecutor polling pattern
+  }
+  ```
 
-Shell infrastructure improvements - largely superseded by Phase 9.A migration.
+- [ ] **9.6.2** Add callback ordering tests
+  ```rust
+  #[rstest]
+  fn test_callback_execution_order(zenohd_unique: ZenohRouter) {
+      // Publish multiple messages
+      // Verify callbacks execute in order
+  }
+  ```
 
-### Remaining Work Items (if keeping shell tests)
+- [ ] **9.6.3** Add timer callback tests
+  ```rust
+  #[rstest]
+  fn test_timer_callbacks(zenohd_unique: ZenohRouter) {
+      // Create timer with callback
+      // Verify callback fires at expected intervals
+  }
+  ```
 
-- [ ] **9.7.6** Add CI configuration for both shell and Rust tests
+- [ ] **9.6.4** Add service callback tests
+  ```rust
+  #[rstest]
+  fn test_service_callbacks(zenohd_unique: ZenohRouter) {
+      // Create service server
+      // Send request, verify response callback
+  }
+  ```
 
 ---
 
@@ -480,45 +281,88 @@ Shell infrastructure improvements - largely superseded by Phase 9.A migration.
 
 | Phase | Priority | Status | Notes |
 |-------|----------|--------|-------|
-| **9.A Rust Migration** | **Critical** | **Core Complete** | Foundation established |
-| 9.1 Platform Backend | High | **Complete** | Migrated to Rust in 9.A |
-| 9.2 smoltcp Integration | Medium | **Complete** | Already Rust unit tests |
-| 9.3 Emulator Tests | High | **Complete** | Migrated to Rust in 9.A |
-| 9.4 Embedded ROS 2 | Medium | Not Started | Implement in Rust directly |
-| 9.5 Cross-Platform | Medium | Not Started | Implement in Rust directly |
-| 9.6 Executor API | Medium | Not Started | Implement in Rust directly |
-| 9.7 Infrastructure | Low | Superseded | Addressed by 9.A |
+| **9.A Rust Migration** | **Critical** | **Complete** | Framework established |
+| 9.1 Platform Backend | High | **Complete** | Migrated to `platform.rs` |
+| 9.2 smoltcp Integration | Medium | **Complete** | Rust unit tests in crate |
+| 9.3 Emulator Tests | High | **Partial** | QEMU done, Zephyr pending |
+| 9.4 Embedded ROS 2 | Medium | Not Started | Implement in `rmw_interop.rs` |
+| 9.5 Cross-Platform | Medium | Not Started | Create `cross_platform.rs` |
+| 9.6 Executor API | Medium | Not Started | Create `executor.rs` |
 
 ### Recommended Order
 
-1. **9.A.1** - Core framework setup (fixtures, utilities)
-2. **9.A.2** - Migrate emulator tests (highest value, validates framework)
-3. **9.A.3** - Migrate nano2nano tests
-4. **9.A.4** - Migrate RMW interop tests
-5. **9.4-9.6** - Implement new tests directly in Rust
+1. ~~**9.A** - Core framework (complete)~~
+2. **9.A.2.3-5** - Zephyr fixture and tests
+3. **9.A.3.3** - Peer mode test
+4. **9.A.6.2** - GitHub Actions CI
+5. **9.4** - Embedded ROS 2 interop (extends `rmw_interop.rs`)
+6. **9.5** - Cross-platform tests (new `cross_platform.rs`)
+7. **9.6** - Executor API tests (new `executor.rs`)
 
 ---
 
-## Test Execution Matrix
+## Test Execution Commands
 
-| Test Suite | Shell | Rust | CI | QEMU | Zephyr |
-|------------|:-----:|:----:|:--:|:----:|:------:|
-| nano2nano | ✓ (legacy) | 9.A.3 | ✓ | - | - |
-| rmw-interop | ✓ (legacy) | 9.A.4 | ✓* | - | - |
-| rmw-detailed | ✓ (legacy) | 9.A.4 | ✓* | - | - |
-| platform/* | ✓ (legacy) | 9.A.5 | ✓ | - | - |
-| smoltcp/* | ✓ | ✓ (unit) | ✓ | - | - |
-| emulator/* | ✓ (legacy) | 9.A.2 | ✓ | ✓ | ✓ |
+```bash
+# Run all integration tests
+cargo test -p nano-ros-tests --tests
+just test-rust
 
-*Requires ROS 2 in CI environment
+# Run specific test suite
+just test-rust-emulator      # QEMU Cortex-M3 tests
+just test-rust-nano2nano     # nano-ros ↔ nano-ros tests
+just test-rust-rmw-interop   # ROS 2 interop tests
+just test-rust-platform      # Platform detection tests
+
+# Run with nice output wrapper
+./tests/rust-tests.sh all
+./tests/rust-tests.sh emulator
+./tests/rust-tests.sh rmw_interop
+
+# Run Zephyr tests (requires west workspace + TAP network)
+just test-zephyr
+```
+
+---
+
+## Test Fixtures Reference
+
+| Fixture | Type | Description |
+|---------|------|-------------|
+| `zenohd` | `ZenohRouter` | Zenohd on port 7447 |
+| `zenohd_unique` | `ZenohRouter` | Zenohd on unique port (parallel-safe) |
+| `qemu_binary` | `PathBuf` | Built qemu-test binary |
+| `talker_binary` | `PathBuf` | Built native-talker binary |
+| `listener_binary` | `PathBuf` | Built native-listener binary |
+
+### Utility Structs
+
+| Struct | Module | Description |
+|--------|--------|-------------|
+| `ManagedProcess` | `process` | Generic process wrapper with RAII cleanup |
+| `QemuProcess` | `qemu` | QEMU Cortex-M3 emulator wrapper |
+| `Ros2Process` | `ros2` | ROS 2 command wrapper |
+| `ZenohRouter` | `fixtures::zenohd_router` | Managed zenohd process |
+
+### Utility Functions
+
+| Function | Module | Description |
+|----------|--------|-------------|
+| `is_zenohd_available()` | `process` | Check if zenohd is in PATH |
+| `require_zenohd()` | `process` | Skip test if zenohd unavailable |
+| `is_qemu_available()` | `qemu` | Check if QEMU ARM is installed |
+| `is_ros2_available()` | `ros2` | Check if ROS 2 is sourced |
+| `is_rmw_zenoh_available()` | `ros2` | Check if rmw_zenoh_cpp installed |
+| `wait_for_port()` | `lib` | Wait for TCP port to be available |
+| `count_pattern()` | `lib` | Count pattern occurrences in output |
 
 ---
 
 ## Prerequisites Summary
 
-### Rust Test Framework (9.A)
+### Rust Test Framework
 - Rust toolchain (stable)
-- Dev dependencies: rstest, duct, assert_cmd, predicates, tempfile
+- Dependencies: rstest, duct, thiserror, once_cell
 
 ### Emulator Tests
 - QEMU: `qemu-system-arm`
@@ -531,13 +375,16 @@ Shell infrastructure improvements - largely superseded by Phase 9.A migration.
 
 ---
 
-## Success Metrics (Revised)
+## Success Metrics
 
-- [ ] **Phase 9.A complete**: All tests migrated to `crates/nano-ros-tests/`
-- [ ] Test failures produce clear, actionable error messages
-- [ ] No orphan processes after test runs (RAII cleanup)
-- [ ] Tests run with `cargo test -p nano-ros-tests`
-- [ ] IDE debugging works for integration tests
-- [ ] CI runs Rust integration tests with proper reporting
-- [ ] Test execution time < 5 minutes for quick suite
-- [ ] Cross-platform support (Linux, macOS, Windows where applicable)
+- [x] Core Rust test framework established
+- [x] QEMU emulator tests migrated to Rust
+- [x] nano2nano tests migrated to Rust
+- [x] RMW interop tests migrated to Rust
+- [x] Platform detection tests migrated to Rust
+- [x] Legacy shell scripts cleaned up
+- [ ] Zephyr tests migrated to Rust
+- [ ] Peer mode tests implemented
+- [ ] GitHub Actions CI configured
+- [ ] Cross-platform tests implemented
+- [ ] Executor API tests implemented
