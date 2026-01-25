@@ -10,3 +10,6 @@ __pycache__/
 
 # Rust
 /target/
+
+# Zephyr workspace symlink (user-specific, created by scripts/zephyr/setup.sh)
+/zephyr-workspace

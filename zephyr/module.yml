@@ -1,9 +1,0 @@
-# nano-ros Zephyr Module Declaration
-#
-# This file declares nano-ros as a Zephyr module, making its
-# examples and libraries available to the Zephyr build system.
-
-name: nano-ros
-
-# No build integration at module level
-# Examples are built as standalone applications

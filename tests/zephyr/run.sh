@@ -5,8 +5,8 @@
 # can communicate with native Rust subscribers via zenoh.
 #
 # Prerequisites:
-#   - Zephyr workspace set up (./zephyr/setup.sh)
-#   - TAP network configured (sudo ./scripts/setup-zephyr-network.sh)
+#   - Zephyr workspace set up (./scripts/zephyr/setup.sh)
+#   - TAP network configured (sudo ./scripts/zephyr/setup-network.sh)
 #   - zenohd installed
 #
 # Usage:
@@ -15,7 +15,7 @@
 #   ./tests/zephyr/run.sh --skip-build
 #
 # Note: This test requires the Zephyr workspace to be initialized.
-# Run ./zephyr/setup.sh first if not done.
+# Run ./scripts/zephyr/setup.sh first if not done.
 
 set -e
 
@@ -99,11 +99,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Configuration
-ZEPHYR_WORKSPACE="${ZEPHYR_NANO_ROS:-$HOME/nano-ros-workspace}"
-# Fallback to zephyr-nano-ros if nano-ros-workspace doesn't exist
-if [ ! -d "$ZEPHYR_WORKSPACE" ]; then
-    ZEPHYR_WORKSPACE="$HOME/zephyr-nano-ros"
+# Configuration - workspace location (via symlink or env var)
+# Priority: 1. ZEPHYR_NANO_ROS env var, 2. zephyr-workspace symlink, 3. sibling workspace
+if [ -n "${ZEPHYR_NANO_ROS:-}" ]; then
+    ZEPHYR_WORKSPACE="$ZEPHYR_NANO_ROS"
+elif [ -L "$PROJECT_ROOT/zephyr-workspace" ]; then
+    ZEPHYR_WORKSPACE="$(readlink -f "$PROJECT_ROOT/zephyr-workspace")"
+else
+    NANO_ROS_NAME="$(basename "$PROJECT_ROOT")"
+    ZEPHYR_WORKSPACE="$(dirname "$PROJECT_ROOT")/${NANO_ROS_NAME}-workspace"
 fi
 TAP_INTERFACE="zeth"
 HOST_IP="192.0.2.2"
@@ -126,7 +130,7 @@ check_network_device() {
     # Check if TAP interface exists
     if ! ip link show "$TAP_INTERFACE" &>/dev/null; then
         log_error "TAP interface '$TAP_INTERFACE' does not exist"
-        log_info "Run: sudo ./scripts/setup-zephyr-network.sh"
+        log_info "Run: sudo ./scripts/zephyr/setup-network.sh"
         return 1
     fi
     log_success "TAP interface '$TAP_INTERFACE' exists"
@@ -211,7 +215,7 @@ check_zephyr_prerequisites() {
         fi
     else
         log_error "Zephyr workspace not found at $ZEPHYR_WORKSPACE"
-        log_info "Run: ./zephyr/setup.sh"
+        log_info "Run: ./scripts/zephyr/setup.sh"
         missing=1
     fi
 
@@ -261,9 +265,19 @@ build_zephyr_examples() {
     fi
     export ZEPHYR_BASE="$ZEPHYR_WORKSPACE/zephyr"
 
+    # Determine example path based on workspace type
+    # In-tree workspace: examples at ../examples/
+    # External workspace: examples at nano-ros/examples/
+    local example_path
+    if [ -d "nano-ros/examples" ]; then
+        example_path="nano-ros/examples/zephyr-talker"
+    else
+        example_path="$PROJECT_ROOT/examples/zephyr-talker"
+    fi
+
     # Build talker for native_sim/native/64
-    log_info "Building zephyr-talker-rs for native_sim/native/64..."
-    if west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs -p auto 2>&1 | tee "$(tmpfile zephyr_build.txt)" | tail -10; then
+    log_info "Building zephyr-talker for native_sim/native/64..."
+    if west build -b native_sim/native/64 "$example_path" -p auto 2>&1 | tee "$(tmpfile zephyr_build.txt)" | tail -10; then
         log_success "Talker build complete"
     else
         log_error "Talker build failed"
@@ -370,7 +384,7 @@ if ! check_network_device; then
     log_error "Network device not properly configured"
     log_info ""
     log_info "To set up TAP networking:"
-    log_info "  sudo ./scripts/setup-zephyr-network.sh"
+    log_info "  sudo ./scripts/zephyr/setup-network.sh"
     log_info ""
     log_info "To check network status manually:"
     log_info "  ip addr show $TAP_INTERFACE"
@@ -382,7 +396,7 @@ if ! check_zephyr_prerequisites; then
     log_error "Prerequisites not met"
     log_info ""
     log_info "To set up the Zephyr workspace:"
-    log_info "  ./zephyr/setup.sh"
+    log_info "  ./scripts/zephyr/setup.sh"
     exit 1
 fi
 

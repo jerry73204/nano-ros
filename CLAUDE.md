@@ -22,11 +22,15 @@ nano-ros/
 │   ├── native-talker/         # Pub example
 │   ├── native-listener/       # Sub example
 │   ├── native-service-*/      # Service examples
-│   ├── zephyr-talker-rs/      # Zephyr pub example
-│   └── zephyr-listener-rs/    # Zephyr sub example
+│   ├── zephyr-talker/         # Zephyr pub example
+│   └── zephyr-listener/       # Zephyr sub example
+├── scripts/zephyr/            # Zephyr setup scripts
+│   ├── setup.sh               # Initialize workspace
+│   └── setup-network.sh       # Configure TAP interface
 ├── tests/                     # Test scripts and docs
 ├── docs/                      # Detailed documentation
-└── zephyr/                    # Zephyr workspace setup
+├── zephyr-workspace -> ../nano-ros-workspace/  # Symlink to Zephyr workspace
+└── west.yml                   # Zephyr west manifest
 ```
 
 ## Build Commands
@@ -150,9 +154,15 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 
 ### Zephyr Setup
 ```bash
-./zephyr/setup.sh                         # Initialize workspace
-sudo ./scripts/setup-zephyr-network.sh    # Configure TAP network
-just test-zephyr                          # Run tests
+./scripts/zephyr/setup.sh              # Initialize workspace + create symlink
+sudo ./scripts/zephyr/setup-network.sh # Configure TAP network
+just test-zephyr                       # Run tests
+```
+
+The `zephyr-workspace` symlink points to the actual workspace (default: `../nano-ros-workspace/`).
+Scripts use this symlink to locate the workspace. For custom workspace locations, update the symlink:
+```bash
+ln -sfn /path/to/custom-workspace zephyr-workspace
 ```
 
 See [docs/zephyr-setup.md](docs/zephyr-setup.md) for details.
