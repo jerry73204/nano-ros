@@ -332,6 +332,30 @@ test-rust-full:
     ./tests/rust-tests.sh
 
 # =============================================================================
+# Message Bindings
+# =============================================================================
+
+# Install cargo-nano-ros (requires ROS 2 environment)
+install-cargo-nano-ros:
+    @echo "Installing cargo-nano-ros..."
+    cargo install --path colcon-nano-ros/packages/cargo-nano-ros --locked
+
+# Regenerate bindings in all examples (requires ROS 2 environment + cargo-nano-ros)
+generate-bindings:
+    @echo "Regenerating bindings in all examples..."
+    @echo "Note: Requires ROS 2 environment sourced and cargo-nano-ros installed"
+    cd examples/native-talker && cargo nano-ros generate
+    cd examples/native-listener && cargo nano-ros generate
+    cd examples/native-service-server && cargo nano-ros generate
+    cd examples/native-service-client && cargo nano-ros generate
+    cd examples/native-action-server && cargo nano-ros generate
+    cd examples/native-action-client && cargo nano-ros generate
+    cd examples/qemu-test && cargo nano-ros generate
+    cd examples/zephyr-talker && cargo nano-ros generate
+    cd examples/zephyr-listener && cargo nano-ros generate
+    @echo "All bindings regenerated!"
+
+# =============================================================================
 # Setup & Cleanup
 # =============================================================================
 
