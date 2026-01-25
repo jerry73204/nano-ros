@@ -86,14 +86,23 @@ tests/
 - [ ] **9.A.2.5** Add `is_zephyr_available()` check to skip tests when west not configured
 
 #### 9.A.3: nano2nano Tests - Peer Mode
-- [ ] **9.A.3.3** Implement peer mode test (no router) in `nano2nano.rs`
+- [x] **9.A.3.3** Implement peer mode test (no router) in `nano2nano.rs`
+  - Added `ZENOH_MODE` and `ZENOH_LOCATOR` env var support to `Context::from_env()`
+  - Test uses `spawn_command()` with environment variables
+  - Gracefully handles systems without multicast support
   ```rust
   #[rstest]
   fn test_peer_mode_communication(talker_binary: PathBuf, listener_binary: PathBuf) {
-      // Start listener with peer mode
-      let mut listener = ManagedProcess::spawn(&listener_binary, &["--peer"], "listener")?;
-      // Start talker with peer mode, connecting to listener
-      let mut talker = ManagedProcess::spawn(&talker_binary, &["--peer"], "talker")?;
+      // Start listener in peer mode via environment variable
+      let mut listener_cmd = Command::new(&listener_binary);
+      listener_cmd.env("ZENOH_MODE", "peer");
+      let mut listener = ManagedProcess::spawn_command(listener_cmd, "listener")?;
+
+      // Start talker in peer mode
+      let mut talker_cmd = Command::new(&talker_binary);
+      talker_cmd.env("ZENOH_MODE", "peer");
+      let mut talker = ManagedProcess::spawn_command(talker_cmd, "talker")?;
+
       // Verify communication without zenohd router
   }
   ```
@@ -384,7 +393,7 @@ just test-zephyr
 - [x] Platform detection tests migrated to Rust
 - [x] Legacy shell scripts cleaned up
 - [ ] Zephyr tests migrated to Rust
-- [ ] Peer mode tests implemented
+- [x] Peer mode tests implemented
 - [ ] GitHub Actions CI configured
 - [ ] Cross-platform tests implemented
 - [ ] Executor API tests implemented

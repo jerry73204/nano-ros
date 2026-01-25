@@ -112,13 +112,21 @@ impl Context {
 
     /// Create a context from environment variables
     ///
-    /// Reads ROS_DOMAIN_ID environment variable if set.
-    /// Falls back to domain ID 0 if not set.
-    /// Uses default locator "tcp/127.0.0.1:7447" for zenoh.
+    /// Reads the following environment variables:
+    /// - `ROS_DOMAIN_ID`: Domain ID (default: 0)
+    /// - `ZENOH_MODE`: Session mode - "peer" for peer mode, otherwise client mode
+    /// - `ZENOH_LOCATOR`: Locator for client mode (default: "tcp/127.0.0.1:7447")
+    ///
+    /// In peer mode, no locator is needed as peers discover each other via multicast.
     ///
     /// # Examples
     ///
     /// ```ignore
+    /// // Client mode (default)
+    /// let context = Context::from_env()?;
+    ///
+    /// // Peer mode (set ZENOH_MODE=peer)
+    /// std::env::set_var("ZENOH_MODE", "peer");
     /// let context = Context::from_env()?;
     /// ```
     #[cfg(all(feature = "std", feature = "zenoh"))]
@@ -127,10 +135,30 @@ impl Context {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
-        let transport_config = TransportConfig {
-            locator: Some("tcp/127.0.0.1:7447"),
-            mode: SessionMode::Client,
+
+        // Check for peer mode
+        let is_peer_mode = std::env::var("ZENOH_MODE")
+            .map(|v| v.eq_ignore_ascii_case("peer"))
+            .unwrap_or(false);
+
+        let transport_config = if is_peer_mode {
+            TransportConfig {
+                locator: None,
+                mode: SessionMode::Peer,
+            }
+        } else {
+            // Client mode - use ZENOH_LOCATOR or default
+            // Note: We leak the string to get a 'static lifetime. This is acceptable
+            // for CLI applications where the context lives for the program duration.
+            let locator: Option<&'static str> = std::env::var("ZENOH_LOCATOR")
+                .ok()
+                .map(|s| -> &'static str { std::boxed::Box::leak(s.into_boxed_str()) });
+            TransportConfig {
+                locator: locator.or(Some("tcp/127.0.0.1:7447")),
+                mode: SessionMode::Client,
+            }
         };
+
         Ok(Self {
             domain_id,
             transport_config,
