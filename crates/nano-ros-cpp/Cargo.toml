@@ -1,0 +1,22 @@
+[package]
+name = "nano-ros-cpp-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "C++ bindings for nano-ros via cxx"
+license = "Apache-2.0"
+publish = false
+
+# Build as static library for linking with C++
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+default = ["std"]
+std = ["nano-ros/std"]
+
+[dependencies]
+cxx = "1.0"
+nano-ros = { path = "../nano-ros", default-features = false, features = ["std", "zenoh"] }
+
+[build-dependencies]
+cxx-build = "1.0"

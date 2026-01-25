@@ -18,7 +18,9 @@ members = [
 
 # Examples are excluded from workspace - they are standalone packages
 # that generate their own bindings via `cargo nano-ros generate`
+# nano-ros-cpp is excluded because it's built via CMake/Corrosion
 exclude = [
+    "crates/nano-ros-cpp",
     "examples/zephyr-talker",
     "examples/zephyr-listener",
     "examples/qemu-test",

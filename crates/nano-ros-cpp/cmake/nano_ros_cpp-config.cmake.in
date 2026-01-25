@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/nano_ros_cpp-targets.cmake")
+
+check_required_components(nano_ros_cpp)

@@ -8,8 +8,8 @@ default:
 # Entry Points
 # =============================================================================
 
-# Build everything: workspace (native + embedded) and all examples
-build: build-workspace build-workspace-embedded build-examples
+# Build everything: workspace (native + embedded), C++ bindings, and all examples
+build: build-workspace build-workspace-embedded build-cpp build-examples
     @echo "All builds completed!"
 
 # Format everything: workspace and all examples
@@ -245,6 +245,30 @@ static-analysis: test-miri
     @echo "All static analysis checks passed!"
 
 # =============================================================================
+# C++ Bindings
+# =============================================================================
+
+# Build C++ bindings (nano-ros-cpp)
+build-cpp:
+    @echo "Building C++ bindings..."
+    cd crates/nano-ros-cpp && cmake -B build -DBUILD_EXAMPLES=ON && cmake --build build
+
+# Build C++ bindings (release)
+build-cpp-release:
+    @echo "Building C++ bindings (release)..."
+    cd crates/nano-ros-cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=ON && cmake --build build
+
+# Clean C++ bindings build
+clean-cpp:
+    rm -rf crates/nano-ros-cpp/build
+    @echo "C++ bindings build cleaned"
+
+# Run C++ example
+run-cpp-example: build-cpp
+    @echo "Running C++ example (requires zenohd)..."
+    crates/nano-ros-cpp/build/nano_ros_cpp_example
+
+# =============================================================================
 # Zenoh
 # =============================================================================
 
@@ -334,7 +358,7 @@ doc:
     cargo doc --no-deps --open
 
 # Clean build artifacts
-clean:
+clean: clean-cpp
     cargo clean
 
 # Show Zephyr build instructions
