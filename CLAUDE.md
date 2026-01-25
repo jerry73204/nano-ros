@@ -36,6 +36,7 @@ nano-ros/
 ## Build Commands
 
 ```bash
+just setup          # Install toolchains, cargo tools, check system deps
 just build          # Build with no_std
 just check          # Format + clippy
 just test           # Run all tests
@@ -47,6 +48,18 @@ just test-rust              # All Rust integration tests
 just test-rust-nano2nano    # nano-ros ↔ nano-ros tests
 just test-rust-rmw-interop  # ROS 2 interop tests
 just test-zephyr            # Zephyr native_sim tests
+```
+
+### First-Time Setup
+
+```bash
+just setup   # Installs: rustup targets, cargo-nextest, cargo-nano-ros
+             # Checks for: arm-none-eabi-gcc, qemu-system-arm, cmake
+```
+
+For missing system dependencies on Ubuntu:
+```bash
+sudo apt install gcc-arm-none-eabi qemu-system-arm cmake
 ```
 
 ## Environment Variables
@@ -84,6 +97,21 @@ All core crates support `#![no_std]` with optional `std`/`alloc` features.
 
 ### Message Types
 Generated per-project using `cargo nano-ros generate` from `package.xml`. See [docs/message-generation.md](docs/message-generation.md).
+
+**Installing cargo-nano-ros:**
+```bash
+# From the nano-ros repository root
+just install-cargo-nano-ros
+
+# Or manually:
+cargo install --path colcon-nano-ros/packages/cargo-nano-ros --locked
+```
+
+**Regenerating bindings in examples (requires ROS 2 environment):**
+```bash
+source /opt/ros/humble/setup.bash
+just generate-bindings
+```
 
 ### Platform Backends
 Selected via feature flags: `posix` (desktop), `zephyr` (Zephyr RTOS), `smoltcp` (bare-metal).
