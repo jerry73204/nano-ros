@@ -361,13 +361,23 @@ generate-bindings:
 
 # Install toolchains and tools
 setup:
+    @echo "=== Installing Rust toolchains ==="
     rustup toolchain install stable
     rustup toolchain install nightly
     rustup component add rustfmt clippy rust-src
     rustup component add --toolchain nightly rustfmt miri rust-src
     rustup target add thumbv7em-none-eabihf
     rustup target add thumbv7m-none-eabi
+    @echo ""
+    @echo "=== Installing cargo tools ==="
     cargo install cargo-nextest --locked
+    cargo install --path colcon-nano-ros/packages/cargo-nano-ros --locked
+    @echo ""
+    @echo "=== Checking system dependencies ==="
+    @which arm-none-eabi-gcc > /dev/null 2>&1 || (echo "WARNING: arm-none-eabi-gcc not found." && echo "For embedded development, install with: sudo apt install gcc-arm-none-eabi" && echo "")
+    @which qemu-system-arm > /dev/null 2>&1 || (echo "WARNING: qemu-system-arm not found." && echo "For QEMU testing, install with: sudo apt install qemu-system-arm" && echo "")
+    @which cmake > /dev/null 2>&1 || (echo "WARNING: cmake not found." && echo "For C++ bindings, install with: sudo apt install cmake" && echo "")
+    @echo "Setup complete!"
 
 # Setup QEMU network bridge (requires sudo)
 setup-network:
