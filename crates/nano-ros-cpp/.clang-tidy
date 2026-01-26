@@ -1,0 +1,52 @@
+# clang-tidy configuration for nano-ros C++ bindings
+#
+# Run with: clang-tidy -p build <files>
+# Or via: just check-cpp
+
+---
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-return-braced-init-list,
+  -modernize-use-nodiscard,
+  performance-*,
+  -performance-unnecessary-value-param,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-naming,
+  -readability-named-parameter,
+  -readability-redundant-member-init,
+  -readability-braces-around-statements,
+  -readability-convert-member-functions-to-static,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-const-correctness,
+
+# Treat warnings as errors
+WarningsAsErrors: '*'
+
+# Header filter: only check our headers, not system/generated ones
+HeaderFilterRegex: 'include/nano_ros/.*\.hpp$|include/std_msgs/.*\.hpp$'
+
+CheckOptions:
+  # Performance tuning
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'std::shared_ptr;std::unique_ptr'
