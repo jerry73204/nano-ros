@@ -63,21 +63,63 @@ CMakeLists.txt (orchestrator)
                  └── Final: libnanoros_cpp.so / .a
 ```
 
+### Message Serialization Architecture
+
+nano-ros uses **independent C++ CDR serialization** that is wire-compatible with Rust/ROS 2:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      User Binary                                │
+├─────────────────────────────────────────────────────────────────┤
+│  main.cpp                                                       │
+│    #include <nano_ros/nano_ros.hpp>                             │
+│    #include <my_project/msg/my_message.hpp>  ← generated        │
+│                                                                 │
+│    auto pub = node->create_publisher<MyMessage>("/topic", qos); │
+│    pub->publish(msg);  // msg.serialize() → raw bytes → FFI     │
+└──────────────────┬──────────────────────────────────────────────┘
+                   │ links
+                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              libnano_ros_cpp.so                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  - Node, Context, Publisher, Subscription                       │
+│  - CdrWriter, CdrReader (C++ header-only, wire-compatible)      │
+│  - Passes raw bytes to Rust via FFI                             │
+└──────────────────┬──────────────────────────────────────────────┘
+                   │ links
+                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│           libnano_ros_cpp_bridge.a (Rust static lib)            │
+├─────────────────────────────────────────────────────────────────┤
+│  - RustNode, RustPublisher, RustSubscriber                      │
+│  - Zenoh-pico transport                                         │
+│  - Receives/sends already-serialized CDR bytes                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Design Decisions:**
+
+1. **Independent C++ CDR** - No FFI overhead for serialization; C++ serializes directly
+2. **Wire compatibility** - Same CDR format as Rust nano-ros-serdes and ROS 2
+3. **No rosidl dependency** - Message generation is self-contained, no ament required
+4. **CMake-based generation** - Familiar workflow via `nano_ros_generate_interfaces()`
+
 ---
 
 ## Reference Repositories
 
 Cloned to `external/` for API reference (ROS Humble branch):
 
-| Repository | Path | Version | Purpose |
-|------------|------|---------|---------|
-| rclcpp | `external/rclcpp/` | 16.0.17 | C++ client library reference |
-| rcl | `external/rcl/` | 5.3.12 | C client library patterns |
-| rcutils | `external/rcutils/` | - | Utility patterns |
-| rmw | `external/rmw/` | 6.1.2 | Middleware interface |
-| rcl_interfaces | `external/rcl_interfaces/` | - | Standard message types |
-| rosidl | `external/rosidl/` | - | Message generation reference |
-| ros2_rust | `external/ros2_rust/` | 0.6.0 | Rust bindings reference |
+| Repository     | Path                       | Version | Purpose                      |
+|----------------|----------------------------|---------|------------------------------|
+| rclcpp         | `external/rclcpp/`         | 16.0.17 | C++ client library reference |
+| rcl            | `external/rcl/`            | 5.3.12  | C client library patterns    |
+| rcutils        | `external/rcutils/`        | -       | Utility patterns             |
+| rmw            | `external/rmw/`            | 6.1.2   | Middleware interface         |
+| rcl_interfaces | `external/rcl_interfaces/` | -       | Standard message types       |
+| rosidl         | `external/rosidl/`         | -       | Message generation reference |
+| ros2_rust      | `external/ros2_rust/`      | 0.6.0   | Rust bindings reference      |
 
 ---
 
@@ -151,259 +193,533 @@ Cloned to `external/` for API reference (ROS Humble branch):
 
 ---
 
-## 10.2 Core Types Bridge
+## 10.2 Core Types Bridge - COMPLETE
 
 ### Work Items
 
 #### 10.2.1 Duration and Time Types
-- [ ] Define cxx bridge for `Duration`
-- [ ] Define cxx bridge for `Time`
-- [ ] Create C++ wrapper classes
-- [ ] Match rclcpp::Duration and rclcpp::Time API
+- [x] Define cxx bridge for `Duration`
+- [x] Define cxx bridge for `Time`
+- [x] Create C++ wrapper classes
+- [x] Match rclcpp::Duration and rclcpp::Time API
 
 ```rust
-// src/lib.rs
-#[cxx::bridge]
+// src/lib.rs - Implemented
+#[cxx::bridge(namespace = "nano_ros::ffi")]
 mod ffi {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Duration {
-        nanoseconds: i64,
+        sec: i32,
+        nanosec: u32,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Time {
-        nanoseconds: i64,
+        sec: i32,
+        nanosec: u32,
     }
 
     extern "Rust" {
         fn duration_from_seconds(seconds: f64) -> Duration;
-        fn duration_from_nanoseconds(nanos: i64) -> Duration;
+        fn duration_from_nanoseconds(nanoseconds: i64) -> Duration;
+        fn duration_from_milliseconds(milliseconds: i64) -> Duration;
+        fn duration_to_nanoseconds(d: Duration) -> i64;
+        fn duration_to_seconds(d: Duration) -> f64;
+        fn duration_add(a: Duration, b: Duration) -> Duration;
+        fn duration_sub(a: Duration, b: Duration) -> Duration;
+
+        fn time_from_nanoseconds(nanoseconds: i64) -> Time;
+        fn time_to_nanoseconds(t: Time) -> i64;
+        fn time_to_seconds(t: Time) -> f64;
+        fn time_add_duration(t: Time, d: Duration) -> Time;
+        fn time_sub_duration(t: Time, d: Duration) -> Time;
+        fn time_diff(a: Time, b: Time) -> Duration;
     }
 }
 ```
 
 ```cpp
-// include/nano_ros/duration.hpp
+// include/nano_ros/duration.hpp - Implemented
 namespace nano_ros {
 class Duration {
 public:
-    Duration(int64_t nanoseconds);
+    Duration();
     Duration(int32_t seconds, uint32_t nanoseconds);
-    static Duration from_seconds(double seconds);
+    explicit Duration(std::chrono::nanoseconds ns);
 
+    static Duration from_seconds(double seconds);
+    static Duration from_nanoseconds(int64_t nanoseconds);
+    static Duration from_milliseconds(int64_t milliseconds);
+    static Duration zero();
+
+    int32_t sec() const;
+    uint32_t nanosec() const;
     int64_t nanoseconds() const;
     double seconds() const;
+    std::chrono::nanoseconds to_chrono() const;
+
+    // Full operator support: ==, !=, <, <=, >, >=, +, -, +=, -=, unary -
 };
 }
 ```
 
 #### 10.2.2 QoS Types
-- [ ] Define cxx bridge for QoS policies
-- [ ] Create C++ QoS class with builder pattern
-- [ ] Match rclcpp::QoS API
+- [x] Define cxx bridge for QoS policies
+- [x] Create C++ QoS class with builder pattern
+- [x] Match rclcpp::QoS API
 
 ```cpp
-// include/nano_ros/qos.hpp
+// include/nano_ros/qos.hpp - Implemented
 namespace nano_ros {
+enum class HistoryPolicy { KeepLast, KeepAll };
+enum class ReliabilityPolicy { BestEffort, Reliable };
+enum class DurabilityPolicy { Volatile, TransientLocal };
+
 class QoS {
 public:
     explicit QoS(size_t depth);
 
-    QoS& reliability(ReliabilityPolicy policy);
-    QoS& durability(DurabilityPolicy policy);
+    // Builder methods
     QoS& history(HistoryPolicy policy);
+    QoS& keep_last(size_t depth);
+    QoS& keep_all();
+    QoS& reliability(ReliabilityPolicy policy);
+    QoS& reliable();
+    QoS& best_effort();
+    QoS& durability(DurabilityPolicy policy);
+    QoS& durability_volatile();
+    QoS& transient_local();
 
     // Presets
+    static QoS default_qos();
     static QoS sensor_data();
-    static QoS parameters();
     static QoS services();
+    static QoS parameters();
+
+    // Accessors
+    HistoryPolicy get_history() const;
+    size_t get_depth() const;
+    ReliabilityPolicy get_reliability() const;
+    DurabilityPolicy get_durability() const;
 };
+
+// Helper functions
+inline QoS KeepLast(size_t depth);
+inline QoS KeepAll();
 }
 ```
 
 #### 10.2.3 Error Types
-- [ ] Define error enum in cxx bridge
-- [ ] Create C++ exception classes
-- [ ] Implement Result → exception conversion
+- [x] Define error enum in cxx bridge
+- [x] Create C++ exception classes
+- [x] Implement Result → exception conversion
+
+Error handling uses `rust::Error` from cxx with conversion to `std::runtime_error`:
+```cpp
+try {
+    auto rust_ctx = ffi::create_context();
+} catch (const ::rust::Error& e) {
+    throw std::runtime_error(std::string("Failed to create context: ") + e.what());
+}
+```
 
 ### Acceptance Criteria
-- Core types can be constructed and used from C++
-- API matches rclcpp patterns
-- Proper error handling with exceptions
+- [x] Core types can be constructed and used from C++
+- [x] API matches rclcpp patterns
+- [x] Proper error handling with exceptions
 
 ---
 
-## 10.3 Context and Node
+## 10.3 Context and Node - COMPLETE
 
 ### Work Items
 
 #### 10.3.1 Context Bridge
-- [ ] Define opaque Rust Context in cxx bridge
-- [ ] Expose `Context::new()` and `Context::from_env()`
-- [ ] Create C++ Context wrapper
-
-```rust
-#[cxx::bridge]
-mod ffi {
-    extern "Rust" {
-        type RustContext;
-
-        fn create_context() -> Result<Box<RustContext>>;
-        fn create_context_from_env() -> Result<Box<RustContext>>;
-        fn context_ok(ctx: &RustContext) -> bool;
-    }
-}
-```
+- [x] Define opaque Rust Context in cxx bridge
+- [x] Expose `Context::new()` and `Context::from_env()`
+- [x] Create C++ Context wrapper
 
 ```cpp
-// include/nano_ros/context.hpp
+// include/nano_ros/context.hpp - Implemented
 namespace nano_ros {
 class Context {
 public:
-    Context();
-    static Context from_env();
+    static std::shared_ptr<Context> create();
+    static std::shared_ptr<Context> from_env();
 
     bool ok() const;
+    uint32_t domain_id() const;
     std::shared_ptr<Node> create_node(const std::string& name);
-    std::shared_ptr<Node> create_node(const std::string& name,
-                                       const std::string& namespace_);
+    std::shared_ptr<Node> create_node(const std::string& name, const std::string& ns);
+    std::shared_ptr<Node> create_node(const NodeOptions& options);
 
 private:
-    rust::Box<RustContext> impl_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 }
 ```
 
 #### 10.3.2 Node Bridge
-- [ ] Define opaque Rust Node in cxx bridge
-- [ ] Expose node creation and accessor methods
-- [ ] Create C++ Node wrapper with shared_ptr semantics
+- [x] Define opaque Rust Node in cxx bridge
+- [x] Expose node creation and accessor methods
+- [x] Create C++ Node wrapper with shared_ptr semantics
+- [x] Add Clock access (get_clock, now)
 
 ```cpp
-// include/nano_ros/node.hpp
+// include/nano_ros/node.hpp - Implemented
 namespace nano_ros {
 class Node : public std::enable_shared_from_this<Node> {
 public:
     std::string get_name() const;
     std::string get_namespace() const;
     std::string get_fully_qualified_name() const;
-
-    template<typename MessageT>
-    std::shared_ptr<Publisher<MessageT>>
-    create_publisher(const std::string& topic, const QoS& qos);
-
-    template<typename MessageT>
-    std::shared_ptr<Subscription<MessageT>>
-    create_subscription(const std::string& topic, const QoS& qos,
-                        std::function<void(const MessageT&)> callback);
+    std::shared_ptr<Clock> get_clock() const;
+    Time now() const;
 
 private:
-    rust::Box<RustNode> impl_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 }
 ```
 
 #### 10.3.3 NodeOptions
-- [ ] Implement NodeOptions builder class
-- [ ] Support namespace, parameter overrides
-- [ ] Match rclcpp::NodeOptions API
+- [x] Implement NodeOptions builder class
+- [x] Support namespace configuration
+- [x] Match rclcpp::NodeOptions API (subset)
+
+```cpp
+// include/nano_ros/node_options.hpp - Implemented
+namespace nano_ros {
+class NodeOptions {
+public:
+    NodeOptions();
+    explicit NodeOptions(const std::string& name);
+
+    NodeOptions& node_name(const std::string& name);
+    NodeOptions& namespace_(const std::string& ns);
+    NodeOptions& use_clock_type(ClockType clock_type);
+    NodeOptions& use_intra_process_comms(bool enable);
+    NodeOptions& start_parameter_services(bool enable);
+
+    const std::string& get_node_name() const;
+    const std::string& get_namespace() const;
+    ClockType get_clock_type() const;
+};
+}
+```
+
+#### 10.3.4 Clock Bridge (Bonus)
+- [x] Define opaque Rust Clock in cxx bridge
+- [x] Create C++ Clock wrapper
+- [x] Support SystemTime, SteadyTime, RosTime
+
+```cpp
+// include/nano_ros/clock.hpp - Implemented
+namespace nano_ros {
+enum class ClockType { SystemTime, SteadyTime, RosTime };
+
+class Clock {
+public:
+    static std::shared_ptr<Clock> create_system();
+    static std::shared_ptr<Clock> create_steady();
+    static std::shared_ptr<Clock> create_ros();
+
+    ClockType get_clock_type() const;
+    Time now() const;
+};
+}
+```
 
 ### Acceptance Criteria
-- Context can be created and used to spawn nodes
-- Nodes expose expected accessors
-- Matches rclcpp initialization patterns
+- [x] Context can be created and used to spawn nodes
+- [x] Nodes expose expected accessors
+- [x] Matches rclcpp initialization patterns
+- [x] Clock access available on nodes
 
 ---
 
-## 10.4 Publisher and Subscription
+## 10.4 Publisher and Subscription - COMPLETE
 
 ### Work Items
 
 #### 10.4.1 Publisher Bridge
-- [ ] Define generic publish interface in cxx bridge
-- [ ] Create templated C++ Publisher class
-- [ ] Support serialized message passing
+- [x] Define generic publish interface in cxx bridge
+- [x] Create templated C++ Publisher class
+- [x] Support serialized message passing (raw CDR bytes)
+
+```rust
+// src/lib.rs - Publisher bridge implemented
+extern "Rust" {
+    type RustPublisher;
+    fn create_publisher(node: &RustNode, topic: &str, qos: &QoSProfile) -> Result<Box<RustPublisher>>;
+    fn publisher_publish(pub_: &RustPublisher, data: &[u8]) -> Result<()>;
+    fn publisher_topic_name(pub_: &RustPublisher) -> String;
+}
+```
 
 ```cpp
-// include/nano_ros/publisher.hpp
+// include/nano_ros/publisher.hpp - Implemented
 namespace nano_ros {
-template<typename MessageT>
 class Publisher {
 public:
-    void publish(const MessageT& message);
+    void publish_raw(const std::vector<uint8_t>& data);
+    void publish_raw(const uint8_t* data, size_t size);
     std::string get_topic_name() const;
-    size_t get_subscription_count() const;
+};
 
-private:
-    rust::Box<RustPublisher> impl_;
+template<typename MessageT>
+class TypedPublisher {
+public:
+    void publish(const MessageT& msg);
+    std::string get_topic_name() const;
 };
 }
 ```
 
 #### 10.4.2 Subscription Bridge
-- [ ] Define callback mechanism in cxx bridge
-- [ ] Create templated C++ Subscription class
-- [ ] Handle message deserialization
+- [x] Define take mechanism in cxx bridge (polling-based)
+- [x] Create templated C++ Subscription class
+- [x] Handle message deserialization
+
+```rust
+// src/lib.rs - Subscriber bridge implemented
+extern "Rust" {
+    type RustSubscriber;
+    fn create_subscriber(node: &RustNode, topic: &str, qos: &QoSProfile) -> Result<Box<RustSubscriber>>;
+    fn subscriber_take(sub: &RustSubscriber) -> Result<Vec<u8>>;
+    fn subscriber_topic_name(sub: &RustSubscriber) -> String;
+}
+```
 
 ```cpp
-// include/nano_ros/subscription.hpp
+// include/nano_ros/subscription.hpp - Implemented
 namespace nano_ros {
-template<typename MessageT>
 class Subscription {
 public:
-    using CallbackType = std::function<void(const MessageT&)>;
-
+    std::vector<uint8_t> take_raw();
+    bool has_message();
     std::string get_topic_name() const;
-    size_t get_publisher_count() const;
+};
 
-private:
-    rust::Box<RustSubscription> impl_;
-    CallbackType callback_;
+template<typename MessageT>
+class TypedSubscription {
+public:
+    using CallbackT = std::function<void(const MessageT&)>;
+    std::optional<MessageT> take();
+    size_t spin_once();
+    void set_callback(CallbackT callback);
 };
 }
 ```
 
 #### 10.4.3 Message Serialization Bridge
-- [ ] Implement CDR serialization for C++ messages
-- [ ] Bridge serialized bytes across FFI boundary
-- [ ] Support standard message types (std_msgs, etc.)
+- [x] Bridge serialized bytes across FFI boundary via `publish_raw()`/`take_raw()`
+- [ ] Typed message support deferred to Phase 10.5 (Message Type Generation)
+
+#### 10.4.4 Node Integration
+- [x] Add `Node::create_publisher()` method
+- [x] Add `Node::create_subscription()` method
+- [x] Support templated and non-templated creation
+
+```cpp
+// Node methods added:
+std::shared_ptr<Publisher> create_publisher(const std::string& topic, const QoS& qos);
+std::shared_ptr<Subscription> create_subscription(const std::string& topic, const QoS& qos);
+
+template<typename MessageT>
+std::shared_ptr<TypedPublisher<MessageT>> create_publisher(const std::string& topic, const QoS& qos);
+
+template<typename MessageT>
+std::shared_ptr<TypedSubscription<MessageT>> create_subscription(const std::string& topic, const QoS& qos);
+```
 
 ### Acceptance Criteria
-- Publishers can send messages to Rust subscribers
-- C++ subscriptions receive messages from Rust publishers
-- Interoperates with ROS 2 nodes via zenoh
+- [x] Publishers can send messages to Rust subscribers
+- [x] C++ subscriptions receive messages from Rust publishers
+- [x] Example builds and demonstrates pub/sub creation
 
 ---
 
 ## 10.5 Message Type Generation
 
+### Design Overview
+
+Message generation follows a ROS-like CMake workflow but is self-contained (no ament/rosidl dependency):
+
+**User's CMakeLists.txt:**
+```cmake
+find_package(nano_ros_cpp REQUIRED)
+
+# Generate message bindings from .msg files
+nano_ros_generate_interfaces(${PROJECT_NAME}
+  "msg/MyMessage.msg"
+  "msg/OtherMessage.msg"
+  DEPENDENCIES std_msgs geometry_msgs
+)
+
+add_executable(my_node src/main.cpp)
+target_link_libraries(my_node
+  nano_ros_cpp::nano_ros_cpp
+  ${PROJECT_NAME}::msg  # Generated messages
+)
+```
+
+**Generated Output Structure:**
+```
+${CMAKE_BINARY_DIR}/nano_ros_generated/${PROJECT_NAME}/
+├── msg/
+│   ├── my_message.hpp
+│   └── other_message.hpp
+└── ${PROJECT_NAME}_msg.cmake  # CMake target definitions
+```
+
 ### Work Items
 
-#### 10.5.1 C++ Message Generator
-- [ ] Extend `cargo nano-ros generate` for C++ output
-- [ ] Generate C++ struct definitions from .msg files
-- [ ] Generate serialization code
+#### 10.5.1 C++ CDR Serialization Library
+- [ ] Create `include/nano_ros/cdr.hpp` header-only CDR implementation
+- [ ] Implement `CdrWriter` class:
+  ```cpp
+  class CdrWriter {
+  public:
+      void write_i8(int8_t v);
+      void write_i16(int16_t v);
+      void write_i32(int32_t v);
+      void write_i64(int64_t v);
+      void write_u8(uint8_t v);
+      void write_u16(uint16_t v);
+      void write_u32(uint32_t v);
+      void write_u64(uint64_t v);
+      void write_f32(float v);
+      void write_f64(double v);
+      void write_bool(bool v);
+      void write_string(const std::string& s);
+      template<typename T> void write_array(const std::vector<T>& arr);
 
-#### 10.5.2 Standard Message Types
-- [ ] Generate std_msgs (Int32, String, Header, etc.)
-- [ ] Generate geometry_msgs (Point, Pose, Twist, etc.)
-- [ ] Generate sensor_msgs (Image, PointCloud2, etc.)
-
-#### 10.5.3 Message Headers
-- [ ] Create include structure matching ROS 2
+      const uint8_t* data() const;
+      size_t size() const;
+  };
   ```
-  include/
-  └── nano_ros/
-      └── msg/
-          ├── std_msgs/
-          │   ├── int32.hpp
-          │   └── string.hpp
-          └── geometry_msgs/
-              └── point.hpp
+- [ ] Implement `CdrReader` class (mirror of CdrWriter)
+- [ ] Handle CDR alignment rules (4-byte for primitives, 1-byte for chars)
+- [ ] Add CDR encapsulation header (0x00 0x01 for little-endian)
+- [ ] Unit tests for wire compatibility with Rust nano-ros-serdes
+
+#### 10.5.2 Message Generator Tool
+- [ ] Create Python generator script: `scripts/nano_ros_generate_cpp.py`
+- [ ] Parse .msg file format (field definitions, constants, comments)
+- [ ] Support primitive types: bool, int8-64, uint8-64, float32/64, string
+- [ ] Support arrays: fixed `T[N]`, bounded `T[<=N]`, unbounded `T[]`
+- [ ] Support nested message types
+- [ ] Generate struct with:
+  - Default member initializers
+  - `serialize(CdrWriter&)` method
+  - `deserialize(CdrReader&)` method
+  - `static type_name()` for topic type registration
+
+**Generated Message Example:**
+```cpp
+// Generated: my_project/msg/my_message.hpp
+#pragma once
+#include <nano_ros/cdr.hpp>
+#include <string>
+#include <vector>
+
+namespace my_project::msg {
+
+struct MyMessage {
+    int32_t value{0};
+    std::string name;
+    std::vector<float> data;
+
+    void serialize(nano_ros::CdrWriter& writer) const {
+        writer.write_i32(value);
+        writer.write_string(name);
+        writer.write_sequence(data);
+    }
+
+    void deserialize(nano_ros::CdrReader& reader) {
+        value = reader.read_i32();
+        name = reader.read_string();
+        data = reader.read_sequence<float>();
+    }
+
+    static constexpr const char* type_name() {
+        return "my_project/msg/MyMessage";
+    }
+};
+
+}  // namespace my_project::msg
+```
+
+#### 10.5.3 CMake Integration
+- [ ] Create `cmake/nano_ros_generate_interfaces.cmake` macro
+- [ ] Auto-detect Python interpreter
+- [ ] Configure include paths for generated headers
+- [ ] Create CMake INTERFACE library target for generated messages
+- [ ] Handle DEPENDENCIES for nested message types
+- [ ] Support regeneration on .msg file changes
+
+**CMake Macro Implementation:**
+```cmake
+function(nano_ros_generate_interfaces TARGET_NAME)
+  cmake_parse_arguments(ARG "" "" "DEPENDENCIES" ${ARGN})
+
+  # Collect .msg files from remaining arguments
+  set(MSG_FILES ${ARG_UNPARSED_ARGUMENTS})
+
+  # Output directory
+  set(OUTPUT_DIR ${CMAKE_BINARY_DIR}/nano_ros_generated/${TARGET_NAME})
+
+  # Run generator for each .msg file
+  foreach(MSG_FILE ${MSG_FILES})
+    # ... invoke Python generator
+  endforeach()
+
+  # Create INTERFACE library
+  add_library(${TARGET_NAME}_msg INTERFACE)
+  target_include_directories(${TARGET_NAME}_msg INTERFACE ${OUTPUT_DIR}/..)
+  add_library(${TARGET_NAME}::msg ALIAS ${TARGET_NAME}_msg)
+endfunction()
+```
+
+#### 10.5.4 Standard Message Types
+- [ ] Pre-generate common std_msgs: Bool, Int8-64, UInt8-64, Float32/64, String, Header
+- [ ] Pre-generate common geometry_msgs: Point, Vector3, Quaternion, Pose, Twist
+- [ ] Pre-generate builtin_interfaces: Time, Duration
+- [ ] Package as `nano_ros_std_msgs` CMake component
+- [ ] Install to `share/nano_ros_cpp/msg/`
+
+#### 10.5.5 TypedPublisher/TypedSubscription Integration
+- [ ] Update `TypedPublisher<T>::publish()` to use `CdrWriter`:
+  ```cpp
+  void publish(const MessageT& msg) {
+      nano_ros::CdrWriter writer;
+      writer.write_encapsulation();  // CDR header
+      msg.serialize(writer);
+      inner_->publish_raw(writer.data(), writer.size());
+  }
+  ```
+- [ ] Update `TypedSubscription<T>::take()` to use `CdrReader`:
+  ```cpp
+  std::optional<MessageT> take() {
+      auto raw = inner_->take_raw();
+      if (raw.empty()) return std::nullopt;
+      nano_ros::CdrReader reader(raw.data(), raw.size());
+      reader.read_encapsulation();  // Skip CDR header
+      MessageT msg;
+      msg.deserialize(reader);
+      return msg;
+  }
   ```
 
 ### Acceptance Criteria
-- Generated messages compile correctly
-- Messages can be published/subscribed
-- Binary compatible with ROS 2 CDR format
+- [ ] `nano_ros_generate_interfaces()` CMake macro works
+- [ ] Generated messages compile without errors
+- [ ] CDR serialization is wire-compatible with Rust nano-ros-serdes
+- [ ] Messages can be published from C++ and received by Rust (and vice versa)
+- [ ] Messages interoperate with ROS 2 nodes via zenoh
 
 ---
 
@@ -522,20 +838,23 @@ public:
 ## Implementation Order
 
 ```
-Phase 10.1: Project Setup (Foundation)
+Phase 10.1: Project Setup (Foundation)               ✓ COMPLETE
     └── Package structure, CMake/Cargo integration
 
-Phase 10.2: Core Types Bridge
+Phase 10.2: Core Types Bridge                        ✓ COMPLETE
     └── Duration, Time, QoS, Error types
 
-Phase 10.3: Context and Node
-    └── Context, Node, NodeOptions
+Phase 10.3: Context and Node                         ✓ COMPLETE
+    └── Context, Node, NodeOptions, Clock
 
-Phase 10.4: Publisher and Subscription
-    └── Pub/Sub with message serialization
+Phase 10.4: Publisher and Subscription               ✓ COMPLETE
+    └── Pub/Sub with raw byte interface
 
-Phase 10.5: Message Type Generation
-    └── C++ message structs from .msg files
+Phase 10.5: Message Type Generation                  ← NEXT
+    ├── C++ CdrWriter/CdrReader (header-only)
+    ├── Python message generator
+    ├── CMake nano_ros_generate_interfaces() macro
+    └── Standard message types (std_msgs, etc.)
 
 Phase 10.6: Executor Integration
     └── Spin, callbacks, multi-node
@@ -560,6 +879,9 @@ Phase 10.9: Zephyr Support
 | cxx-build | 1.0+ | Build-time bridge generation |
 | Corrosion | 0.5+ | CMake/Cargo integration |
 | nano-ros | workspace | Core Rust implementation |
+| Python | 3.8+ | Message generator script |
+| clang-format | - | C++ code formatting |
+| clang-tidy | - | C++ static analysis |
 
 ---
 
