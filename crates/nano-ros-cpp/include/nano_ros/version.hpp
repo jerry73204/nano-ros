@@ -16,9 +16,7 @@ struct Version {
 
     /// @brief Get version as string (e.g., "0.1.0")
     std::string to_string() const {
-        return std::to_string(major) + "." +
-               std::to_string(minor) + "." +
-               std::to_string(patch);
+        return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
     }
 };
 
@@ -30,4 +28,4 @@ Version get_version();
 /// @return true if zenoh support is compiled in
 bool has_zenoh_support();
 
-} // namespace nano_ros
+}  // namespace nano_ros

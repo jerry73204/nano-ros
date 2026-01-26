@@ -16,7 +16,8 @@ std = ["nano-ros/std"]
 
 [dependencies]
 cxx = "1.0"
-nano-ros = { path = "../nano-ros", default-features = false, features = ["std", "zenoh"] }
+nano-ros = { path = "../nano-ros", default-features = false, features = ["std", "zenoh", "alloc"] }
+nano-ros-serdes = { path = "../nano-ros-serdes" }
 
 [build-dependencies]
 cxx-build = "1.0"

@@ -9,25 +9,156 @@
 #![allow(deprecated)]
 
 // Re-import nano-ros types we'll expose
-use nano_ros::{Context, InitOptions, Node, NodeOptions};
+use nano_ros::{
+    CdrReader, CdrWriter, Clock, ClockType, ConnectedPublisher, ConnectedSubscriber, Context,
+    Deserialize, InitOptions, Node, NodeOptions, PublisherOptions, RosMessage, Serialize,
+    SubscriberOptions,
+};
+use nano_ros_serdes::error::{DeserError, SerError};
+use std::cell::RefCell;
 
 /// Opaque wrapper for Rust Context
 pub struct RustContext {
     inner: Context,
 }
 
-/// Opaque wrapper for Rust Node
+/// Opaque wrapper for Rust Node (uses RefCell for interior mutability)
 pub struct RustNode {
-    inner: Node,
+    inner: RefCell<Node>,
+}
+
+/// Opaque wrapper for Rust Clock
+pub struct RustClock {
+    inner: Clock,
+}
+
+/// Opaque wrapper for Rust Publisher
+pub struct RustPublisher {
+    inner: ConnectedPublisher<RawMessage>,
+    topic_name: String,
+}
+
+/// Opaque wrapper for Rust Subscriber
+pub struct RustSubscriber {
+    inner: RefCell<ConnectedSubscriber<RawMessage, 4096>>,
+    topic_name: String,
+}
+
+/// A raw message type for FFI that holds pre-serialized bytes
+/// This is used internally by the C++ bindings - the actual serialization
+/// happens in C++ using CDR.
+#[derive(Clone, Default)]
+struct RawMessage {
+    data: Vec<u8>,
+}
+
+impl RosMessage for RawMessage {
+    // These are placeholders - actual type info is set when creating the publisher
+    const TYPE_NAME: &'static str = "std_msgs/msg/Int32";
+    const TYPE_HASH: &'static str = "RIHS01_00000000000000000000000000000000";
+}
+
+impl Serialize for RawMessage {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        // Just write the raw bytes - they're already CDR serialized (without header)
+        writer.write_bytes(&self.data)?;
+        Ok(())
+    }
+}
+
+impl Deserialize for RawMessage {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        // For raw messages, we read 4 bytes (Int32 size) as a simple case
+        // The C++ side will handle proper deserialization
+        let data = reader.read_bytes(4)?.to_vec();
+        Ok(RawMessage { data })
+    }
 }
 
 #[cxx::bridge(namespace = "nano_ros::ffi")]
 mod ffi {
+    // ========================================================================
+    // Core Types
+    // ========================================================================
+
     /// Version information
     struct VersionInfo {
         major: u32,
         minor: u32,
         patch: u32,
+    }
+
+    /// Duration in seconds and nanoseconds (matches builtin_interfaces/msg/Duration)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Duration {
+        /// Seconds component (can be negative)
+        sec: i32,
+        /// Nanoseconds component (0-999999999)
+        nanosec: u32,
+    }
+
+    /// Time in seconds and nanoseconds (matches builtin_interfaces/msg/Time)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Time {
+        /// Seconds since epoch
+        sec: i32,
+        /// Nanoseconds component (0-999999999)
+        nanosec: u32,
+    }
+
+    // ========================================================================
+    // QoS Types
+    // ========================================================================
+
+    /// QoS History policy
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum HistoryPolicy {
+        /// Keep last N samples
+        KeepLast,
+        /// Keep all samples (until resource limits)
+        KeepAll,
+    }
+
+    /// QoS Reliability policy
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ReliabilityPolicy {
+        /// Best effort delivery (may drop messages)
+        BestEffort,
+        /// Reliable delivery (retransmit if needed)
+        Reliable,
+    }
+
+    /// QoS Durability policy
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DurabilityPolicy {
+        /// Only deliver to currently connected subscribers
+        Volatile,
+        /// Store messages for late-joining subscribers
+        TransientLocal,
+    }
+
+    /// Quality of Service settings
+    #[derive(Debug, Clone)]
+    struct QoSProfile {
+        history: HistoryPolicy,
+        depth: u32,
+        reliability: ReliabilityPolicy,
+        durability: DurabilityPolicy,
+    }
+
+    // ========================================================================
+    // Clock Types
+    // ========================================================================
+
+    /// Clock type (system, steady, or ROS time)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ClockKind {
+        /// System clock (wall time, can jump)
+        SystemTime,
+        /// Steady clock (monotonic, never jumps)
+        SteadyTime,
+        /// ROS time (simulation time when available)
+        RosTime,
     }
 
     extern "Rust" {
@@ -40,6 +171,99 @@ mod ffi {
 
         /// Check if the library was built with zenoh support
         fn has_zenoh_support() -> bool;
+
+        // ====================================================================
+        // Duration functions
+        // ====================================================================
+
+        /// Create a Duration from seconds and nanoseconds
+        fn duration_new(sec: i32, nanosec: u32) -> Duration;
+
+        /// Create a Duration from floating-point seconds
+        fn duration_from_seconds(seconds: f64) -> Duration;
+
+        /// Create a Duration from nanoseconds
+        fn duration_from_nanoseconds(nanos: i64) -> Duration;
+
+        /// Create a Duration from milliseconds
+        fn duration_from_milliseconds(millis: i64) -> Duration;
+
+        /// Convert Duration to total nanoseconds
+        fn duration_to_nanoseconds(d: &Duration) -> i64;
+
+        /// Convert Duration to floating-point seconds
+        fn duration_to_seconds(d: &Duration) -> f64;
+
+        /// Create a zero Duration
+        fn duration_zero() -> Duration;
+
+        /// Add two Durations
+        fn duration_add(a: &Duration, b: &Duration) -> Duration;
+
+        /// Subtract two Durations
+        fn duration_sub(a: &Duration, b: &Duration) -> Duration;
+
+        // ====================================================================
+        // Time functions
+        // ====================================================================
+
+        /// Create a Time from seconds and nanoseconds
+        fn time_new(sec: i32, nanosec: u32) -> Time;
+
+        /// Create a Time from nanoseconds since epoch
+        fn time_from_nanoseconds(nanos: i64) -> Time;
+
+        /// Convert Time to total nanoseconds since epoch
+        fn time_to_nanoseconds(t: &Time) -> i64;
+
+        /// Convert Time to floating-point seconds since epoch
+        fn time_to_seconds(t: &Time) -> f64;
+
+        /// Create a zero Time
+        fn time_zero() -> Time;
+
+        /// Add a Duration to a Time
+        fn time_add_duration(t: &Time, d: &Duration) -> Time;
+
+        /// Subtract a Duration from a Time
+        fn time_sub_duration(t: &Time, d: &Duration) -> Time;
+
+        /// Get the Duration between two Times
+        fn time_diff(a: &Time, b: &Time) -> Duration;
+
+        // ====================================================================
+        // QoS functions
+        // ====================================================================
+
+        /// Create a default QoS profile (reliable, volatile, keep_last(10))
+        fn qos_default() -> QoSProfile;
+
+        /// Create a sensor data QoS profile (best_effort, volatile, keep_last(5))
+        fn qos_sensor_data() -> QoSProfile;
+
+        /// Create a services QoS profile (reliable, volatile, keep_last(10))
+        fn qos_services() -> QoSProfile;
+
+        /// Create a parameters QoS profile (reliable, volatile, keep_last(1000))
+        fn qos_parameters() -> QoSProfile;
+
+        /// Create a QoS profile with keep_last history
+        fn qos_keep_last(depth: u32) -> QoSProfile;
+
+        /// Create a QoS profile with keep_all history
+        fn qos_keep_all() -> QoSProfile;
+
+        /// Set QoS reliability to reliable
+        fn qos_reliable(qos: &QoSProfile) -> QoSProfile;
+
+        /// Set QoS reliability to best effort
+        fn qos_best_effort(qos: &QoSProfile) -> QoSProfile;
+
+        /// Set QoS durability to volatile
+        fn qos_volatile(qos: &QoSProfile) -> QoSProfile;
+
+        /// Set QoS durability to transient local
+        fn qos_transient_local(qos: &QoSProfile) -> QoSProfile;
 
         // ====================================================================
         // Context
@@ -85,11 +309,260 @@ mod ffi {
 
         /// Get the fully qualified node name
         fn node_fully_qualified_name(node: &RustNode) -> String;
+
+        /// Get the current time from the node's clock
+        fn node_now(node: &RustNode) -> Time;
+
+        // ====================================================================
+        // Clock
+        // ====================================================================
+
+        /// Opaque Rust clock type
+        type RustClock;
+
+        /// Create a system clock
+        fn create_clock_system() -> Box<RustClock>;
+
+        /// Create a steady clock (monotonic)
+        fn create_clock_steady() -> Box<RustClock>;
+
+        /// Create a ROS time clock
+        fn create_clock_ros() -> Box<RustClock>;
+
+        /// Get clock type
+        fn clock_get_type(clock: &RustClock) -> ClockKind;
+
+        /// Get current time from clock
+        fn clock_now(clock: &RustClock) -> Time;
+
+        // ====================================================================
+        // Publisher
+        // ====================================================================
+
+        /// Opaque Rust publisher type
+        type RustPublisher;
+
+        /// Create a publisher for the given topic
+        /// The data published will be raw CDR-serialized bytes
+        fn create_publisher(
+            node: &RustNode,
+            topic: &str,
+            qos: &QoSProfile,
+        ) -> Result<Box<RustPublisher>>;
+
+        /// Publish raw CDR-serialized data
+        fn publisher_publish(pub_: &RustPublisher, data: &[u8]) -> Result<()>;
+
+        /// Get the topic name
+        fn publisher_topic_name(pub_: &RustPublisher) -> String;
+
+        // ====================================================================
+        // Subscriber
+        // ====================================================================
+
+        /// Opaque Rust subscriber type
+        type RustSubscriber;
+
+        /// Create a subscriber for the given topic
+        fn create_subscriber(
+            node: &RustNode,
+            topic: &str,
+            qos: &QoSProfile,
+        ) -> Result<Box<RustSubscriber>>;
+
+        /// Poll for a message, returns the raw CDR data or empty if no message
+        fn subscriber_take(sub: &RustSubscriber) -> Result<Vec<u8>>;
+
+        /// Get the topic name
+        fn subscriber_topic_name(sub: &RustSubscriber) -> String;
     }
 }
 
 // ============================================================================
-// Implementation of FFI functions
+// Duration implementations
+// ============================================================================
+
+fn duration_new(sec: i32, nanosec: u32) -> ffi::Duration {
+    ffi::Duration { sec, nanosec }
+}
+
+fn duration_from_seconds(seconds: f64) -> ffi::Duration {
+    let d = nano_ros::Duration::from_secs_f64(seconds);
+    ffi::Duration {
+        sec: d.sec,
+        nanosec: d.nanosec,
+    }
+}
+
+fn duration_from_nanoseconds(nanos: i64) -> ffi::Duration {
+    let d = nano_ros::Duration::from_nanos(nanos);
+    ffi::Duration {
+        sec: d.sec,
+        nanosec: d.nanosec,
+    }
+}
+
+fn duration_from_milliseconds(millis: i64) -> ffi::Duration {
+    let d = nano_ros::Duration::from_millis(millis);
+    ffi::Duration {
+        sec: d.sec,
+        nanosec: d.nanosec,
+    }
+}
+
+fn duration_to_nanoseconds(d: &ffi::Duration) -> i64 {
+    nano_ros::Duration::new(d.sec, d.nanosec).to_nanos()
+}
+
+fn duration_to_seconds(d: &ffi::Duration) -> f64 {
+    nano_ros::Duration::new(d.sec, d.nanosec).to_secs_f64()
+}
+
+fn duration_zero() -> ffi::Duration {
+    ffi::Duration { sec: 0, nanosec: 0 }
+}
+
+fn duration_add(a: &ffi::Duration, b: &ffi::Duration) -> ffi::Duration {
+    let nanos = duration_to_nanoseconds(a) + duration_to_nanoseconds(b);
+    duration_from_nanoseconds(nanos)
+}
+
+fn duration_sub(a: &ffi::Duration, b: &ffi::Duration) -> ffi::Duration {
+    let nanos = duration_to_nanoseconds(a) - duration_to_nanoseconds(b);
+    duration_from_nanoseconds(nanos)
+}
+
+// ============================================================================
+// Time implementations
+// ============================================================================
+
+fn time_new(sec: i32, nanosec: u32) -> ffi::Time {
+    ffi::Time { sec, nanosec }
+}
+
+fn time_from_nanoseconds(nanos: i64) -> ffi::Time {
+    let t = nano_ros::Time::from_nanos(nanos);
+    ffi::Time {
+        sec: t.sec,
+        nanosec: t.nanosec,
+    }
+}
+
+fn time_to_nanoseconds(t: &ffi::Time) -> i64 {
+    nano_ros::Time::new(t.sec, t.nanosec).to_nanos()
+}
+
+fn time_to_seconds(t: &ffi::Time) -> f64 {
+    nano_ros::Time::new(t.sec, t.nanosec).to_secs_f64()
+}
+
+fn time_zero() -> ffi::Time {
+    ffi::Time { sec: 0, nanosec: 0 }
+}
+
+fn time_add_duration(t: &ffi::Time, d: &ffi::Duration) -> ffi::Time {
+    let nanos = time_to_nanoseconds(t) + duration_to_nanoseconds(d);
+    time_from_nanoseconds(nanos)
+}
+
+fn time_sub_duration(t: &ffi::Time, d: &ffi::Duration) -> ffi::Time {
+    let nanos = time_to_nanoseconds(t) - duration_to_nanoseconds(d);
+    time_from_nanoseconds(nanos)
+}
+
+fn time_diff(a: &ffi::Time, b: &ffi::Time) -> ffi::Duration {
+    let nanos = time_to_nanoseconds(a) - time_to_nanoseconds(b);
+    duration_from_nanoseconds(nanos)
+}
+
+// ============================================================================
+// QoS implementations
+// ============================================================================
+
+fn qos_default() -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepLast,
+        depth: 10,
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_sensor_data() -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepLast,
+        depth: 5,
+        reliability: ffi::ReliabilityPolicy::BestEffort,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_services() -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepLast,
+        depth: 10,
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_parameters() -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepLast,
+        depth: 1000,
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_keep_last(depth: u32) -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepLast,
+        depth,
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_keep_all() -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        history: ffi::HistoryPolicy::KeepAll,
+        depth: 0,
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        durability: ffi::DurabilityPolicy::Volatile,
+    }
+}
+
+fn qos_reliable(qos: &ffi::QoSProfile) -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        reliability: ffi::ReliabilityPolicy::Reliable,
+        ..qos.clone()
+    }
+}
+
+fn qos_best_effort(qos: &ffi::QoSProfile) -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        reliability: ffi::ReliabilityPolicy::BestEffort,
+        ..qos.clone()
+    }
+}
+
+fn qos_volatile(qos: &ffi::QoSProfile) -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        durability: ffi::DurabilityPolicy::Volatile,
+        ..qos.clone()
+    }
+}
+
+fn qos_transient_local(qos: &ffi::QoSProfile) -> ffi::QoSProfile {
+    ffi::QoSProfile {
+        durability: ffi::DurabilityPolicy::TransientLocal,
+        ..qos.clone()
+    }
+}
+
+// ============================================================================
+// Version and library info
 // ============================================================================
 
 fn get_version() -> ffi::VersionInfo {
@@ -103,6 +576,10 @@ fn get_version() -> ffi::VersionInfo {
 fn has_zenoh_support() -> bool {
     true
 }
+
+// ============================================================================
+// Context implementations
+// ============================================================================
 
 fn create_context() -> Result<Box<RustContext>, String> {
     let options = InitOptions::new();
@@ -127,9 +604,15 @@ fn context_domain_id(ctx: &RustContext) -> u32 {
     ctx.inner.domain_id()
 }
 
+// ============================================================================
+// Node implementations
+// ============================================================================
+
 fn create_node(ctx: &RustContext, name: &str) -> Result<Box<RustNode>, String> {
     match ctx.inner.create_node(name) {
-        Ok(node) => Ok(Box::new(RustNode { inner: node })),
+        Ok(node) => Ok(Box::new(RustNode {
+            inner: RefCell::new(node),
+        })),
         Err(e) => Err(format!("Failed to create node: {:?}", e)),
     }
 }
@@ -141,28 +624,165 @@ fn create_node_with_namespace(
 ) -> Result<Box<RustNode>, String> {
     let options = NodeOptions::new(name).namespace(ns);
     match ctx.inner.create_node(options) {
-        Ok(node) => Ok(Box::new(RustNode { inner: node })),
+        Ok(node) => Ok(Box::new(RustNode {
+            inner: RefCell::new(node),
+        })),
         Err(e) => Err(format!("Failed to create node: {:?}", e)),
     }
 }
 
 fn node_name(node: &RustNode) -> String {
-    node.inner.name().to_string()
+    node.inner.borrow().name().to_string()
 }
 
 fn node_namespace(node: &RustNode) -> String {
-    node.inner.namespace().to_string()
+    node.inner.borrow().namespace().to_string()
 }
 
 fn node_fully_qualified_name(node: &RustNode) -> String {
-    // fully_qualified_name returns heapless::String, convert to std::String
-    let ns = node.inner.namespace();
-    let name = node.inner.name();
+    let borrowed = node.inner.borrow();
+    let ns = borrowed.namespace();
+    let name = borrowed.name();
     if ns == "/" {
         format!("/{}", name)
     } else {
         format!("{}/{}", ns, name)
     }
+}
+
+fn node_now(node: &RustNode) -> ffi::Time {
+    let t = node.inner.borrow().get_clock().now();
+    ffi::Time {
+        sec: t.sec,
+        nanosec: t.nanosec,
+    }
+}
+
+// ============================================================================
+// Clock implementations
+// ============================================================================
+
+fn create_clock_system() -> Box<RustClock> {
+    Box::new(RustClock {
+        inner: Clock::system(),
+    })
+}
+
+fn create_clock_steady() -> Box<RustClock> {
+    Box::new(RustClock {
+        inner: Clock::steady(),
+    })
+}
+
+fn create_clock_ros() -> Box<RustClock> {
+    Box::new(RustClock {
+        inner: Clock::ros_time(),
+    })
+}
+
+fn clock_get_type(clock: &RustClock) -> ffi::ClockKind {
+    match clock.inner.clock_type() {
+        ClockType::SystemTime => ffi::ClockKind::SystemTime,
+        ClockType::SteadyTime => ffi::ClockKind::SteadyTime,
+        ClockType::RosTime => ffi::ClockKind::RosTime,
+    }
+}
+
+fn clock_now(clock: &RustClock) -> ffi::Time {
+    let t = clock.inner.now();
+    ffi::Time {
+        sec: t.sec,
+        nanosec: t.nanosec,
+    }
+}
+
+// ============================================================================
+// Publisher implementations
+// ============================================================================
+
+/// Convert FFI QoSProfile to nano-ros QosSettings
+fn qos_to_settings(qos: &ffi::QoSProfile) -> nano_ros::QosSettings {
+    use nano_ros::QosSettings;
+
+    // Set reliability based on QoS profile
+    // Note: Additional QoS settings (history, durability) would be set here
+    // once the underlying transport supports them
+    match qos.reliability {
+        ffi::ReliabilityPolicy::BestEffort => QosSettings::BEST_EFFORT,
+        ffi::ReliabilityPolicy::Reliable => QosSettings::RELIABLE,
+        // Handle any other values (cxx enums are non-exhaustive)
+        _ => QosSettings::RELIABLE,
+    }
+}
+
+fn create_publisher(
+    node: &RustNode,
+    topic: &str,
+    qos: &ffi::QoSProfile,
+) -> Result<Box<RustPublisher>, String> {
+    let options = PublisherOptions {
+        topic,
+        qos: qos_to_settings(qos),
+    };
+
+    let mut node_ref = node.inner.borrow_mut();
+    match node_ref.create_publisher::<RawMessage>(options) {
+        Ok(pub_) => Ok(Box::new(RustPublisher {
+            inner: pub_,
+            topic_name: topic.to_string(),
+        })),
+        Err(e) => Err(format!("Failed to create publisher: {:?}", e)),
+    }
+}
+
+fn publisher_publish(pub_: &RustPublisher, data: &[u8]) -> Result<(), String> {
+    pub_.inner
+        .publish_raw(data)
+        .map_err(|e| format!("Publish failed: {:?}", e))
+}
+
+fn publisher_topic_name(pub_: &RustPublisher) -> String {
+    pub_.topic_name.clone()
+}
+
+// ============================================================================
+// Subscriber implementations
+// ============================================================================
+
+fn create_subscriber(
+    node: &RustNode,
+    topic: &str,
+    qos: &ffi::QoSProfile,
+) -> Result<Box<RustSubscriber>, String> {
+    let options = SubscriberOptions {
+        topic,
+        qos: qos_to_settings(qos),
+    };
+
+    let mut node_ref = node.inner.borrow_mut();
+    match node_ref.create_subscriber_sized::<RawMessage, 4096>(options) {
+        Ok(sub) => Ok(Box::new(RustSubscriber {
+            inner: RefCell::new(sub),
+            topic_name: topic.to_string(),
+        })),
+        Err(e) => Err(format!("Failed to create subscriber: {:?}", e)),
+    }
+}
+
+fn subscriber_take(sub: &RustSubscriber) -> Result<Vec<u8>, String> {
+    let mut sub_ref = sub.inner.borrow_mut();
+
+    // Use a buffer to receive raw data
+    let mut buf = [0u8; 4096];
+    match sub_ref.try_recv_raw(&mut buf) {
+        Ok(Some(len)) => Ok(buf[..len].to_vec()),
+        Ok(None) => Ok(Vec::new()), // No message available
+        Err(e) => Err(format!("Receive failed: {:?}", e)),
+    }
+}
+
+fn subscriber_topic_name(sub: &RustSubscriber) -> String {
+    sub.topic_name.clone()
 }
 
 #[cfg(test)]
@@ -180,5 +800,33 @@ mod tests {
     #[test]
     fn test_has_zenoh() {
         assert!(has_zenoh_support());
+    }
+
+    #[test]
+    fn test_duration_from_seconds() {
+        let d = duration_from_seconds(1.5);
+        assert_eq!(d.sec, 1);
+        assert_eq!(d.nanosec, 500_000_000);
+    }
+
+    #[test]
+    fn test_duration_roundtrip() {
+        let d = duration_from_nanoseconds(1_500_000_000);
+        assert_eq!(duration_to_nanoseconds(&d), 1_500_000_000);
+    }
+
+    #[test]
+    fn test_time_roundtrip() {
+        let t = time_from_nanoseconds(1_234_567_890);
+        assert_eq!(time_to_nanoseconds(&t), 1_234_567_890);
+    }
+
+    #[test]
+    fn test_qos_presets() {
+        let sensor = qos_sensor_data();
+        assert_eq!(sensor.reliability, ffi::ReliabilityPolicy::BestEffort);
+
+        let default = qos_default();
+        assert_eq!(default.reliability, ffi::ReliabilityPolicy::Reliable);
     }
 }

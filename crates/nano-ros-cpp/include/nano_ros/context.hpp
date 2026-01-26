@@ -11,10 +11,11 @@ namespace nano_ros {
 
 // Forward declarations
 class Node;
+class NodeOptions;
 
 namespace ffi {
 struct RustContext;
-} // namespace ffi
+}  // namespace ffi
 
 /// @brief Context for nano-ros runtime
 ///
@@ -64,10 +65,13 @@ public:
     /// @param ns Node namespace (e.g., "/my_robot")
     /// @return Shared pointer to the node
     /// @throws std::runtime_error if node creation fails
-    std::shared_ptr<Node> create_node(
-        const std::string& name,
-        const std::string& ns
-    );
+    std::shared_ptr<Node> create_node(const std::string& name, const std::string& ns);
+
+    /// @brief Create a node with options
+    /// @param options Node options (includes name, namespace, etc.)
+    /// @return Shared pointer to the node
+    /// @throws std::runtime_error if node creation fails
+    std::shared_ptr<Node> create_node(const NodeOptions& options);
 
     ~Context();
 
@@ -85,4 +89,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace nano_ros
+}  // namespace nano_ros
