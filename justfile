@@ -12,12 +12,12 @@ default:
 build: build-workspace build-workspace-embedded build-cpp build-examples
     @echo "All builds completed!"
 
-# Format everything: workspace and all examples
-format: format-workspace format-examples
+# Format everything: workspace, C++, and all examples
+format: format-workspace format-cpp format-examples
     @echo "All formatting completed!"
 
-# Check everything: formatting, clippy (native + embedded + features), and all examples
-check: check-workspace check-workspace-embedded check-workspace-features check-examples
+# Check everything: formatting, clippy (native + embedded + features), C++, and all examples
+check: check-workspace check-workspace-embedded check-workspace-features check-cpp check-examples
     @echo "All checks passed!"
 
 # Run quick tests: workspace unit tests only (no integration tests)
@@ -258,6 +258,24 @@ build-cpp-release:
     @echo "Building C++ bindings (release)..."
     cd crates/nano-ros-cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=ON && cmake --build build
 
+# Format C++ code
+format-cpp:
+    @echo "Formatting C++ code..."
+    @which clang-format > /dev/null || (echo "Error: clang-format not found. Install with: sudo apt install clang-format" && exit 1)
+    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include crates/nano-ros-cpp/examples \
+        -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | \
+        xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
+    @echo "C++ code formatted"
+
+# Check C++ formatting (does not modify files)
+check-cpp:
+    @echo "Checking C++ formatting..."
+    @which clang-format > /dev/null || (echo "Error: clang-format not found. Install with: sudo apt install clang-format" && exit 1)
+    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include crates/nano-ros-cpp/examples \
+        -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | \
+        xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
+    @echo "C++ formatting check passed"
+
 # Clean C++ bindings build
 clean-cpp:
     rm -rf crates/nano-ros-cpp/build
@@ -377,6 +395,7 @@ setup:
     @which arm-none-eabi-gcc > /dev/null 2>&1 || (echo "WARNING: arm-none-eabi-gcc not found." && echo "For embedded development, install with: sudo apt install gcc-arm-none-eabi" && echo "")
     @which qemu-system-arm > /dev/null 2>&1 || (echo "WARNING: qemu-system-arm not found." && echo "For QEMU testing, install with: sudo apt install qemu-system-arm" && echo "")
     @which cmake > /dev/null 2>&1 || (echo "WARNING: cmake not found." && echo "For C++ bindings, install with: sudo apt install cmake" && echo "")
+    @which clang-format > /dev/null 2>&1 || (echo "WARNING: clang-format not found." && echo "For C++ formatting, install with: sudo apt install clang-format" && echo "")
     @echo "Setup complete!"
 
 # Setup QEMU network bridge (requires sudo)

@@ -1,0 +1,72 @@
+# Clang-format configuration for nano-ros-cpp
+# Based on Google style with ROS 2 conventions
+
+Language: Cpp
+BasedOnStyle: Google
+
+# Line length (match ROS 2 convention)
+ColumnLimit: 100
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+
+# Braces
+BreakBeforeBraces: Attach
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Includes
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Main header (e.g., for foo.cpp, foo.hpp comes first)
+  - Regex: '^".*\.hpp"'
+    Priority: 1
+  # Project headers
+  - Regex: '^"nano_ros/.*"'
+    Priority: 2
+  # C++ standard library
+  - Regex: '^<[a-z_]+>'
+    Priority: 3
+  # Other system headers
+  - Regex: '^<.*>'
+    Priority: 4
+
+# Pointers and references
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+# Namespaces
+NamespaceIndentation: None
+CompactNamespaces: false
+FixNamespaceComments: true
+
+# Other
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: true
+AlignTrailingComments: true
+AllowAllParametersOfDeclarationOnNextLine: true
+BinPackArguments: true
+BinPackParameters: true
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+Cpp11BracedListStyle: true
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Sort includes
+SortIncludes: true
