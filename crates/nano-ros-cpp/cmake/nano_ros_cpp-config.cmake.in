@@ -2,4 +2,7 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/nano_ros_cpp-targets.cmake")
 
+# Include the message generation macro
+include("${CMAKE_CURRENT_LIST_DIR}/nano_ros_generate_interfaces.cmake")
+
 check_required_components(nano_ros_cpp)

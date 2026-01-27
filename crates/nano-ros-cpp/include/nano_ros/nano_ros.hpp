@@ -6,6 +6,7 @@
 /// This header includes all nano-ros C++ components. For more granular
 /// control, include individual headers instead.
 
+#include "nano_ros/cdr.hpp"
 #include "nano_ros/clock.hpp"
 #include "nano_ros/context.hpp"
 #include "nano_ros/duration.hpp"

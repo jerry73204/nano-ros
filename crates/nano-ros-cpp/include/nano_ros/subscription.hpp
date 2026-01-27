@@ -3,6 +3,7 @@
 /// @file subscription.hpp
 /// @brief Subscription class for nano-ros
 
+#include "nano_ros/cdr.hpp"
 #include "nano_ros/qos.hpp"
 
 #include <cstdint>
@@ -103,8 +104,10 @@ public:
         if (raw.empty()) {
             return std::nullopt;
         }
+        CdrReader reader(raw.data(), raw.size());
+        reader.read_encapsulation();
         MessageT msg;
-        msg.deserialize(raw);
+        msg.deserialize(reader);
         return msg;
     }
 

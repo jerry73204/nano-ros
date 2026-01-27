@@ -26,9 +26,21 @@ FetchContent_MakeAvailable(Corrosion)
 # Import the Rust crate - this builds libnanoros_cpp_bridge.a
 corrosion_import_crate(MANIFEST_PATH Cargo.toml)
 
-# Get the cxx-generated header location
-# cxx generates headers in target/<profile>/cxxbridge/
-set(CXX_BRIDGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo/build/${Rust_CARGO_TARGET_CACHED}/cxxbridge")
+# Get the Rust target triple (set by Corrosion after FetchContent)
+if(NOT DEFINED Rust_CARGO_TARGET_CACHED)
+    # Fallback: detect host target
+    execute_process(
+        COMMAND rustc -vV
+        OUTPUT_VARIABLE RUSTC_VERSION_OUTPUT
+    )
+    string(REGEX MATCH "host: ([^\n]+)" _ ${RUSTC_VERSION_OUTPUT})
+    set(Rust_CARGO_TARGET_CACHED ${CMAKE_MATCH_1})
+endif()
+
+# cxx generates headers in cargo/build/<target>/cxxbridge/
+# Use CMAKE_BINARY_DIR (top-level) because Corrosion puts cargo output there,
+# not in CMAKE_CURRENT_BINARY_DIR when used as a subdirectory
+set(CXX_BRIDGE_DIR "${CMAKE_BINARY_DIR}/cargo/build/${Rust_CARGO_TARGET_CACHED}/cxxbridge")
 
 # ============================================================================
 # C++ Wrapper Library
@@ -42,10 +54,8 @@ target_include_directories(nano_ros_cpp
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        # cxx-generated headers (nano-ros-cpp-bridge/src/lib.rs.h)
+        # cxx-generated headers (nano-ros-cpp-bridge/src/lib.rs.h and rust/cxx.h)
         ${CXX_BRIDGE_DIR}
-        # cxx runtime headers
-        ${CMAKE_CURRENT_BINARY_DIR}/cargo/build/${Rust_CARGO_TARGET_CACHED}/cxxbridge/rust
 )
 
 # Link against the Rust static library
@@ -102,15 +112,12 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/nano_ros_cpp-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/nano_ros_cpp-config-version.cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nano_ros_generate_interfaces.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nano_ros_cpp
 )
 
-# ============================================================================
-# Example executable (optional)
-# ============================================================================
-option(BUILD_EXAMPLES "Build example executables" OFF)
-
-if(BUILD_EXAMPLES)
-    add_executable(nano_ros_cpp_example examples/hello.cpp)
-    target_link_libraries(nano_ros_cpp_example PRIVATE nano_ros_cpp)
-endif()
+# Install the generator script
+install(PROGRAMS
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/nano_ros_generate_cpp.py
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nano_ros_cpp/../scripts
+)

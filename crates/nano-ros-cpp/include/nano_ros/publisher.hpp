@@ -3,6 +3,7 @@
 /// @file publisher.hpp
 /// @brief Publisher class for nano-ros
 
+#include "nano_ros/cdr.hpp"
 #include "nano_ros/qos.hpp"
 
 #include <cstdint>
@@ -91,9 +92,10 @@ public:
     /// @param msg The message to publish
     /// @throws std::runtime_error if serialization or publish fails
     void publish(const MessageT& msg) {
-        std::vector<uint8_t> buffer;
-        msg.serialize(buffer);
-        inner_->publish_raw(buffer);
+        CdrWriter writer;
+        writer.write_encapsulation();
+        msg.serialize(writer);
+        inner_->publish_raw(writer.data(), writer.size());
     }
 
     /// @brief Get the topic name
