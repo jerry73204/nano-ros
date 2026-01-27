@@ -20,14 +20,14 @@ This phase extends the existing test infrastructure to cover:
 
 ## Phase 9.A: Rust Test Framework Migration
 
-**Status**: Complete (core framework, Zephyr tests pending)
+**Status**: Complete
 - ✅ 9.A.1: Core Framework Setup (complete)
-- ✅ 9.A.2: Emulator Tests (QEMU complete, Zephyr pending)
+- ✅ 9.A.2: Emulator Tests (QEMU + Zephyr complete)
 - ✅ 9.A.3: nano2nano Tests (complete)
 - ✅ 9.A.4: RMW Interop Tests (complete)
 - ✅ 9.A.5: Platform Tests (complete)
 - ✅ 9.A.6: CI Integration (justfile done, GitHub Actions pending)
-- ✅ 9.A.7: Cleanup (complete - Zephyr kept as shell script)
+- ✅ 9.A.7: Cleanup (complete)
 
 **Priority**: **Critical** (Foundation for all other tests)
 
@@ -42,6 +42,7 @@ crates/
     │   ├── process.rs           # ManagedProcess utility
     │   ├── qemu.rs              # QemuProcess utility
     │   ├── ros2.rs              # Ros2Process utility
+    │   ├── zephyr.rs            # ZephyrProcess utility
     │   └── fixtures/
     │       ├── mod.rs           # Re-exports fixtures and utilities
     │       ├── binaries.rs      # #[fixture] qemu_binary, talker_binary, listener_binary
@@ -50,7 +51,8 @@ crates/
         ├── emulator.rs          # QEMU Cortex-M3 tests
         ├── nano2nano.rs         # nano-ros ↔ nano-ros tests
         ├── rmw_interop.rs       # ROS 2 interop tests
-        └── platform.rs          # Platform detection tests
+        ├── platform.rs          # Platform detection tests
+        └── zephyr.rs            # Zephyr native_sim tests
 
 tests/
 ├── README.md                    # Test documentation (Rust-only workflow)
@@ -63,7 +65,7 @@ tests/
 ### Remaining Work Items
 
 #### 9.A.2: Emulator Tests - Zephyr
-- [ ] **9.A.2.3** Create `ZephyrProcess` fixture in `src/fixtures/zephyr.rs`
+- [x] **9.A.2.3** Create `ZephyrProcess` fixture in `src/zephyr.rs`
   ```rust
   pub struct ZephyrProcess { handle: Child, platform: ZephyrPlatform }
 
@@ -74,7 +76,7 @@ tests/
       pub fn wait_for_output(&mut self, timeout: Duration) -> Result<String>;
   }
   ```
-- [ ] **9.A.2.4** Migrate `zephyr-native-sim` tests to `tests/zephyr.rs`
+- [x] **9.A.2.4** Migrate `zephyr-native-sim` tests to `tests/zephyr.rs`
   ```rust
   #[rstest]
   fn test_zephyr_native_sim_talker(zenohd_unique: ZenohRouter) {
@@ -83,7 +85,7 @@ tests/
       // ...
   }
   ```
-- [ ] **9.A.2.5** Add `is_zephyr_available()` check to skip tests when west not configured
+- [x] **9.A.2.5** Add `is_zephyr_available()` check to skip tests when west not configured
 
 #### 9.A.3: nano2nano Tests - Peer Mode
 - [x] **9.A.3.3** Implement peer mode test (no router) in `nano2nano.rs`
@@ -322,13 +324,14 @@ just test-rust-emulator      # QEMU Cortex-M3 tests
 just test-rust-nano2nano     # nano-ros ↔ nano-ros tests
 just test-rust-rmw-interop   # ROS 2 interop tests
 just test-rust-platform      # Platform detection tests
+just test-rust-zephyr        # Zephyr native_sim tests (Rust)
 
 # Run with nice output wrapper
 ./tests/rust-tests.sh all
 ./tests/rust-tests.sh emulator
 ./tests/rust-tests.sh rmw_interop
 
-# Run Zephyr tests (requires west workspace + TAP network)
+# Run Zephyr tests (shell script, alternative to Rust tests)
 just test-zephyr
 ```
 
@@ -351,6 +354,7 @@ just test-zephyr
 | `ManagedProcess` | `process` | Generic process wrapper with RAII cleanup |
 | `QemuProcess` | `qemu` | QEMU Cortex-M3 emulator wrapper |
 | `Ros2Process` | `ros2` | ROS 2 command wrapper |
+| `ZephyrProcess` | `zephyr` | Zephyr native_sim/QEMU process wrapper |
 | `ZenohRouter` | `fixtures::zenohd_router` | Managed zenohd process |
 
 ### Utility Functions
@@ -362,6 +366,10 @@ just test-zephyr
 | `is_qemu_available()` | `qemu` | Check if QEMU ARM is installed |
 | `is_ros2_available()` | `ros2` | Check if ROS 2 is sourced |
 | `is_rmw_zenoh_available()` | `ros2` | Check if rmw_zenoh_cpp installed |
+| `is_zephyr_available()` | `zephyr` | Check if Zephyr workspace + TAP configured |
+| `require_zephyr()` | `zephyr` | Skip test if Zephyr unavailable |
+| `zephyr_workspace_path()` | `zephyr` | Get path to Zephyr workspace |
+| `build_zephyr_example()` | `zephyr` | Build Zephyr example with west |
 | `wait_for_port()` | `lib` | Wait for TCP port to be available |
 | `count_pattern()` | `lib` | Count pattern occurrences in output |
 
@@ -392,7 +400,7 @@ just test-zephyr
 - [x] RMW interop tests migrated to Rust
 - [x] Platform detection tests migrated to Rust
 - [x] Legacy shell scripts cleaned up
-- [ ] Zephyr tests migrated to Rust
+- [x] Zephyr tests migrated to Rust
 - [x] Peer mode tests implemented
 - [ ] GitHub Actions CI configured
 - [ ] Cross-platform tests implemented
