@@ -6,7 +6,12 @@
 
 #include "nano_ros/nano_ros.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 
 // Include the cxx runtime header first (provides rust::Error, rust::Box, etc.)
 #include "rust/cxx.h"
@@ -666,6 +671,193 @@ std::shared_ptr<Subscription> Node::create_subscription(const std::string& topic
     } catch (const ::rust::Error& e) {
         throw std::runtime_error(std::string("Failed to create subscription: ") + e.what());
     }
+}
+
+// ============================================================================
+// SingleThreadedExecutor implementation
+// ============================================================================
+
+struct SingleThreadedExecutor::Impl {
+    std::vector<std::shared_ptr<Node>> nodes;
+    std::atomic<bool> spinning{false};
+    std::atomic<bool> cancelled{false};
+    std::mutex mutex;
+    std::condition_variable cv;
+
+    Impl() = default;
+};
+
+SingleThreadedExecutor::SingleThreadedExecutor() : impl_(std::make_unique<Impl>()) {}
+
+SingleThreadedExecutor::SingleThreadedExecutor(const ExecutorOptions& /* options */)
+    : impl_(std::make_unique<Impl>()) {
+    // Options.context is currently unused - the executor manages nodes directly
+}
+
+SingleThreadedExecutor::~SingleThreadedExecutor() {
+    cancel();
+}
+
+SingleThreadedExecutor::SingleThreadedExecutor(SingleThreadedExecutor&&) noexcept = default;
+SingleThreadedExecutor& SingleThreadedExecutor::operator=(SingleThreadedExecutor&&) noexcept =
+    default;
+
+void SingleThreadedExecutor::add_node(std::shared_ptr<Node> node) {
+    if (!impl_) {
+        throw std::runtime_error("Executor is not initialized");
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->nodes.push_back(node);
+}
+
+void SingleThreadedExecutor::remove_node(std::shared_ptr<Node> node) {
+    if (!impl_) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    auto it = std::find(impl_->nodes.begin(), impl_->nodes.end(), node);
+    if (it != impl_->nodes.end()) {
+        impl_->nodes.erase(it);
+    }
+}
+
+void SingleThreadedExecutor::spin() {
+    if (!impl_) {
+        throw std::runtime_error("Executor is not initialized");
+    }
+
+    impl_->spinning.store(true, std::memory_order_release);
+    impl_->cancelled.store(false, std::memory_order_release);
+
+    // Block until cancel() is called
+    // Note: Since C++ subscriptions use polling (take()), the executor
+    // doesn't process callbacks. Users should call take() on subscriptions
+    // from another thread or use spin_once() in a loop.
+    std::unique_lock<std::mutex> lock(impl_->mutex);
+    impl_->cv.wait(lock, [this] { return impl_->cancelled.load(std::memory_order_acquire); });
+
+    impl_->spinning.store(false, std::memory_order_release);
+}
+
+uint32_t SingleThreadedExecutor::spin_once(int64_t timeout_ns) {
+    if (!impl_) {
+        throw std::runtime_error("Executor is not initialized");
+    }
+
+    // Note: Since C++ subscriptions use polling (take()), there are no
+    // callbacks to process. This method waits for the timeout and returns.
+    // Users should call subscription->take() to receive messages.
+
+    if (timeout_ns > 0) {
+        std::this_thread::sleep_for(std::chrono::nanoseconds(timeout_ns));
+    } else if (timeout_ns < 0) {
+        // Infinite wait - but we can't block forever without cancel support
+        // Sleep for a short period and return
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    // timeout_ns == 0: non-blocking, return immediately
+
+    return 0;  // No callbacks processed (polling-based subscriptions)
+}
+
+uint32_t SingleThreadedExecutor::spin_some(int64_t /* max_duration_ns */) {
+    // Non-blocking check for work - with polling subscriptions, this is a no-op
+    return 0;
+}
+
+void SingleThreadedExecutor::cancel() {
+    if (impl_) {
+        impl_->cancelled.store(true, std::memory_order_release);
+        impl_->cv.notify_all();
+    }
+}
+
+bool SingleThreadedExecutor::is_spinning() const {
+    if (!impl_) {
+        return false;
+    }
+    return impl_->spinning.load(std::memory_order_acquire);
+}
+
+size_t SingleThreadedExecutor::node_count() const {
+    if (!impl_) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->nodes.size();
+}
+
+// ============================================================================
+// PollingExecutor implementation
+// ============================================================================
+
+struct PollingExecutor::Impl {
+    std::vector<std::shared_ptr<Node>> nodes;
+
+    Impl() = default;
+};
+
+PollingExecutor::PollingExecutor() : impl_(std::make_unique<Impl>()) {}
+
+PollingExecutor::PollingExecutor(const ExecutorOptions& /* options */)
+    : impl_(std::make_unique<Impl>()) {
+    // Options.context is currently unused - the executor manages nodes directly
+}
+
+PollingExecutor::~PollingExecutor() = default;
+
+PollingExecutor::PollingExecutor(PollingExecutor&&) noexcept = default;
+PollingExecutor& PollingExecutor::operator=(PollingExecutor&&) noexcept = default;
+
+void PollingExecutor::add_node(std::shared_ptr<Node> node) {
+    if (!impl_) {
+        throw std::runtime_error("Executor is not initialized");
+    }
+    impl_->nodes.push_back(node);
+}
+
+void PollingExecutor::remove_node(std::shared_ptr<Node> node) {
+    if (!impl_) {
+        return;
+    }
+    auto it = std::find(impl_->nodes.begin(), impl_->nodes.end(), node);
+    if (it != impl_->nodes.end()) {
+        impl_->nodes.erase(it);
+    }
+}
+
+uint32_t PollingExecutor::spin_once(uint32_t /* delta_ms */) {
+    if (!impl_) {
+        throw std::runtime_error("Executor is not initialized");
+    }
+    // Note: Since C++ subscriptions use polling (take()), there are no
+    // callbacks to process here. The delta_ms parameter would be used for
+    // timer processing, which is not yet implemented in the C++ bindings.
+    // Users should call subscription->take() to receive messages.
+    return 0;
+}
+
+size_t PollingExecutor::node_count() const {
+    if (!impl_) {
+        return 0;
+    }
+    return impl_->nodes.size();
+}
+
+// ============================================================================
+// Convenience functions
+// ============================================================================
+
+void spin(std::shared_ptr<Node> node) {
+    SingleThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin();
+}
+
+void spin_some(std::shared_ptr<Node> node) {
+    SingleThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin_some(0);
 }
 
 }  // namespace nano_ros

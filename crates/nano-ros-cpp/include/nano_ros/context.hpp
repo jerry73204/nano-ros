@@ -12,6 +12,8 @@ namespace nano_ros {
 // Forward declarations
 class Node;
 class NodeOptions;
+class SingleThreadedExecutor;
+class PollingExecutor;
 
 namespace ffi {
 struct RustContext;
@@ -87,6 +89,10 @@ private:
     Context();
     struct Impl;
     std::unique_ptr<Impl> impl_;
+
+    // Executor classes need access to impl_ for creating Rust executors
+    friend class SingleThreadedExecutor;
+    friend class PollingExecutor;
 };
 
 }  // namespace nano_ros

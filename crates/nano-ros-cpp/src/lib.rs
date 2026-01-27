@@ -44,6 +44,16 @@ pub struct RustSubscriber {
     topic_name: String,
 }
 
+/// Opaque wrapper for Rust BasicExecutor (std platforms)
+pub struct RustSingleThreadedExecutor {
+    inner: RefCell<nano_ros::BasicExecutor>,
+}
+
+/// Opaque wrapper for Rust PollingExecutor (embedded platforms)
+pub struct RustPollingExecutor {
+    inner: RefCell<nano_ros::PollingExecutor<4>>,
+}
+
 /// A raw message type for FFI that holds pre-serialized bytes
 /// This is used internally by the C++ bindings - the actual serialization
 /// happens in C++ using CDR.
@@ -375,6 +385,46 @@ mod ffi {
 
         /// Get the topic name
         fn subscriber_topic_name(sub: &RustSubscriber) -> String;
+
+        // ====================================================================
+        // SingleThreadedExecutor (std platforms)
+        // ====================================================================
+
+        /// Opaque Rust executor type for std platforms
+        type RustSingleThreadedExecutor;
+
+        /// Create a single-threaded executor
+        fn create_single_threaded_executor(
+            ctx: &RustContext,
+        ) -> Result<Box<RustSingleThreadedExecutor>>;
+
+        /// Blocking spin loop until cancelled
+        fn ste_spin(exec: &RustSingleThreadedExecutor);
+
+        /// Spin once with timeout (nanoseconds). -1 = block forever, 0 = non-blocking
+        fn ste_spin_once(exec: &RustSingleThreadedExecutor, timeout_ns: i64) -> u32;
+
+        /// Request the executor to stop spinning
+        fn ste_cancel(exec: &RustSingleThreadedExecutor);
+
+        /// Check if halt has been requested
+        fn ste_is_spinning(exec: &RustSingleThreadedExecutor) -> bool;
+
+        // ====================================================================
+        // PollingExecutor (embedded platforms)
+        // ====================================================================
+
+        /// Opaque Rust executor type for embedded platforms
+        type RustPollingExecutor;
+
+        /// Create a polling executor
+        fn create_polling_executor(ctx: &RustContext) -> Result<Box<RustPollingExecutor>>;
+
+        /// Process all available work (non-blocking)
+        fn pe_spin_once(exec: &RustPollingExecutor, delta_ms: u32) -> u32;
+
+        /// Get the number of nodes in this executor
+        fn pe_node_count(exec: &RustPollingExecutor) -> usize;
     }
 }
 
@@ -783,6 +833,94 @@ fn subscriber_take(sub: &RustSubscriber) -> Result<Vec<u8>, String> {
 
 fn subscriber_topic_name(sub: &RustSubscriber) -> String {
     sub.topic_name.clone()
+}
+
+// ============================================================================
+// SingleThreadedExecutor implementations
+// ============================================================================
+
+fn create_single_threaded_executor(
+    ctx: &RustContext,
+) -> Result<Box<RustSingleThreadedExecutor>, String> {
+    let executor = ctx.inner.create_basic_executor();
+    Ok(Box::new(RustSingleThreadedExecutor {
+        inner: RefCell::new(executor),
+    }))
+}
+
+fn ste_spin(exec: &RustSingleThreadedExecutor) {
+    exec.inner
+        .borrow_mut()
+        .spin(nano_ros::SpinOptions::default());
+}
+
+fn ste_spin_once(exec: &RustSingleThreadedExecutor, timeout_ns: i64) -> u32 {
+    use std::time::{Duration, Instant};
+
+    let mut exec_ref = exec.inner.borrow_mut();
+
+    if timeout_ns == 0 {
+        // Non-blocking: just process available work
+        let result = exec_ref.spin_once(0);
+        return result.total() as u32;
+    }
+
+    let start = Instant::now();
+    let timeout = if timeout_ns < 0 {
+        None // Infinite timeout
+    } else {
+        Some(Duration::from_nanos(timeout_ns as u64))
+    };
+
+    loop {
+        let result = exec_ref.spin_once(10); // 10ms delta for timers
+        if result.any_work() {
+            return result.total() as u32;
+        }
+
+        // Check timeout
+        if let Some(timeout) = timeout {
+            if start.elapsed() >= timeout {
+                return 0;
+            }
+        }
+
+        // Check halt flag
+        if exec_ref.is_halted() {
+            return 0;
+        }
+
+        // Sleep briefly before retrying
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn ste_cancel(exec: &RustSingleThreadedExecutor) {
+    exec.inner.borrow().halt();
+}
+
+fn ste_is_spinning(exec: &RustSingleThreadedExecutor) -> bool {
+    !exec.inner.borrow().is_halted()
+}
+
+// ============================================================================
+// PollingExecutor implementations
+// ============================================================================
+
+fn create_polling_executor(ctx: &RustContext) -> Result<Box<RustPollingExecutor>, String> {
+    let executor = ctx.inner.create_polling_executor();
+    Ok(Box::new(RustPollingExecutor {
+        inner: RefCell::new(executor),
+    }))
+}
+
+fn pe_spin_once(exec: &RustPollingExecutor, delta_ms: u32) -> u32 {
+    let result = exec.inner.borrow_mut().spin_once(delta_ms as u64);
+    result.total() as u32
+}
+
+fn pe_node_count(exec: &RustPollingExecutor) -> usize {
+    exec.inner.borrow().node_count()
 }
 
 #[cfg(test)]

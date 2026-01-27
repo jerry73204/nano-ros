@@ -10,6 +10,7 @@
 #include "nano_ros/clock.hpp"
 #include "nano_ros/context.hpp"
 #include "nano_ros/duration.hpp"
+#include "nano_ros/executor.hpp"
 #include "nano_ros/node.hpp"
 #include "nano_ros/node_options.hpp"
 #include "nano_ros/publisher.hpp"
