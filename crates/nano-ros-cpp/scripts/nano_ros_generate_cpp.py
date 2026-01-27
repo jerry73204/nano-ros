@@ -7,9 +7,11 @@ Wire-compatible with Rust nano-ros-serdes and ROS 2.
 
 Usage:
     python3 nano_ros_generate_cpp.py <msg_file> <output_dir> [--package <name>]
+    python3 nano_ros_generate_cpp.py <msg_file> <output_dir> [--package <name>] --embedded
 
 Example:
     python3 nano_ros_generate_cpp.py msg/MyMessage.msg build/generated --package my_pkg
+    python3 nano_ros_generate_cpp.py msg/MyMessage.msg build/generated --package my_pkg --embedded
 """
 
 import argparse
@@ -20,8 +22,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# ROS primitive types to C++ types
-PRIMITIVE_TYPES = {
+# Global flag for embedded mode
+EMBEDDED_MODE = False
+
+# Default buffer sizes for embedded mode
+EMBEDDED_STRING_SIZE = 256
+EMBEDDED_VECTOR_SIZE = 64
+
+# ROS primitive types to C++ types (desktop mode)
+PRIMITIVE_TYPES_DESKTOP = {
     'bool': 'bool',
     'byte': 'uint8_t',
     'char': 'char',
@@ -37,6 +46,33 @@ PRIMITIVE_TYPES = {
     'uint64': 'uint64_t',
     'string': 'std::string',
 }
+
+# ROS primitive types to C++ types (embedded mode)
+PRIMITIVE_TYPES_EMBEDDED = {
+    'bool': 'bool',
+    'byte': 'uint8_t',
+    'char': 'char',
+    'float32': 'float',
+    'float64': 'double',
+    'int8': 'int8_t',
+    'uint8': 'uint8_t',
+    'int16': 'int16_t',
+    'uint16': 'uint16_t',
+    'int32': 'int32_t',
+    'uint32': 'uint32_t',
+    'int64': 'int64_t',
+    'uint64': 'uint64_t',
+    'string': f'nano_ros::String<{EMBEDDED_STRING_SIZE}>',
+}
+
+
+def get_primitive_types():
+    """Get the appropriate primitive types map based on mode."""
+    return PRIMITIVE_TYPES_EMBEDDED if EMBEDDED_MODE else PRIMITIVE_TYPES_DESKTOP
+
+
+# Alias for backwards compatibility
+PRIMITIVE_TYPES = PRIMITIVE_TYPES_DESKTOP
 
 # CDR write methods for each type
 CDR_WRITE_METHODS = {
@@ -270,17 +306,23 @@ def parse_field(line: str, line_num: int) -> Optional[Field]:
 
 def to_cpp_type(field: Field, current_package: str) -> str:
     """Convert a field to its C++ type."""
+    primitive_types = get_primitive_types()
+
     if field.is_nested:
         if field.nested_package:
             base_type = f"{field.nested_package}::msg::{field.ros_type}"
         else:
             base_type = field.ros_type
     else:
-        base_type = PRIMITIVE_TYPES.get(field.ros_type, field.ros_type)
+        base_type = primitive_types.get(field.ros_type, field.ros_type)
 
     if field.is_array:
         if field.array_size is not None:
+            # Fixed-size array: std::array for both modes
             return f"std::array<{base_type}, {field.array_size}>"
+        # Variable-size sequence
+        if EMBEDDED_MODE:
+            return f"nano_ros::Vector<{base_type}, {EMBEDDED_VECTOR_SIZE}>"
         return f"std::vector<{base_type}>"
 
     return base_type
@@ -322,6 +364,9 @@ def generate_deserialize(field: Field, current_package: str) -> str:
             # Fixed-size array
             if field.is_nested:
                 return f"for (auto& elem : {name}) {{ elem.deserialize(reader); }}"
+            # For embedded mode strings in arrays, use output parameter
+            if EMBEDDED_MODE and field.ros_type == 'string':
+                return f"for (auto& elem : {name}) {{ reader.read_string(elem); }}"
             read_method = CDR_READ_METHODS.get(field.ros_type, 'read_u8')
             return f"for (auto& elem : {name}) {{ elem = reader.{read_method}(); }}"
         else:
@@ -330,12 +375,21 @@ def generate_deserialize(field: Field, current_package: str) -> str:
                 cpp_type = to_cpp_type(Field(field.ros_type, '', is_nested=True, nested_package=field.nested_package), current_package)
                 return (f"{name}.resize(reader.read_sequence_length());\n"
                         f"        for (auto& elem : {name}) {{ elem.deserialize(reader); }}")
+            # For embedded mode, handle string sequences specially
+            if EMBEDDED_MODE and field.ros_type == 'string':
+                return (f"{{ auto len = reader.read_u32(); {name}.clear();\n"
+                        f"          for (uint32_t i = 0; i < len; ++i) {{ "
+                        f"nano_ros::String<{EMBEDDED_STRING_SIZE}> s; reader.read_string(s); {name}.push_back(s); }} }}")
             # Use template read_sequence for primitives
-            cpp_type = PRIMITIVE_TYPES.get(field.ros_type, field.ros_type)
+            primitive_types = get_primitive_types()
+            cpp_type = primitive_types.get(field.ros_type, field.ros_type)
             return f"{name} = reader.read_sequence<{cpp_type}>()"
     else:
         if field.is_nested:
             return f"{name}.deserialize(reader)"
+        # For embedded mode strings, use output parameter
+        if EMBEDDED_MODE and field.ros_type == 'string':
+            return f"reader.read_string({name})"
         read_method = CDR_READ_METHODS.get(field.ros_type)
         if read_method:
             return f"{name} = reader.{read_method}()"
@@ -385,8 +439,15 @@ def generate_cpp_header(msg_name: str, package: str, fields: list[Field],
     namespace = f"{package}::msg"
     type_name = f"{package}/msg/{msg_name}"
 
-    # Collect includes
-    includes = ['#include <nano_ros/cdr.hpp>']
+    # Collect includes based on mode
+    if EMBEDDED_MODE:
+        includes = [
+            '#include <nano_ros/embedded/cdr.hpp>',
+            '#include <nano_ros/embedded/types.hpp>',
+        ]
+    else:
+        includes = ['#include <nano_ros/cdr.hpp>']
+
     std_includes = set()
 
     for field in fields:
@@ -395,7 +456,7 @@ def generate_cpp_header(msg_name: str, package: str, fields: list[Field],
             std_includes.add('#include <vector>')
         if 'std::array' in cpp_type:
             std_includes.add('#include <array>')
-        if 'std::string' in cpp_type:
+        if 'std::string' in cpp_type and not EMBEDDED_MODE:
             std_includes.add('#include <string>')
 
         # Add include for nested types
@@ -433,6 +494,10 @@ def generate_cpp_header(msg_name: str, package: str, fields: list[Field],
     for field in fields:
         deserialize_lines.append(f"        {generate_deserialize(field, package)};")
 
+    # CDR type names based on mode
+    cdr_writer = 'nano_ros::EmbeddedCdrWriter' if EMBEDDED_MODE else 'nano_ros::CdrWriter'
+    cdr_reader = 'nano_ros::EmbeddedCdrReader' if EMBEDDED_MODE else 'nano_ros::CdrReader'
+
     # Build the header
     header = f"""#pragma once
 
@@ -447,12 +512,12 @@ struct {msg_name} {{
 {chr(10).join(field_decls) if const_decls else chr(10).join(field_decls)}
 
     /// Serialize to CDR format
-    void serialize(nano_ros::CdrWriter& writer) const {{
+    void serialize({cdr_writer}& writer) const {{
 {chr(10).join(serialize_lines) if serialize_lines else '        // No fields'}
     }}
 
     /// Deserialize from CDR format
-    void deserialize(nano_ros::CdrReader& reader) {{
+    void deserialize({cdr_reader}& reader) {{
 {chr(10).join(deserialize_lines) if deserialize_lines else '        // No fields'}
     }}
 
@@ -499,6 +564,8 @@ def generate_message(msg_path: Path, output_dir: Path, package: str) -> Path:
 def generate_struct_body(struct_name: str, fields: list[Field], constants: list[Constant],
                          package: str, type_name: str) -> str:
     """Generate a struct body with fields, serialize, and deserialize methods."""
+    primitive_types = get_primitive_types()
+
     # Generate field declarations
     field_decls = []
     for field in fields:
@@ -509,7 +576,7 @@ def generate_struct_body(struct_name: str, fields: list[Field], constants: list[
     # Generate constant declarations
     const_decls = []
     for const in constants:
-        cpp_type = PRIMITIVE_TYPES.get(const.ros_type, const.ros_type)
+        cpp_type = primitive_types.get(const.ros_type, const.ros_type)
         const_decls.append(f"        static constexpr {cpp_type} {const.name} = {const.value};")
 
     # Generate serialize body
@@ -522,16 +589,20 @@ def generate_struct_body(struct_name: str, fields: list[Field], constants: list[
     for field in fields:
         deserialize_lines.append(f"            {generate_deserialize(field, package)};")
 
+    # CDR type names based on mode
+    cdr_writer = 'nano_ros::EmbeddedCdrWriter' if EMBEDDED_MODE else 'nano_ros::CdrWriter'
+    cdr_reader = 'nano_ros::EmbeddedCdrReader' if EMBEDDED_MODE else 'nano_ros::CdrReader'
+
     return f"""    struct {struct_name} {{
 {chr(10).join(const_decls) + chr(10) if const_decls else ''}{chr(10).join(field_decls)}
 
         /// Serialize to CDR format
-        void serialize(nano_ros::CdrWriter& writer) const {{
+        void serialize({cdr_writer}& writer) const {{
 {chr(10).join(serialize_lines) if serialize_lines else '            // No fields'}
         }}
 
         /// Deserialize from CDR format
-        void deserialize(nano_ros::CdrReader& reader) {{
+        void deserialize({cdr_reader}& reader) {{
 {chr(10).join(deserialize_lines) if deserialize_lines else '            // No fields'}
         }}
 
@@ -550,8 +621,15 @@ def generate_srv_header(srv_name: str, package: str, srv_def: ServiceDefinition,
     request_type_name = f"{package}/srv/{srv_name}_Request"
     response_type_name = f"{package}/srv/{srv_name}_Response"
 
-    # Collect includes
-    includes = ['#include <nano_ros/cdr.hpp>']
+    # Collect includes based on mode
+    if EMBEDDED_MODE:
+        includes = [
+            '#include <nano_ros/embedded/cdr.hpp>',
+            '#include <nano_ros/embedded/types.hpp>',
+        ]
+    else:
+        includes = ['#include <nano_ros/cdr.hpp>']
+
     std_includes = set()
 
     all_fields = srv_def.request_fields + srv_def.response_fields
@@ -561,7 +639,7 @@ def generate_srv_header(srv_name: str, package: str, srv_def: ServiceDefinition,
             std_includes.add('#include <vector>')
         if 'std::array' in cpp_type:
             std_includes.add('#include <array>')
-        if 'std::string' in cpp_type:
+        if 'std::string' in cpp_type and not EMBEDDED_MODE:
             std_includes.add('#include <string>')
 
         # Add include for nested types
@@ -642,8 +720,24 @@ def main():
     parser.add_argument('output_dir', type=Path, help='Output directory')
     parser.add_argument('--package', '-p', default='my_package',
                         help='Package name (default: my_package)')
+    parser.add_argument('--embedded', '-e', action='store_true',
+                        help='Generate for embedded systems (no std library)')
+    parser.add_argument('--string-size', type=int, default=256,
+                        help='Maximum string size for embedded mode (default: 256)')
+    parser.add_argument('--vector-size', type=int, default=64,
+                        help='Maximum vector size for embedded mode (default: 64)')
 
     args = parser.parse_args()
+
+    # Set embedded mode globals
+    global EMBEDDED_MODE, EMBEDDED_STRING_SIZE, EMBEDDED_VECTOR_SIZE
+    EMBEDDED_MODE = args.embedded
+    EMBEDDED_STRING_SIZE = args.string_size
+    EMBEDDED_VECTOR_SIZE = args.vector_size
+
+    # Update embedded string type with configured size
+    if EMBEDDED_MODE:
+        PRIMITIVE_TYPES_EMBEDDED['string'] = f'nano_ros::String<{EMBEDDED_STRING_SIZE}>'
 
     if not args.input_file.exists():
         print(f"Error: {args.input_file} not found", file=sys.stderr)

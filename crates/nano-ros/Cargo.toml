@@ -27,6 +27,14 @@ zenoh = [
     "nano-ros-transport/zenoh",
 ]
 
+# Shim transport backends (for embedded platforms)
+shim-zephyr = ["nano-ros-node/shim-zephyr"]
+shim-smoltcp = ["nano-ros-node/shim-smoltcp"]
+
+# Executor modes
+rtic = ["nano-ros-node/rtic"]
+polling = ["nano-ros-node/polling"]
+
 [dependencies]
 # Core functionality (default-features = false for no_std support)
 nano-ros-core = { path = "../nano-ros-core", default-features = false }

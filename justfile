@@ -339,24 +339,29 @@ build-examples-cpp: build-cpp
     cd examples/cpp-talker && cmake -B build && cmake --build build
     cd examples/cpp-listener && cmake -B build && cmake --build build
     cd examples/cpp-custom-msg && cmake -B build && cmake --build build
+    cd examples/cpp-service-server && cmake -B build && cmake --build build
+    cd examples/cpp-service-client && cmake -B build && cmake --build build
 
 # Format C++ examples
 format-examples-cpp:
     @echo "Formatting C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src -name '*.cpp' | \
+    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src \
+        examples/cpp-service-server/src examples/cpp-service-client/src -name '*.cpp' | \
         xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
 
 # Check C++ examples
 check-examples-cpp:
     @echo "Checking C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src -name '*.cpp' | \
+    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src \
+        examples/cpp-service-server/src examples/cpp-service-client/src -name '*.cpp' | \
         xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
 
 # Clean C++ examples build
 clean-examples-cpp:
-    rm -rf examples/cpp-talker/build examples/cpp-listener/build examples/cpp-custom-msg/build
+    rm -rf examples/cpp-talker/build examples/cpp-listener/build examples/cpp-custom-msg/build \
+        examples/cpp-service-server/build examples/cpp-service-client/build
     @echo "C++ examples build cleaned"
 
 # Run C++ talker (requires zenohd)
@@ -373,6 +378,18 @@ run-cpp-listener:
 run-cpp-custom-msg:
     @echo "Running C++ custom message example (requires zenohd)..."
     examples/cpp-custom-msg/build/cpp_custom_msg
+
+# Run C++ service server (requires zenohd)
+run-cpp-service-server:
+    @echo "Running C++ service server (requires zenohd)..."
+    examples/cpp-service-server/build/cpp_service_server
+
+# Run C++ service client (requires zenohd + service server)
+# NOTE: Service client is not yet supported in transport layer
+run-cpp-service-client:
+    @echo "Running C++ service client (requires zenohd + service server)..."
+    @echo "NOTE: Service client creation will fail - not yet implemented in transport layer"
+    examples/cpp-service-client/build/cpp_service_client
 
 # =============================================================================
 # Zenoh

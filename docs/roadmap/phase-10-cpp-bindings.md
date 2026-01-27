@@ -1213,7 +1213,846 @@ Phase 10.8: Examples and Documentation
 
 Phase 10.9: Zephyr Support
     └── Embedded target integration
+
+Phase 10.10: Embedded System Support (no_std)
+    ├── CMake cross-compilation options
+    ├── Freestanding C++ headers (ETL-based)
+    ├── Feature gates for std/alloc
+    └── Embedded C++ examples
 ```
+
+---
+
+## 10.10 Embedded System Support (no_std)
+
+**Status: NOT STARTED**
+
+### Overview
+
+This phase enables C++ bindings for embedded systems without standard library support.
+The goal is to provide a freestanding C++ API that mirrors the desktop API but uses
+fixed-size containers and avoids heap allocation in critical paths.
+
+### Current Limitations
+
+The current C++ bindings require the full C++ standard library:
+
+| Header | std Dependencies | Embedded Alternative |
+|--------|------------------|---------------------|
+| `cdr.hpp` | `std::string`, `std::vector`, `std::stdexcept` | ETL containers, error codes |
+| `node.hpp` | `std::string`, `std::memory`, `std::functional` | `etl::string`, raw pointers |
+| `publisher.hpp` | `std::string`, `std::vector`, `std::memory` | ETL containers |
+| `subscription.hpp` | `std::string`, `std::vector`, `std::optional`, `std::functional` | ETL alternatives |
+| `service.hpp` | `std::string`, `std::vector`, `std::optional`, `std::functional` | ETL alternatives |
+| `context.hpp` | `std::string`, `std::memory` | ETL string, raw pointers |
+| `executor.hpp` | `std::memory`, `std::vector` | Static allocation |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  Build Configuration                             │
+├─────────────────────────────────────────────────────────────────┤
+│  CMake Options:                                                  │
+│    -DNANO_ROS_EMBEDDED=ON          Enable embedded mode          │
+│    -DNANO_ROS_RUST_TARGET=<target> Cross-compile target          │
+│    -DNANO_ROS_TRANSPORT=<backend>  Transport backend             │
+│    -DNANO_ROS_USE_ETL=ON           Use ETL containers            │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+          ┌─────────────────────┴─────────────────────┐
+          │                                           │
+          ▼                                           ▼
+┌─────────────────────┐                 ┌─────────────────────────┐
+│   Desktop Build     │                 │   Embedded Build        │
+│   (EMBEDDED=OFF)    │                 │   (EMBEDDED=ON)         │
+├─────────────────────┤                 ├─────────────────────────┤
+│ - std::string       │                 │ - etl::string<N>        │
+│ - std::vector       │                 │ - etl::vector<T,N>      │
+│ - std::shared_ptr   │                 │ - Raw pointers / static │
+│ - std::function     │                 │ - Function pointers     │
+│ - Exceptions        │                 │ - Error codes           │
+│ - Dynamic alloc     │                 │ - Static allocation     │
+└─────────────────────┘                 └─────────────────────────┘
+```
+
+### Work Items
+
+#### 10.10.1 CMake Cross-Compilation Support
+
+Add CMake options for embedded builds and cross-compilation:
+
+```cmake
+# CMakeLists.txt additions
+
+# =============================================================================
+# Embedded Build Options
+# =============================================================================
+
+option(NANO_ROS_EMBEDDED "Build for embedded systems (no std library)" OFF)
+option(NANO_ROS_USE_ETL "Use Embedded Template Library for containers" OFF)
+
+# Rust target for cross-compilation (empty = host)
+set(NANO_ROS_RUST_TARGET "" CACHE STRING "Rust target triple for cross-compilation")
+
+# Transport backend selection
+set(NANO_ROS_TRANSPORT "zenoh" CACHE STRING "Transport backend")
+set_property(CACHE NANO_ROS_TRANSPORT PROPERTY STRINGS
+    "zenoh"           # Desktop: zenoh-pico POSIX
+    "shim-zephyr"     # Zephyr RTOS
+    "shim-smoltcp"    # Bare-metal with smoltcp
+)
+
+# Feature flags passed to Cargo
+set(NANO_ROS_CARGO_FEATURES "" CACHE STRING "Additional Cargo features")
+
+# =============================================================================
+# Configure Corrosion for Cross-Compilation
+# =============================================================================
+
+if(NANO_ROS_RUST_TARGET)
+    # Set Rust target for Corrosion
+    set(Rust_CARGO_TARGET ${NANO_ROS_RUST_TARGET})
+
+    # Disable default features and enable selected transport
+    set(CARGO_FEATURE_ARGS "--no-default-features")
+
+    if(NANO_ROS_EMBEDDED)
+        list(APPEND CARGO_FEATURE_ARGS "--features" "alloc,${NANO_ROS_TRANSPORT}")
+    else()
+        list(APPEND CARGO_FEATURE_ARGS "--features" "std,alloc,${NANO_ROS_TRANSPORT}")
+    endif()
+
+    if(NANO_ROS_CARGO_FEATURES)
+        list(APPEND CARGO_FEATURE_ARGS "--features" "${NANO_ROS_CARGO_FEATURES}")
+    endif()
+
+    corrosion_import_crate(
+        MANIFEST_PATH Cargo.toml
+        FLAGS ${CARGO_FEATURE_ARGS}
+    )
+else()
+    # Default host build
+    corrosion_import_crate(MANIFEST_PATH Cargo.toml)
+endif()
+
+# =============================================================================
+# Embedded C++ Configuration
+# =============================================================================
+
+if(NANO_ROS_EMBEDDED)
+    # Define macro for conditional compilation
+    target_compile_definitions(nano_ros_cpp PUBLIC NANO_ROS_EMBEDDED=1)
+
+    # Disable exceptions and RTTI for smaller binary
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(nano_ros_cpp PRIVATE -fno-exceptions -fno-rtti)
+    endif()
+
+    # Don't link against pthread/dl on embedded
+    # (platform-specific libs handled by toolchain)
+endif()
+
+if(NANO_ROS_USE_ETL)
+    # Fetch ETL if not found
+    find_package(etl QUIET)
+    if(NOT etl_FOUND)
+        FetchContent_Declare(
+            etl
+            GIT_REPOSITORY https://github.com/ETLCPP/etl.git
+            GIT_TAG 20.38.0
+        )
+        FetchContent_MakeAvailable(etl)
+    endif()
+
+    target_compile_definitions(nano_ros_cpp PUBLIC NANO_ROS_USE_ETL=1)
+    target_link_libraries(nano_ros_cpp PUBLIC etl::etl)
+endif()
+```
+
+**Toolchain file example (Zephyr):**
+```cmake
+# toolchain-zephyr.cmake
+set(CMAKE_SYSTEM_NAME Zephyr)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+
+# Zephyr provides these
+set(CMAKE_C_COMPILER ${ZEPHYR_SDK_INSTALL_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc)
+set(CMAKE_CXX_COMPILER ${ZEPHYR_SDK_INSTALL_DIR}/arm-zephyr-eabi/bin/arm-zephyr-eabi-g++)
+
+# Rust target
+set(NANO_ROS_RUST_TARGET "thumbv7em-none-eabihf")
+```
+
+#### 10.10.2 Cargo.toml Feature Gates
+
+Update the Rust bridge crate to support no_std:
+
+```toml
+# crates/nano-ros-cpp/Cargo.toml
+
+[package]
+name = "nano-ros-cpp-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+default = ["std", "zenoh"]
+
+# Standard library support (desktop)
+std = ["nano-ros/std", "alloc"]
+
+# Heap allocation (required for most functionality)
+alloc = ["nano-ros/alloc"]
+
+# Transport backends (mutually exclusive)
+zenoh = ["nano-ros/zenoh", "std"]           # Requires std
+shim-zephyr = ["nano-ros/shim-zephyr"]      # Zephyr RTOS
+shim-smoltcp = ["nano-ros/shim-smoltcp"]    # Bare-metal
+
+# Embedded executor modes
+rtic = ["nano-ros/rtic"]
+polling = ["nano-ros/polling"]
+
+[dependencies]
+cxx = { version = "1.0", default-features = false }
+nano-ros = { path = "../nano-ros", default-features = false }
+nano-ros-serdes = { path = "../nano-ros-serdes", default-features = false }
+
+[build-dependencies]
+cxx-build = "1.0"
+```
+
+#### 10.10.3 Freestanding C++ Headers
+
+Create embedded-compatible headers using ETL or fixed-size alternatives:
+
+**Type Abstraction Layer:**
+```cpp
+// include/nano_ros/embedded/types.hpp
+#pragma once
+
+#include <cstdint>
+#include <cstddef>
+
+#if defined(NANO_ROS_USE_ETL)
+    #include <etl/string.h>
+    #include <etl/vector.h>
+    #include <etl/optional.h>
+    #include <etl/span.h>
+    #include <etl/delegate.h>
+#elif defined(NANO_ROS_EMBEDDED)
+    // Minimal freestanding implementations
+    #include <nano_ros/embedded/string_view.hpp>
+    #include <nano_ros/embedded/span.hpp>
+    #include <nano_ros/embedded/optional.hpp>
+#else
+    #include <string>
+    #include <vector>
+    #include <optional>
+    #include <span>
+    #include <functional>
+#endif
+
+namespace nano_ros {
+
+// =============================================================================
+// Platform-Abstracted Types
+// =============================================================================
+
+#if defined(NANO_ROS_USE_ETL)
+
+    // String types
+    template<size_t N = 64>
+    using String = etl::string<N>;
+    using StringView = etl::string_view;
+
+    // Container types
+    template<typename T, size_t N = 16>
+    using Vector = etl::vector<T, N>;
+
+    template<typename T>
+    using Span = etl::span<T>;
+
+    template<typename T>
+    using Optional = etl::optional<T>;
+
+    // Callback types
+    template<typename Signature>
+    using Function = etl::delegate<Signature>;
+
+    // Error handling (no exceptions)
+    using ErrorCode = int32_t;
+    constexpr ErrorCode OK = 0;
+    constexpr ErrorCode ERR_INVALID = -1;
+    constexpr ErrorCode ERR_NO_MEMORY = -2;
+    constexpr ErrorCode ERR_TIMEOUT = -3;
+    constexpr ErrorCode ERR_NOT_FOUND = -4;
+
+#elif defined(NANO_ROS_EMBEDDED)
+
+    // Minimal freestanding string view
+    using StringView = nano_ros::embedded::StringView;
+
+    // Fixed-size string (stack allocated)
+    template<size_t N = 64>
+    using String = nano_ros::embedded::FixedString<N>;
+
+    // Static vector (fixed capacity)
+    template<typename T, size_t N = 16>
+    using Vector = nano_ros::embedded::StaticVector<T, N>;
+
+    template<typename T>
+    using Span = nano_ros::embedded::Span<T>;
+
+    template<typename T>
+    using Optional = nano_ros::embedded::Optional<T>;
+
+    // Function pointer based callbacks
+    template<typename Signature>
+    using Function = Signature*;
+
+    // Error handling
+    using ErrorCode = int32_t;
+    constexpr ErrorCode OK = 0;
+    constexpr ErrorCode ERR_INVALID = -1;
+    constexpr ErrorCode ERR_NO_MEMORY = -2;
+    constexpr ErrorCode ERR_TIMEOUT = -3;
+    constexpr ErrorCode ERR_NOT_FOUND = -4;
+
+#else  // Desktop with std
+
+    using String = std::string;
+    using StringView = std::string_view;
+
+    template<typename T, size_t N = 0>
+    using Vector = std::vector<T>;
+
+    template<typename T>
+    using Span = std::span<T>;
+
+    template<typename T>
+    using Optional = std::optional<T>;
+
+    template<typename Signature>
+    using Function = std::function<Signature>;
+
+#endif
+
+// =============================================================================
+// Memory Management
+// =============================================================================
+
+#if defined(NANO_ROS_EMBEDDED)
+
+    // Static/placement-new based ownership
+    template<typename T>
+    class UniquePtr {
+    public:
+        UniquePtr() : ptr_(nullptr) {}
+        explicit UniquePtr(T* ptr) : ptr_(ptr) {}
+        ~UniquePtr() { reset(); }
+
+        // Move only
+        UniquePtr(UniquePtr&& other) noexcept : ptr_(other.release()) {}
+        UniquePtr& operator=(UniquePtr&& other) noexcept {
+            reset(other.release());
+            return *this;
+        }
+
+        UniquePtr(const UniquePtr&) = delete;
+        UniquePtr& operator=(const UniquePtr&) = delete;
+
+        T* get() const { return ptr_; }
+        T* operator->() const { return ptr_; }
+        T& operator*() const { return *ptr_; }
+        explicit operator bool() const { return ptr_ != nullptr; }
+
+        T* release() {
+            T* tmp = ptr_;
+            ptr_ = nullptr;
+            return tmp;
+        }
+
+        void reset(T* ptr = nullptr) {
+            if (ptr_) {
+                ptr_->~T();
+                // Note: Memory not freed - user manages static storage
+            }
+            ptr_ = ptr;
+        }
+
+    private:
+        T* ptr_;
+    };
+
+#else
+    template<typename T>
+    using UniquePtr = std::unique_ptr<T>;
+#endif
+
+}  // namespace nano_ros
+```
+
+**Embedded CDR Implementation:**
+```cpp
+// include/nano_ros/embedded/cdr.hpp
+#pragma once
+
+#include <nano_ros/embedded/types.hpp>
+#include <cstring>
+
+namespace nano_ros {
+
+/// CDR Writer for embedded systems (no exceptions, fixed buffer)
+class EmbeddedCdrWriter {
+public:
+    /// Initialize with external buffer
+    EmbeddedCdrWriter(uint8_t* buffer, size_t capacity)
+        : buffer_(buffer), capacity_(capacity), pos_(0), error_(OK) {}
+
+    // No copy/move (buffer is external)
+    EmbeddedCdrWriter(const EmbeddedCdrWriter&) = delete;
+    EmbeddedCdrWriter& operator=(const EmbeddedCdrWriter&) = delete;
+
+    /// Check if an error occurred
+    bool has_error() const { return error_ != OK; }
+    ErrorCode error() const { return error_; }
+
+    /// Get written data
+    const uint8_t* data() const { return buffer_; }
+    size_t size() const { return pos_; }
+    size_t remaining() const { return capacity_ - pos_; }
+
+    /// Write encapsulation header
+    void write_encapsulation() {
+        write_u8(0x00);  // CDR_LE
+        write_u8(0x01);
+        write_u8(0x00);  // Options
+        write_u8(0x00);
+    }
+
+    // Primitive writers (check capacity, set error on overflow)
+    void write_u8(uint8_t v) { write_raw(&v, 1); }
+    void write_i8(int8_t v) { write_raw(&v, 1); }
+    void write_u16(uint16_t v) { align(2); write_raw(&v, 2); }
+    void write_i16(int16_t v) { align(2); write_raw(&v, 2); }
+    void write_u32(uint32_t v) { align(4); write_raw(&v, 4); }
+    void write_i32(int32_t v) { align(4); write_raw(&v, 4); }
+    void write_u64(uint64_t v) { align(8); write_raw(&v, 8); }
+    void write_i64(int64_t v) { align(8); write_raw(&v, 8); }
+    void write_f32(float v) { align(4); write_raw(&v, 4); }
+    void write_f64(double v) { align(8); write_raw(&v, 8); }
+    void write_bool(bool v) { uint8_t b = v ? 1 : 0; write_raw(&b, 1); }
+
+    void write_string(StringView s) {
+        write_u32(static_cast<uint32_t>(s.size() + 1));
+        write_raw(s.data(), s.size());
+        write_u8(0);  // Null terminator
+    }
+
+    template<typename T, size_t N>
+    void write_array(const T (&arr)[N]) {
+        for (size_t i = 0; i < N; ++i) {
+            write_value(arr[i]);
+        }
+    }
+
+    template<typename T, size_t N>
+    void write_sequence(const Vector<T, N>& vec) {
+        write_u32(static_cast<uint32_t>(vec.size()));
+        for (const auto& v : vec) {
+            write_value(v);
+        }
+    }
+
+private:
+    void align(size_t alignment) {
+        size_t padding = (alignment - (pos_ % alignment)) % alignment;
+        if (pos_ + padding > capacity_) {
+            error_ = ERR_NO_MEMORY;
+            return;
+        }
+        while (padding--) buffer_[pos_++] = 0;
+    }
+
+    void write_raw(const void* data, size_t len) {
+        if (pos_ + len > capacity_) {
+            error_ = ERR_NO_MEMORY;
+            return;
+        }
+        std::memcpy(buffer_ + pos_, data, len);
+        pos_ += len;
+    }
+
+    template<typename T>
+    void write_value(const T& v);  // Specialized for primitives
+
+    uint8_t* buffer_;
+    size_t capacity_;
+    size_t pos_;
+    ErrorCode error_;
+};
+
+/// CDR Reader for embedded systems
+class EmbeddedCdrReader {
+public:
+    EmbeddedCdrReader(const uint8_t* data, size_t size)
+        : data_(data), size_(size), pos_(0), error_(OK) {}
+
+    bool has_error() const { return error_ != OK; }
+    ErrorCode error() const { return error_; }
+    size_t remaining() const { return size_ - pos_; }
+
+    void read_encapsulation() {
+        read_u8(); read_u8(); read_u8(); read_u8();
+    }
+
+    uint8_t read_u8() { return read_primitive<uint8_t>(1); }
+    int8_t read_i8() { return read_primitive<int8_t>(1); }
+    uint16_t read_u16() { align(2); return read_primitive<uint16_t>(2); }
+    int16_t read_i16() { align(2); return read_primitive<int16_t>(2); }
+    uint32_t read_u32() { align(4); return read_primitive<uint32_t>(4); }
+    int32_t read_i32() { align(4); return read_primitive<int32_t>(4); }
+    uint64_t read_u64() { align(8); return read_primitive<uint64_t>(8); }
+    int64_t read_i64() { align(8); return read_primitive<int64_t>(8); }
+    float read_f32() { align(4); return read_primitive<float>(4); }
+    double read_f64() { align(8); return read_primitive<double>(8); }
+    bool read_bool() { return read_u8() != 0; }
+
+    template<size_t N>
+    void read_string(String<N>& out) {
+        uint32_t len = read_u32();
+        if (len > 0) len--;  // Exclude null terminator
+        if (len > N) {
+            error_ = ERR_NO_MEMORY;
+            return;
+        }
+        out.assign(reinterpret_cast<const char*>(data_ + pos_), len);
+        pos_ += len + 1;  // Include null terminator
+    }
+
+    template<typename T, size_t N>
+    void read_sequence(Vector<T, N>& out) {
+        uint32_t len = read_u32();
+        if (len > N) {
+            error_ = ERR_NO_MEMORY;
+            return;
+        }
+        out.clear();
+        for (uint32_t i = 0; i < len; ++i) {
+            T v;
+            read_value(v);
+            out.push_back(v);
+        }
+    }
+
+private:
+    void align(size_t alignment) {
+        pos_ += (alignment - (pos_ % alignment)) % alignment;
+    }
+
+    template<typename T>
+    T read_primitive(size_t size) {
+        if (pos_ + size > size_) {
+            error_ = ERR_INVALID;
+            return T{};
+        }
+        T v;
+        std::memcpy(&v, data_ + pos_, size);
+        pos_ += size;
+        return v;
+    }
+
+    template<typename T>
+    void read_value(T& v);  // Specialized for primitives
+
+    const uint8_t* data_;
+    size_t size_;
+    size_t pos_;
+    ErrorCode error_;
+};
+
+}  // namespace nano_ros
+```
+
+**Embedded Node API:**
+```cpp
+// include/nano_ros/embedded/node.hpp
+#pragma once
+
+#include <nano_ros/embedded/types.hpp>
+#include <nano_ros/qos.hpp>
+
+namespace nano_ros {
+
+// Forward declarations
+class EmbeddedPublisher;
+class EmbeddedSubscriber;
+
+/// Configuration for static buffer sizes
+struct EmbeddedNodeConfig {
+    static constexpr size_t MAX_NAME_LENGTH = 64;
+    static constexpr size_t MAX_PUBLISHERS = 8;
+    static constexpr size_t MAX_SUBSCRIBERS = 8;
+    static constexpr size_t MAX_TOPIC_LENGTH = 128;
+    static constexpr size_t DEFAULT_BUFFER_SIZE = 512;
+};
+
+/// Embedded-compatible Node (no heap allocation)
+class EmbeddedNode {
+public:
+    using PublisherHandle = int32_t;
+    using SubscriberHandle = int32_t;
+
+    /// Create node with static storage
+    static ErrorCode create(
+        EmbeddedNode* storage,
+        StringView name,
+        StringView namespace_ = ""
+    );
+
+    /// Accessors
+    StringView name() const;
+    StringView namespace_() const;
+
+    /// Create publisher (returns handle or negative error)
+    PublisherHandle create_publisher(
+        StringView topic,
+        StringView type_name,
+        const QoS& qos
+    );
+
+    /// Create subscriber (returns handle or negative error)
+    SubscriberHandle create_subscriber(
+        StringView topic,
+        StringView type_name,
+        const QoS& qos
+    );
+
+    /// Publish raw data
+    ErrorCode publish(PublisherHandle handle, const uint8_t* data, size_t len);
+
+    /// Try to receive data (non-blocking)
+    /// Returns number of bytes read, 0 if no data, negative on error
+    int32_t try_receive(
+        SubscriberHandle handle,
+        uint8_t* buffer,
+        size_t buffer_size
+    );
+
+private:
+    EmbeddedNode() = default;
+
+    String<EmbeddedNodeConfig::MAX_NAME_LENGTH> name_;
+    String<EmbeddedNodeConfig::MAX_NAME_LENGTH> namespace_;
+
+    // Opaque handle to Rust node
+    void* rust_node_;
+};
+
+}  // namespace nano_ros
+```
+
+#### 10.10.4 Embedded Examples
+
+**Zephyr C++ Example:**
+```cpp
+// examples/zephyr-cpp-talker/src/main.cpp
+#include <nano_ros/embedded/nano_ros.hpp>
+#include <zephyr/kernel.h>
+
+// Static storage for node
+static nano_ros::EmbeddedNode node_storage;
+static uint8_t pub_buffer[256];
+
+// Message structure (generated or hand-written)
+struct Int32Msg {
+    int32_t data;
+
+    void serialize(nano_ros::EmbeddedCdrWriter& w) const {
+        w.write_i32(data);
+    }
+};
+
+int main() {
+    printk("nano-ros C++ Zephyr Talker\n");
+
+    // Initialize node
+    auto err = nano_ros::EmbeddedNode::create(
+        &node_storage,
+        "zephyr_talker"
+    );
+    if (err != nano_ros::OK) {
+        printk("Failed to create node: %d\n", err);
+        return 1;
+    }
+
+    // Create publisher
+    auto pub_handle = node_storage.create_publisher(
+        "/chatter",
+        "std_msgs/msg/Int32",
+        nano_ros::QoS(10).best_effort()
+    );
+    if (pub_handle < 0) {
+        printk("Failed to create publisher: %d\n", pub_handle);
+        return 1;
+    }
+
+    Int32Msg msg{0};
+
+    while (true) {
+        // Serialize message
+        nano_ros::EmbeddedCdrWriter writer(pub_buffer, sizeof(pub_buffer));
+        writer.write_encapsulation();
+        msg.serialize(writer);
+
+        if (!writer.has_error()) {
+            err = node_storage.publish(pub_handle, writer.data(), writer.size());
+            if (err == nano_ros::OK) {
+                printk("Published: %d\n", msg.data);
+            }
+        }
+
+        msg.data++;
+        k_msleep(1000);
+    }
+
+    return 0;
+}
+```
+
+**Zephyr CMakeLists.txt:**
+```cmake
+# examples/zephyr-cpp-talker/CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(zephyr_cpp_talker)
+
+# Enable C++17
+set(CMAKE_CXX_STANDARD 17)
+
+# Configure nano-ros-cpp for embedded
+set(NANO_ROS_EMBEDDED ON)
+set(NANO_ROS_RUST_TARGET "thumbv7em-none-eabihf")  # Adjust for your target
+set(NANO_ROS_TRANSPORT "shim-zephyr")
+
+# Add nano-ros-cpp
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../crates/nano-ros-cpp nano-ros-cpp)
+
+target_sources(app PRIVATE src/main.cpp)
+target_link_libraries(app PRIVATE nano_ros_cpp)
+```
+
+**STM32 Bare-Metal Example (with smoltcp):**
+```cpp
+// examples/stm32-cpp-talker/src/main.cpp
+#include <nano_ros/embedded/nano_ros.hpp>
+
+// Static allocations
+alignas(nano_ros::EmbeddedNode) static uint8_t node_mem[sizeof(nano_ros::EmbeddedNode)];
+static uint8_t tx_buffer[512];
+
+extern "C" void app_main() {
+    auto* node = reinterpret_cast<nano_ros::EmbeddedNode*>(node_mem);
+
+    auto err = nano_ros::EmbeddedNode::create(node, "stm32_talker");
+    if (err != nano_ros::OK) {
+        // Handle error
+        return;
+    }
+
+    auto pub = node->create_publisher(
+        "/sensor_data",
+        "std_msgs/msg/Int32",
+        nano_ros::QoS(10).best_effort()
+    );
+
+    int32_t counter = 0;
+    while (true) {
+        nano_ros::EmbeddedCdrWriter writer(tx_buffer, sizeof(tx_buffer));
+        writer.write_encapsulation();
+        writer.write_i32(counter++);
+
+        node->publish(pub, writer.data(), writer.size());
+
+        // Platform-specific delay
+        delay_ms(100);
+    }
+}
+```
+
+#### 10.10.5 Message Generation for Embedded
+
+Update the message generator to support embedded mode:
+
+```python
+# scripts/nano_ros_generate_cpp.py additions
+
+def generate_embedded_message(msg_name, package, fields):
+    """Generate embedded-compatible message struct."""
+    return f'''
+#pragma once
+
+#include <nano_ros/embedded/cdr.hpp>
+#include <nano_ros/embedded/types.hpp>
+
+namespace {package}::msg {{
+
+struct {msg_name} {{
+{generate_embedded_fields(fields)}
+
+    void serialize(nano_ros::EmbeddedCdrWriter& writer) const {{
+{generate_embedded_serialize(fields)}
+    }}
+
+    nano_ros::ErrorCode deserialize(nano_ros::EmbeddedCdrReader& reader) {{
+{generate_embedded_deserialize(fields)}
+        return reader.error();
+    }}
+
+    static constexpr const char* type_name() {{
+        return "{package}/msg/{msg_name}";
+    }}
+}};
+
+}}  // namespace {package}::msg
+'''
+```
+
+### Acceptance Criteria
+
+#### CMake Integration
+- [ ] `NANO_ROS_EMBEDDED=ON` builds without std library
+- [ ] `NANO_ROS_RUST_TARGET` enables cross-compilation
+- [ ] `NANO_ROS_TRANSPORT` selects correct backend
+- [ ] Toolchain files work for Zephyr, STM32, etc.
+
+#### Freestanding C++ Headers
+- [ ] All headers compile with `-fno-exceptions -fno-rtti -ffreestanding`
+- [ ] No dynamic memory allocation in critical paths
+- [ ] ETL integration works when `NANO_ROS_USE_ETL=ON`
+- [ ] Error codes used instead of exceptions
+
+#### Cargo Feature Gates
+- [ ] `--no-default-features` disables std
+- [ ] `--features alloc,shim-zephyr` works for Zephyr
+- [ ] `--features alloc,shim-smoltcp` works for bare-metal
+
+#### Examples
+- [ ] Zephyr C++ talker/listener examples build and run
+- [ ] STM32 bare-metal example compiles
+- [ ] Examples demonstrate pub/sub functionality
+- [ ] Memory usage documented
+
+#### Wire Compatibility
+- [ ] Embedded CDR is wire-compatible with desktop CDR
+- [ ] Embedded nodes can communicate with desktop nodes
+- [ ] Messages interoperate with ROS 2
 
 ---
 
@@ -1228,6 +2067,7 @@ Phase 10.9: Zephyr Support
 | Python | 3.8+ | Message generator script |
 | clang-format | - | C++ code formatting |
 | clang-tidy | - | C++ static analysis |
+| ETL | 20.38+ | Embedded Template Library (optional) |
 
 ---
 
@@ -1248,10 +2088,18 @@ Phase 10.9: Zephyr Support
 - [ ] Optional ament_cmake integration for ROS 2 workspaces
 - [ ] Cross-compilation for embedded targets
 
+### Embedded Support
+- [ ] Freestanding C++ headers compile without std library
+- [ ] CMake options enable cross-compilation
+- [ ] Cargo feature gates control std/alloc/transport
+- [ ] Zephyr and bare-metal examples work
+- [ ] Memory usage meets embedded constraints
+
 ### Documentation
 - [ ] API reference generated
 - [ ] Migration guide from rclcpp complete
 - [ ] Examples for all major use cases
+- [ ] Embedded integration guide
 
 ---
 
@@ -1269,3 +2117,5 @@ Phase 10.9: Zephyr Support
 - [Corrosion](https://github.com/corrosion-rs/corrosion) - CMake/Cargo integration
 - [rclcpp API](https://docs.ros.org/en/humble/p/rclcpp/) - Reference C++ API
 - [cbindgen](https://github.com/mozilla/cbindgen) - Alternative C header generator
+- [ETL (Embedded Template Library)](https://www.etlcpp.com/) - STL-like containers for embedded
+- [Zephyr C++ Support](https://docs.zephyrproject.org/latest/develop/languages/cpp/) - Zephyr RTOS C++ integration

@@ -1,0 +1,13 @@
+# Build directory
+build/
+
+# IDE files
+.vscode/
+*.code-workspace
+.idea/
+
+# Generated files
+*.o
+*.a
+*.so
+*.dylib

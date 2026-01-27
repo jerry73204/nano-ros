@@ -11,13 +11,28 @@ publish = false
 crate-type = ["staticlib"]
 
 [features]
-default = ["std"]
-std = ["nano-ros/std"]
+# Default: desktop build with std and zenoh
+default = ["std", "zenoh"]
+
+# Standard library support (desktop platforms)
+std = ["nano-ros/std", "alloc"]
+
+# Heap allocation (required for most functionality)
+alloc = ["nano-ros/alloc"]
+
+# Transport backends (select one)
+zenoh = ["nano-ros/zenoh", "std"]           # Desktop: zenoh-pico POSIX (requires std)
+shim-zephyr = ["nano-ros/shim-zephyr"]      # Zephyr RTOS
+shim-smoltcp = ["nano-ros/shim-smoltcp"]    # Bare-metal with smoltcp
+
+# Executor modes for embedded
+rtic = ["nano-ros/rtic"]
+polling = ["nano-ros/polling"]
 
 [dependencies]
-cxx = "1.0"
-nano-ros = { path = "../nano-ros", default-features = false, features = ["std", "zenoh", "alloc"] }
-nano-ros-serdes = { path = "../nano-ros-serdes" }
+cxx = { version = "1.0", default-features = false, features = ["alloc"] }
+nano-ros = { path = "../nano-ros", default-features = false }
+nano-ros-serdes = { path = "../nano-ros-serdes", default-features = false }
 
 [build-dependencies]
 cxx-build = "1.0"
