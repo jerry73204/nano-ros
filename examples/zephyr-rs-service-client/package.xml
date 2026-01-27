@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>zephyr_rs_service_client</name>
+  <version>0.1.0</version>
+  <description>nano-ros service client for Zephyr RTOS</description>
+  <maintainer email="dev@example.com">Developer</maintainer>
+  <license>Apache-2.0</license>
+  <depend>example_interfaces</depend>
+  <export>
+    <build_type>ament_cargo</build_type>
+  </export>
+</package>

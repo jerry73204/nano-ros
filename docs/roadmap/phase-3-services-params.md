@@ -90,10 +90,11 @@ pub trait RosService: Sized {
 - [x] Create `examples/native-rs-service-client/` - AddTwoInts client
 - [ ] Test interop with ROS 2 `ros2 service call`
 
-**Zephyr Examples (Future)**
-- [ ] Create `examples/zephyr-rs-service-server/` - Service server on Zephyr
-- [ ] Create `examples/zephyr-rs-service-client/` - Service client on Zephyr
-- [ ] Requires zenoh-pico queryable support on Zephyr
+**Zephyr Examples (COMPLETE)**
+- [x] Create `examples/zephyr-rs-service-server/` - Service server on Zephyr
+- [x] Create `examples/zephyr-rs-service-client/` - Service client on Zephyr
+- [x] Uses zenoh-pico queryable support via C shim
+- [ ] Test on real hardware (NUCLEO-F429ZI)
 
 #### 3.1.7 Service Integration Tests
 - [ ] nano-ros server ↔ nano-ros client test
