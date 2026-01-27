@@ -1,0 +1,31 @@
+# Build the example
+build:
+    cargo build
+
+# Build with zenoh support
+build-zenoh:
+    cargo build --features zenoh
+
+# Run the example (serialization test only)
+run:
+    cargo run
+
+# Run with zenoh support (requires zenohd running)
+run-zenoh:
+    cargo run --features zenoh
+
+# Format code
+fmt:
+    cargo +nightly fmt
+
+# Check code
+check:
+    cargo clippy -- -D warnings
+
+# Clean build artifacts
+clean:
+    cargo clean
+
+# Generate message bindings (requires ROS 2 environment)
+generate:
+    cargo nano-ros generate --force

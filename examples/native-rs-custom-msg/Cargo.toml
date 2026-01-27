@@ -1,0 +1,23 @@
+[package]
+name = "native-rs-custom-msg"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "custom_msg"
+path = "src/main.rs"
+
+[features]
+default = []
+zenoh = ["nano-ros/zenoh"]
+
+[dependencies]
+nano-ros = { path = "../../crates/nano-ros", default-features = false, features = ["std"] }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes", default-features = false, features = ["std"] }
+nano-ros-macros = { path = "../../crates/nano-ros-macros" }
+std_msgs = { version = "*", default-features = false }
+heapless = "0.8"
+log = "0.4"
+env_logger = "0.11"

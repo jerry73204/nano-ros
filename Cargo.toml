@@ -26,6 +26,7 @@ exclude = [
     "examples/qemu-rs-test",
     "examples/native-rs-talker",
     "examples/native-rs-listener",
+    "examples/native-rs-custom-msg",
     "examples/native-rs-service-server",
     "examples/native-rs-service-client",
     "examples/native-rs-action-server",

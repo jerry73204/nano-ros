@@ -275,11 +275,13 @@ No `build.rs` - no C library linking needed.
 - [ ] Test interop with ROS 2
 
 ### 6.7 Example Applications
-- [ ] Create `examples/native-rs-custom-msg/` - Custom message definition and usage
-  - Define a custom .msg file in the example
-  - Generate bindings using `cargo nano-ros generate`
-  - Demonstrate pub/sub with custom message type
-  - Test interop with ROS 2 custom message
+- [x] Create `examples/native-rs-custom-msg/` - Custom message definition and usage
+  - [x] Define custom .msg files (SensorReading.msg, Status.msg)
+  - [x] Demonstrate manual message type definition (Serialize, Deserialize, RosMessage)
+  - [x] Test CDR serialization roundtrip
+  - [x] Optional pub/sub with zenoh feature
+  - [ ] Generate bindings using `cargo nano-ros generate` (alternative workflow)
+  - [ ] Test interop with ROS 2 custom message
 
 ---
 
