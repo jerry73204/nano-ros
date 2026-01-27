@@ -303,35 +303,41 @@ build-examples-cpp: build-cpp
     @echo "Building C++ examples..."
     cd examples/cpp-talker && cmake -B build && cmake --build build
     cd examples/cpp-listener && cmake -B build && cmake --build build
+    cd examples/cpp-custom-msg && cmake -B build && cmake --build build
 
 # Format C++ examples
 format-examples-cpp:
     @echo "Formatting C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/cpp-talker/src examples/cpp-listener/src -name '*.cpp' | \
+    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src -name '*.cpp' | \
         xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
 
 # Check C++ examples
 check-examples-cpp:
     @echo "Checking C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/cpp-talker/src examples/cpp-listener/src -name '*.cpp' | \
+    find examples/cpp-talker/src examples/cpp-listener/src examples/cpp-custom-msg/src -name '*.cpp' | \
         xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
 
 # Clean C++ examples build
 clean-examples-cpp:
-    rm -rf examples/cpp-talker/build examples/cpp-listener/build
+    rm -rf examples/cpp-talker/build examples/cpp-listener/build examples/cpp-custom-msg/build
     @echo "C++ examples build cleaned"
 
 # Run C++ talker (requires zenohd)
-run-cpp-talker: build-examples-cpp
+run-cpp-talker:
     @echo "Running C++ talker (requires zenohd)..."
     examples/cpp-talker/build/cpp_talker
 
 # Run C++ listener (requires zenohd)
-run-cpp-listener: build-examples-cpp
+run-cpp-listener:
     @echo "Running C++ listener (requires zenohd)..."
     examples/cpp-listener/build/cpp_listener
+
+# Run C++ custom message example (requires zenohd)
+run-cpp-custom-msg:
+    @echo "Running C++ custom message example (requires zenohd)..."
+    examples/cpp-custom-msg/build/cpp_custom_msg
 
 # =============================================================================
 # Zenoh
