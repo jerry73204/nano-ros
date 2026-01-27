@@ -9,15 +9,15 @@ default:
 # =============================================================================
 
 # Build everything: workspace (native + embedded), C++ bindings, and all examples
-build: build-workspace build-workspace-embedded build-cpp build-examples
+build: build-workspace build-workspace-embedded build-cpp build-examples build-examples-cpp
     @echo "All builds completed!"
 
 # Format everything: workspace, C++, and all examples
-format: format-workspace format-cpp format-examples
+format: format-workspace format-cpp format-examples format-examples-cpp
     @echo "All formatting completed!"
 
 # Check everything: formatting, clippy (native + embedded + features), C++, and all examples
-check: check-workspace check-workspace-embedded check-workspace-features check-cpp check-examples
+check: check-workspace check-workspace-embedded check-workspace-features check-cpp check-examples check-examples-cpp
     @echo "All checks passed!"
 
 # Run quick tests: workspace unit tests only (no integration tests)
@@ -251,18 +251,18 @@ static-analysis: test-miri
 # Build C++ bindings (nano-ros-cpp)
 build-cpp:
     @echo "Building C++ bindings..."
-    cd crates/nano-ros-cpp && cmake -B build -DBUILD_EXAMPLES=ON && cmake --build build
+    cd crates/nano-ros-cpp && cmake -B build && cmake --build build
 
 # Build C++ bindings (release)
 build-cpp-release:
     @echo "Building C++ bindings (release)..."
-    cd crates/nano-ros-cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=ON && cmake --build build
+    cd crates/nano-ros-cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
 # Format C++ code
 format-cpp:
     @echo "Formatting C++ code..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found. Install with: sudo apt install clang-format" && exit 1)
-    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include crates/nano-ros-cpp/examples \
+    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include/nano_ros \
         -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | \
         xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
     @echo "C++ code formatted"
@@ -272,10 +272,11 @@ check-cpp: _check-cpp-format _check-cpp-tidy
     @echo "C++ checks passed"
 
 # Check C++ formatting only (does not modify files)
+# Note: Excludes generated message headers (std_msgs, builtin_interfaces) which are auto-generated
 _check-cpp-format:
     @echo "Checking C++ formatting..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found. Install with: sudo apt install clang-format" && exit 1)
-    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include crates/nano-ros-cpp/examples \
+    find crates/nano-ros-cpp/cpp crates/nano-ros-cpp/include/nano_ros \
         -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | \
         xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
     @echo "C++ formatting check passed"
@@ -293,10 +294,44 @@ clean-cpp:
     rm -rf crates/nano-ros-cpp/build
     @echo "C++ bindings build cleaned"
 
-# Run C++ example
-run-cpp-example: build-cpp
-    @echo "Running C++ example (requires zenohd)..."
-    crates/nano-ros-cpp/build/nano_ros_cpp_example
+# =============================================================================
+# Examples - C++
+# =============================================================================
+
+# Build C++ examples
+build-examples-cpp: build-cpp
+    @echo "Building C++ examples..."
+    cd examples/cpp-talker && cmake -B build && cmake --build build
+    cd examples/cpp-listener && cmake -B build && cmake --build build
+
+# Format C++ examples
+format-examples-cpp:
+    @echo "Formatting C++ examples..."
+    @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
+    find examples/cpp-talker/src examples/cpp-listener/src -name '*.cpp' | \
+        xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
+
+# Check C++ examples
+check-examples-cpp:
+    @echo "Checking C++ examples..."
+    @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
+    find examples/cpp-talker/src examples/cpp-listener/src -name '*.cpp' | \
+        xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
+
+# Clean C++ examples build
+clean-examples-cpp:
+    rm -rf examples/cpp-talker/build examples/cpp-listener/build
+    @echo "C++ examples build cleaned"
+
+# Run C++ talker (requires zenohd)
+run-cpp-talker: build-examples-cpp
+    @echo "Running C++ talker (requires zenohd)..."
+    examples/cpp-talker/build/cpp_talker
+
+# Run C++ listener (requires zenohd)
+run-cpp-listener: build-examples-cpp
+    @echo "Running C++ listener (requires zenohd)..."
+    examples/cpp-listener/build/cpp_listener
 
 # =============================================================================
 # Zenoh
