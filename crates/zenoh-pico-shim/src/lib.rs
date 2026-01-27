@@ -37,7 +37,7 @@ use core::marker::PhantomData;
 pub use zenoh_pico_shim_sys::{
     PollCallback, ShimCallback, ShimQueryCallback, ZENOH_SHIM_ERR_CONFIG, ZENOH_SHIM_ERR_FULL,
     ZENOH_SHIM_ERR_GENERIC, ZENOH_SHIM_ERR_INVALID, ZENOH_SHIM_ERR_KEYEXPR, ZENOH_SHIM_ERR_PUBLISH,
-    ZENOH_SHIM_ERR_SESSION, ZENOH_SHIM_ERR_TASK, ZENOH_SHIM_MAX_LIVELINESS,
+    ZENOH_SHIM_ERR_SESSION, ZENOH_SHIM_ERR_TASK, ZENOH_SHIM_ERR_TIMEOUT, ZENOH_SHIM_MAX_LIVELINESS,
     ZENOH_SHIM_MAX_PUBLISHERS, ZENOH_SHIM_MAX_QUERYABLES, ZENOH_SHIM_MAX_SUBSCRIBERS,
     ZENOH_SHIM_OK, ZENOH_SHIM_RMW_GID_SIZE, ZENOH_SHIM_ZID_SIZE,
 };
@@ -50,10 +50,10 @@ pub use zenoh_pico_shim_sys::platform_smoltcp;
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp"))]
 use zenoh_pico_shim_sys::{
     zenoh_shim_close, zenoh_shim_declare_liveliness, zenoh_shim_declare_publisher,
-    zenoh_shim_declare_queryable, zenoh_shim_declare_subscriber, zenoh_shim_get_zid,
-    zenoh_shim_init, zenoh_shim_is_open, zenoh_shim_open, zenoh_shim_poll, zenoh_shim_publish,
-    zenoh_shim_publish_with_attachment, zenoh_shim_query_reply, zenoh_shim_spin_once,
-    zenoh_shim_undeclare_liveliness, zenoh_shim_undeclare_publisher,
+    zenoh_shim_declare_queryable, zenoh_shim_declare_subscriber, zenoh_shim_get,
+    zenoh_shim_get_zid, zenoh_shim_init, zenoh_shim_is_open, zenoh_shim_open, zenoh_shim_poll,
+    zenoh_shim_publish, zenoh_shim_publish_with_attachment, zenoh_shim_query_reply,
+    zenoh_shim_spin_once, zenoh_shim_undeclare_liveliness, zenoh_shim_undeclare_publisher,
     zenoh_shim_undeclare_queryable, zenoh_shim_undeclare_subscriber, zenoh_shim_uses_polling,
 };
 
@@ -82,6 +82,8 @@ pub enum ShimError {
     Publish,
     /// Session not open
     NotOpen,
+    /// Query timeout (no reply received)
+    Timeout,
 }
 
 #[cfg(any(feature = "posix", feature = "zephyr", feature = "smoltcp", test))]
@@ -113,6 +115,7 @@ impl core::fmt::Display for ShimError {
             ShimError::Invalid => write!(f, "invalid handle"),
             ShimError::Publish => write!(f, "publish error"),
             ShimError::NotOpen => write!(f, "session not open"),
+            ShimError::Timeout => write!(f, "query timeout"),
         }
     }
 }
@@ -483,6 +486,61 @@ impl ShimContext {
             return Err(ShimError::from_code(ret));
         }
         Ok(())
+    }
+
+    /// Send a query and wait for reply (blocking, for service client)
+    ///
+    /// This sends a query to the given key expression and waits for a reply.
+    /// Used to implement ROS 2 service clients.
+    ///
+    /// # Parameters
+    ///
+    /// * `keyexpr` - Key expression (null-terminated)
+    /// * `payload` - Request payload (can be empty slice)
+    /// * `reply_buf` - Buffer to receive reply data
+    /// * `timeout_ms` - Timeout in milliseconds
+    ///
+    /// # Returns
+    ///
+    /// Number of bytes written to reply_buf on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails, times out, or if the reply is
+    /// too large for the buffer.
+    pub fn get(
+        &self,
+        keyexpr: &[u8],
+        payload: &[u8],
+        reply_buf: &mut [u8],
+        timeout_ms: u32,
+    ) -> Result<usize> {
+        let (payload_ptr, payload_len) = if payload.is_empty() {
+            (core::ptr::null(), 0)
+        } else {
+            (payload.as_ptr(), payload.len())
+        };
+
+        let ret = unsafe {
+            zenoh_shim_get(
+                keyexpr.as_ptr().cast(),
+                payload_ptr,
+                payload_len,
+                reply_buf.as_mut_ptr(),
+                reply_buf.len(),
+                timeout_ms,
+            )
+        };
+
+        if ret < 0 {
+            // Check for timeout specifically (error code -9 from C shim)
+            if ret == -9 {
+                return Err(ShimError::Timeout);
+            }
+            return Err(ShimError::from_code(ret));
+        }
+
+        Ok(ret as usize)
     }
 }
 

@@ -109,6 +109,16 @@ extern "C" {
         attachment_len: usize,
     ) -> i32;
 
+    // Service client (queries)
+    pub fn zenoh_shim_get(
+        keyexpr: *const core::ffi::c_char,
+        payload: *const u8,
+        payload_len: usize,
+        reply_buf: *mut u8,
+        reply_buf_size: usize,
+        timeout_ms: u32,
+    ) -> i32;
+
     // Polling
     pub fn zenoh_shim_poll(timeout_ms: u32) -> i32;
     pub fn zenoh_shim_spin_once(timeout_ms: u32) -> i32;

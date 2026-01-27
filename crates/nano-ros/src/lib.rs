@@ -99,7 +99,28 @@ pub use nano_ros_transport::{
 
 // Re-export zenoh-specific types
 #[cfg(feature = "zenoh")]
-pub use nano_ros_transport::{Ros2Liveliness, ZenohSession, ZenohTransport};
+pub use nano_ros_transport::{
+    Ros2Liveliness, ZenohServiceClient, ZenohServiceServer, ZenohSession, ZenohTransport,
+};
+
+// Re-export shim-specific types for embedded platforms
+#[cfg(any(
+    feature = "shim-posix",
+    feature = "shim-zephyr",
+    feature = "shim-smoltcp"
+))]
+pub use nano_ros_transport::{
+    ShimPublisher, ShimRmwAttachment, ShimRos2Liveliness, ShimServiceClient, ShimServiceServer,
+    ShimSession, ShimSubscriber, ShimTransport, ShimZenohId, SHIM_RMW_GID_SIZE,
+};
+
+// Re-export liveliness token for shim platforms
+#[cfg(any(
+    feature = "shim-posix",
+    feature = "shim-zephyr",
+    feature = "shim-smoltcp"
+))]
+pub use nano_ros_transport::ShimLivelinessToken;
 
 // Re-export service types
 pub use nano_ros_core::{ServiceClient, ServiceServer};

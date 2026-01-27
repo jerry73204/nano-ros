@@ -12,7 +12,8 @@
 //! - Publishers with RMW attachment support for rmw_zenoh compatibility
 //! - Subscribers with wildcard matching
 //! - Liveliness tokens for ROS 2 discovery
-//! - Service servers via queryables (service clients not yet implemented)
+//! - Service servers via queryables
+//! - Service clients via z_get queries
 //! - Manual polling (no background threads) for embedded systems
 //!
 //! # Example
@@ -75,6 +76,7 @@ impl From<ShimError> for TransportError {
             ShimError::Invalid => TransportError::InvalidConfig,
             ShimError::Publish => TransportError::PublishFailed,
             ShimError::NotOpen => TransportError::Disconnected,
+            ShimError::Timeout => TransportError::Timeout,
         }
     }
 }
@@ -427,10 +429,9 @@ impl Session for ShimSession {
 
     fn create_service_client(
         &mut self,
-        _service: &ServiceInfo,
+        service: &ServiceInfo,
     ) -> Result<Self::ServiceClientHandle, Self::Error> {
-        // Services not yet supported in shim
-        Err(TransportError::ServiceClientCreationFailed)
+        ShimServiceClient::new(&self.context, service)
     }
 
     fn close(&mut self) -> Result<(), Self::Error> {
@@ -938,24 +939,79 @@ impl ServiceServerTrait for ShimServiceServer {
 }
 
 // ============================================================================
-// Service Client (not yet implemented)
+// Service Client
 // ============================================================================
 
-/// Shim service client (not yet supported)
+/// Default timeout for service calls in milliseconds
+const SERVICE_DEFAULT_TIMEOUT_MS: u32 = 5000;
+
+/// Shim service client using z_get queries
 ///
-/// Service clients require synchronous z_get calls with reply handling,
-/// which is not yet implemented in the shim.
+/// Service clients send requests via z_get and receive responses from queryables.
 pub struct ShimServiceClient {
-    _private: PhantomData<()>,
+    /// Service key expression (null-terminated)
+    keyexpr: [u8; 257],
+    /// Length of valid keyexpr
+    keyexpr_len: usize,
+    /// Reference to context for making queries
+    context: *const ShimContext,
+    /// Timeout in milliseconds
+    timeout_ms: u32,
+    /// Phantom to indicate ownership
+    _phantom: PhantomData<()>,
+}
+
+impl ShimServiceClient {
+    /// Create a new service client for the given service
+    pub fn new(context: &ShimContext, service: &ServiceInfo) -> Result<Self, TransportError> {
+        // Generate the service key
+        let key: heapless::String<256> = service.to_key();
+
+        // Create null-terminated keyexpr
+        let mut keyexpr_buf = [0u8; 257];
+        let bytes = key.as_bytes();
+        if bytes.len() >= keyexpr_buf.len() {
+            return Err(TransportError::InvalidConfig);
+        }
+        keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
+        keyexpr_buf[bytes.len()] = 0;
+
+        #[cfg(feature = "std")]
+        log::debug!("Service client keyexpr: {}", key.as_str());
+
+        Ok(Self {
+            keyexpr: keyexpr_buf,
+            keyexpr_len: bytes.len(),
+            context: context as *const ShimContext,
+            timeout_ms: SERVICE_DEFAULT_TIMEOUT_MS,
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Set the timeout for service calls
+    pub fn set_timeout(&mut self, timeout_ms: u32) {
+        self.timeout_ms = timeout_ms;
+    }
 }
 
 impl ServiceClientTrait for ShimServiceClient {
     type Error = TransportError;
 
-    fn call_raw(&mut self, _request: &[u8], _reply_buf: &mut [u8]) -> Result<usize, Self::Error> {
-        // Service clients require z_get with reply handling
-        // This is not yet implemented in the shim
-        Err(TransportError::ServiceRequestFailed)
+    fn call_raw(&mut self, request: &[u8], reply_buf: &mut [u8]) -> Result<usize, Self::Error> {
+        // Get context reference
+        let context = unsafe { &*self.context };
+
+        // Call z_get and wait for reply
+        let result = context
+            .get(
+                &self.keyexpr[..=self.keyexpr_len],
+                request,
+                reply_buf,
+                self.timeout_ms,
+            )
+            .map_err(TransportError::from)?;
+
+        Ok(result)
     }
 }
 

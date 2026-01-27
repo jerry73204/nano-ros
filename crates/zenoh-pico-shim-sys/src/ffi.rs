@@ -58,6 +58,8 @@ pub const ZENOH_SHIM_ERR_FULL: i32 = -6;
 pub const ZENOH_SHIM_ERR_INVALID: i32 = -7;
 /// Publish error
 pub const ZENOH_SHIM_ERR_PUBLISH: i32 = -8;
+/// Query timeout
+pub const ZENOH_SHIM_ERR_TIMEOUT: i32 = -9;
 
 // ============================================================================
 // Callback Types
@@ -370,6 +372,30 @@ mod cbindgen_stubs {
         _len: usize,
         _attachment: *const u8,
         _attachment_len: usize,
+    ) -> i32 {
+        0
+    }
+
+    /// Send a query and wait for reply (blocking, for service client).
+    ///
+    /// # Parameters
+    /// * `keyexpr` - Key expression string, null-terminated.
+    /// * `payload` - Request payload (may be NULL)
+    /// * `payload_len` - Length of payload in bytes
+    /// * `reply_buf` - Buffer to receive reply data
+    /// * `reply_buf_size` - Size of reply buffer
+    /// * `timeout_ms` - Timeout in milliseconds
+    ///
+    /// # Returns
+    /// Number of bytes in reply on success, negative error code on failure.
+    #[no_mangle]
+    pub extern "C" fn zenoh_shim_get(
+        _keyexpr: *const c_char,
+        _payload: *const u8,
+        _payload_len: usize,
+        _reply_buf: *mut u8,
+        _reply_buf_size: usize,
+        _timeout_ms: u32,
     ) -> i32 {
         0
     }

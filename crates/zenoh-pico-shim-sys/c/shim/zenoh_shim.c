@@ -77,9 +77,17 @@ static subscriber_entry_t g_subscribers[ZENOH_SHIM_MAX_SUBSCRIBERS];
 static liveliness_entry_t g_liveliness[ZENOH_SHIM_MAX_LIVELINESS];
 static queryable_entry_t g_queryables[ZENOH_SHIM_MAX_QUERYABLES];
 
-// Temporary storage for current query (used during callback)
-static z_loaned_query_t *g_current_query = NULL;
-static int g_current_query_idx = -1;
+// Storage for current query (cloned from callback for later reply)
+static z_owned_query_t g_stored_query;
+static bool g_stored_query_valid = false;
+static int g_stored_query_idx = -1;
+
+// Storage for blocking z_get reply
+#define ZENOH_SHIM_GET_REPLY_BUF_SIZE 4096
+static uint8_t g_get_reply_buf[ZENOH_SHIM_GET_REPLY_BUF_SIZE];
+static size_t g_get_reply_len = 0;
+static bool g_get_reply_received = false;
+static bool g_get_reply_done = false;  // True when query is complete (no more replies)
 
 // ============================================================================
 // Internal Helper Functions
@@ -119,16 +127,20 @@ static void shim_query_handler(z_loaned_query_t *query, void *arg) {
         }
     }
 
-    // Store query for reply
-    g_current_query = (z_loaned_query_t *)query;
-    g_current_query_idx = idx;
+    // Drop any previously stored query
+    if (g_stored_query_valid) {
+        z_query_drop(z_query_move(&g_stored_query));
+        g_stored_query_valid = false;
+    }
+
+    // Clone the query for later reply (after callback returns)
+    if (z_query_clone(&g_stored_query, query) == 0) {
+        g_stored_query_valid = true;
+        g_stored_query_idx = idx;
+    }
 
     // Call user callback
     entry->callback(keyexpr_str, keyexpr_len, payload_data, payload_len, entry->ctx);
-
-    // Clear query
-    g_current_query = NULL;
-    g_current_query_idx = -1;
 
     // Clean up slice
     if (payload_data != NULL) {
@@ -173,8 +185,9 @@ int32_t zenoh_shim_init(const char *locator) {
     memset(g_subscribers, 0, sizeof(g_subscribers));
     memset(g_liveliness, 0, sizeof(g_liveliness));
     memset(g_queryables, 0, sizeof(g_queryables));
-    g_current_query = NULL;
-    g_current_query_idx = -1;
+    g_stored_query_valid = false;
+    g_stored_query_idx = -1;
+    z_internal_query_null(&g_stored_query);
     g_session_open = false;
 
 #ifdef ZENOH_SHIM_SMOLTCP
@@ -624,10 +637,149 @@ int32_t zenoh_shim_undeclare_queryable(int32_t handle) {
     return ZENOH_SHIM_OK;
 }
 
+// ============================================================================
+// Service Client Implementation (z_get for ROS 2 service calls)
+// ============================================================================
+
+/**
+ * Internal callback for z_get reply handling
+ */
+static void shim_get_reply_handler(z_loaned_reply_t *reply, void *ctx) {
+    (void)ctx;
+
+    // Only process successful replies
+    if (!z_reply_is_ok(reply)) {
+        return;
+    }
+
+    // Skip if we already have a reply (only take first)
+    if (g_get_reply_received) {
+        return;
+    }
+
+    const z_loaned_sample_t *sample = z_reply_ok(reply);
+    const z_loaned_bytes_t *payload = z_sample_payload(sample);
+
+    // Copy payload to reply buffer
+    z_owned_slice_t slice;
+    if (z_bytes_to_slice(payload, &slice) == 0) {
+        const uint8_t *data = z_slice_data(z_slice_loan(&slice));
+        size_t len = z_slice_len(z_slice_loan(&slice));
+
+        if (len <= ZENOH_SHIM_GET_REPLY_BUF_SIZE) {
+            memcpy(g_get_reply_buf, data, len);
+            g_get_reply_len = len;
+            g_get_reply_received = true;
+        }
+        z_slice_drop(z_slice_move(&slice));
+    }
+}
+
+/**
+ * Internal callback for z_get completion (dropper)
+ */
+static void shim_get_reply_dropper(void *ctx) {
+    (void)ctx;
+    g_get_reply_done = true;
+}
+
+int32_t zenoh_shim_get(const char *keyexpr,
+                       const uint8_t *payload, size_t payload_len,
+                       uint8_t *reply_buf, size_t reply_buf_size,
+                       uint32_t timeout_ms) {
+    if (!g_session_open) {
+        return ZENOH_SHIM_ERR_SESSION;
+    }
+
+    // Reset reply state
+    g_get_reply_len = 0;
+    g_get_reply_received = false;
+    g_get_reply_done = false;
+
+    z_view_keyexpr_t ke;
+    if (z_view_keyexpr_from_str(&ke, keyexpr) < 0) {
+        return ZENOH_SHIM_ERR_KEYEXPR;
+    }
+
+    // Set up get options
+    z_get_options_t opts;
+    z_get_options_default(&opts);
+    opts.timeout_ms = timeout_ms;
+
+    // Set payload if provided
+    z_owned_bytes_t payload_bytes;
+    if (payload != NULL && payload_len > 0) {
+        if (z_bytes_copy_from_buf(&payload_bytes, payload, payload_len) < 0) {
+            return ZENOH_SHIM_ERR_GENERIC;
+        }
+        opts.payload = z_bytes_move(&payload_bytes);
+    }
+
+    // Create closure for reply handling
+    z_owned_closure_reply_t callback;
+    z_closure(&callback, shim_get_reply_handler, shim_get_reply_dropper, NULL);
+
+    // Send the query
+    if (z_get(z_session_loan(&g_session), z_view_keyexpr_loan(&ke), "",
+              z_move(callback), &opts) < 0) {
+        return ZENOH_SHIM_ERR_GENERIC;
+    }
+
+    // For multi-threaded platforms, wait for reply via background threads
+    // For single-threaded platforms, poll until reply or timeout
+#if Z_FEATURE_MULTI_THREAD == 0
+    // Single-threaded: poll until reply received or timeout
+    uint32_t elapsed = 0;
+    const uint32_t poll_interval = 10;  // 10ms polling interval
+
+    while (!g_get_reply_done && elapsed < timeout_ms) {
+        zp_read(z_session_loan_mut(&g_session), NULL);
+        zp_send_keep_alive(z_session_loan_mut(&g_session), NULL);
+
+        if (g_get_reply_received) {
+            break;
+        }
+
+        // Simple delay (platform-specific sleep would be better)
+        // For now, just continue polling - the zenoh timeout handles the actual timing
+        elapsed += poll_interval;
+    }
+#else
+    // Multi-threaded: wait for completion with timeout
+    // Background threads will invoke callbacks
+    uint32_t elapsed = 0;
+    const uint32_t poll_interval = 10;
+
+    while (!g_get_reply_done && elapsed < timeout_ms) {
+        // On threaded platforms, the read/lease tasks handle the session
+        // We just need to wait
+        z_sleep_ms(poll_interval);
+        elapsed += poll_interval;
+    }
+#endif
+
+    // Check if we got a reply
+    if (!g_get_reply_received) {
+        return -9;  // ZENOH_SHIM_ERR_TIMEOUT (defined in Rust FFI)
+    }
+
+    // Copy reply to output buffer
+    if (g_get_reply_len > reply_buf_size) {
+        return ZENOH_SHIM_ERR_FULL;  // Buffer too small
+    }
+
+    memcpy(reply_buf, g_get_reply_buf, g_get_reply_len);
+    return (int32_t)g_get_reply_len;
+}
+
+// ============================================================================
+// Query Reply Implementation (for service servers)
+// ============================================================================
+
 int32_t zenoh_shim_query_reply(const char *keyexpr,
                                 const uint8_t *data, size_t len,
                                 const uint8_t *attachment, size_t attachment_len) {
-    if (g_current_query == NULL) {
+    if (!g_stored_query_valid) {
         return ZENOH_SHIM_ERR_INVALID;
     }
 
@@ -655,10 +807,16 @@ int32_t zenoh_shim_query_reply(const char *keyexpr,
         options.attachment = z_bytes_move(&attachment_bytes);
     }
 
-    if (z_query_reply(g_current_query, z_view_keyexpr_loan(&ke),
+    // Reply using the stored (cloned) query
+    if (z_query_reply(z_query_loan(&g_stored_query), z_view_keyexpr_loan(&ke),
                       z_bytes_move(&payload), &options) < 0) {
         return ZENOH_SHIM_ERR_GENERIC;
     }
+
+    // Drop the stored query after reply
+    z_query_drop(z_query_move(&g_stored_query));
+    g_stored_query_valid = false;
+    g_stored_query_idx = -1;
 
     return ZENOH_SHIM_OK;
 }

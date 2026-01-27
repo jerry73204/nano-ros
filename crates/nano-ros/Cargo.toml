@@ -27,9 +27,10 @@ zenoh = [
     "nano-ros-transport/zenoh",
 ]
 
-# Shim transport backends (for embedded platforms)
-shim-zephyr = ["nano-ros-node/shim-zephyr"]
-shim-smoltcp = ["nano-ros-node/shim-smoltcp"]
+# Shim transport backends
+shim-posix = ["nano-ros-node/shim-posix", "nano-ros-transport/shim-posix"]
+shim-zephyr = ["nano-ros-node/shim-zephyr", "nano-ros-transport/shim-zephyr"]
+shim-smoltcp = ["nano-ros-node/shim-smoltcp", "nano-ros-transport/shim-smoltcp"]
 
 # Executor modes
 rtic = ["nano-ros-node/rtic"]

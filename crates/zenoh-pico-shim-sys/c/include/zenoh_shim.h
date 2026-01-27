@@ -97,6 +97,11 @@
 #define ZENOH_SHIM_ERR_PUBLISH -8
 
 /**
+ * Query timeout
+ */
+#define ZENOH_SHIM_ERR_TIMEOUT -9
+
+/**
  * Callback function type for receiving samples.
  *
  * # Parameters
@@ -359,6 +364,27 @@ int32_t zenoh_shim_query_reply(const char *_keyexpr,
                                uintptr_t _len,
                                const uint8_t *_attachment,
                                uintptr_t _attachment_len);
+
+/**
+ * Send a query and wait for reply (blocking, for service client).
+ *
+ * # Parameters
+ * * `keyexpr` - Key expression string, null-terminated.
+ * * `payload` - Request payload (may be NULL)
+ * * `payload_len` - Length of payload in bytes
+ * * `reply_buf` - Buffer to receive reply data
+ * * `reply_buf_size` - Size of reply buffer
+ * * `timeout_ms` - Timeout in milliseconds
+ *
+ * # Returns
+ * Number of bytes in reply on success, negative error code on failure.
+ */
+int32_t zenoh_shim_get(const char *_keyexpr,
+                       const uint8_t *_payload,
+                       uintptr_t _payload_len,
+                       uint8_t *_reply_buf,
+                       uintptr_t _reply_buf_size,
+                       uint32_t _timeout_ms);
 
 /**
  * Allocate memory

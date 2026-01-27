@@ -4,7 +4,9 @@
 //! Start it with: zenohd --listen tcp/127.0.0.1:7447
 //!
 //! Note: Only one ShimContext can exist at a time due to global state in the C shim.
-//! Run tests with: cargo test -p zenoh-pico-shim --features posix -- --test-threads=1
+//! Run tests with: cargo test -p zenoh-pico-shim --features posix --ignored -- --test-threads=1
+//!
+//! All tests are marked #[ignore] by default since they require external infrastructure.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
