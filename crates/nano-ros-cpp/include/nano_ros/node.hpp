@@ -183,7 +183,9 @@ public:
     template <typename ServiceT>
     std::shared_ptr<TypedServiceClient<ServiceT>> create_client(const std::string& service_name) {
         auto raw_client = create_client(service_name);
-        return std::make_shared<TypedServiceClient<ServiceT>>(std::move(raw_client));
+        // Use shared_ptr constructor directly since TypedServiceClient has private constructor
+        return std::shared_ptr<TypedServiceClient<ServiceT>>(
+            new TypedServiceClient<ServiceT>(std::move(raw_client)));
     }
 
     // =========================================================================
@@ -214,7 +216,9 @@ public:
     template <typename ServiceT>
     std::shared_ptr<TypedServiceServer<ServiceT>> create_service(const std::string& service_name) {
         auto raw_server = create_service(service_name);
-        return std::make_shared<TypedServiceServer<ServiceT>>(std::move(raw_server));
+        // Use shared_ptr constructor directly since TypedServiceServer has private constructor
+        return std::shared_ptr<TypedServiceServer<ServiceT>>(
+            new TypedServiceServer<ServiceT>(std::move(raw_server)));
     }
 
     ~Node();

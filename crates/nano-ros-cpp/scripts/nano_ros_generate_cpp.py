@@ -141,6 +141,64 @@ def parse_msg_file(msg_path: Path) -> tuple[list[Field], list[Constant]]:
     return fields, constants
 
 
+@dataclass
+class ServiceDefinition:
+    """Represents a parsed service definition."""
+    request_fields: list[Field]
+    request_constants: list[Constant]
+    response_fields: list[Field]
+    response_constants: list[Constant]
+
+
+def parse_srv_file(srv_path: Path) -> ServiceDefinition:
+    """Parse a .srv file and return request and response fields."""
+    request_fields = []
+    request_constants = []
+    response_fields = []
+    response_constants = []
+
+    in_response = False
+
+    with open(srv_path) as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+
+            # Check for separator
+            if line == '---':
+                in_response = True
+                continue
+
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+
+            # Check for constant definition (TYPE NAME=VALUE)
+            const_match = re.match(r'^(\w+)\s+(\w+)\s*=\s*(.+)$', line)
+            if const_match:
+                ros_type, name, value = const_match.groups()
+                const = Constant(ros_type, name, value.strip())
+                if in_response:
+                    response_constants.append(const)
+                else:
+                    request_constants.append(const)
+                continue
+
+            # Parse field definition
+            field = parse_field(line, line_num)
+            if field:
+                if in_response:
+                    response_fields.append(field)
+                else:
+                    request_fields.append(field)
+
+    return ServiceDefinition(
+        request_fields=request_fields,
+        request_constants=request_constants,
+        response_fields=response_fields,
+        response_constants=response_constants,
+    )
+
+
 def parse_field(line: str, line_num: int) -> Optional[Field]:
     """Parse a single field definition line."""
     # Match: TYPE[SIZE] NAME [DEFAULT]
@@ -438,22 +496,169 @@ def generate_message(msg_path: Path, output_dir: Path, package: str) -> Path:
     return output_path
 
 
+def generate_struct_body(struct_name: str, fields: list[Field], constants: list[Constant],
+                         package: str, type_name: str) -> str:
+    """Generate a struct body with fields, serialize, and deserialize methods."""
+    # Generate field declarations
+    field_decls = []
+    for field in fields:
+        cpp_type = to_cpp_type(field, package)
+        default = generate_default_value(field)
+        field_decls.append(f"        {cpp_type} {field.name}{default};")
+
+    # Generate constant declarations
+    const_decls = []
+    for const in constants:
+        cpp_type = PRIMITIVE_TYPES.get(const.ros_type, const.ros_type)
+        const_decls.append(f"        static constexpr {cpp_type} {const.name} = {const.value};")
+
+    # Generate serialize body
+    serialize_lines = []
+    for field in fields:
+        serialize_lines.append(f"            {generate_serialize(field, package)};")
+
+    # Generate deserialize body
+    deserialize_lines = []
+    for field in fields:
+        deserialize_lines.append(f"            {generate_deserialize(field, package)};")
+
+    return f"""    struct {struct_name} {{
+{chr(10).join(const_decls) + chr(10) if const_decls else ''}{chr(10).join(field_decls)}
+
+        /// Serialize to CDR format
+        void serialize(nano_ros::CdrWriter& writer) const {{
+{chr(10).join(serialize_lines) if serialize_lines else '            // No fields'}
+        }}
+
+        /// Deserialize from CDR format
+        void deserialize(nano_ros::CdrReader& reader) {{
+{chr(10).join(deserialize_lines) if deserialize_lines else '            // No fields'}
+        }}
+
+        /// Get the ROS type name
+        static constexpr const char* type_name() {{
+            return "{type_name}";
+        }}
+    }};"""
+
+
+def generate_srv_header(srv_name: str, package: str, srv_def: ServiceDefinition,
+                        dependencies: set[str]) -> str:
+    """Generate the C++ header file content for a service."""
+    header_guard = f"{package.upper()}_SRV_{srv_name.upper()}_HPP"
+    namespace = f"{package}::srv"
+    request_type_name = f"{package}/srv/{srv_name}_Request"
+    response_type_name = f"{package}/srv/{srv_name}_Response"
+
+    # Collect includes
+    includes = ['#include <nano_ros/cdr.hpp>']
+    std_includes = set()
+
+    all_fields = srv_def.request_fields + srv_def.response_fields
+    for field in all_fields:
+        cpp_type = to_cpp_type(field, package)
+        if 'std::vector' in cpp_type:
+            std_includes.add('#include <vector>')
+        if 'std::array' in cpp_type:
+            std_includes.add('#include <array>')
+        if 'std::string' in cpp_type:
+            std_includes.add('#include <string>')
+
+        # Add include for nested types
+        if field.is_nested:
+            if field.nested_package:
+                dep_header = msg_name_to_header_name(field.ros_type)
+                includes.append(f'#include <{field.nested_package}/msg/{dep_header}>')
+            else:
+                dep_header = msg_name_to_header_name(field.ros_type)
+                includes.append(f'#include "{dep_header}"')
+
+    includes.extend(sorted(std_includes))
+    includes.append('#include <cstdint>')
+
+    # Generate Request struct body
+    request_body = generate_struct_body('Request', srv_def.request_fields,
+                                        srv_def.request_constants, package, request_type_name)
+
+    # Generate Response struct body
+    response_body = generate_struct_body('Response', srv_def.response_fields,
+                                         srv_def.response_constants, package, response_type_name)
+
+    # Build the header
+    header = f"""#pragma once
+
+// Generated by nano_ros_generate_cpp.py - DO NOT EDIT
+
+{chr(10).join(includes)}
+
+namespace {namespace} {{
+
+/// Service definition for {package}/srv/{srv_name}
+struct {srv_name} {{
+{request_body}
+
+{response_body}
+}};
+
+}}  // namespace {namespace}
+"""
+    return header
+
+
+def generate_service(srv_path: Path, output_dir: Path, package: str) -> Path:
+    """Generate C++ header from .srv file."""
+    # Parse the service file
+    srv_def = parse_srv_file(srv_path)
+
+    # Extract service name from filename
+    srv_name = srv_path.stem
+
+    # Collect dependencies
+    dependencies = set()
+    for field in srv_def.request_fields + srv_def.response_fields:
+        if field.is_nested and field.nested_package:
+            dependencies.add(field.nested_package)
+
+    # Generate header content
+    header_content = generate_srv_header(srv_name, package, srv_def, dependencies)
+
+    # Create output directory
+    srv_output_dir = output_dir / package / 'srv'
+    srv_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write header file
+    header_name = msg_name_to_header_name(srv_name)
+    output_path = srv_output_dir / header_name
+    output_path.write_text(header_content)
+
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate C++ message types from .msg files'
+        description='Generate C++ message/service types from .msg/.srv files'
     )
-    parser.add_argument('msg_file', type=Path, help='Input .msg file')
+    parser.add_argument('input_file', type=Path, help='Input .msg or .srv file')
     parser.add_argument('output_dir', type=Path, help='Output directory')
     parser.add_argument('--package', '-p', default='my_package',
                         help='Package name (default: my_package)')
 
     args = parser.parse_args()
 
-    if not args.msg_file.exists():
-        print(f"Error: {args.msg_file} not found", file=sys.stderr)
+    if not args.input_file.exists():
+        print(f"Error: {args.input_file} not found", file=sys.stderr)
         sys.exit(1)
 
-    output_path = generate_message(args.msg_file, args.output_dir, args.package)
+    # Check file extension and generate appropriate output
+    suffix = args.input_file.suffix.lower()
+    if suffix == '.srv':
+        output_path = generate_service(args.input_file, args.output_dir, args.package)
+    elif suffix == '.msg':
+        output_path = generate_message(args.input_file, args.output_dir, args.package)
+    else:
+        print(f"Error: Unknown file type: {suffix} (expected .msg or .srv)", file=sys.stderr)
+        sys.exit(1)
+
     print(f"Generated: {output_path}")
 
 
