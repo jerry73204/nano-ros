@@ -12,6 +12,12 @@
 #include <zenoh-pico.h>
 #include <string.h>
 
+#ifdef ZENOH_ZEPHYR
+#include <zephyr/kernel.h>  // For printk
+#else
+#define printk(...)  // No-op on non-Zephyr platforms
+#endif
+
 // ============================================================================
 // Platform-Specific Declarations
 // ============================================================================
@@ -303,12 +309,16 @@ int32_t zenoh_shim_declare_publisher(const char *keyexpr) {
     }
 
     z_view_keyexpr_t ke;
-    if (z_view_keyexpr_from_str(&ke, keyexpr) < 0) {
+    int ke_ret = z_view_keyexpr_from_str(&ke, keyexpr);
+    if (ke_ret < 0) {
+        printk("zenoh_shim: z_view_keyexpr_from_str failed: %d for '%s'\n", ke_ret, keyexpr);
         return ZENOH_SHIM_ERR_KEYEXPR;
     }
 
-    if (z_declare_publisher(z_session_loan(&g_session), &g_publishers[idx].publisher,
-                            z_view_keyexpr_loan(&ke), NULL) < 0) {
+    int pub_ret = z_declare_publisher(z_session_loan(&g_session), &g_publishers[idx].publisher,
+                            z_view_keyexpr_loan(&ke), NULL);
+    if (pub_ret < 0) {
+        printk("zenoh_shim: z_declare_publisher failed: %d for '%s'\n", pub_ret, keyexpr);
         return ZENOH_SHIM_ERR_GENERIC;
     }
 
@@ -322,12 +332,16 @@ int32_t zenoh_shim_publish(int32_t handle, const uint8_t *data, size_t len) {
     }
 
     z_owned_bytes_t payload;
-    if (z_bytes_copy_from_buf(&payload, data, len) < 0) {
+    int bytes_ret = z_bytes_copy_from_buf(&payload, data, len);
+    if (bytes_ret < 0) {
+        printk("zenoh_shim: z_bytes_copy_from_buf failed: %d\n", bytes_ret);
         return ZENOH_SHIM_ERR_PUBLISH;
     }
 
-    if (z_publisher_put(z_publisher_loan(&g_publishers[handle].publisher),
-                        z_bytes_move(&payload), NULL) < 0) {
+    int put_ret = z_publisher_put(z_publisher_loan(&g_publishers[handle].publisher),
+                        z_bytes_move(&payload), NULL);
+    if (put_ret < 0) {
+        printk("zenoh_shim: z_publisher_put failed: %d\n", put_ret);
         return ZENOH_SHIM_ERR_PUBLISH;
     }
 
@@ -381,8 +395,10 @@ int32_t zenoh_shim_declare_subscriber(const char *keyexpr,
     z_owned_closure_sample_t closure;
     z_closure_sample(&closure, shim_sample_handler, NULL, (void *)(intptr_t)idx);
 
-    if (z_declare_subscriber(z_session_loan(&g_session), &g_subscribers[idx].subscriber,
-                             z_view_keyexpr_loan(&ke), z_closure_sample_move(&closure), NULL) < 0) {
+    int sub_ret = z_declare_subscriber(z_session_loan(&g_session), &g_subscribers[idx].subscriber,
+                             z_view_keyexpr_loan(&ke), z_closure_sample_move(&closure), NULL);
+    if (sub_ret < 0) {
+        printk("zenoh_shim: z_declare_subscriber failed: %d for '%s'\n", sub_ret, keyexpr);
         g_subscribers[idx].callback = NULL;
         g_subscribers[idx].ctx = NULL;
         return ZENOH_SHIM_ERR_GENERIC;
