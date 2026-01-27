@@ -13,7 +13,7 @@ nano-ros ↔ ROS 2 rmw_zenoh communication is fully operational as of January 20
 │   ROS 2 Node            │          │   nano-ros Node         │
 │   (rmw_zenoh_cpp)       │◄────────►│   (zenoh-pico)          │
 │                         │  Zenoh   │                         │
-│   ros2 topic echo       │  Router  │   native-talker         │
+│   ros2 topic echo       │  Router  │   native-rs-talker         │
 │   /chatter              │ (zenohd) │                         │
 └─────────────────────────┘          └─────────────────────────┘
 ```
@@ -27,7 +27,7 @@ Both nodes connect to the same Zenoh router (zenohd) or communicate directly in 
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: Run nano-ros talker
-cargo run -p native-talker --features zenoh -- --tcp 127.0.0.1:7447
+cargo run -p native-rs-talker --features zenoh -- --tcp 127.0.0.1:7447
 
 # Terminal 3: Run ROS 2 listener
 source /opt/ros/humble/setup.bash

@@ -131,7 +131,7 @@ extern "C" {
 - Avoids FFI struct layout issues
 - Zenoh allocates on RTOS heap (managed by C)
 - Rust code stays simple and no_std compatible
-- Used by Zephyr examples (`examples/zephyr-talker/`)
+- Used by Zephyr examples (`examples/zephyr-rs-talker/`)
 
 ### Pattern 3: High-level Node API (Desktop/Linux)
 
@@ -215,9 +215,9 @@ For bare-metal systems with Ethernet (STM32, etc.), use the smoltcp platform lay
 
 ### Examples
 
-- `examples/rtic-stm32f4/` - RTIC 2.x with smoltcp + stm32-eth
-- `examples/polling-stm32f4/` - Bare-metal polling loop
-- `examples/smoltcp-test/` - smoltcp validation without zenoh
+- `examples/stm32f4-rs-rtic/` - RTIC 2.x with smoltcp + stm32-eth
+- `examples/stm32f4-rs-polling/` - Bare-metal polling loop
+- `examples/stm32f4-rs-smoltcp/` - smoltcp validation without zenoh
 
 ## RTOS Integration
 
@@ -246,7 +246,7 @@ mod app {
 }
 ```
 
-See `examples/rtic-stm32f4/` for complete example.
+See `examples/stm32f4-rs-rtic/` for complete example.
 
 ### Embassy
 
@@ -268,7 +268,7 @@ async fn main(spawner: Spawner) {
 }
 ```
 
-See `examples/embassy-stm32f4/` for complete example.
+See `examples/stm32f4-rs-embassy/` for complete example.
 
 ### Bare-Metal Polling
 
@@ -288,7 +288,7 @@ loop {
 }
 ```
 
-See `examples/polling-stm32f4/` for complete example.
+See `examples/stm32f4-rs-polling/` for complete example.
 
 ### Zephyr RTOS
 
@@ -296,7 +296,7 @@ Zephyr uses the C shim pattern with west build system. The C shim is provided by
 `zenoh-pico-shim-sys` and compiled by Zephyr's CMake build system.
 
 ```
-examples/zephyr-talker/
+examples/zephyr-rs-talker/
 ├── CMakeLists.txt      # Zephyr build config (includes zenoh_shim.c)
 ├── prj.conf            # Kconfig options
 ├── src/
@@ -317,7 +317,7 @@ extern "C" {
 }
 ```
 
-See `examples/zephyr-talker/` and `examples/zephyr-listener/`.
+See `examples/zephyr-rs-talker/` and `examples/zephyr-rs-listener/`.
 
 ## Timing Constants
 
@@ -453,7 +453,7 @@ nano-ros is designed for interoperability with ROS 2 via `rmw_zenoh_cpp`.
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: Run nano-ros talker
-cargo run -p native-talker --features zenoh -- --tcp 127.0.0.1:7447
+cargo run -p native-rs-talker --features zenoh -- --tcp 127.0.0.1:7447
 
 # Terminal 3: Run ROS 2 listener (requires rmw_zenoh_cpp)
 source /opt/ros/humble/setup.bash

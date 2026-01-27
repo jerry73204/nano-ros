@@ -129,8 +129,8 @@ to a zenoh router, where they can be received by native Rust subscribers or ROS 
 | QEMU semihosting tests | ✅ Complete | 9 tests validating core functionality |
 | Zephyr workspace setup | ✅ Complete | `zephyr/setup.sh` (installs SDK, west, Rust targets) |
 | zephyr-lang-rust | ✅ Complete | Integrated at `modules/lang/rust` |
-| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-talker-rs/` with zenoh-pico transport |
-| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-listener-rs/` with zenoh-pico transport |
+| Zephyr talker (Rust) | ✅ Complete | `examples/zephyr-rs-talker-rs/` with zenoh-pico transport |
+| Zephyr listener (Rust) | ✅ Complete | `examples/zephyr-rs-listener-rs/` with zenoh-pico transport |
 | nano-ros CDR on Zephyr | ✅ Complete | Serialization/deserialization working |
 | zenoh-pico integration | ✅ Complete | v1.5.1 via west manifest + C shim for FFI |
 | TAP network setup | ✅ Complete | `scripts/setup-zephyr-network.sh` |
@@ -151,7 +151,7 @@ export ZEPHYR_BASE=~/nano-ros-workspace/zephyr
 
 # 3. Build talker for native_sim (64-bit, supports Rust)
 cd ~/nano-ros-workspace  # or ~/zephyr-nano-ros
-west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs
+west build -b native_sim/native/64 nano-ros/examples/zephyr-rs-talker-rs
 
 # 4. Run (see E2E Test below for full networking test)
 ./build/zephyr/zephyr.exe
@@ -242,8 +242,8 @@ sudo ./scripts/setup-zephyr-network.sh --down
 **Reference:** https://github.com/zephyrproject-rtos/zephyr-lang-rust
 
 #### 2B.2 Convert Zephyr Examples to Rust ✅ COMPLETE
-- [x] Port `examples/zephyr-talker/` to Rust (`examples/zephyr-talker-rs/`)
-- [x] Port `examples/zephyr-listener/` to Rust (`examples/zephyr-listener-rs/`)
+- [x] Port `examples/zephyr-rs-talker/` to Rust (`examples/zephyr-rs-talker-rs/`)
+- [x] Port `examples/zephyr-rs-listener/` to Rust (`examples/zephyr-rs-listener-rs/`)
 - [x] Integrate nano-ros crates (CDR serialization)
 - [x] C shim for zenoh-pico FFI (avoids struct size mismatch issues)
 - [x] Kconfig options for zenoh-pico in prj.conf
@@ -297,7 +297,7 @@ CONFIG_RUST=y
 ```bash
 just build              # Build all crates (no_std)
 just build-embedded     # Build for thumbv7em-none-eabihf
-just qemu-test          # Run QEMU semihosting tests
+just qemu-rs-test          # Run QEMU semihosting tests
 just test               # Run all tests (requires std)
 just quality            # Format + clippy + tests
 ```
@@ -308,10 +308,10 @@ just quality            # Format + clippy + tests
 zenohd --listen tcp/127.0.0.1:7447
 
 # Run nano-ros talker
-cargo run -p native-talker --release --features zenoh -- --tcp 127.0.0.1:7447
+cargo run -p native-rs-talker --release --features zenoh -- --tcp 127.0.0.1:7447
 
 # Run nano-ros listener
-cargo run -p native-listener --release --features zenoh -- --tcp 127.0.0.1:7447
+cargo run -p native-rs-listener --release --features zenoh -- --tcp 127.0.0.1:7447
 ```
 
 ### Test with ROS 2
@@ -320,7 +320,7 @@ cargo run -p native-listener --release --features zenoh -- --tcp 127.0.0.1:7447
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: nano-ros talker
-cargo run -p native-talker --release --features zenoh -- --tcp 127.0.0.1:7447
+cargo run -p native-rs-talker --release --features zenoh -- --tcp 127.0.0.1:7447
 
 # Terminal 3: ROS 2 listener
 source /opt/ros/humble/setup.bash
@@ -343,10 +343,10 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 | Component | Path |
 |-----------|------|
 | Core crates | `crates/` |
-| Native examples | `examples/native-talker/`, `examples/native-listener/` |
-| Zephyr Rust examples | `examples/zephyr-talker-rs/`, `examples/zephyr-listener-rs/` |
-| Zephyr C stubs | `examples/zephyr-talker/`, `examples/zephyr-listener/` |
-| QEMU test | `examples/qemu-test/` |
+| Native examples | `examples/native-rs-talker/`, `examples/native-rs-listener/` |
+| Zephyr Rust examples | `examples/zephyr-rs-talker-rs/`, `examples/zephyr-rs-listener-rs/` |
+| Zephyr C stubs | `examples/zephyr-rs-talker/`, `examples/zephyr-rs-listener/` |
+| QEMU test | `examples/qemu-rs-test/` |
 | Integration tests | `tests/` |
 | Network setup | `scripts/setup-zephyr-network.sh` |
 | West manifest | `west.yml` |
@@ -394,7 +394,7 @@ CONFIG_ZENOH_PICO_MULTI_THREAD=y
 
 **C Shim Pattern:**
 To avoid struct size mismatches between Rust FFI and zenoh-pico C structs,
-a C shim layer is used (`examples/zephyr-talker-rs/src/zenoh_shim.c`):
+a C shim layer is used (`examples/zephyr-rs-talker-rs/src/zenoh_shim.c`):
 ```c
 // C shim handles zenoh-pico types internally
 int zenoh_init_config(const char *locator);

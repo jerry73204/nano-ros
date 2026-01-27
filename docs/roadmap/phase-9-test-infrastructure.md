@@ -171,7 +171,7 @@ ROS 2 interoperability tests for embedded platforms (Zephyr).
   ```rust
   #[fixture]
   pub fn zephyr_talker_binary() -> PathBuf {
-      build_zephyr_example("zephyr-talker-rs", ZephyrPlatform::NativeSim)
+      build_zephyr_example("zephyr-rs-talker-rs", ZephyrPlatform::NativeSim)
   }
   ```
 
@@ -343,9 +343,9 @@ just test-zephyr
 |---------|------|-------------|
 | `zenohd` | `ZenohRouter` | Zenohd on port 7447 |
 | `zenohd_unique` | `ZenohRouter` | Zenohd on unique port (parallel-safe) |
-| `qemu_binary` | `PathBuf` | Built qemu-test binary |
-| `talker_binary` | `PathBuf` | Built native-talker binary |
-| `listener_binary` | `PathBuf` | Built native-listener binary |
+| `qemu_binary` | `PathBuf` | Built qemu-rs-test binary |
+| `talker_binary` | `PathBuf` | Built native-rs-talker binary |
+| `listener_binary` | `PathBuf` | Built native-rs-listener binary |
 
 ### Utility Structs
 

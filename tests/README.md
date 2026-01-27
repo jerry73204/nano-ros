@@ -184,8 +184,8 @@ fn test_my_feature(zenohd_unique: ZenohRouter) {
 | Fixture | Description |
 |---------|-------------|
 | `zenohd_unique` | Starts zenohd on unique port, auto-cleanup |
-| `build_native_talker()` | Builds and caches native-talker binary |
-| `build_native_listener()` | Builds and caches native-listener binary |
+| `build_native_talker()` | Builds and caches native-rs-talker binary |
+| `build_native_listener()` | Builds and caches native-rs-listener binary |
 | `QemuProcess::run()` | Runs QEMU with semihosting, auto-cleanup |
 | `Ros2Process::topic_echo()` | Runs ros2 topic echo, auto-cleanup |
 | `Ros2Process::topic_pub()` | Runs ros2 topic pub, auto-cleanup |
@@ -206,7 +206,7 @@ let count = count_pattern(&output, "data:");
 
 ### Tests timeout
 - Ensure no stale `zenohd` processes: `pkill -x zenohd`
-- Check for orphan test processes: `pkill -f native-talker`
+- Check for orphan test processes: `pkill -f native-rs-talker`
 
 ### ROS 2 tests skip
 - Source ROS 2: `source /opt/ros/humble/setup.bash`

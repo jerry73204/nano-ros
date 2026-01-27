@@ -4,12 +4,12 @@ This directory contains Cargo.toml templates for common embedded configurations.
 
 ## Available Templates
 
-| Template | Target | Framework | Description |
-|----------|--------|-----------|-------------|
-| `cargo-rtic-stm32f4.toml` | STM32F4 | RTIC 2.x | Real-Time Interrupt-driven Concurrency |
-| `cargo-embassy-stm32f4.toml` | STM32F4 | Embassy | Async embedded runtime |
-| `cargo-polling-stm32f4.toml` | STM32F4 | None | Simple polling loop |
-| `cargo-zephyr.toml` | Zephyr | Zephyr RTOS | For west-based projects |
+| Template                        | Target  | Framework   | Description                            |
+|---------------------------------|---------|-------------|----------------------------------------|
+| `cargo-stm32f4-rs-rtic.toml`    | STM32F4 | RTIC 2.x    | Real-Time Interrupt-driven Concurrency |
+| `cargo-stm32f4-rs-embassy.toml` | STM32F4 | Embassy     | Async embedded runtime                 |
+| `cargo-stm32f4-rs-polling.toml` | STM32F4 | None        | Simple polling loop                    |
+| `cargo-zephyr.toml`             | Zephyr  | Zephyr RTOS | For west-based projects                |
 
 ## Usage
 
@@ -23,9 +23,9 @@ This directory contains Cargo.toml templates for common embedded configurations.
 ```bash
 # Create new RTIC project
 mkdir my-rtic-project && cd my-rtic-project
-cp path/to/nano-ros/templates/cargo-rtic-stm32f4.toml Cargo.toml
+cp path/to/nano-ros/templates/cargo-stm32f4-rs-rtic.toml Cargo.toml
 mkdir -p .cargo
-cp path/to/nano-ros/examples/rtic-stm32f4/.cargo/config.toml .cargo/
+cp path/to/nano-ros/examples/stm32f4-rs-rtic/.cargo/config.toml .cargo/
 mkdir -p src
 # Edit Cargo.toml and create your main.rs
 ```

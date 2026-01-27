@@ -71,11 +71,11 @@ This phase provides working network connectivity for embedded systems:
 
 ### Work Items
 
-- [x] **8.1.1** Remove C-only Zephyr examples (zephyr-talker, zephyr-listener directories)
+- [x] **8.1.1** Remove C-only Zephyr examples (zephyr-rs-talker, zephyr-rs-listener directories)
 
 - [x] **8.1.2** Rename Rust Zephyr examples
-  - `zephyr-talker-rs` → `zephyr-talker`
-  - `zephyr-listener-rs` → `zephyr-listener`
+  - `zephyr-rs-talker-rs` → `zephyr-rs-talker`
+  - `zephyr-rs-listener-rs` → `zephyr-rs-listener`
 
 - [x] **8.1.3** Create unified C shim supporting multiple pub/sub
   ```c
@@ -87,11 +87,11 @@ This phase provides working network connectivity for embedded systems:
   void zenoh_close(void);
   ```
 
-- [x] **8.1.4** Update zephyr-talker to use executor API pattern
+- [x] **8.1.4** Update zephyr-rs-talker to use executor API pattern
   - Create `ZephyrContext`, `ZephyrExecutor`, `ZephyrNode`, `ZephyrPublisher`
   - Mirror native executor API
 
-- [x] **8.1.5** Update zephyr-listener to use executor API pattern
+- [x] **8.1.5** Update zephyr-rs-listener to use executor API pattern
   - Create `ZephyrSubscriber` with callback support
 
 - [x] **8.1.6** Generate message bindings using `cargo nano-ros generate`
@@ -190,10 +190,10 @@ See [modular-c-shim-design.md](../architecture/modular-c-shim-design.md) for det
   - `no_std` compatible with optional std support
   - Safe API with proper lifetime management
 
-- [x] **8.2.11** Migrate zephyr-talker to use `zenoh-pico-shim` crate
+- [x] **8.2.11** Migrate zephyr-rs-talker to use `zenoh-pico-shim` crate
   - Completed in Phase 8.5.9
 
-- [x] **8.2.12** Migrate zephyr-listener to use `zenoh-pico-shim` crate
+- [x] **8.2.12** Migrate zephyr-rs-listener to use `zenoh-pico-shim` crate
   - Completed in Phase 8.5.9
 
 - [ ] **8.2.13** Test Zephyr examples still work after migration
@@ -217,7 +217,7 @@ Validate smoltcp + stm32-eth works on target hardware before integrating with ze
 
 ### Work Items
 
-- [x] **8.3.1** Create `examples/smoltcp-test/` standalone example
+- [x] **8.3.1** Create `examples/stm32f4-rs-smoltcp/` standalone example
   - RTIC 2.x example with smoltcp 0.12 + stm32-eth 0.8
   - TCP echo server on port 7
   - Compiles for thumbv7em-none-eabihf
@@ -838,12 +838,12 @@ Integrate `zenoh-pico-shim` with `nano-ros-node` to enable embedded nano-ros app
   - Tracked in Phase 8.8.B (8.8.3-8.8.7)
 
 - [x] **8.5.9** Update Zephyr examples to use zenoh-pico-shim crate
-  - **zephyr-talker**: Updated CMakeLists.txt to use shared C shim from zenoh-pico-shim-sys
-  - **zephyr-talker**: Updated Cargo.toml to depend on zenoh-pico-shim with zephyr feature
-  - **zephyr-talker**: Simplified lib.rs to use ShimContext and ShimPublisher from crate
-  - **zephyr-talker**: Removed custom zenoh_shim.c (now using shared version)
-  - **zephyr-listener**: Same updates as zephyr-talker
-  - **zephyr-listener**: Uses ShimContext and ShimSubscriber from crate
+  - **zephyr-rs-talker**: Updated CMakeLists.txt to use shared C shim from zenoh-pico-shim-sys
+  - **zephyr-rs-talker**: Updated Cargo.toml to depend on zenoh-pico-shim with zephyr feature
+  - **zephyr-rs-talker**: Simplified lib.rs to use ShimContext and ShimPublisher from crate
+  - **zephyr-rs-talker**: Removed custom zenoh_shim.c (now using shared version)
+  - **zephyr-rs-listener**: Same updates as zephyr-rs-talker
+  - **zephyr-rs-listener**: Uses ShimContext and ShimSubscriber from crate
   - Hardware/QEMU testing pending (Phase 8.6)
 
 ### Implementation Notes
@@ -887,13 +887,13 @@ Verified zenoh-pico-shim compiles with all platform features.
 
 ### Work Items
 
-- [x] **8.6.1** Update `examples/rtic-stm32f4/Cargo.toml`
+- [x] **8.6.1** Update `examples/stm32f4-rs-rtic/Cargo.toml`
   - Added stm32-eth 0.8, smoltcp 0.12 dependencies
   - Downgraded stm32f4xx-hal to 0.21 (required by stm32-eth)
   - Added zenoh-pico-shim with smoltcp feature
   - Updated memory.x with ethram section for DMA descriptors
 
-- [x] **8.6.2** Update rtic-stm32f4 main.rs with working network code
+- [x] **8.6.2** Update stm32f4-rs-rtic main.rs with working network code
   - Full smoltcp + Ethernet integration
   - RTIC 2.x async tasks for polling
   - Bridges smoltcp sockets to zenoh-pico platform buffers
@@ -923,13 +923,13 @@ Verified zenoh-pico-shim compiles with all platform features.
   }
   ```
 
-- [x] **8.6.3** Update `examples/polling-stm32f4/Cargo.toml`
+- [x] **8.6.3** Update `examples/stm32f4-rs-polling/Cargo.toml`
   - Added stm32-eth 0.8, smoltcp 0.12 dependencies
   - Downgraded stm32f4xx-hal to 0.21 (required by stm32-eth)
   - Added zenoh-pico-shim with smoltcp feature
   - Updated memory.x with ethram section for DMA descriptors
 
-- [x] **8.6.4** Update polling-stm32f4 main.rs with working network code
+- [x] **8.6.4** Update stm32f4-rs-polling main.rs with working network code
   - Full smoltcp + Ethernet integration
   - Simple polling loop with DWT cycle counter timing
   - Bridges smoltcp sockets to zenoh-pico platform buffers
@@ -990,37 +990,37 @@ Verified all native examples work correctly with executor API.
 
 ### Work Items
 
-- [x] **8.7.1** Test native-talker with zenoh feature
+- [x] **8.7.1** Test native-rs-talker with zenoh feature
   ```bash
-  cargo run -p native-talker --features zenoh
+  cargo run -p native-rs-talker --features zenoh
   ```
 
-- [x] **8.7.2** Test native-listener with zenoh feature
+- [x] **8.7.2** Test native-rs-listener with zenoh feature
   ```bash
-  cargo run -p native-listener --features zenoh
+  cargo run -p native-rs-listener --features zenoh
   ```
 
-- [x] **8.7.3** Test native-service-server with zenoh feature
+- [x] **8.7.3** Test native-rs-service-server with zenoh feature
   - Builds and runs successfully
   - Service RPC transport not yet implemented (see Phase 3)
 
-- [x] **8.7.4** Test native-service-client with zenoh feature
+- [x] **8.7.4** Test native-rs-service-client with zenoh feature
   - Builds and runs successfully
   - Service call returns warning: "Service client call not yet implemented"
 
-- [x] **8.7.5** Test native-action-server with zenoh feature
+- [x] **8.7.5** Test native-rs-action-server with zenoh feature
   - Builds and runs successfully
   - Action transport depends on service transport (not yet implemented)
 
-- [x] **8.7.6** Test native-action-client with zenoh feature
+- [x] **8.7.6** Test native-rs-action-client with zenoh feature
   - Builds and runs successfully
   - Goal sending fails due to missing service transport
 
 - [x] **8.7.7** Test talker ↔ listener communication
   - ✅ **WORKING**: Listener successfully receives messages from talker
   - Start zenoh router: `zenohd --listen tcp/127.0.0.1:7447`
-  - Run listener: `RUST_LOG=info cargo run -p native-listener --features zenoh`
-  - Run talker: `RUST_LOG=info cargo run -p native-talker --features zenoh`
+  - Run listener: `RUST_LOG=info cargo run -p native-rs-listener --features zenoh`
+  - Run talker: `RUST_LOG=info cargo run -p native-rs-talker --features zenoh`
   - Messages received correctly (data=1 through data=7 verified)
 
 - [x] **8.7.8** Test service client ↔ server communication
@@ -1041,11 +1041,11 @@ Verified all native examples work correctly with executor API.
 1. **zenoh-pico-sys build.rs**: Fixed symlink handling
    - Changed `cp -r` to `cp -rL` to follow symlinks when copying source tree
 
-2. **native-talker/src/main.rs**: Fixed borrowing issues
+2. **native-rs-talker/src/main.rs**: Fixed borrowing issues
    - Added `mut` to node declaration
    - Fixed parameter lifetime by getting value immediately
 
-3. **native-listener/src/main.rs**: Fixed API changes
+3. **native-rs-listener/src/main.rs**: Fixed API changes
    - Added `mut` to node declaration
    - Fixed turbofish syntax: `create_subscription::<Int32, _>(...)`
 
@@ -1175,10 +1175,10 @@ The goal is a single unified API that works for both desktop and embedded platfo
   - Added ROS 2 interoperability section
 
 - [x] **8.8.15** Update example READMEs
-  - rtic-stm32f4/README.md
-  - polling-stm32f4/README.md
-  - zephyr-talker/README.md
-  - zephyr-listener/README.md
+  - stm32f4-rs-rtic/README.md
+  - stm32f4-rs-polling/README.md
+  - zephyr-rs-talker/README.md
+  - zephyr-rs-listener/README.md
 
 - [x] **8.8.16** Update CLAUDE.md
   - Updated zenoh-pico bindings section to describe unified zenoh-pico-shim architecture
@@ -1189,7 +1189,7 @@ The goal is a single unified API that works for both desktop and embedded platfo
 - [ ] **8.8.17** Add embedded example build check to CI (deferred - requires CI setup)
 
 - [x] **8.8.18** Update justfile with embedded commands
-  - Added smoltcp-test to embedded examples
+  - Added stm32f4-rs-smoltcp to embedded examples
   - Added `test-zenoh-shim` command
   - Added `test-ros2-interop` command
   - Added `test-pubsub` command
@@ -1237,20 +1237,20 @@ All hardware-dependent testing consolidated into this phase.
 ### 8.9.B: smoltcp Hardware Testing
 
 - [ ] **8.9.3** Test smoltcp TCP echo (from Phase 8.3)
-  - Flash smoltcp-test example to NUCLEO-F429ZI
+  - Flash stm32f4-rs-smoltcp example to NUCLEO-F429ZI
   - Connect to host PC via Ethernet
   - Verify TCP echo server responds on port 7
   - Measure latency and throughput
 
 - [ ] **8.9.4** Test RTIC example on NUCLEO-F429ZI
-  - Flash rtic-stm32f4 example
+  - Flash stm32f4-rs-rtic example
   - Connect to zenoh router on host
   - Verify publisher sends messages
-  - Verify native-listener receives messages
+  - Verify native-rs-listener receives messages
   - Measure message latency
 
 - [ ] **8.9.5** Test polling example on NUCLEO-F429ZI
-  - Flash polling-stm32f4 example
+  - Flash stm32f4-rs-polling example
   - Same tests as RTIC example
   - Compare performance with RTIC
 
@@ -1258,8 +1258,8 @@ All hardware-dependent testing consolidated into this phase.
 
 - [ ] **8.9.6** Test Zephyr examples on native_sim
   - Set up west workspace with nano-ros module
-  - Build zephyr-talker for native_sim target
-  - Build zephyr-listener for native_sim target
+  - Build zephyr-rs-talker for native_sim target
+  - Build zephyr-rs-listener for native_sim target
   - Test communication via TAP interface to host zenohd
 
 - [ ] **8.9.7** Test Zephyr examples on QEMU
@@ -1375,8 +1375,8 @@ Phase 8.7 (native verification) ────┼───────────
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────┐        ┌────────────────────────────────────┐  │
-│  │  native-talker          │        │  rtic-stm32f4, polling-stm32f4     │  │
-│  │  native-listener        │        │  zephyr-talker, zephyr-listener    │  │
+│  │  native-rs-talker          │        │  stm32f4-rs-rtic, stm32f4-rs-polling     │  │
+│  │  native-rs-listener        │        │  zephyr-rs-talker, zephyr-rs-listener    │  │
 │  │  native-service-*       │        │                                    │  │
 │  └────────────┬────────────┘        └─────────────────┬──────────────────┘  │
 │               │                                       │                      │

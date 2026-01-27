@@ -6,7 +6,7 @@ For implementation tasks, see [Phase 8: Embedded Networking](../roadmap/phase-8-
 
 ## Overview
 
-The goal is to enable network communication for bare-metal nano-ros examples (rtic-stm32f4, polling-stm32f4) using:
+The goal is to enable network communication for bare-metal nano-ros examples (stm32f4-rs-rtic, stm32f4-rs-polling) using:
 - **smoltcp**: Pure-Rust TCP/IP stack (no OS required)
 - **zenoh-pico**: C library for zenoh protocol
 - **stm32-eth**: Rust Ethernet driver for STM32
@@ -204,7 +204,7 @@ set(Z_FEATURE_SCOUTING_UDP 0)
 ### Cargo Configuration
 
 ```toml
-# examples/rtic-stm32f4/Cargo.toml
+# examples/stm32f4-rs-rtic/Cargo.toml
 [dependencies]
 smoltcp = { version = "0.11", default-features = false, features = [
     "medium-ethernet",

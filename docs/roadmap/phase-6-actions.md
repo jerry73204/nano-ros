@@ -314,8 +314,8 @@ FooAction/
 
 ### 4.6 Examples
 
-- [ ] Create `examples/native-action-server/` - Fibonacci server
-- [ ] Create `examples/native-action-client/` - Fibonacci client
+- [ ] Create `examples/native-rs-action-server/` - Fibonacci server
+- [ ] Create `examples/native-rs-action-client/` - Fibonacci client
 - [ ] Add package.xml with `example_interfaces` dependency
 - [ ] Document example usage in README
 

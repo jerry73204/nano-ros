@@ -82,7 +82,7 @@ cargo clippy --all-targets -- \
 cargo +nightly install cargo-call-stack
 
 # Build with stack size info
-cd examples/rtic-stm32f4
+cd examples/stm32f4-rs-rtic
 RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release
 
 # Generate call graph with stack sizes
@@ -387,7 +387,7 @@ jobs:
         run: cargo +nightly install cargo-call-stack
       - name: Analyze embedded examples
         run: |
-          cd examples/rtic-stm32f4
+          cd examples/stm32f4-rs-rtic
           RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release
           cargo +nightly call-stack --release > stack_analysis.txt
           cat stack_analysis.txt
@@ -424,7 +424,7 @@ check-realtime:
         -D clippy::unconditional_recursion \
         -W clippy::large_stack_arrays
     @echo "Checking embedded examples for stack usage..."
-    cd examples/rtic-stm32f4 && cargo +nightly build --release 2>&1 | head -50
+    cd examples/stm32f4-rs-rtic && cargo +nightly build --release 2>&1 | head -50
     @echo "Real-time checks complete!"
 
 # Full static analysis suite

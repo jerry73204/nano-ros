@@ -371,10 +371,10 @@ pub fn require_zephyr() -> bool {
 
 use once_cell::sync::OnceCell;
 
-/// Cached path to built zephyr-talker binary
+/// Cached path to built zephyr-rs-talker binary
 static ZEPHYR_TALKER_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
-/// Cached path to built zephyr-listener binary
+/// Cached path to built zephyr-rs-listener binary
 static ZEPHYR_LISTENER_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
 /// Get the build directory name for an example
@@ -382,8 +382,8 @@ static ZEPHYR_LISTENER_BINARY: OnceCell<PathBuf> = OnceCell::new();
 /// Returns a unique build directory to allow simultaneous builds of talker and listener.
 fn build_dir_for_example(example_name: &str) -> &'static str {
     match example_name {
-        "zephyr-talker" => "build-talker",
-        "zephyr-listener" => "build-listener",
+        "zephyr-rs-talker" => "build-talker",
+        "zephyr-rs-listener" => "build-listener",
         _ => "build",
     }
 }
@@ -394,7 +394,7 @@ fn build_dir_for_example(example_name: &str) -> &'static str {
 /// and returns it without rebuilding. Only builds if forced or binary doesn't exist.
 ///
 /// # Arguments
-/// * `example_name` - Name of the example directory (e.g., "zephyr-talker")
+/// * `example_name` - Name of the example directory (e.g., "zephyr-rs-talker")
 /// * `platform` - Target platform
 /// * `force_build` - If true, always rebuild even if binary exists
 ///
@@ -428,17 +428,17 @@ pub fn get_or_build_zephyr_example(
 
 /// Build a Zephyr example using west (cached)
 ///
-/// For zephyr-talker and zephyr-listener, results are cached to avoid
+/// For zephyr-rs-talker and zephyr-rs-listener, results are cached to avoid
 /// repeated builds within the same test run.
 pub fn build_zephyr_example_cached(
     example_name: &str,
     platform: ZephyrPlatform,
 ) -> TestResult<&'static Path> {
     match example_name {
-        "zephyr-talker" => ZEPHYR_TALKER_BINARY
+        "zephyr-rs-talker" => ZEPHYR_TALKER_BINARY
             .get_or_try_init(|| build_zephyr_example(example_name, platform))
             .map(|p| p.as_path()),
-        "zephyr-listener" => ZEPHYR_LISTENER_BINARY
+        "zephyr-rs-listener" => ZEPHYR_LISTENER_BINARY
             .get_or_try_init(|| build_zephyr_example(example_name, platform))
             .map(|p| p.as_path()),
         _ => build_zephyr_example(example_name, platform)
@@ -452,7 +452,7 @@ pub fn build_zephyr_example_cached(
 /// to allow both to exist simultaneously.
 ///
 /// # Arguments
-/// * `example_name` - Name of the example directory (e.g., "zephyr-talker")
+/// * `example_name` - Name of the example directory (e.g., "zephyr-rs-talker")
 /// * `platform` - Target platform
 ///
 /// # Returns

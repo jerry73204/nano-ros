@@ -84,8 +84,8 @@ pub trait RosService: Sized {
 - [x] Service key expression format support
 
 #### 3.1.6 Service Examples
-- [ ] Create `examples/native-service-server/` - AddTwoInts server
-- [ ] Create `examples/native-service-client/` - AddTwoInts client
+- [ ] Create `examples/native-rs-service-server/` - AddTwoInts server
+- [ ] Create `examples/native-rs-service-client/` - AddTwoInts client
 - [ ] Create `examples/zephyr-service-rs/` - Zephyr service example
 - [ ] Test interop with ROS 2 `ros2 service call`
 

@@ -21,19 +21,19 @@ members = [
 # nano-ros-cpp is excluded because it's built via CMake/Corrosion
 exclude = [
     "crates/nano-ros-cpp",
-    "examples/zephyr-talker",
-    "examples/zephyr-listener",
-    "examples/qemu-test",
-    "examples/native-talker",
-    "examples/native-listener",
-    "examples/native-service-server",
-    "examples/native-service-client",
-    "examples/native-action-server",
-    "examples/native-action-client",
-    "examples/rtic-stm32f4",
-    "examples/embassy-stm32f4",
-    "examples/polling-stm32f4",
-    "examples/smoltcp-test",
+    "examples/zephyr-rs-talker",
+    "examples/zephyr-rs-listener",
+    "examples/qemu-rs-test",
+    "examples/native-rs-talker",
+    "examples/native-rs-listener",
+    "examples/native-rs-service-server",
+    "examples/native-rs-service-client",
+    "examples/native-rs-action-server",
+    "examples/native-rs-action-client",
+    "examples/stm32f4-rs-rtic",
+    "examples/stm32f4-rs-embassy",
+    "examples/stm32f4-rs-polling",
+    "examples/stm32f4-rs-smoltcp",
 ]
 
 [workspace.package]

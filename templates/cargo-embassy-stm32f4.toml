@@ -5,7 +5,7 @@
 # - Paths to nano-ros crates (or use git dependency)
 #
 # Required files:
-# - .cargo/config.toml (copy from examples/embassy-stm32f4/.cargo/)
+# - .cargo/config.toml (copy from examples/stm32f4-rs-embassy/.cargo/)
 #
 # Note: Embassy's stm32 crate includes memory.x generation
 

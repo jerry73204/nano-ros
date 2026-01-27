@@ -84,7 +84,7 @@ Where Bᵢ = maximum blocking time from lower-priority tasks holding resources.
 
 ### Task Set Definition
 
-From `examples/rtic-stm32f4/src/main.rs`:
+From `examples/stm32f4-rs-rtic/src/main.rs`:
 
 | Task | Period (T) | Priority | WCET (C)* | Deadline (D) |
 |------|------------|----------|-----------|--------------|

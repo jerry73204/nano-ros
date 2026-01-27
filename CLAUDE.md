@@ -19,11 +19,11 @@ nano-ros/
 │   └── zenoh-pico-shim-sys/   # FFI + C shim + zenoh-pico submodule
 ├── colcon-nano-ros/           # Message binding generator (cargo nano-ros)
 ├── examples/                  # Standalone example packages
-│   ├── native-talker/         # Pub example
-│   ├── native-listener/       # Sub example
+│   ├── native-rs-talker/         # Pub example
+│   ├── native-rs-listener/       # Sub example
 │   ├── native-service-*/      # Service examples
-│   ├── zephyr-talker/         # Zephyr pub example
-│   └── zephyr-listener/       # Zephyr sub example
+│   ├── zephyr-rs-talker/         # Zephyr pub example
+│   └── zephyr-rs-listener/       # Zephyr sub example
 ├── scripts/zephyr/            # Zephyr setup scripts
 │   ├── setup.sh               # Initialize workspace
 │   └── setup-network.sh       # Configure TAP interface
@@ -165,10 +165,10 @@ See [docs/roadmap/](docs/roadmap/) for details.
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: Talker
-cd examples/native-talker && cargo run
+cd examples/native-rs-talker && cargo run
 
 # Terminal 3: Listener
-cd examples/native-listener && cargo run
+cd examples/native-rs-listener && cargo run
 ```
 
 ### ROS 2 Interop
@@ -177,7 +177,7 @@ cd examples/native-listener && cargo run
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: nano-ros talker
-cd examples/native-talker && cargo run
+cd examples/native-rs-talker && cargo run
 
 # Terminal 3: ROS 2 listener
 source /opt/ros/humble/setup.bash

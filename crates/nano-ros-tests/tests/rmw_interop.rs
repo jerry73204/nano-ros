@@ -72,8 +72,8 @@ fn test_nano_to_ros2(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     eprintln!("Starting nano-ros talker...");
     let mut talker_cmd = Command::new(&talker_binary);
     talker_cmd.env("ZENOH_LOCATOR", &locator);
-    let mut talker =
-        ManagedProcess::spawn_command(talker_cmd, "native-talker").expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn_command(talker_cmd, "native-rs-talker")
+        .expect("Failed to start talker");
 
     // Let them communicate
     std::thread::sleep(Duration::from_secs(8));
@@ -117,7 +117,7 @@ fn test_ros2_to_nano(zenohd_unique: ZenohRouter, listener_binary: PathBuf) {
     eprintln!("Starting nano-ros listener...");
     let mut listener_cmd = Command::new(&listener_binary);
     listener_cmd.env("ZENOH_LOCATOR", &locator);
-    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-listener")
+    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-rs-listener")
         .expect("Failed to start listener");
 
     // Give listener time to subscribe
@@ -239,7 +239,7 @@ fn test_nano_to_nano_inner(locator: &str, talker_path: &Path, listener_path: &Pa
     // Start listener with ZENOH_LOCATOR env var
     let mut listener_cmd = Command::new(listener_path);
     listener_cmd.env("ZENOH_LOCATOR", locator);
-    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-listener")
+    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-rs-listener")
         .expect("Failed to start listener");
 
     std::thread::sleep(Duration::from_secs(2));
@@ -247,8 +247,8 @@ fn test_nano_to_nano_inner(locator: &str, talker_path: &Path, listener_path: &Pa
     // Start talker with ZENOH_LOCATOR env var
     let mut talker_cmd = Command::new(talker_path);
     talker_cmd.env("ZENOH_LOCATOR", locator);
-    let mut talker =
-        ManagedProcess::spawn_command(talker_cmd, "native-talker").expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn_command(talker_cmd, "native-rs-talker")
+        .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(5));
 
@@ -275,8 +275,8 @@ fn test_nano_to_ros2_inner(locator: &str, talker_path: &Path) -> bool {
     // Start nano-ros talker with ZENOH_LOCATOR env var
     let mut talker_cmd = Command::new(talker_path);
     talker_cmd.env("ZENOH_LOCATOR", locator);
-    let mut talker =
-        ManagedProcess::spawn_command(talker_cmd, "native-talker").expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn_command(talker_cmd, "native-rs-talker")
+        .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(6));
 
@@ -294,7 +294,7 @@ fn test_ros2_to_nano_inner(locator: &str, listener_path: &Path) -> bool {
     // Start nano-ros listener with ZENOH_LOCATOR env var
     let mut listener_cmd = Command::new(listener_path);
     listener_cmd.env("ZENOH_LOCATOR", locator);
-    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-listener")
+    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-rs-listener")
         .expect("Failed to start listener");
 
     std::thread::sleep(Duration::from_secs(3));
@@ -334,8 +334,8 @@ fn test_keyexpr_format(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     // Start talker briefly to register key expression with ZENOH_LOCATOR env var
     let mut talker_cmd = Command::new(&talker_binary);
     talker_cmd.env("ZENOH_LOCATOR", &locator);
-    let mut talker =
-        ManagedProcess::spawn_command(talker_cmd, "native-talker").expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn_command(talker_cmd, "native-rs-talker")
+        .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(2));
     talker.kill();
@@ -375,8 +375,8 @@ fn test_qos_compatibility(zenohd_unique: ZenohRouter, talker_binary: PathBuf) {
     // Start nano-ros talker (uses BEST_EFFORT by default) with ZENOH_LOCATOR env var
     let mut talker_cmd = Command::new(&talker_binary);
     talker_cmd.env("ZENOH_LOCATOR", &locator);
-    let mut talker =
-        ManagedProcess::spawn_command(talker_cmd, "native-talker").expect("Failed to start talker");
+    let mut talker = ManagedProcess::spawn_command(talker_cmd, "native-rs-talker")
+        .expect("Failed to start talker");
 
     std::thread::sleep(Duration::from_secs(6));
 

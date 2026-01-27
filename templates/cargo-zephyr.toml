@@ -5,7 +5,7 @@
 #
 # Prerequisites:
 # - Zephyr workspace with nano-ros as a west module
-# - See examples/zephyr-talker-rs/ for complete example
+# - See examples/zephyr-rs-talker-rs/ for complete example
 
 [package]
 name = "my-zephyr-project"

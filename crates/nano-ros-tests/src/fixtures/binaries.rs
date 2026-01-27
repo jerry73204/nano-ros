@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 /// Cached path to the qemu-test binary
 static QEMU_TEST_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
-/// Cached path to the native-talker binary
+/// Cached path to the native-rs-talker binary
 static NATIVE_TALKER_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
-/// Cached path to the native-listener binary
+/// Cached path to the native-rs-listener binary
 static NATIVE_LISTENER_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
 /// Build the qemu-test example and return its path
@@ -23,7 +23,7 @@ pub fn build_qemu_test() -> TestResult<&'static Path> {
     QEMU_TEST_BINARY
         .get_or_try_init(|| {
             let root = project_root();
-            let example_dir = root.join("examples/qemu-test");
+            let example_dir = root.join("examples/qemu-rs-test");
 
             eprintln!("Building qemu-test...");
 
@@ -47,7 +47,7 @@ pub fn build_qemu_test() -> TestResult<&'static Path> {
                 ));
             }
 
-            let binary_path = example_dir.join("target/thumbv7m-none-eabi/release/qemu-test");
+            let binary_path = example_dir.join("target/thumbv7m-none-eabi/release/qemu-rs-test");
 
             if !binary_path.exists() {
                 return Err(TestError::BuildFailed(format!(
@@ -64,7 +64,7 @@ pub fn build_qemu_test() -> TestResult<&'static Path> {
 /// Build an example from the examples directory
 ///
 /// # Arguments
-/// * `name` - Example directory name (e.g., "native-talker")
+/// * `name` - Example directory name (e.g., "native-rs-talker")
 /// * `binary_name` - Actual binary name (e.g., "talker")
 /// * `features` - Optional features to enable
 /// * `target` - Optional target triple (e.g., "thumbv7m-none-eabi")
@@ -134,17 +134,17 @@ pub fn build_example(
     Ok(binary_path)
 }
 
-/// Build native-talker with zenoh feature (cached)
+/// Build native-rs-talker with zenoh feature (cached)
 pub fn build_native_talker() -> TestResult<&'static Path> {
     NATIVE_TALKER_BINARY
-        .get_or_try_init(|| build_example("native-talker", "talker", Some(&["zenoh"]), None))
+        .get_or_try_init(|| build_example("native-rs-talker", "talker", Some(&["zenoh"]), None))
         .map(|p| p.as_path())
 }
 
-/// Build native-listener with zenoh feature (cached)
+/// Build native-rs-listener with zenoh feature (cached)
 pub fn build_native_listener() -> TestResult<&'static Path> {
     NATIVE_LISTENER_BINARY
-        .get_or_try_init(|| build_example("native-listener", "listener", Some(&["zenoh"]), None))
+        .get_or_try_init(|| build_example("native-rs-listener", "listener", Some(&["zenoh"]), None))
         .map(|p| p.as_path())
 }
 
@@ -156,19 +156,19 @@ pub fn qemu_binary() -> PathBuf {
         .to_path_buf()
 }
 
-/// rstest fixture that provides the native-talker binary path
+/// rstest fixture that provides the native-rs-talker binary path
 #[rstest::fixture]
 pub fn talker_binary() -> PathBuf {
     build_native_talker()
-        .expect("Failed to build native-talker")
+        .expect("Failed to build native-rs-talker")
         .to_path_buf()
 }
 
-/// rstest fixture that provides the native-listener binary path
+/// rstest fixture that provides the native-rs-listener binary path
 #[rstest::fixture]
 pub fn listener_binary() -> PathBuf {
     build_native_listener()
-        .expect("Failed to build native-listener")
+        .expect("Failed to build native-rs-listener")
         .to_path_buf()
 }
 

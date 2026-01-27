@@ -30,14 +30,14 @@ use std::time::Duration;
 
 /// Get or build Zephyr talker for native_sim (uses existing binary if available)
 fn get_zephyr_talker_native_sim() -> PathBuf {
-    get_or_build_zephyr_example("zephyr-talker", ZephyrPlatform::NativeSim, false)
-        .expect("Failed to get zephyr-talker binary")
+    get_or_build_zephyr_example("zephyr-rs-talker", ZephyrPlatform::NativeSim, false)
+        .expect("Failed to get zephyr-rs-talker binary")
 }
 
 /// Get or build Zephyr listener for native_sim (uses existing binary if available)
 fn get_zephyr_listener_native_sim() -> PathBuf {
-    get_or_build_zephyr_example("zephyr-listener", ZephyrPlatform::NativeSim, false)
-        .expect("Failed to get zephyr-listener binary")
+    get_or_build_zephyr_example("zephyr-rs-listener", ZephyrPlatform::NativeSim, false)
+        .expect("Failed to get zephyr-rs-listener binary")
 }
 
 // =============================================================================
@@ -223,7 +223,7 @@ fn test_zephyr_to_native_e2e() {
     std::thread::sleep(Duration::from_millis(500));
 
     // Build native listener
-    let listener_path = build_native_listener().expect("Failed to build native-listener");
+    let listener_path = build_native_listener().expect("Failed to build native-rs-listener");
 
     // Get Zephyr talker
     let zephyr_binary = get_zephyr_talker_native_sim();
@@ -235,7 +235,7 @@ fn test_zephyr_to_native_e2e() {
 
     let mut listener_cmd = Command::new(&listener_path);
     listener_cmd.env("ZENOH_LOCATOR", "tcp/192.0.2.2:7447");
-    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-listener")
+    let mut listener = ManagedProcess::spawn_command(listener_cmd, "native-rs-listener")
         .expect("Failed to start listener");
 
     // Give listener time to connect and subscribe
@@ -382,7 +382,7 @@ fn test_zephyr_talker_build() {
         return;
     }
 
-    let result = get_or_build_zephyr_example("zephyr-talker", ZephyrPlatform::NativeSim, false);
+    let result = get_or_build_zephyr_example("zephyr-rs-talker", ZephyrPlatform::NativeSim, false);
 
     match result {
         Ok(path) => {
@@ -390,7 +390,7 @@ fn test_zephyr_talker_build() {
             eprintln!("SUCCESS: Found/built talker at {}", path.display());
         }
         Err(e) => {
-            panic!("Failed to get zephyr-talker: {}", e);
+            panic!("Failed to get zephyr-rs-talker: {}", e);
         }
     }
 }
@@ -402,7 +402,8 @@ fn test_zephyr_listener_build() {
         return;
     }
 
-    let result = get_or_build_zephyr_example("zephyr-listener", ZephyrPlatform::NativeSim, false);
+    let result =
+        get_or_build_zephyr_example("zephyr-rs-listener", ZephyrPlatform::NativeSim, false);
 
     match result {
         Ok(path) => {
@@ -410,7 +411,7 @@ fn test_zephyr_listener_build() {
             eprintln!("SUCCESS: Found/built listener at {}", path.display());
         }
         Err(e) => {
-            panic!("Failed to get zephyr-listener: {}", e);
+            panic!("Failed to get zephyr-rs-listener: {}", e);
         }
     }
 }

@@ -737,9 +737,9 @@ This roadmap outlines the refactoring effort to align nano-ros API with rclrs 0.
   - `spin()` with timeout
   - `halt()` stops spinning
 
-- [x] **7.6.8.3** Update `native-talker` example to use executor
+- [x] **7.6.8.3** Update `native-rs-talker` example to use executor
 
-- [x] **7.6.8.4** Update `native-listener` example to use executor
+- [x] **7.6.8.4** Update `native-rs-listener` example to use executor
 
 - [x] **7.6.8.5** Update RTIC example to use `PollingExecutor`
 

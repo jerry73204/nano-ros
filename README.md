@@ -22,7 +22,7 @@ A lightweight ROS 2 client library for embedded systems, written in Rust.
 ```bash
 git clone https://github.com/jerry73204/nano-ros.git
 cd nano-ros
-cargo build --release -p native-talker -p native-listener --features zenoh
+cargo build --release -p native-rs-talker -p native-rs-listener --features zenoh
 ```
 
 ### 2. Start Zenoh Router
@@ -35,12 +35,12 @@ zenohd --listen tcp/127.0.0.1:7447
 
 Terminal 1 - Talker:
 ```bash
-cargo run -p native-talker --release --features zenoh
+cargo run -p native-rs-talker --release --features zenoh
 ```
 
 Terminal 2 - Listener:
 ```bash
-cargo run -p native-listener --release --features zenoh
+cargo run -p native-rs-listener --release --features zenoh
 ```
 
 ## ROS 2 Interoperability
@@ -52,7 +52,7 @@ nano-ros can communicate with ROS 2 nodes using rmw_zenoh.
 zenohd --listen tcp/127.0.0.1:7447
 
 # Terminal 2: nano-ros talker
-cargo run -p native-talker --release --features zenoh
+cargo run -p native-rs-talker --release --features zenoh
 
 # Terminal 3: ROS 2 listener
 source /opt/ros/humble/setup.bash
@@ -70,7 +70,7 @@ For embedded targets, see [docs/roadmap/phase-2-zephyr-qemu.md](docs/roadmap/pha
 
 # Build for native_sim
 cd ~/nano-ros-workspace
-west build -b native_sim/native/64 nano-ros/examples/zephyr-talker-rs
+west build -b native_sim/native/64 nano-ros/examples/zephyr-rs-talker-rs
 
 # Run
 ./build/zephyr/zephyr.exe

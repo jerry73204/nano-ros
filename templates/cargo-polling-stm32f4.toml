@@ -5,7 +5,7 @@
 # - Paths to nano-ros crates (or use git dependency)
 #
 # Required files:
-# - .cargo/config.toml (copy from examples/polling-stm32f4/.cargo/)
+# - .cargo/config.toml (copy from examples/stm32f4-rs-polling/.cargo/)
 # - memory.x (linker script for your target)
 # - build.rs (to copy memory.x to OUT_DIR)
 #

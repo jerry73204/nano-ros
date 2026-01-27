@@ -1,0 +1,24 @@
+[package]
+name = "qemu-rs-test"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "qemu-rs-test"
+test = false
+bench = false
+
+[dependencies]
+nano-ros-core = { path = "../../crates/nano-ros-core", default-features = false }
+nano-ros-serdes = { path = "../../crates/nano-ros-serdes", default-features = false }
+nano-ros-node = { path = "../../crates/nano-ros-node", default-features = false }
+std_msgs = { version = "*", default-features = false }
+builtin_interfaces = { version = "*", default-features = false }
+
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-semihosting = { version = "0.6", features = ["exit"] }
+heapless = "0.8"

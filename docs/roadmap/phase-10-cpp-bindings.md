@@ -1139,8 +1139,8 @@ These can be added in a future iteration.
 ### Work Items
 
 #### 10.8.1 Basic Examples
-- [ ] Create `examples/cpp-talker/` - Publisher example
-- [ ] Create `examples/cpp-listener/` - Subscriber example
+- [ ] Create `examples/ros2-cpp-talker/` - Publisher example
+- [ ] Create `examples/ros2-cpp-listener/` - Subscriber example
 - [ ] Create `examples/cpp-service/` - Service example
 
 #### 10.8.2 CMake Integration Example
@@ -1170,8 +1170,8 @@ These can be added in a future iteration.
 - [ ] Configure proper linker settings
 
 #### 10.9.2 Zephyr Examples
-- [ ] Create `examples/zephyr-cpp-talker/`
-- [ ] Create `examples/zephyr-cpp-listener/`
+- [ ] Create `examples/zephyr-ros2-cpp-talker/`
+- [ ] Create `examples/zephyr-ros2-cpp-listener/`
 - [ ] Test on native_sim and real hardware
 
 ### Acceptance Criteria

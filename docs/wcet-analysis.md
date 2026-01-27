@@ -294,7 +294,7 @@ let subscriber: ConnectedSubscriber<MyMsg, 4096> =
 
 ### Step 1: Identify Tasks and Periods
 
-From `examples/rtic-stm32f4/src/main.rs`:
+From `examples/stm32f4-rs-rtic/src/main.rs`:
 
 | Task | Period (T) | Priority |
 |------|------------|----------|
@@ -345,7 +345,7 @@ cargo install cargo-call-stack
 # Analyze (requires nightly)
 RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly call-stack \
     --target thumbv7em-none-eabihf \
-    --bin rtic-stm32f4-example
+    --bin stm32f4-rs-rtic-example
 ```
 
 ### Clippy for Real-Time Code

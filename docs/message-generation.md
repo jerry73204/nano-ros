@@ -163,8 +163,8 @@ impl RosService for AddTwoInts {
 
 Examples are configured as standalone packages (excluded from workspace) because each has its own `.cargo/config.toml` patches. Build each example from its own directory:
 ```bash
-cd examples/native-talker && cargo build
-cd examples/native-service-client && cargo build
+cd examples/native-rs-talker && cargo build
+cd examples/native-rs-service-client && cargo build
 ```
 
 ## Regenerating Bindings

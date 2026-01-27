@@ -107,10 +107,10 @@ fn test_zephyr_talker_build() {
     };
 
     // Verify the example exists
-    let example_path = workspace.join("nano-ros/examples/zephyr-talker-rs");
+    let example_path = workspace.join("nano-ros/examples/zephyr-rs-talker");
     if !example_path.exists() {
         eprintln!(
-            "Skipping test: zephyr-talker-rs example not found at {}",
+            "Skipping test: zephyr-rs-talker example not found at {}",
             example_path.display()
         );
         return;
@@ -143,10 +143,10 @@ fn test_zephyr_listener_build() {
     };
 
     // Verify the example exists
-    let example_path = workspace.join("nano-ros/examples/zephyr-listener-rs");
+    let example_path = workspace.join("nano-ros/examples/zephyr-rs-listener");
     if !example_path.exists() {
         eprintln!(
-            "Skipping test: zephyr-listener-rs example not found at {}",
+            "Skipping test: zephyr-rs-listener example not found at {}",
             example_path.display()
         );
         return;

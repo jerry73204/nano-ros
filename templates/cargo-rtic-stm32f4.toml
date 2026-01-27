@@ -5,7 +5,7 @@
 # - Paths to nano-ros crates (or use git dependency)
 #
 # Required files:
-# - .cargo/config.toml (copy from examples/rtic-stm32f4/.cargo/)
+# - .cargo/config.toml (copy from examples/stm32f4-rs-rtic/.cargo/)
 # - memory.x (linker script for your target)
 # - build.rs (to copy memory.x to OUT_DIR)
 

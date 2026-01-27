@@ -253,12 +253,12 @@ See [RTIC Integration Design](../rtic-integration-design.md) for detailed archit
 ### Work Items
 
 - [ ] **5.5.1** Create RTIC example for STM32F4
-  - File: `examples/rtic-stm32f4/`
+  - File: `examples/stm32f4-rs-rtic/`
   - Hardware: NUCLEO-F429ZI or similar
   - Features: IMU reading, ROS 2 publish, UART debug
 
 - [ ] **5.5.2** Create Embassy example for STM32F4
-  - File: `examples/embassy-stm32f4/`
+  - File: `examples/stm32f4-rs-embassy/`
   - Same hardware as RTIC example
   - Demonstrate Embassy-style async
 

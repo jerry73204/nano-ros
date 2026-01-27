@@ -15,8 +15,8 @@ repos/
 │   │   ├── downloads/            # SDK tarball cache (gitignored)
 │   │   └── sdk/                  # Installed Zephyr SDK (gitignored)
 │   ├── examples/
-│   │   ├── zephyr-talker/        # Zephyr pub example
-│   │   └── zephyr-listener/      # Zephyr sub example
+│   │   ├── zephyr-rs-talker/        # Zephyr pub example
+│   │   └── zephyr-rs-listener/      # Zephyr sub example
 │   ├── zephyr-workspace -> ../nano-ros-workspace/  # Symlink (gitignored)
 │   └── west.yml                  # West manifest
 │
@@ -101,7 +101,7 @@ source ../nano-ros-workspace/env.sh
 
 # Build Zephyr talker
 cd ../nano-ros-workspace
-west build -b native_sim/native/64 nano-ros/examples/zephyr-talker
+west build -b native_sim/native/64 nano-ros/examples/zephyr-rs-talker
 
 # Run (no sudo needed)
 ./build/zephyr/zephyr.exe
@@ -119,7 +119,7 @@ cargo run -p zenoh-pico --example sub_test --features std
 # Terminal 3: Run Zephyr talker
 source ../nano-ros-workspace/env.sh
 cd ../nano-ros-workspace
-west build -b native_sim/native/64 nano-ros/examples/zephyr-talker
+west build -b native_sim/native/64 nano-ros/examples/zephyr-rs-talker
 ./build/zephyr/zephyr.exe
 ```
 
