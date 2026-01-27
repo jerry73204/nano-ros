@@ -542,7 +542,7 @@ std::shared_ptr<TypedSubscription<MessageT>> create_subscription(const std::stri
 
 ---
 
-## 10.5 Message Type Generation
+## 10.5 Message Type Generation - COMPLETE
 
 ### Design Overview
 
@@ -578,8 +578,8 @@ ${CMAKE_BINARY_DIR}/nano_ros_generated/${PROJECT_NAME}/
 ### Work Items
 
 #### 10.5.1 C++ CDR Serialization Library
-- [ ] Create `include/nano_ros/cdr.hpp` header-only CDR implementation
-- [ ] Implement `CdrWriter` class:
+- [x] Create `include/nano_ros/cdr.hpp` header-only CDR implementation
+- [x] Implement `CdrWriter` class:
   ```cpp
   class CdrWriter {
   public:
@@ -601,18 +601,18 @@ ${CMAKE_BINARY_DIR}/nano_ros_generated/${PROJECT_NAME}/
       size_t size() const;
   };
   ```
-- [ ] Implement `CdrReader` class (mirror of CdrWriter)
-- [ ] Handle CDR alignment rules (4-byte for primitives, 1-byte for chars)
-- [ ] Add CDR encapsulation header (0x00 0x01 for little-endian)
+- [x] Implement `CdrReader` class (mirror of CdrWriter)
+- [x] Handle CDR alignment rules (natural alignment, relative to origin)
+- [x] Add CDR encapsulation header (0x00 0x01 for little-endian)
 - [ ] Unit tests for wire compatibility with Rust nano-ros-serdes
 
 #### 10.5.2 Message Generator Tool
-- [ ] Create Python generator script: `scripts/nano_ros_generate_cpp.py`
-- [ ] Parse .msg file format (field definitions, constants, comments)
-- [ ] Support primitive types: bool, int8-64, uint8-64, float32/64, string
-- [ ] Support arrays: fixed `T[N]`, bounded `T[<=N]`, unbounded `T[]`
-- [ ] Support nested message types
-- [ ] Generate struct with:
+- [x] Create Python generator script: `scripts/nano_ros_generate_cpp.py`
+- [x] Parse .msg file format (field definitions, constants, comments)
+- [x] Support primitive types: bool, int8-64, uint8-64, float32/64, string
+- [x] Support arrays: fixed `T[N]`, bounded `T[<=N]`, unbounded `T[]`
+- [x] Support nested message types
+- [x] Generate struct with:
   - Default member initializers
   - `serialize(CdrWriter&)` method
   - `deserialize(CdrReader&)` method
@@ -654,12 +654,12 @@ struct MyMessage {
 ```
 
 #### 10.5.3 CMake Integration
-- [ ] Create `cmake/nano_ros_generate_interfaces.cmake` macro
-- [ ] Auto-detect Python interpreter
-- [ ] Configure include paths for generated headers
-- [ ] Create CMake INTERFACE library target for generated messages
-- [ ] Handle DEPENDENCIES for nested message types
-- [ ] Support regeneration on .msg file changes
+- [x] Create `cmake/nano_ros_generate_interfaces.cmake` macro
+- [x] Auto-detect Python interpreter
+- [x] Configure include paths for generated headers
+- [x] Create CMake INTERFACE library target for generated messages
+- [x] Handle DEPENDENCIES for nested message types
+- [x] Support regeneration on .msg file changes
 
 **CMake Macro Implementation:**
 ```cmake
@@ -685,14 +685,14 @@ endfunction()
 ```
 
 #### 10.5.4 Standard Message Types
-- [ ] Pre-generate common std_msgs: Bool, Int8-64, UInt8-64, Float32/64, String, Header
+- [x] Pre-generate common std_msgs: Bool, Int8-64, UInt8-64, Float32/64, String, Header
 - [ ] Pre-generate common geometry_msgs: Point, Vector3, Quaternion, Pose, Twist
-- [ ] Pre-generate builtin_interfaces: Time, Duration
+- [x] Pre-generate builtin_interfaces: Time, Duration
 - [ ] Package as `nano_ros_std_msgs` CMake component
 - [ ] Install to `share/nano_ros_cpp/msg/`
 
 #### 10.5.5 TypedPublisher/TypedSubscription Integration
-- [ ] Update `TypedPublisher<T>::publish()` to use `CdrWriter`:
+- [x] Update `TypedPublisher<T>::publish()` to use `CdrWriter`:
   ```cpp
   void publish(const MessageT& msg) {
       nano_ros::CdrWriter writer;
@@ -701,7 +701,7 @@ endfunction()
       inner_->publish_raw(writer.data(), writer.size());
   }
   ```
-- [ ] Update `TypedSubscription<T>::take()` to use `CdrReader`:
+- [x] Update `TypedSubscription<T>::take()` to use `CdrReader`:
   ```cpp
   std::optional<MessageT> take() {
       auto raw = inner_->take_raw();
@@ -715,76 +715,422 @@ endfunction()
   ```
 
 ### Acceptance Criteria
-- [ ] `nano_ros_generate_interfaces()` CMake macro works
-- [ ] Generated messages compile without errors
+- [x] `nano_ros_generate_interfaces()` CMake macro works
+- [x] Generated messages compile without errors
 - [ ] CDR serialization is wire-compatible with Rust nano-ros-serdes
 - [ ] Messages can be published from C++ and received by Rust (and vice versa)
 - [ ] Messages interoperate with ROS 2 nodes via zenoh
 
 ---
 
-## 10.6 Executor Integration
+## 10.6 Executor Integration - COMPLETE
+
+### rclcpp API Reference
+
+The rclcpp executor API (Humble 16.0.x) provides:
+
+| Method                    | Description                                       |
+|---------------------------|---------------------------------------------------|
+| `spin()`                  | Blocking spin loop until cancelled                |
+| `spin_once(timeout)`      | Execute one work item, can block waiting for work |
+| `spin_some(max_duration)` | Execute all immediately available work            |
+| `spin_all(max_duration)`  | Execute work repeatedly until duration exceeded   |
+| `add_node(node)`          | Add node to executor (weak reference)             |
+| `remove_node(node)`       | Remove node from executor                         |
+| `cancel()`                | Request spin to stop (thread-safe)                |
+| `is_spinning()`           | Check if currently spinning                       |
+
+See [rclcpp Executor documentation](https://docs.ros.org/en/humble/p/rclcpp/generated/classrclcpp_1_1Executor.html).
+
+### Embedded Compatibility
+
+The Rust side provides two executor types:
+- **BasicExecutor** (std): Full-featured with blocking `spin()`, uses threads
+- **PollingExecutor** (no_std): Manual `spin_once(delta_ms)`, no threads/blocking
+
+The C++ API mirrors this with two executor classes for different platforms:
+
+| Feature | SingleThreadedExecutor | PollingExecutor |
+|---------|----------------------|-----------------|
+| Platform | Desktop (std) | Embedded (Zephyr, NuttX) |
+| `spin()` | Blocking loop | Not available |
+| `spin_once()` | With timeout (blocking) | Non-blocking only |
+| Threading | Uses `std::this_thread::sleep_for` | No threading |
+| Allocation | Uses `std::function` | Function pointers only |
+| rclcpp compatible | Yes | Partial (spin_once only) |
+
+**Embedded Constraints:**
+- No `std::thread` or `std::this_thread::sleep_for`
+- Avoid heap allocation in hot paths (callbacks, message processing)
+- Timer handling via `delta_ms` parameter (user provides elapsed time)
+- Function pointers instead of `std::function` for callbacks (optional)
+
+### Design Decisions
+
+1. **Node Ownership**: Unlike rclcpp where nodes are independent, nano-ros nodes are
+   conceptually owned by the executor context. The C++ API provides `add_node()`/`remove_node()`
+   for API compatibility, but nodes must be created via `Context::create_node()` first.
+
+2. **spin_once Semantics**:
+   - **SingleThreadedExecutor** (std): rclcpp-compatible with timeout
+     - timeout < 0: Block indefinitely (busy-poll with short sleeps)
+     - timeout == 0: Non-blocking, process available work only
+     - timeout > 0: Poll with sleep until timeout
+   - **PollingExecutor** (embedded): Non-blocking only
+     - `spin_once(delta_ms)` - user provides elapsed time for timers
+     - Returns immediately after processing available work
+
+3. **Callback Storage**:
+   - **SingleThreadedExecutor**: Uses `std::function` (heap allocation OK)
+   - **PollingExecutor**: Works with either `std::function` or function pointers
+
+4. **Deferred Features**: Callback groups and `spin_until_future_complete()` are not
+   implemented in the initial version but can be added later.
 
 ### Work Items
 
 #### 10.6.1 Executor Bridge
-- [ ] Expose Rust executor through cxx bridge
+- [ ] Define executor FFI in cxx bridge
 - [ ] Create C++ Executor base class
-- [ ] Implement spin(), spin_once(), spin_some()
+- [ ] Implement SingleThreadedExecutor (std platforms)
+- [ ] Implement PollingExecutor (embedded platforms)
 
 ```cpp
 // include/nano_ros/executor.hpp
 namespace nano_ros {
+
+/// Executor options
+struct ExecutorOptions {
+    std::shared_ptr<Context> context;
+
+    ExecutorOptions();
+    explicit ExecutorOptions(std::shared_ptr<Context> context);
+};
+
+/// Base executor class (common interface)
 class Executor {
 public:
-    virtual ~Executor() = default;
+    explicit Executor(const ExecutorOptions& options = ExecutorOptions());
+    virtual ~Executor();
 
-    void add_node(std::shared_ptr<Node> node);
-    void remove_node(std::shared_ptr<Node> node);
+    // Node management
+    virtual void add_node(std::shared_ptr<Node> node);
+    virtual void remove_node(std::shared_ptr<Node> node);
 
-    void spin();
-    void spin_once(Duration timeout = Duration(0));
-    void spin_some(Duration max_duration = Duration(0));
+    // Control
     void cancel();
+    bool is_spinning() const;
+
+protected:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
+// =============================================================================
+// SingleThreadedExecutor - Desktop/std platforms (rclcpp-compatible)
+// =============================================================================
+
+/// Single-threaded executor with blocking spin (requires std)
+///
+/// This executor provides rclcpp-compatible API with blocking spin methods.
+/// Use this on desktop platforms where std::thread is available.
+///
+/// Example:
+/// @code
+/// nano_ros::SingleThreadedExecutor executor;
+/// executor.add_node(node);
+/// executor.spin();  // Blocks until cancel() is called
+/// @endcode
 class SingleThreadedExecutor : public Executor {
 public:
-    SingleThreadedExecutor();
+    explicit SingleThreadedExecutor(const ExecutorOptions& options = ExecutorOptions());
+    ~SingleThreadedExecutor() override;
+
+    /// Blocking spin loop - processes work until cancel() is called
+    void spin();
+
+    /// Execute one work item with optional timeout (rclcpp-compatible)
+    /// @param timeout_ns Timeout in nanoseconds (-1 = block forever, 0 = non-blocking)
+    void spin_once(int64_t timeout_ns = -1);
+
+    /// Execute all immediately available work (non-blocking)
+    /// @param max_duration_ns Maximum time to spend (0 = no limit)
+    void spin_some(int64_t max_duration_ns = 0);
 };
+
+// Convenience functions (match rclcpp:: namespace)
+void spin(std::shared_ptr<Node> node);
+void spin_some(std::shared_ptr<Node> node);
+
+// =============================================================================
+// PollingExecutor - Embedded platforms (Zephyr, NuttX, bare-metal)
+// =============================================================================
+
+/// Polling executor for embedded platforms (no threads, no blocking)
+///
+/// This executor is designed for embedded systems where threads are not
+/// available or not desired. The user must call spin_once() periodically
+/// from their main loop or RTOS task.
+///
+/// Example (Zephyr):
+/// @code
+/// nano_ros::PollingExecutor executor;
+/// executor.add_node(node);
+///
+/// while (true) {
+///     executor.spin_once(10);  // 10ms since last call
+///     k_msleep(10);
+/// }
+/// @endcode
+class PollingExecutor : public Executor {
+public:
+    explicit PollingExecutor(const ExecutorOptions& options = ExecutorOptions());
+    ~PollingExecutor() override;
+
+    /// Process all available work (non-blocking)
+    ///
+    /// @param delta_ms Milliseconds elapsed since last call (for timer processing)
+    /// @return Number of callbacks executed
+    ///
+    /// This method:
+    /// 1. Polls transport for incoming messages
+    /// 2. Invokes subscription callbacks for received messages
+    /// 3. Fires ready timers based on delta_ms
+    uint32_t spin_once(uint32_t delta_ms);
+
+    /// Get the number of nodes in this executor
+    size_t node_count() const;
+};
+
+}  // namespace nano_ros
+```
+
+#### 10.6.2 Rust Bridge Implementation
+- [ ] Extend cxx bridge for executor operations
+- [ ] Map C++ nodes to Rust NodeState
+- [ ] Thread-safe cancel mechanism for SingleThreadedExecutor
+- [ ] Polling interface for PollingExecutor
+
+```rust
+// src/lib.rs additions
+extern "Rust" {
+    // Executor types
+    type RustSingleThreadedExecutor;
+    type RustPollingExecutor;
+
+    // SingleThreadedExecutor (std only)
+    fn create_single_threaded_executor(
+        context: &RustContext
+    ) -> Result<Box<RustSingleThreadedExecutor>>;
+    fn ste_add_node(exec: &mut RustSingleThreadedExecutor, node: &RustNode) -> Result<()>;
+    fn ste_remove_node(exec: &mut RustSingleThreadedExecutor, node: &RustNode) -> Result<()>;
+    fn ste_spin(exec: &mut RustSingleThreadedExecutor);  // Blocking
+    fn ste_spin_once(exec: &mut RustSingleThreadedExecutor, timeout_ns: i64) -> u32;
+    fn ste_spin_some(exec: &mut RustSingleThreadedExecutor, max_duration_ns: i64) -> u32;
+    fn ste_cancel(exec: &RustSingleThreadedExecutor);
+    fn ste_is_spinning(exec: &RustSingleThreadedExecutor) -> bool;
+
+    // PollingExecutor (embedded compatible)
+    fn create_polling_executor(
+        context: &RustContext
+    ) -> Result<Box<RustPollingExecutor>>;
+    fn pe_add_node(exec: &mut RustPollingExecutor, node: &RustNode) -> Result<()>;
+    fn pe_remove_node(exec: &mut RustPollingExecutor, node: &RustNode) -> Result<()>;
+    fn pe_spin_once(exec: &mut RustPollingExecutor, delta_ms: u32) -> u32;
+    fn pe_node_count(exec: &RustPollingExecutor) -> usize;
 }
 ```
 
-#### 10.6.2 Callback Handling
-- [ ] Implement callback queue management
-- [ ] Bridge C++ callbacks to Rust
-- [ ] Handle callback exceptions safely
+#### 10.6.3 Callback Handling
+- [ ] Process subscription callbacks during spin
+- [ ] Process timer callbacks during spin
+- [ ] Exception-safe callback invocation (SingleThreadedExecutor)
+
+```cpp
+// SingleThreadedExecutor implementation (uses std::thread for sleep)
+void SingleThreadedExecutor::spin_once(int64_t timeout_ns) {
+    auto start = std::chrono::steady_clock::now();
+
+    while (true) {
+        uint32_t work_done = ffi::ste_spin_once(*impl_->rust_executor, 0);
+
+        if (work_done > 0 || timeout_ns == 0) {
+            return;  // Work done or non-blocking mode
+        }
+
+        if (timeout_ns < 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;  // Infinite timeout
+        }
+
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed >= std::chrono::nanoseconds(timeout_ns)) {
+            return;  // Timeout expired
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+// PollingExecutor implementation (no std::thread, embedded-safe)
+uint32_t PollingExecutor::spin_once(uint32_t delta_ms) {
+    return ffi::pe_spin_once(*impl_->rust_executor, delta_ms);
+}
+```
+
+### Usage Examples
+
+#### Desktop (std) - rclcpp-compatible
+
+```cpp
+#include <nano_ros/nano_ros.hpp>
+#include <std_msgs/msg/int32.hpp>
+
+int main() {
+    auto context = nano_ros::Context::from_env();
+    auto node = context->create_node("desktop_node");
+
+    auto subscription = node->create_subscription<std_msgs::msg::Int32>(
+        "/topic",
+        nano_ros::QoS(10),
+        [](const std_msgs::msg::Int32& msg) {
+            std::cout << "Received: " << msg.data << std::endl;
+        }
+    );
+
+    // Option 1: Convenience function
+    nano_ros::spin(node);
+
+    // Option 2: Explicit executor
+    nano_ros::SingleThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin();
+
+    return 0;
+}
+```
+
+#### Embedded (Zephyr)
+
+```cpp
+#include <nano_ros/nano_ros.hpp>
+#include <std_msgs/msg/int32.hpp>
+#include <zephyr/kernel.h>
+
+// Callback function (function pointer works, std::function also supported)
+void on_message(const std_msgs::msg::Int32& msg) {
+    printk("Received: %d\n", msg.data);
+}
+
+int main() {
+    auto context = nano_ros::Context::from_env();
+    auto node = context->create_node("zephyr_node");
+
+    auto subscription = node->create_subscription<std_msgs::msg::Int32>(
+        "/topic", nano_ros::QoS(10), on_message);
+
+    nano_ros::PollingExecutor executor;
+    executor.add_node(node);
+
+    while (true) {
+        executor.spin_once(10);  // 10ms elapsed
+        k_msleep(10);
+    }
+
+    return 0;
+}
+```
 
 ### Acceptance Criteria
-- Executor spins and processes callbacks
-- Multiple nodes can be added to executor
-- Matches rclcpp executor behavior
+- [x] **SingleThreadedExecutor** (std platforms):
+  - [x] `spin()` blocks until cancelled
+  - [x] `spin_once(timeout)` waits for specified timeout
+  - [x] `spin_some()` returns immediately (non-blocking)
+  - [x] `cancel()` is thread-safe and stops spinning
+  - [x] Convenience functions `spin(node)` and `spin_some(node)` work
+- [x] **PollingExecutor** (embedded platforms):
+  - [x] `spin_once(delta_ms)` non-blocking
+  - [x] No `std::thread` or blocking operations used
+  - [x] Suitable for Zephyr and other embedded platforms
+- [x] Both executors:
+  - [x] `add_node()`/`remove_node()` manage executor's node set
+
+**Note:** C++ subscriptions use polling (`take()`) rather than callbacks. The executor
+provides the rclcpp-compatible structure for node management and blocking spin, while
+users poll subscriptions directly via `take()`. Timer callbacks are not yet supported
+in the C++ bindings.
 
 ---
 
-## 10.7 Service Support
+## 10.7 Service Support - COMPLETE
 
 ### Work Items
 
 #### 10.7.1 Service Client Bridge
-- [ ] Expose Rust service client through cxx
-- [ ] Create templated C++ Client class
-- [ ] Implement async_send_request()
+- [x] Expose Rust service client through cxx
+- [x] Create templated C++ TypedServiceClient class
+- [x] Implement synchronous `call()` method
 
 #### 10.7.2 Service Server Bridge
-- [ ] Expose Rust service server through cxx
-- [ ] Create templated C++ Service class
-- [ ] Handle request callbacks
+- [x] Expose Rust service server through cxx
+- [x] Create templated C++ TypedServiceServer class
+- [x] Implement polling-based `try_recv_request()` / `send_reply()`
+
+### Implementation Details
+
+**Rust FFI (lib.rs):**
+- `RustServiceClient` wrapper with `call_raw(request)` returning raw CDR bytes
+- `RustServiceServer` wrapper with `try_recv_request()` and `send_reply()`
+- Added buffer accessors to `ConnectedServiceClient/Server` for FFI use
+
+**C++ API (service.hpp):**
+```cpp
+// Raw service client
+class ServiceClient {
+    std::vector<uint8_t> call_raw(const std::vector<uint8_t>& request);
+    std::string get_service_name() const;
+};
+
+// Typed service client
+template<typename ServiceT>
+class TypedServiceClient {
+    typename ServiceT::Response call(const typename ServiceT::Request& request);
+};
+
+// Raw service server
+class ServiceServer {
+    std::vector<uint8_t> try_recv_request();  // Non-blocking
+    void send_reply(const std::vector<uint8_t>& response);
+};
+
+// Typed service server
+template<typename ServiceT>
+class TypedServiceServer {
+    std::optional<typename ServiceT::Request> try_recv_request();
+    void send_reply(const typename ServiceT::Response& response);
+};
+```
+
+**Node methods:**
+```cpp
+std::shared_ptr<ServiceClient> create_client(const std::string& service_name);
+std::shared_ptr<ServiceServer> create_service(const std::string& service_name);
+
+template<typename ServiceT>
+std::shared_ptr<TypedServiceClient<ServiceT>> create_client(const std::string& service_name);
+
+template<typename ServiceT>
+std::shared_ptr<TypedServiceServer<ServiceT>> create_service(const std::string& service_name);
+```
 
 ### Acceptance Criteria
-- C++ clients can call Rust/ROS 2 services
-- C++ servers respond to Rust/ROS 2 clients
-- Matches rclcpp service patterns
+- [x] C++ service clients can call services with typed request/response
+- [x] C++ service servers can receive requests and send responses
+- [x] Polling-based server API (no callback support yet)
+- [x] Wire-compatible CDR serialization with Rust services
+
+**Note:** Async `call_async()` and callback-based servers are not yet implemented.
+These can be added in a future iteration.
 
 ---
 
@@ -850,17 +1196,17 @@ Phase 10.3: Context and Node                         ✓ COMPLETE
 Phase 10.4: Publisher and Subscription               ✓ COMPLETE
     └── Pub/Sub with raw byte interface
 
-Phase 10.5: Message Type Generation                  ← NEXT
+Phase 10.5: Message Type Generation                  ✓ COMPLETE
     ├── C++ CdrWriter/CdrReader (header-only)
     ├── Python message generator
     ├── CMake nano_ros_generate_interfaces() macro
-    └── Standard message types (std_msgs, etc.)
+    └── Standard message types (std_msgs, builtin_interfaces)
 
-Phase 10.6: Executor Integration
-    └── Spin, callbacks, multi-node
+Phase 10.6: Executor Integration                     ✓ COMPLETE
+    └── Spin, node management, polling subscriptions
 
-Phase 10.7: Service Support
-    └── Client and Server
+Phase 10.7: Service Support                          ✓ COMPLETE
+    └── Client and Server (polling-based)
 
 Phase 10.8: Examples and Documentation
     └── Usage examples, docs

@@ -1194,6 +1194,30 @@ impl<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
     pub const fn reply_buffer_size(&self) -> usize {
         REPLY_BUF
     }
+
+    /// Get a reference to the request buffer (for FFI use)
+    pub fn req_buffer(&self) -> &[u8] {
+        &self.req_buffer
+    }
+
+    /// Get a mutable reference to the reply buffer (for FFI use)
+    pub fn reply_buffer_mut(&mut self) -> &mut [u8] {
+        &mut self.reply_buffer
+    }
+
+    /// Send a raw reply for a request with the given sequence number
+    ///
+    /// The reply data should be written to reply_buffer_mut() before calling this.
+    pub fn send_reply_raw(
+        &mut self,
+        seq_num: i64,
+        reply_len: usize,
+    ) -> Result<(), ConnectedNodeError> {
+        use nano_ros_transport::ServiceServerTrait;
+        self.server
+            .send_reply(seq_num, &self.reply_buffer[..reply_len])
+            .map_err(ConnectedNodeError::from)
+    }
 }
 
 /// A connected service client that can send service requests
@@ -1245,6 +1269,11 @@ impl<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
     /// Get the reply buffer size
     pub const fn reply_buffer_size(&self) -> usize {
         REPLY_BUF
+    }
+
+    /// Get a reference to the reply buffer (for FFI use after call_raw)
+    pub fn reply_buffer(&self) -> &[u8] {
+        &self.reply_buffer
     }
 }
 

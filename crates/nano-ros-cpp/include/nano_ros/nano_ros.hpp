@@ -15,6 +15,7 @@
 #include "nano_ros/node_options.hpp"
 #include "nano_ros/publisher.hpp"
 #include "nano_ros/qos.hpp"
+#include "nano_ros/service.hpp"
 #include "nano_ros/subscription.hpp"
 #include "nano_ros/time.hpp"
 #include "nano_ros/version.hpp"

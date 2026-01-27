@@ -673,6 +673,119 @@ std::shared_ptr<Subscription> Node::create_subscription(const std::string& topic
     }
 }
 
+std::shared_ptr<ServiceClient> Node::create_client(const std::string& service_name) {
+    if (!impl_) {
+        throw std::runtime_error("Node is not initialized");
+    }
+    try {
+        auto rust_client = ffi::create_service_client(*impl_->rust_node, service_name);
+        auto client = std::shared_ptr<ServiceClient>(new ServiceClient());
+        client->impl_ = std::make_unique<ServiceClient::Impl>(std::move(rust_client));
+        return client;
+    } catch (const ::rust::Error& e) {
+        throw std::runtime_error(std::string("Failed to create service client: ") + e.what());
+    }
+}
+
+std::shared_ptr<ServiceServer> Node::create_service(const std::string& service_name) {
+    if (!impl_) {
+        throw std::runtime_error("Node is not initialized");
+    }
+    try {
+        auto rust_server = ffi::create_service_server(*impl_->rust_node, service_name);
+        auto server = std::shared_ptr<ServiceServer>(new ServiceServer());
+        server->impl_ = std::make_unique<ServiceServer::Impl>(std::move(rust_server));
+        return server;
+    } catch (const ::rust::Error& e) {
+        throw std::runtime_error(std::string("Failed to create service server: ") + e.what());
+    }
+}
+
+// ============================================================================
+// ServiceClient implementation
+// ============================================================================
+
+struct ServiceClient::Impl {
+    ::rust::Box<ffi::RustServiceClient> rust_client;
+
+    explicit Impl(::rust::Box<ffi::RustServiceClient> client) : rust_client(std::move(client)) {}
+};
+
+ServiceClient::ServiceClient() : impl_(nullptr) {}
+
+ServiceClient::~ServiceClient() = default;
+
+ServiceClient::ServiceClient(ServiceClient&&) noexcept = default;
+ServiceClient& ServiceClient::operator=(ServiceClient&&) noexcept = default;
+
+std::vector<uint8_t> ServiceClient::call_raw(const std::vector<uint8_t>& request) {
+    if (!impl_) {
+        throw std::runtime_error("ServiceClient is not initialized");
+    }
+    try {
+        ::rust::Slice<const uint8_t> req_slice(request.data(), request.size());
+        auto response = ffi::service_client_call(*impl_->rust_client, req_slice);
+        return std::vector<uint8_t>(response.begin(), response.end());
+    } catch (const ::rust::Error& e) {
+        throw std::runtime_error(std::string("Service call failed: ") + e.what());
+    }
+}
+
+std::string ServiceClient::get_service_name() const {
+    if (!impl_) {
+        return "";
+    }
+    return std::string(ffi::service_client_name(*impl_->rust_client));
+}
+
+// ============================================================================
+// ServiceServer implementation
+// ============================================================================
+
+struct ServiceServer::Impl {
+    ::rust::Box<ffi::RustServiceServer> rust_server;
+
+    explicit Impl(::rust::Box<ffi::RustServiceServer> server) : rust_server(std::move(server)) {}
+};
+
+ServiceServer::ServiceServer() : impl_(nullptr) {}
+
+ServiceServer::~ServiceServer() = default;
+
+ServiceServer::ServiceServer(ServiceServer&&) noexcept = default;
+ServiceServer& ServiceServer::operator=(ServiceServer&&) noexcept = default;
+
+std::vector<uint8_t> ServiceServer::try_recv_request() {
+    if (!impl_) {
+        throw std::runtime_error("ServiceServer is not initialized");
+    }
+    try {
+        auto request = ffi::service_server_try_recv(*impl_->rust_server);
+        return std::vector<uint8_t>(request.begin(), request.end());
+    } catch (const ::rust::Error& e) {
+        throw std::runtime_error(std::string("Failed to receive request: ") + e.what());
+    }
+}
+
+void ServiceServer::send_reply(const std::vector<uint8_t>& response) {
+    if (!impl_) {
+        throw std::runtime_error("ServiceServer is not initialized");
+    }
+    try {
+        ::rust::Slice<const uint8_t> resp_slice(response.data(), response.size());
+        ffi::service_server_send_reply(*impl_->rust_server, resp_slice);
+    } catch (const ::rust::Error& e) {
+        throw std::runtime_error(std::string("Failed to send reply: ") + e.what());
+    }
+}
+
+std::string ServiceServer::get_service_name() const {
+    if (!impl_) {
+        return "";
+    }
+    return std::string(ffi::service_server_name(*impl_->rust_server));
+}
+
 // ============================================================================
 // SingleThreadedExecutor implementation
 // ============================================================================

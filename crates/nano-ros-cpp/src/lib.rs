@@ -10,9 +10,9 @@
 
 // Re-import nano-ros types we'll expose
 use nano_ros::{
-    CdrReader, CdrWriter, Clock, ClockType, ConnectedPublisher, ConnectedSubscriber, Context,
-    Deserialize, InitOptions, Node, NodeOptions, PublisherOptions, RosMessage, Serialize,
-    SubscriberOptions,
+    CdrReader, CdrWriter, Clock, ClockType, ConnectedPublisher, ConnectedServiceClient,
+    ConnectedServiceServer, ConnectedSubscriber, Context, Deserialize, InitOptions, Node,
+    NodeOptions, PublisherOptions, RosMessage, RosService, Serialize, SubscriberOptions,
 };
 use nano_ros_serdes::error::{DeserError, SerError};
 use std::cell::RefCell;
@@ -54,6 +54,19 @@ pub struct RustPollingExecutor {
     inner: RefCell<nano_ros::PollingExecutor<4>>,
 }
 
+/// Opaque wrapper for Rust ServiceClient (uses raw bytes)
+pub struct RustServiceClient {
+    inner: RefCell<ConnectedServiceClient<RawService>>,
+    service_name: String,
+}
+
+/// Opaque wrapper for Rust ServiceServer (uses raw bytes)
+pub struct RustServiceServer {
+    inner: RefCell<ConnectedServiceServer<RawService>>,
+    service_name: String,
+    last_seq_num: RefCell<i64>,
+}
+
 /// A raw message type for FFI that holds pre-serialized bytes
 /// This is used internally by the C++ bindings - the actual serialization
 /// happens in C++ using CDR.
@@ -83,6 +96,19 @@ impl Deserialize for RawMessage {
         let data = reader.read_bytes(4)?.to_vec();
         Ok(RawMessage { data })
     }
+}
+
+/// A raw service type for FFI that uses pre-serialized bytes for request/reply.
+/// The actual serialization happens in C++ using CDR.
+struct RawService;
+
+impl RosService for RawService {
+    type Request = RawMessage;
+    type Reply = RawMessage;
+
+    // Placeholder service name - actual type info is set when creating the client/server
+    const SERVICE_NAME: &'static str = "std_srvs::srv::dds_::Empty_";
+    const SERVICE_HASH: &'static str = "RIHS01_00000000000000000000000000000000";
 }
 
 #[cxx::bridge(namespace = "nano_ros::ffi")]
@@ -425,6 +451,47 @@ mod ffi {
 
         /// Get the number of nodes in this executor
         fn pe_node_count(exec: &RustPollingExecutor) -> usize;
+
+        // ====================================================================
+        // Service Client
+        // ====================================================================
+
+        /// Opaque Rust service client type
+        type RustServiceClient;
+
+        /// Create a service client for the given service name
+        fn create_service_client(
+            node: &RustNode,
+            service_name: &str,
+        ) -> Result<Box<RustServiceClient>>;
+
+        /// Call a service with raw CDR request data, returns raw CDR response
+        fn service_client_call(client: &RustServiceClient, request: &[u8]) -> Result<Vec<u8>>;
+
+        /// Get the service name
+        fn service_client_name(client: &RustServiceClient) -> String;
+
+        // ====================================================================
+        // Service Server
+        // ====================================================================
+
+        /// Opaque Rust service server type
+        type RustServiceServer;
+
+        /// Create a service server for the given service name
+        fn create_service_server(
+            node: &RustNode,
+            service_name: &str,
+        ) -> Result<Box<RustServiceServer>>;
+
+        /// Try to receive a service request, returns raw CDR data or empty if no request
+        fn service_server_try_recv(server: &RustServiceServer) -> Result<Vec<u8>>;
+
+        /// Send a response for the last received request
+        fn service_server_send_reply(server: &RustServiceServer, reply: &[u8]) -> Result<()>;
+
+        /// Get the service name
+        fn service_server_name(server: &RustServiceServer) -> String;
     }
 }
 
@@ -921,6 +988,120 @@ fn pe_spin_once(exec: &RustPollingExecutor, delta_ms: u32) -> u32 {
 
 fn pe_node_count(exec: &RustPollingExecutor) -> usize {
     exec.inner.borrow().node_count()
+}
+
+// ============================================================================
+// Service Client implementations
+// ============================================================================
+
+fn create_service_client(
+    node: &RustNode,
+    service_name: &str,
+) -> Result<Box<RustServiceClient>, String> {
+    let mut node_ref = node.inner.borrow_mut();
+    let client = node_ref
+        .create_client::<RawService>(service_name)
+        .map_err(|e| format!("Failed to create service client: {:?}", e))?;
+
+    Ok(Box::new(RustServiceClient {
+        inner: RefCell::new(client),
+        service_name: service_name.to_string(),
+    }))
+}
+
+fn service_client_call(client: &RustServiceClient, request: &[u8]) -> Result<Vec<u8>, String> {
+    let mut client_ref = client.inner.borrow_mut();
+
+    // Call with raw bytes - the request is already CDR serialized (with header)
+    // We need to pass the data without the CDR header to call_raw
+    let request_data = if request.len() > 4 {
+        &request[4..] // Skip CDR header (4 bytes)
+    } else {
+        request
+    };
+
+    let reply_len = client_ref
+        .call_raw(request_data)
+        .map_err(|e| format!("Service call failed: {:?}", e))?;
+
+    // Build response with CDR header
+    let mut response = Vec::with_capacity(reply_len + 4);
+    // CDR little-endian encapsulation header
+    response.extend_from_slice(&[0x00, 0x01, 0x00, 0x00]);
+    response.extend_from_slice(&client_ref.reply_buffer()[..reply_len]);
+
+    Ok(response)
+}
+
+fn service_client_name(client: &RustServiceClient) -> String {
+    client.service_name.clone()
+}
+
+// ============================================================================
+// Service Server implementations
+// ============================================================================
+
+fn create_service_server(
+    node: &RustNode,
+    service_name: &str,
+) -> Result<Box<RustServiceServer>, String> {
+    let mut node_ref = node.inner.borrow_mut();
+    let server = node_ref
+        .create_service::<RawService>(service_name)
+        .map_err(|e| format!("Failed to create service server: {:?}", e))?;
+
+    Ok(Box::new(RustServiceServer {
+        inner: RefCell::new(server),
+        service_name: service_name.to_string(),
+        last_seq_num: RefCell::new(0),
+    }))
+}
+
+fn service_server_try_recv(server: &RustServiceServer) -> Result<Vec<u8>, String> {
+    let mut server_ref = server.inner.borrow_mut();
+
+    // Try to receive a request
+    match server_ref
+        .try_recv_request()
+        .map_err(|e| format!("Failed to receive request: {:?}", e))?
+    {
+        Some((data_len, seq_num)) => {
+            // Store sequence number for send_reply
+            *server.last_seq_num.borrow_mut() = seq_num;
+
+            // Build response with CDR header
+            let mut request = Vec::with_capacity(data_len + 4);
+            // CDR little-endian encapsulation header
+            request.extend_from_slice(&[0x00, 0x01, 0x00, 0x00]);
+            request.extend_from_slice(&server_ref.req_buffer()[..data_len]);
+            Ok(request)
+        }
+        None => Ok(Vec::new()), // No request available
+    }
+}
+
+fn service_server_send_reply(server: &RustServiceServer, reply: &[u8]) -> Result<(), String> {
+    let mut server_ref = server.inner.borrow_mut();
+    let seq_num = *server.last_seq_num.borrow();
+
+    // Strip CDR header if present
+    let reply_data = if reply.len() > 4 {
+        &reply[4..] // Skip CDR header
+    } else {
+        reply
+    };
+
+    // Copy reply data to buffer and send
+    let reply_len = reply_data.len().min(server_ref.reply_buffer_size());
+    server_ref.reply_buffer_mut()[..reply_len].copy_from_slice(&reply_data[..reply_len]);
+
+    server_ref
+        .send_reply_raw(seq_num, reply_len)
+        .map_err(|e| format!("Failed to send reply: {:?}", e))
+}
+
+fn service_server_name(server: &RustServiceServer) -> String {
+    server.service_name.clone()
 }
 
 #[cfg(test)]

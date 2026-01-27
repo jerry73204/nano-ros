@@ -5,6 +5,7 @@
 
 #include "nano_ros/publisher.hpp"
 #include "nano_ros/qos.hpp"
+#include "nano_ros/service.hpp"
 #include "nano_ros/subscription.hpp"
 #include "nano_ros/time.hpp"
 
@@ -155,6 +156,65 @@ public:
         auto raw_sub = create_subscription(topic, qos);
         return std::make_shared<TypedSubscription<MessageT>>(std::move(raw_sub),
                                                              std::move(callback));
+    }
+
+    // =========================================================================
+    // Service client creation
+    // =========================================================================
+
+    /// @brief Create a service client
+    /// @param service_name The service name (e.g., "/add_two_ints")
+    /// @return Shared pointer to the service client
+    /// @throws std::runtime_error if creation fails
+    std::shared_ptr<ServiceClient> create_client(const std::string& service_name);
+
+    /// @brief Create a typed service client
+    /// @tparam ServiceT The service type with nested Request/Response types
+    /// @param service_name The service name
+    /// @return Shared pointer to the typed service client
+    /// @throws std::runtime_error if creation fails
+    ///
+    /// Example:
+    /// @code
+    /// auto client = node->create_client<AddTwoInts>("/add_two_ints");
+    /// AddTwoInts::Request req{5, 3};
+    /// auto response = client->call(req);
+    /// @endcode
+    template <typename ServiceT>
+    std::shared_ptr<TypedServiceClient<ServiceT>> create_client(const std::string& service_name) {
+        auto raw_client = create_client(service_name);
+        return std::make_shared<TypedServiceClient<ServiceT>>(std::move(raw_client));
+    }
+
+    // =========================================================================
+    // Service server creation
+    // =========================================================================
+
+    /// @brief Create a service server
+    /// @param service_name The service name (e.g., "/add_two_ints")
+    /// @return Shared pointer to the service server
+    /// @throws std::runtime_error if creation fails
+    std::shared_ptr<ServiceServer> create_service(const std::string& service_name);
+
+    /// @brief Create a typed service server
+    /// @tparam ServiceT The service type with nested Request/Response types
+    /// @param service_name The service name
+    /// @return Shared pointer to the typed service server
+    /// @throws std::runtime_error if creation fails
+    ///
+    /// Example:
+    /// @code
+    /// auto server = node->create_service<AddTwoInts>("/add_two_ints");
+    /// if (auto req = server->try_recv_request()) {
+    ///     AddTwoInts::Response resp;
+    ///     resp.sum = req->a + req->b;
+    ///     server->send_reply(resp);
+    /// }
+    /// @endcode
+    template <typename ServiceT>
+    std::shared_ptr<TypedServiceServer<ServiceT>> create_service(const std::string& service_name) {
+        auto raw_server = create_service(service_name);
+        return std::make_shared<TypedServiceServer<ServiceT>>(std::move(raw_server));
     }
 
     ~Node();
