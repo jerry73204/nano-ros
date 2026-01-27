@@ -46,3 +46,7 @@ path = "tests/platform.rs"
 [[test]]
 name = "rmw_interop"
 path = "tests/rmw_interop.rs"
+
+[[test]]
+name = "zephyr"
+path = "tests/zephyr.rs"

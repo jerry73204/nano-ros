@@ -171,8 +171,9 @@ extern "C" fn rust_main() {
     let node = ZephyrNode::new(&ctx, "listener", "/demo");
 
     // Create subscriber for Int32 messages
+    // Note: zenoh key expressions cannot start with '/', so we use 'demo/chatter'
     let _subscriber = match unsafe {
-        node.create_subscriber_raw("/chatter", on_int32_message, core::ptr::null_mut())
+        node.create_subscriber_raw("demo/chatter", on_int32_message, core::ptr::null_mut())
     } {
         Ok(s) => s,
         Err(e) => {
@@ -181,7 +182,7 @@ extern "C" fn rust_main() {
         }
     };
 
-    info!("Waiting for messages on /chatter...");
+    info!("Waiting for messages on demo/chatter...");
 
     // Main loop - callbacks run in background threads on Zephyr
     loop {

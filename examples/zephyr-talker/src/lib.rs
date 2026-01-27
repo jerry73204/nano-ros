@@ -152,7 +152,8 @@ extern "C" fn rust_main() {
     let node = ZephyrNode::new(&ctx, "talker", "/demo");
 
     // Create publisher
-    let publisher: ZephyrPublisher<Int32> = match node.create_publisher("/chatter") {
+    // Note: zenoh key expressions cannot start with '/', so we use 'demo/chatter'
+    let publisher: ZephyrPublisher<Int32> = match node.create_publisher("demo/chatter") {
         Ok(p) => p,
         Err(e) => {
             error!("Failed to create publisher: {:?}", e);

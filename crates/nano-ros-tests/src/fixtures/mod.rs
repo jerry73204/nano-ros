@@ -16,3 +16,4 @@ pub use zenohd_router::*;
 pub use crate::process::*;
 pub use crate::qemu::*;
 pub use crate::ros2::*;
+pub use crate::zephyr::*;

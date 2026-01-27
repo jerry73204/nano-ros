@@ -21,6 +21,7 @@ pub mod fixtures;
 pub mod process;
 pub mod qemu;
 pub mod ros2;
+pub mod zephyr;
 
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
