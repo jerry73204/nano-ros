@@ -314,10 +314,18 @@ FooAction/
 
 ### 4.6 Examples
 
-- [ ] Create `examples/native-rs-action-server/` - Fibonacci server
-- [ ] Create `examples/native-rs-action-client/` - Fibonacci client
-- [ ] Add package.xml with `example_interfaces` dependency
+#### Native Examples
+- [x] Create `examples/native-rs-action-server/` - Fibonacci server
+- [x] Create `examples/native-rs-action-client/` - Fibonacci client
+- [x] Add package.xml with `example_interfaces` dependency
 - [ ] Document example usage in README
+
+#### Zephyr Examples (Future)
+- [ ] Create `examples/zephyr-rs-action-server/` - Action server on Zephyr
+- [ ] Create `examples/zephyr-rs-action-client/` - Action client on Zephyr
+- [ ] Test on native_sim and real hardware
+
+**Note:** Zephyr action examples depend on Zephyr service support being complete.
 
 ### 4.7 Integration Tests
 

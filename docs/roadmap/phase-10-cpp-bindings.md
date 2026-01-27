@@ -1138,17 +1138,31 @@ These can be added in a future iteration.
 
 ### Work Items
 
-#### 10.8.1 Basic Examples
-- [ ] Create `examples/ros2-cpp-talker/` - Publisher example
-- [ ] Create `examples/ros2-cpp-listener/` - Subscriber example
-- [ ] Create `examples/cpp-service/` - Service example
+#### 10.8.1 Basic Examples (COMPLETE)
+- [x] Create `examples/native-cpp-talker/` - Publisher example
+- [x] Create `examples/native-cpp-listener/` - Subscriber example
+- [x] Create `examples/native-cpp-custom-msg/` - Custom message example
 
-#### 10.8.2 CMake Integration Example
+#### 10.8.2 Service Examples (COMPLETE)
+- [x] Create `examples/native-cpp-service-server/` - Service server example
+- [x] Create `examples/native-cpp-service-client/` - Service client example
+
+#### 10.8.3 Action Examples
+- [ ] Create `examples/native-cpp-action-server/` - Action server example
+- [ ] Create `examples/native-cpp-action-client/` - Action client example
+- [ ] Requires C++ action API implementation (see 10.11)
+
+#### 10.8.4 Embedded Examples
+- [x] Create `examples/embedded-cpp-talker/` - Embedded publisher (no-std compatible)
+- [x] Create `examples/embedded-cpp-listener/` - Embedded subscriber (no-std compatible)
+- [ ] Create `examples/embedded-cpp-custom-msg/` - Embedded custom message demo
+
+#### 10.8.5 CMake Integration Example
 - [ ] Example `find_package(nano_ros_cpp)` usage
 - [ ] Example ament_cmake integration
 - [ ] Example standalone CMake project
 
-#### 10.8.3 Documentation
+#### 10.8.6 Documentation
 - [ ] API reference documentation
 - [ ] Migration guide from rclcpp
 - [ ] Build integration guide
@@ -1169,10 +1183,14 @@ These can be added in a future iteration.
 - [ ] Handle no_std constraints in bridge
 - [ ] Configure proper linker settings
 
-#### 10.9.2 Zephyr Examples
-- [ ] Create `examples/zephyr-ros2-cpp-talker/`
-- [ ] Create `examples/zephyr-ros2-cpp-listener/`
+#### 10.9.2 Zephyr C++ Examples
+- [ ] Create `examples/zephyr-cpp-talker/` - Zephyr C++ publisher
+- [ ] Create `examples/zephyr-cpp-listener/` - Zephyr C++ subscriber
 - [ ] Test on native_sim and real hardware
+
+**Note:** Zephyr C++ examples are lower priority. The existing `embedded-cpp-*` examples
+demonstrate the no-std compatible API, and Zephyr has excellent native C support.
+Consider whether Zephyr C++ adds value over using the Rust `zephyr-rs-*` examples.
 
 ### Acceptance Criteria
 - Builds for Zephyr targets
@@ -2053,6 +2071,43 @@ struct {msg_name} {{
 - [ ] Embedded CDR is wire-compatible with desktop CDR
 - [ ] Embedded nodes can communicate with desktop nodes
 - [ ] Messages interoperate with ROS 2
+
+---
+
+## 10.11 C++ Action Support (Future)
+
+**Status: PLANNED**
+
+C++ action support depends on the Rust action implementation (Phase 6) being complete.
+
+### Work Items
+
+#### 10.11.1 Action API Design
+- [ ] Design C++ `ActionServer<T>` class template
+- [ ] Design C++ `ActionClient<T>` class template
+- [ ] Define goal handle types (`ServerGoalHandle`, `ClientGoalHandle`)
+- [ ] Define feedback and result callback signatures
+
+#### 10.11.2 FFI Bridge
+- [ ] Add action server FFI to cxx bridge
+- [ ] Add action client FFI to cxx bridge
+- [ ] Handle goal state machine across FFI boundary
+- [ ] Support feedback streaming
+
+#### 10.11.3 Examples
+- [ ] Create `examples/native-cpp-action-server/` - Fibonacci action server
+- [ ] Create `examples/native-cpp-action-client/` - Fibonacci action client
+- [ ] Test interop with ROS 2 action clients/servers
+
+### Dependencies
+- Phase 6 (Rust Actions) must be complete
+- Action message generation must be implemented
+
+### Acceptance Criteria
+- [ ] C++ action server can accept/reject goals
+- [ ] C++ action client can send goals and receive feedback
+- [ ] C++ actions interoperate with ROS 2 action clients/servers
+- [ ] Examples demonstrate full action workflow
 
 ---
 

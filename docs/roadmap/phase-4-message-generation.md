@@ -274,6 +274,13 @@ No `build.rs` - no C library linking needed.
 - [ ] Verify CDR wire compatibility
 - [ ] Test interop with ROS 2
 
+### 6.7 Example Applications
+- [ ] Create `examples/native-rs-custom-msg/` - Custom message definition and usage
+  - Define a custom .msg file in the example
+  - Generate bindings using `cargo nano-ros generate`
+  - Demonstrate pub/sub with custom message type
+  - Test interop with ROS 2 custom message
+
 ---
 
 ## 7. Generated Output Comparison
