@@ -29,8 +29,73 @@ test: test-workspace test-miri test-qemu test-rust test-integration
     @echo "All tests passed!"
 
 # Run code quality checks (formatting + clippy + unit tests) - no integration tests
-quality: check test-workspace test-miri
-    @echo "Quality checks passed!"
+# Runs all checks even if some fail, then reports all failures at the end
+quality:
+    #!/usr/bin/env bash
+    set +e  # Don't exit on first error
+    failed=0
+
+    echo "=== Format Check ==="
+    cargo +nightly fmt --check
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Format check FAILED"
+        failed=1
+    else
+        echo "[OK] Format check passed"
+    fi
+
+    echo ""
+    echo "=== Clippy (workspace, no_std) ==="
+    cargo clippy --workspace --no-default-features -- {{CLIPPY_LINTS}}
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Clippy (workspace) FAILED"
+        failed=1
+    else
+        echo "[OK] Clippy (workspace) passed"
+    fi
+
+    echo ""
+    echo "=== Clippy (embedded target) ==="
+    cargo clippy --workspace --no-default-features --target thumbv7em-none-eabihf \
+        --exclude zenoh-pico-shim-sys \
+        --exclude nano-ros-tests -- {{CLIPPY_LINTS}}
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Clippy (embedded) FAILED"
+        failed=1
+    else
+        echo "[OK] Clippy (embedded) passed"
+    fi
+
+    echo ""
+    echo "=== Unit Tests ==="
+    # Exclude nano-ros-tests crate which contains integration tests requiring external setup
+    cargo nextest run --workspace --exclude nano-ros-tests --no-fail-fast
+    if [ $? -ne 0 ]; then
+        echo "[FAIL] Unit tests FAILED"
+        failed=1
+    else
+        echo "[OK] Unit tests passed"
+    fi
+
+    echo ""
+    echo "=== Miri (UB detection) ==="
+    miri_failed=0
+    cargo +nightly miri test -p nano-ros-serdes || miri_failed=1
+    cargo +nightly miri test -p nano-ros-core || miri_failed=1
+    if [ $miri_failed -ne 0 ]; then
+        echo "[FAIL] Miri FAILED"
+        failed=1
+    else
+        echo "[OK] Miri passed"
+    fi
+
+    echo ""
+    if [ $failed -ne 0 ]; then
+        echo "[FAIL] Quality checks FAILED - see errors above"
+        exit 1
+    else
+        echo "[OK] All quality checks passed!"
+    fi
 
 # Run full CI suite (quality + all integration tests)
 ci: check test
