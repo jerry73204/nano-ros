@@ -1,0 +1,19 @@
+# nextest configuration
+# See: https://nexte.st/book/configuration.html
+
+[profile.default]
+# Mark tests as slow after 30 seconds, terminate after 60 seconds
+slow-timeout = { period = "30s", terminate-after = 2 }
+fail-fast = false
+
+[[profile.default.overrides]]
+# Tests requiring external infrastructure (zenohd, ROS 2) get shorter timeouts.
+# These tests use #[ignore] so they should be skipped, but if they somehow run,
+# terminate them quickly to avoid blocking CI.
+filter = "test(~communication) | test(~nano_to_) | test(~ros2_to_) | test(~pubsub) | test(~peer_mode) | test(~native_talker) | test(~native_listener) | test(~keyexpr) | test(~qos_compat)"
+slow-timeout = { period = "5s", terminate-after = 2 }
+
+[profile.ci]
+# CI profile with stricter timeouts
+slow-timeout = { period = "30s", terminate-after = 2 }
+fail-fast = true
