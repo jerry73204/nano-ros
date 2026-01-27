@@ -189,6 +189,41 @@ clean-examples-embedded:
     @echo "Embedded example build artifacts cleaned"
 
 # =============================================================================
+# Examples - Zephyr (native_sim)
+# =============================================================================
+
+# Zephyr workspace path (symlink or sibling directory)
+ZEPHYR_WORKSPACE := if path_exists("zephyr-workspace") == "true" { "zephyr-workspace" } else { "../nano-ros-workspace" }
+
+# Build Zephyr examples (talker and listener to separate directories)
+build-zephyr:
+    #!/usr/bin/env bash
+    set -e
+    WORKSPACE="{{ZEPHYR_WORKSPACE}}"
+    if [ ! -d "$WORKSPACE/zephyr" ]; then
+        echo "Error: Zephyr workspace not found at $WORKSPACE"
+        echo "Run: ./scripts/zephyr/setup.sh"
+        exit 1
+    fi
+    echo "Building Zephyr examples in $WORKSPACE..."
+    cd "$WORKSPACE"
+    echo "  Building zephyr-talker -> build-talker/"
+    west build -b native_sim/native/64 -d build-talker -p auto nano-ros/examples/zephyr-talker
+    echo "  Building zephyr-listener -> build-listener/"
+    west build -b native_sim/native/64 -d build-listener -p auto nano-ros/examples/zephyr-listener
+    echo "Zephyr examples built successfully!"
+
+# Clean Zephyr build directories
+clean-zephyr:
+    #!/usr/bin/env bash
+    WORKSPACE="{{ZEPHYR_WORKSPACE}}"
+    rm -rf "$WORKSPACE/build-talker" "$WORKSPACE/build-listener"
+    echo "Zephyr build directories cleaned"
+
+# Force rebuild Zephyr examples
+rebuild-zephyr: clean-zephyr build-zephyr
+
+# =============================================================================
 # Examples - QEMU (Cortex-M3)
 # =============================================================================
 
@@ -398,6 +433,15 @@ test-rust-platform:
 test-rust-rmw-interop:
     cargo test -p nano-ros-tests --test rmw_interop -- --nocapture
 
+# Run Rust Zephyr tests (requires west workspace + bridge network)
+# Use test-rust-zephyr-full to force rebuild before testing
+test-rust-zephyr:
+    cargo test -p nano-ros-tests --test zephyr -- --nocapture
+
+# Run Rust Zephyr tests with rebuild
+test-rust-zephyr-full: build-zephyr
+    cargo test -p nano-ros-tests --test zephyr -- --nocapture
+
 # Run Rust tests via wrapper script (with nice output)
 test-rust-full:
     ./tests/rust-tests.sh
@@ -473,9 +517,19 @@ zephyr-help:
     @echo "Zephyr Examples"
     @echo "==============="
     @echo ""
-    @echo "The Zephyr examples require the Zephyr SDK and west build tool."
-    @echo "See: examples/zephyr-talker/BUILDING.md for full instructions."
+    @echo "Prerequisites:"
+    @echo "  1. Set up Zephyr workspace: ./scripts/zephyr/setup.sh"
+    @echo "  2. Set up bridge network:   sudo ./scripts/zephyr/setup-network.sh"
     @echo ""
-    @echo "Quick start (assuming Zephyr is installed):"
-    @echo "  west build -b qemu_cortex_m3 examples/zephyr-talker"
-    @echo "  west build -t run"
+    @echo "Build examples:"
+    @echo "  just build-zephyr       # Build talker and listener"
+    @echo "  just rebuild-zephyr     # Clean and rebuild"
+    @echo "  just clean-zephyr       # Remove build directories"
+    @echo ""
+    @echo "Run tests:"
+    @echo "  just test-rust-zephyr      # Run tests (uses existing binaries)"
+    @echo "  just test-rust-zephyr-full # Rebuild and run tests"
+    @echo ""
+    @echo "Manual build (from Zephyr workspace):"
+    @echo "  west build -b native_sim/native/64 -d build-talker nano-ros/examples/zephyr-talker"
+    @echo "  west build -b native_sim/native/64 -d build-listener nano-ros/examples/zephyr-listener"
