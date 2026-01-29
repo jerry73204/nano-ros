@@ -126,7 +126,7 @@ fn main() {
                     info!("Goal completed: {:?}", result.sequence);
 
                     // Complete the goal
-                    if let Err(e) = server.complete_goal(&goal_id, GoalStatus::Succeeded, &result) {
+                    if let Err(e) = server.complete_goal(&goal_id, GoalStatus::Succeeded, result) {
                         error!("Failed to complete goal: {:?}", e);
                     }
                 }
