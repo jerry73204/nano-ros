@@ -127,7 +127,8 @@ pub use nano_ros_core::{ServiceClient, ServiceServer};
 
 // Re-export action types
 pub use nano_ros_core::{
-    ActionClient, ActionServer, CancelResponse, GoalId, GoalResponse, GoalStatus, RosAction,
+    ActionClient, ActionServer, CancelResponse, GoalId, GoalInfo, GoalResponse, GoalStatus,
+    GoalStatusStamped, RosAction,
 };
 
 // Re-export parameter types
@@ -176,7 +177,7 @@ pub mod prelude {
     pub use crate::{ParameterServer, ParameterType, ParameterValue};
 
     // Re-export action types
-    pub use crate::{GoalId, GoalResponse, GoalStatus, RosAction};
+    pub use crate::{GoalId, GoalInfo, GoalResponse, GoalStatus, GoalStatusStamped, RosAction};
 
     // Re-export Time, Duration, Clock from core
     pub use nano_ros_core::{Clock, ClockType, Duration, Time};

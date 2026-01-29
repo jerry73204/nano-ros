@@ -24,7 +24,8 @@ pub mod time;
 pub mod types;
 
 pub use action::{
-    ActionClient, ActionServer, CancelResponse, GoalId, GoalResponse, GoalStatus, RosAction,
+    ActionClient, ActionServer, CancelResponse, GoalId, GoalInfo, GoalResponse, GoalStatus,
+    GoalStatusStamped, RosAction,
 };
 pub use clock::{Clock, ClockType};
 pub use error::Error;

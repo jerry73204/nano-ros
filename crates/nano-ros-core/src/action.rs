@@ -33,6 +33,7 @@
 
 use crate::types::RosMessage;
 use core::fmt;
+use nano_ros_serdes::{CdrReader, CdrWriter, DeserError, Deserialize, SerError, Serialize};
 
 /// Trait for ROS 2 action types
 ///
@@ -128,6 +129,19 @@ impl fmt::Display for GoalStatus {
     }
 }
 
+impl Serialize for GoalStatus {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        writer.write_i8(*self as i8)
+    }
+}
+
+impl Deserialize for GoalStatus {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        let value = reader.read_i8()?;
+        GoalStatus::from_i8(value).ok_or(DeserError::InvalidData)
+    }
+}
+
 /// Unique identifier for a goal
 ///
 /// This is a 128-bit UUID matching `unique_identifier_msgs/msg/UUID`.
@@ -174,6 +188,25 @@ impl Default for GoalId {
     }
 }
 
+impl Serialize for GoalId {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        for byte in &self.uuid {
+            writer.write_u8(*byte)?;
+        }
+        Ok(())
+    }
+}
+
+impl Deserialize for GoalId {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        let mut uuid = [0u8; 16];
+        for byte in &mut uuid {
+            *byte = reader.read_u8()?;
+        }
+        Ok(Self { uuid })
+    }
+}
+
 impl fmt::Debug for GoalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Format as UUID string: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -200,6 +233,94 @@ impl fmt::Display for GoalId {
             self.uuid[8], self.uuid[9],
             self.uuid[10], self.uuid[11], self.uuid[12], self.uuid[13], self.uuid[14], self.uuid[15]
         )
+    }
+}
+
+/// Information about a goal
+///
+/// This matches `action_msgs/msg/GoalInfo` from ROS 2.
+/// Contains the goal ID and timestamp when the goal was accepted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GoalInfo {
+    /// Unique identifier for the goal
+    pub goal_id: GoalId,
+    /// Timestamp when the goal was accepted (nanoseconds since epoch)
+    pub stamp_sec: i32,
+    /// Nanosecond part of timestamp
+    pub stamp_nanosec: u32,
+}
+
+impl GoalInfo {
+    /// Create a new GoalInfo with the given ID and timestamp
+    pub const fn new(goal_id: GoalId, stamp_sec: i32, stamp_nanosec: u32) -> Self {
+        Self {
+            goal_id,
+            stamp_sec,
+            stamp_nanosec,
+        }
+    }
+
+    /// Create a GoalInfo with zero timestamp
+    pub const fn with_id(goal_id: GoalId) -> Self {
+        Self {
+            goal_id,
+            stamp_sec: 0,
+            stamp_nanosec: 0,
+        }
+    }
+}
+
+impl Serialize for GoalInfo {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        self.goal_id.serialize(writer)?;
+        writer.write_i32(self.stamp_sec)?;
+        writer.write_u32(self.stamp_nanosec)?;
+        Ok(())
+    }
+}
+
+impl Deserialize for GoalInfo {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {
+            goal_id: GoalId::deserialize(reader)?,
+            stamp_sec: reader.read_i32()?,
+            stamp_nanosec: reader.read_u32()?,
+        })
+    }
+}
+
+/// Goal status with associated goal info
+///
+/// This matches `action_msgs/msg/GoalStatus` from ROS 2.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GoalStatusStamped {
+    /// Goal information (ID and timestamp)
+    pub goal_info: GoalInfo,
+    /// Current status of the goal
+    pub status: GoalStatus,
+}
+
+impl GoalStatusStamped {
+    /// Create a new GoalStatusStamped
+    pub const fn new(goal_info: GoalInfo, status: GoalStatus) -> Self {
+        Self { goal_info, status }
+    }
+}
+
+impl Serialize for GoalStatusStamped {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        self.goal_info.serialize(writer)?;
+        writer.write_i8(self.status as i8)?;
+        Ok(())
+    }
+}
+
+impl Deserialize for GoalStatusStamped {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        let goal_info = GoalInfo::deserialize(reader)?;
+        let status_val = reader.read_i8()?;
+        let status = GoalStatus::from_i8(status_val).unwrap_or(GoalStatus::Unknown);
+        Ok(Self { goal_info, status })
     }
 }
 
@@ -230,6 +351,19 @@ impl CancelResponse {
             3 => Some(CancelResponse::GoalTerminated),
             _ => None,
         }
+    }
+}
+
+impl Serialize for CancelResponse {
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        writer.write_i8(*self as i8)
+    }
+}
+
+impl Deserialize for CancelResponse {
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        let value = reader.read_i8()?;
+        CancelResponse::from_i8(value).ok_or(DeserError::InvalidData)
     }
 }
 
@@ -431,5 +565,138 @@ mod tests {
         assert!(!GoalResponse::Reject.is_accepted());
         assert!(GoalResponse::AcceptAndExecute.is_accepted());
         assert!(GoalResponse::AcceptAndDefer.is_accepted());
+    }
+
+    #[test]
+    fn test_goal_info_new() {
+        let goal_id = GoalId::from_counter(42);
+        let info = GoalInfo::new(goal_id, 123, 456);
+        assert_eq!(info.goal_id, goal_id);
+        assert_eq!(info.stamp_sec, 123);
+        assert_eq!(info.stamp_nanosec, 456);
+    }
+
+    #[test]
+    fn test_goal_info_with_id() {
+        let goal_id = GoalId::from_counter(42);
+        let info = GoalInfo::with_id(goal_id);
+        assert_eq!(info.goal_id, goal_id);
+        assert_eq!(info.stamp_sec, 0);
+        assert_eq!(info.stamp_nanosec, 0);
+    }
+
+    #[test]
+    fn test_goal_status_stamped() {
+        let goal_id = GoalId::from_counter(1);
+        let info = GoalInfo::with_id(goal_id);
+        let stamped = GoalStatusStamped::new(info, GoalStatus::Executing);
+        assert_eq!(stamped.goal_info.goal_id, goal_id);
+        assert_eq!(stamped.status, GoalStatus::Executing);
+    }
+
+    #[test]
+    fn test_goal_id_serialization() {
+        use nano_ros_serdes::{CdrReader, CdrWriter};
+
+        let original = GoalId::new([
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10,
+        ]);
+
+        // Serialize
+        let mut buf = [0u8; 32];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+        assert_eq!(len, 16); // UUID is 16 bytes
+
+        // Deserialize
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalId::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_goal_status_serialization() {
+        use nano_ros_serdes::{CdrReader, CdrWriter};
+
+        for status in [
+            GoalStatus::Unknown,
+            GoalStatus::Accepted,
+            GoalStatus::Executing,
+            GoalStatus::Canceling,
+            GoalStatus::Succeeded,
+            GoalStatus::Canceled,
+            GoalStatus::Aborted,
+        ] {
+            let mut buf = [0u8; 8];
+            let len = {
+                let mut writer = CdrWriter::new(&mut buf);
+                status.serialize(&mut writer).unwrap();
+                writer.position()
+            };
+
+            let mut reader = CdrReader::new(&buf[..len]);
+            let deserialized = GoalStatus::deserialize(&mut reader).unwrap();
+
+            assert_eq!(status, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_goal_info_serialization() {
+        use nano_ros_serdes::{CdrReader, CdrWriter};
+
+        let goal_id = GoalId::from_counter(42);
+        let original = GoalInfo::new(goal_id, 1234567890, 123456789);
+
+        // Serialize
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+        // UUID (16) + i32 (4) + u32 (4) = 24 bytes
+        assert_eq!(len, 24);
+
+        // Deserialize
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalInfo::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original.goal_id, deserialized.goal_id);
+        assert_eq!(original.stamp_sec, deserialized.stamp_sec);
+        assert_eq!(original.stamp_nanosec, deserialized.stamp_nanosec);
+    }
+
+    #[test]
+    fn test_goal_status_stamped_serialization() {
+        use nano_ros_serdes::{CdrReader, CdrWriter};
+
+        let goal_id = GoalId::from_counter(99);
+        let goal_info = GoalInfo::new(goal_id, 987654321, 111222333);
+        let original = GoalStatusStamped::new(goal_info, GoalStatus::Succeeded);
+
+        // Serialize
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+        // GoalInfo (24) + i8 (1) = 25 bytes
+        assert_eq!(len, 25);
+
+        // Deserialize
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalStatusStamped::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original.goal_info.goal_id, deserialized.goal_info.goal_id);
+        assert_eq!(
+            original.goal_info.stamp_sec,
+            deserialized.goal_info.stamp_sec
+        );
+        assert_eq!(
+            original.goal_info.stamp_nanosec,
+            deserialized.goal_info.stamp_nanosec
+        );
+        assert_eq!(original.status, deserialized.status);
     }
 }

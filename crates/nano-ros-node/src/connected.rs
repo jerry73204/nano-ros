@@ -21,8 +21,8 @@
 //! - ConnectedServiceClient: REQ_BUF + REPLY_BUF bytes + ~64 bytes overhead
 
 use nano_ros_core::{
-    Clock, ClockType, Deserialize, GoalId, GoalResponse, GoalStatus, RosAction, RosMessage,
-    RosService, Serialize,
+    CancelResponse, Clock, ClockType, Deserialize, GoalId, GoalInfo, GoalResponse, GoalStatus,
+    GoalStatusStamped, RosAction, RosMessage, RosService, Serialize,
 };
 
 use crate::timer::{
@@ -62,6 +62,12 @@ pub const DEFAULT_FEEDBACK_BUFFER_SIZE: usize = 1024;
 
 /// Default result buffer size for action servers/clients
 pub const DEFAULT_RESULT_BUFFER_SIZE: usize = 1024;
+
+/// Default status buffer size for action servers/clients
+pub const DEFAULT_STATUS_BUFFER_SIZE: usize = 512;
+
+/// Default cancel buffer size for action servers/clients
+pub const DEFAULT_CANCEL_BUFFER_SIZE: usize = 256;
 
 /// Error type for connected node operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -679,6 +685,28 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             .create_service_server(&send_goal_info)
             .map_err(|_| ConnectedNodeError::ActionServerCreationFailed)?;
 
+        // Create cancel_goal service server
+        let cancel_goal_keyexpr: heapless::String<256> = action_info.cancel_goal_key();
+        let cancel_goal_info = ServiceInfo::new(
+            &cancel_goal_keyexpr,
+            "action_msgs::srv::dds_::CancelGoal_",
+            A::ACTION_HASH,
+        )
+        .with_domain(0);
+        let cancel_goal_server = self
+            .session
+            .create_service_server(&cancel_goal_info)
+            .map_err(|_| ConnectedNodeError::ActionServerCreationFailed)?;
+
+        // Create get_result service server
+        let get_result_keyexpr: heapless::String<256> = action_info.get_result_key();
+        let get_result_info =
+            ServiceInfo::new(&get_result_keyexpr, A::ACTION_NAME, A::ACTION_HASH).with_domain(0);
+        let get_result_server = self
+            .session
+            .create_service_server(&get_result_info)
+            .map_err(|_| ConnectedNodeError::ActionServerCreationFailed)?;
+
         // Create feedback publisher
         let feedback_keyexpr: heapless::String<256> = action_info.feedback_key();
         let feedback_topic =
@@ -688,13 +716,32 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             .create_publisher(&feedback_topic, QosSettings::BEST_EFFORT)
             .map_err(|_| ConnectedNodeError::ActionServerCreationFailed)?;
 
+        // Create status publisher
+        let status_keyexpr: heapless::String<256> = action_info.status_key();
+        let status_topic = TopicInfo::new(
+            &status_keyexpr,
+            "action_msgs::msg::dds_::GoalStatusArray_",
+            A::ACTION_HASH,
+        )
+        .with_domain(0);
+        let status_publisher = self
+            .session
+            .create_publisher(&status_topic, QosSettings::BEST_EFFORT)
+            .map_err(|_| ConnectedNodeError::ActionServerCreationFailed)?;
+
         Ok(ConnectedActionServer {
             send_goal_server,
+            cancel_goal_server,
+            get_result_server,
             feedback_publisher,
+            status_publisher,
             active_goals: heapless::Vec::new(),
+            completed_goals: heapless::Vec::new(),
             goal_buffer: [0u8; GOAL_BUF],
             result_buffer: [0u8; RESULT_BUF],
             feedback_buffer: [0u8; FEEDBACK_BUF],
+            cancel_buffer: [0u8; DEFAULT_CANCEL_BUFFER_SIZE],
+            status_buffer: [0u8; DEFAULT_STATUS_BUFFER_SIZE],
             goal_counter: 0,
         })
     }
@@ -753,6 +800,28 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             .create_service_client(&send_goal_info)
             .map_err(|_| ConnectedNodeError::ActionClientCreationFailed)?;
 
+        // Create cancel_goal service client
+        let cancel_goal_keyexpr: heapless::String<256> = action_info.cancel_goal_key();
+        let cancel_goal_info = ServiceInfo::new(
+            &cancel_goal_keyexpr,
+            "action_msgs::srv::dds_::CancelGoal_",
+            A::ACTION_HASH,
+        )
+        .with_domain(0);
+        let cancel_goal_client = self
+            .session
+            .create_service_client(&cancel_goal_info)
+            .map_err(|_| ConnectedNodeError::ActionClientCreationFailed)?;
+
+        // Create get_result service client
+        let get_result_keyexpr: heapless::String<256> = action_info.get_result_key();
+        let get_result_info =
+            ServiceInfo::new(&get_result_keyexpr, A::ACTION_NAME, A::ACTION_HASH).with_domain(0);
+        let get_result_client = self
+            .session
+            .create_service_client(&get_result_info)
+            .map_err(|_| ConnectedNodeError::ActionClientCreationFailed)?;
+
         // Create feedback subscriber
         let feedback_keyexpr: heapless::String<256> = action_info.feedback_key();
         let feedback_topic =
@@ -762,12 +831,30 @@ impl<const MAX_TOKENS: usize, const MAX_TIMERS: usize> ConnectedNode<MAX_TOKENS,
             .create_subscriber(&feedback_topic, QosSettings::BEST_EFFORT)
             .map_err(|_| ConnectedNodeError::ActionClientCreationFailed)?;
 
+        // Create status subscriber
+        let status_keyexpr: heapless::String<256> = action_info.status_key();
+        let status_topic = TopicInfo::new(
+            &status_keyexpr,
+            "action_msgs::msg::dds_::GoalStatusArray_",
+            A::ACTION_HASH,
+        )
+        .with_domain(0);
+        let status_subscriber = self
+            .session
+            .create_subscriber(&status_topic, QosSettings::BEST_EFFORT)
+            .map_err(|_| ConnectedNodeError::ActionClientCreationFailed)?;
+
         Ok(ConnectedActionClient {
             send_goal_client,
+            cancel_goal_client,
+            get_result_client,
             feedback_subscriber,
+            status_subscriber,
             goal_buffer: [0u8; GOAL_BUF],
             result_buffer: [0u8; RESULT_BUF],
             feedback_buffer: [0u8; FEEDBACK_BUF],
+            cancel_buffer: [0u8; DEFAULT_CANCEL_BUFFER_SIZE],
+            status_buffer: [0u8; DEFAULT_STATUS_BUFFER_SIZE],
             goal_counter: 0,
             _marker: core::marker::PhantomData,
         })
@@ -1280,6 +1367,11 @@ impl<S: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
 /// Maximum number of active goals for an action server
 pub const DEFAULT_MAX_ACTIVE_GOALS: usize = 8;
 
+/// Maximum number of completed goals to keep for get_result queries
+/// (Uses MAX_GOALS from action server generic parameter)
+#[allow(dead_code)]
+pub const DEFAULT_MAX_COMPLETED_GOALS: usize = 8;
+
 /// An active goal being processed by an action server
 #[derive(Clone)]
 pub struct ActiveGoal<A: RosAction> {
@@ -1289,6 +1381,16 @@ pub struct ActiveGoal<A: RosAction> {
     pub status: GoalStatus,
     /// The goal data
     pub goal: A::Goal,
+}
+
+/// A completed goal with its result (for get_result queries)
+pub struct CompletedGoal<A: RosAction> {
+    /// Goal ID
+    pub goal_id: GoalId,
+    /// Final status
+    pub status: GoalStatus,
+    /// The result data
+    pub result: A::Result,
 }
 
 /// A connected action server that handles action goals
@@ -1310,14 +1412,26 @@ pub struct ConnectedActionServer<
 > {
     /// Service server for send_goal
     send_goal_server: ZenohServiceServer,
+    /// Service server for cancel_goal
+    cancel_goal_server: ZenohServiceServer,
+    /// Service server for get_result
+    get_result_server: ZenohServiceServer,
     /// Publisher for feedback
     feedback_publisher: ZenohPublisher,
+    /// Publisher for status
+    status_publisher: ZenohPublisher,
     /// Active goals being processed
     active_goals: heapless::Vec<ActiveGoal<A>, MAX_GOALS>,
+    /// Completed goals with results (for get_result queries)
+    completed_goals: heapless::Vec<CompletedGoal<A>, MAX_GOALS>,
     /// Buffers for serialization
     goal_buffer: [u8; GOAL_BUF],
     result_buffer: [u8; RESULT_BUF],
     feedback_buffer: [u8; FEEDBACK_BUF],
+    /// Cancel request buffer
+    cancel_buffer: [u8; DEFAULT_CANCEL_BUFFER_SIZE],
+    /// Status message buffer
+    status_buffer: [u8; DEFAULT_STATUS_BUFFER_SIZE],
     /// Goal counter for generating IDs (embedded-friendly)
     goal_counter: u64,
 }
@@ -1505,13 +1619,16 @@ impl<
 
     /// Complete a goal with a result
     ///
-    /// This removes the goal from active goals.
+    /// This removes the goal from active goals and stores the result for get_result queries.
     pub fn complete_goal(
         &mut self,
         goal_id: &GoalId,
         status: GoalStatus,
-        _result: &A::Result,
-    ) -> Result<(), ConnectedNodeError> {
+        result: A::Result,
+    ) -> Result<(), ConnectedNodeError>
+    where
+        A::Result: Clone,
+    {
         // Find and remove the goal
         let index = self
             .active_goals
@@ -1519,11 +1636,270 @@ impl<
             .position(|g| &g.goal_id == goal_id)
             .ok_or(ConnectedNodeError::GoalNotFound)?;
 
-        // Update status before removing
-        self.active_goals[index].status = status;
-
         // Remove from active goals
         self.active_goals.swap_remove(index);
+
+        // Store completed goal with result
+        // If storage is full, remove oldest
+        if self.completed_goals.len() >= MAX_GOALS {
+            self.completed_goals.remove(0);
+        }
+        // Ignore error if somehow still full
+        let _ = self.completed_goals.push(CompletedGoal {
+            goal_id: *goal_id,
+            status,
+            result,
+        });
+
+        Ok(())
+    }
+
+    /// Handle a cancel goal request (non-blocking)
+    ///
+    /// Returns `Ok(Some((goal_id, response)))` if a cancel request was handled.
+    /// The cancel_handler function decides whether to allow cancellation.
+    pub fn try_handle_cancel(
+        &mut self,
+        cancel_handler: impl FnOnce(&GoalId, GoalStatus) -> CancelResponse,
+    ) -> Result<Option<(GoalId, CancelResponse)>, ConnectedNodeError> {
+        use nano_ros_core::CdrReader;
+
+        // Try to receive a cancel request
+        let request = match self
+            .cancel_goal_server
+            .try_recv_request(&mut self.cancel_buffer)?
+        {
+            Some(req) => req,
+            None => return Ok(None),
+        };
+
+        let data_len = request.data.len();
+        let sequence_number = request.sequence_number;
+
+        // Parse cancel request
+        // CancelGoal_Request format: GoalInfo (goal_id: UUID + stamp: Time)
+        let mut reader = CdrReader::new_with_header(&self.cancel_buffer[..data_len])
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        let goal_info = GoalInfo::deserialize(&mut reader)
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        // Find the goal and check if it can be canceled
+        let response = if let Some(goal) = self
+            .active_goals
+            .iter()
+            .find(|g| g.goal_id == goal_info.goal_id)
+        {
+            if goal.status.is_terminal() {
+                CancelResponse::GoalTerminated
+            } else {
+                cancel_handler(&goal_info.goal_id, goal.status)
+            }
+        } else {
+            CancelResponse::UnknownGoal
+        };
+
+        // If cancellation accepted, update status
+        if response == CancelResponse::Ok {
+            for goal in &mut self.active_goals {
+                if goal.goal_id == goal_info.goal_id {
+                    goal.status = GoalStatus::Canceling;
+                    break;
+                }
+            }
+        }
+
+        // Send response
+        self.send_cancel_response(sequence_number, response, &[goal_info])?;
+
+        Ok(Some((goal_info.goal_id, response)))
+    }
+
+    /// Send a cancel response
+    fn send_cancel_response(
+        &mut self,
+        sequence_number: i64,
+        response: CancelResponse,
+        canceled_goals: &[GoalInfo],
+    ) -> Result<(), ConnectedNodeError> {
+        use nano_ros_core::CdrWriter;
+
+        // CancelGoal_Response format: return_code (i8) + goals_canceling (sequence<GoalInfo>)
+        let mut writer = CdrWriter::new_with_header(&mut self.cancel_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write return code
+        writer
+            .write_i8(response as i8)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        // Write sequence length
+        writer
+            .write_u32(canceled_goals.len() as u32)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        // Write each GoalInfo
+        for goal_info in canceled_goals {
+            goal_info
+                .serialize(&mut writer)
+                .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+        }
+
+        let len = writer.position();
+        self.cancel_goal_server
+            .send_reply(sequence_number, &self.cancel_buffer[..len])?;
+
+        Ok(())
+    }
+
+    /// Handle a get_result request (non-blocking)
+    ///
+    /// Returns `Ok(Some(goal_id))` if a result was sent.
+    pub fn try_handle_get_result(&mut self) -> Result<Option<GoalId>, ConnectedNodeError>
+    where
+        A::Result: Clone,
+    {
+        use nano_ros_core::CdrReader;
+
+        // Try to receive a get_result request
+        let request = match self
+            .get_result_server
+            .try_recv_request(&mut self.goal_buffer)?
+        {
+            Some(req) => req,
+            None => return Ok(None),
+        };
+
+        let data_len = request.data.len();
+        let sequence_number = request.sequence_number;
+
+        // Parse get_result request
+        // GetResult_Request format: UUID (16 bytes)
+        if data_len < 16 {
+            return Err(ConnectedNodeError::DeserializationFailed);
+        }
+
+        let mut reader = CdrReader::new_with_header(&self.goal_buffer[..data_len])
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        // Read UUID
+        let mut uuid = [0u8; 16];
+        for byte in &mut uuid {
+            *byte = reader
+                .read_u8()
+                .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+        }
+        let goal_id = GoalId::new(uuid);
+
+        // Find the completed goal
+        if let Some(completed) = self.completed_goals.iter().find(|g| g.goal_id == goal_id) {
+            self.send_result_response(
+                sequence_number,
+                completed.status,
+                &completed.result.clone(),
+            )?;
+            Ok(Some(goal_id))
+        } else if self.active_goals.iter().any(|g| g.goal_id == goal_id) {
+            // Goal is still active - send "in progress" status
+            self.send_result_status(sequence_number, GoalStatus::Executing)?;
+            Ok(Some(goal_id))
+        } else {
+            // Unknown goal
+            self.send_result_status(sequence_number, GoalStatus::Unknown)?;
+            Ok(Some(goal_id))
+        }
+    }
+
+    /// Send a get_result response with result
+    fn send_result_response(
+        &mut self,
+        sequence_number: i64,
+        status: GoalStatus,
+        result: &A::Result,
+    ) -> Result<(), ConnectedNodeError> {
+        use nano_ros_core::CdrWriter;
+
+        // GetResult_Response format: status (i8) + result
+        let mut writer = CdrWriter::new_with_header(&mut self.result_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write status
+        writer
+            .write_i8(status as i8)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        // Write result
+        result
+            .serialize(&mut writer)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        let len = writer.position();
+        self.get_result_server
+            .send_reply(sequence_number, &self.result_buffer[..len])?;
+
+        Ok(())
+    }
+
+    /// Send a get_result response with only status (no result yet)
+    fn send_result_status(
+        &mut self,
+        sequence_number: i64,
+        status: GoalStatus,
+    ) -> Result<(), ConnectedNodeError> {
+        use nano_ros_core::CdrWriter;
+
+        // GetResult_Response format: status (i8) + result (empty/default)
+        let mut writer = CdrWriter::new_with_header(&mut self.result_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write status
+        writer
+            .write_i8(status as i8)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        let len = writer.position();
+        self.get_result_server
+            .send_reply(sequence_number, &self.result_buffer[..len])?;
+
+        Ok(())
+    }
+
+    /// Publish status for all active goals
+    pub fn publish_status(&mut self) -> Result<(), ConnectedNodeError> {
+        use nano_ros_core::CdrWriter;
+
+        // GoalStatusArray format: sequence<GoalStatus>
+        let mut writer = CdrWriter::new_with_header(&mut self.status_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write sequence length (active + completed goals)
+        let total = self.active_goals.len() + self.completed_goals.len();
+        writer
+            .write_u32(total as u32)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        // Write status for active goals
+        for goal in &self.active_goals {
+            let status_stamped =
+                GoalStatusStamped::new(GoalInfo::with_id(goal.goal_id), goal.status);
+            status_stamped
+                .serialize(&mut writer)
+                .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+        }
+
+        // Write status for completed goals
+        for goal in &self.completed_goals {
+            let status_stamped =
+                GoalStatusStamped::new(GoalInfo::with_id(goal.goal_id), goal.status);
+            status_stamped
+                .serialize(&mut writer)
+                .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+        }
+
+        let len = writer.position();
+        self.status_publisher
+            .publish_raw(&self.status_buffer[..len])
+            .map_err(|_| ConnectedNodeError::PublishFailed)?;
 
         Ok(())
     }
@@ -1570,12 +1946,22 @@ pub struct ConnectedActionClient<
 > {
     /// Service client for send_goal
     send_goal_client: ZenohServiceClient,
+    /// Service client for cancel_goal
+    cancel_goal_client: ZenohServiceClient,
+    /// Service client for get_result
+    get_result_client: ZenohServiceClient,
     /// Subscriber for feedback
     feedback_subscriber: ZenohSubscriber,
+    /// Subscriber for status
+    status_subscriber: ZenohSubscriber,
     /// Buffers for serialization
     goal_buffer: [u8; GOAL_BUF],
     result_buffer: [u8; RESULT_BUF],
     feedback_buffer: [u8; FEEDBACK_BUF],
+    /// Cancel request buffer
+    cancel_buffer: [u8; DEFAULT_CANCEL_BUFFER_SIZE],
+    /// Status buffer
+    status_buffer: [u8; DEFAULT_STATUS_BUFFER_SIZE],
     /// Goal counter for generating IDs
     goal_counter: u64,
     /// Marker for action type
@@ -1684,6 +2070,139 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
     /// Get the feedback buffer size
     pub const fn feedback_buffer_size(&self) -> usize {
         FEEDBACK_BUF
+    }
+
+    /// Cancel a goal
+    ///
+    /// Sends a cancel request to the action server and returns the response.
+    pub fn cancel_goal(&mut self, goal_id: &GoalId) -> Result<CancelResponse, ConnectedNodeError> {
+        use nano_ros_core::{CdrReader, CdrWriter};
+
+        // Serialize cancel request
+        // CancelGoal_Request format: GoalInfo (goal_id: UUID + stamp: Time)
+        let mut writer = CdrWriter::new_with_header(&mut self.cancel_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write goal info (goal_id + zero timestamp)
+        let goal_info = GoalInfo::with_id(*goal_id);
+        goal_info
+            .serialize(&mut writer)
+            .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+
+        let req_len = writer.position();
+
+        // Send cancel request and wait for response
+        let reply_len = self
+            .cancel_goal_client
+            .call_raw(&self.cancel_buffer[..req_len], &mut self.result_buffer)
+            .map_err(ConnectedNodeError::from)?;
+
+        // Parse response
+        // CancelGoal_Response format: return_code (i8) + goals_canceling (sequence<GoalInfo>)
+        let mut reader = CdrReader::new_with_header(&self.result_buffer[..reply_len])
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        // Read return code
+        let return_code = reader
+            .read_i8()
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        CancelResponse::from_i8(return_code).ok_or(ConnectedNodeError::DeserializationFailed)
+    }
+
+    /// Get the result of a completed goal
+    ///
+    /// Blocks until the server responds with the result.
+    pub fn get_result(
+        &mut self,
+        goal_id: &GoalId,
+    ) -> Result<(GoalStatus, A::Result), ConnectedNodeError> {
+        use nano_ros_core::{CdrReader, CdrWriter};
+
+        // Serialize get_result request
+        // GetResult_Request format: UUID (16 bytes)
+        let mut writer = CdrWriter::new_with_header(&mut self.goal_buffer)
+            .map_err(|_| ConnectedNodeError::BufferTooSmall)?;
+
+        // Write goal ID
+        for byte in &goal_id.uuid {
+            writer
+                .write_u8(*byte)
+                .map_err(|_| ConnectedNodeError::SerializationFailed)?;
+        }
+
+        let req_len = writer.position();
+
+        // Send request and wait for response
+        let reply_len = self
+            .get_result_client
+            .call_raw(&self.goal_buffer[..req_len], &mut self.result_buffer)
+            .map_err(ConnectedNodeError::from)?;
+
+        // Parse response
+        // GetResult_Response format: status (i8) + result
+        let mut reader = CdrReader::new_with_header(&self.result_buffer[..reply_len])
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        // Read status
+        let status_val = reader
+            .read_i8()
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+        let status = GoalStatus::from_i8(status_val).unwrap_or(GoalStatus::Unknown);
+
+        // Read result
+        let result = A::Result::deserialize(&mut reader)
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        Ok((status, result))
+    }
+
+    /// Try to receive status update (non-blocking)
+    ///
+    /// Returns a vector of goal statuses if available.
+    pub fn try_recv_status(
+        &mut self,
+    ) -> Result<Option<heapless::Vec<GoalStatusStamped, 16>>, ConnectedNodeError> {
+        use nano_ros_core::CdrReader;
+
+        // Try to receive raw status
+        let data_len = match self.status_subscriber.try_recv_raw(&mut self.status_buffer) {
+            Ok(Some(len)) => len,
+            Ok(None) => return Ok(None),
+            Err(_) => return Err(ConnectedNodeError::DeserializationFailed),
+        };
+
+        // Parse status array
+        // GoalStatusArray format: sequence<GoalStatus>
+        let mut reader = CdrReader::new_with_header(&self.status_buffer[..data_len])
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        // Read sequence length
+        let count = reader
+            .read_u32()
+            .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+
+        let mut statuses = heapless::Vec::new();
+        for _ in 0..count {
+            let status_stamped = GoalStatusStamped::deserialize(&mut reader)
+                .map_err(|_| ConnectedNodeError::DeserializationFailed)?;
+            // Ignore error if vec is full
+            let _ = statuses.push(status_stamped);
+        }
+
+        Ok(Some(statuses))
+    }
+
+    /// Get the status of a specific goal from a status array
+    pub fn get_goal_status(
+        &self,
+        statuses: &[GoalStatusStamped],
+        goal_id: &GoalId,
+    ) -> Option<GoalStatus> {
+        statuses
+            .iter()
+            .find(|s| s.goal_info.goal_id == *goal_id)
+            .map(|s| s.status)
     }
 }
 

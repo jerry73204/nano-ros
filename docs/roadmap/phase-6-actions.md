@@ -1,6 +1,6 @@
 # Phase 6: ROS 2 Actions
 
-**Status: PLANNING**
+**Status: IN PROGRESS**
 
 ## Executive Summary
 
@@ -264,68 +264,194 @@ FooAction/
 
 ## 4. Work Items
 
+### 4.0 Critical Path to Zephyr Action Examples
+
+The following dependency chain must be completed to enable Zephyr action examples:
+
+```
+4.1 Core Action Types (no dependencies)
+ │
+ ├──► 4.2 Required Message Bindings
+ │     │
+ │     └──► 4.3 Action Code Generation
+ │           │
+ │           ├──► 4.4 Action Server Implementation
+ │           │     │
+ │           │     └──► 4.6a Native Action Server Example
+ │           │           │
+ │           │           └──► 4.6b Zephyr Action Server Example
+ │           │
+ │           └──► 4.5 Action Client Implementation
+ │                 │
+ │                 └──► 4.6a Native Action Client Example
+ │                       │
+ │                       └──► 4.6b Zephyr Action Client Example
+ │
+ └──► [Zephyr Service Support - COMPLETE]
+```
+
+**Minimum viable path for Zephyr actions:**
+1. 4.1 Core Action Types - **COMPLETE**
+2. 4.2 Message Bindings - **COMPLETE**
+3. 4.3 Code Generation - **COMPLETE** (basic), needs service wrappers
+4. 4.4 Action Server - **COMPLETE** (all services implemented)
+5. 4.5 Action Client - **COMPLETE** (all services implemented)
+6. 4.6a Native Examples (~1 day)
+7. 4.6b Zephyr Examples (~1 day)
+
 ### 4.1 Core Action Types
 
-- [ ] Create `crates/nano-ros-core/src/action.rs`
-- [ ] Define `RosAction` trait
-- [ ] Define `GoalStatus` enum
-- [ ] Define `GoalId` type (UUID wrapper)
-- [ ] Add action module to `nano-ros-core/src/lib.rs`
-- [ ] Re-export from `nano-ros` crate
+**Status:** COMPLETE
+**Dependencies:** None
+**Enables:** 4.2, 4.4, 4.5
+
+- [x] Create `crates/nano-ros-core/src/action.rs`
+- [x] Define `RosAction` trait with Goal/Result/Feedback associated types
+- [x] Define `GoalStatus` enum (matches action_msgs/msg/GoalStatus)
+- [x] Define `GoalId` type (UUID wrapper, 16 bytes)
+- [x] Define `GoalInfo` struct (goal_id + stamp)
+- [x] Define `GoalStatusStamped` struct (goal_info + status)
+- [x] Add `is_terminal()` helper for GoalStatus
+- [x] Add `is_active()` helper for GoalStatus
+- [x] Implement Serialize/Deserialize for GoalId, GoalStatus, GoalInfo, GoalStatusStamped
+- [x] Add action module to `nano-ros-core/src/lib.rs`
+- [x] Re-export from `nano-ros` crate prelude
+- [x] Unit tests for GoalStatus state transitions (15 tests pass)
 
 ### 4.2 Required Message Bindings
 
-- [ ] Add `action_msgs` to test example package.xml
-- [ ] Add `unique_identifier_msgs` to test example package.xml
-- [ ] Verify `cargo nano-ros generate` produces correct types
-- [ ] Test GoalInfo, GoalStatus, GoalStatusArray serialization
-- [ ] Test UUID serialization (16-byte array)
+**Status:** COMPLETE
+**Dependencies:** 4.1
+**Enables:** 4.3
+
+- [x] Add `action_msgs` to native-rs-action-server package.xml
+- [x] Add `unique_identifier_msgs` to native-rs-action-server package.xml
+- [x] Run `cargo nano-ros generate` to produce bindings
+- [x] Verify GoalInfo serialization (goal_id: UUID, stamp: Time)
+- [x] Verify GoalStatus serialization (goal_info + status: i8)
+- [x] Verify GoalStatusArray serialization (status_list: sequence)
+- [x] Verify CancelGoal service types (Request/Response)
+- [x] Test UUID serialization matches ROS 2 wire format
+- [ ] Copy generated bindings to Zephyr examples
 
 ### 4.3 Action Code Generation
 
-- [ ] Add action parsing to `rosidl-parser` (if not complete)
-- [ ] Create `action_nano_ros.rs.jinja` template
-- [ ] Generate `_SendGoal` service type per action
-- [ ] Generate `_GetResult` service type per action
-- [ ] Generate `_FeedbackMessage` message type per action
-- [ ] Update `cargo-nano-ros` to process `.action` files
-- [ ] Test with `example_interfaces/action/Fibonacci`
+**Status:** COMPLETE
+**Dependencies:** 4.2
+**Enables:** 4.4, 4.5
+
+- [x] Verify `rosidl-parser` parses `.action` files correctly
+- [x] Create action template in rosidl-codegen
+- [x] Generate wrapper `FooAction` struct implementing `RosAction`
+- [x] Generate `Foo_Goal` message type from action goal section
+- [x] Generate `Foo_Result` message type from action result section
+- [x] Generate `Foo_Feedback` message type from action feedback section
+- [ ] Generate `Foo_SendGoal` service type (Request: goal_id + goal, Response: accepted + stamp)
+- [ ] Generate `Foo_GetResult` service type (Request: goal_id, Response: status + result)
+- [ ] Generate `Foo_FeedbackMessage` message (goal_id + feedback)
+- [x] Update `cargo-nano-ros` CLI to handle action files
+- [x] Test generation with `example_interfaces/action/Fibonacci`
+- [x] Verify generated types compile with nano-ros
 
 ### 4.4 Action Server Implementation
 
-- [ ] Create `crates/nano-ros-node/src/action_server.rs`
-- [ ] Implement goal acceptance/rejection logic
-- [ ] Implement goal state machine transitions
-- [ ] Implement feedback publishing
-- [ ] Implement result storage and retrieval
-- [ ] Implement cancel handling
-- [ ] Implement status publishing
-- [ ] Add `create_action_server()` to `ConnectedNode`
+**Status:** COMPLETE
+**Dependencies:** 4.1, 4.3
+**Enables:** 4.6a (native server example)
+
+- [x] Define `ConnectedActionServer<A, GOAL_BUF, RESULT_BUF, FEEDBACK_BUF, MAX_GOALS>` struct
+- [x] Create internal service: send_goal
+- [x] Create internal service: cancel_goal
+- [x] Create internal service: get_result
+- [x] Create internal publisher: feedback
+- [x] Create internal publisher: status
+- [x] Define `ActiveGoal<A>` for tracking active goals
+- [x] Define `CompletedGoal<A>` for storing results
+- [x] Implement goal acceptance via `try_accept_goal()`
+- [x] Implement goal state machine (ACCEPTED → EXECUTING → terminal)
+- [x] Implement `publish_feedback(&mut self, goal_id, feedback)`
+- [x] Implement `set_goal_status(&mut self, goal_id, status)`
+- [x] Implement `complete_goal(&mut self, goal_id, status, result)`
+- [x] Implement `try_handle_cancel()` for cancel requests
+- [x] Implement `try_handle_get_result()` for result queries
+- [x] Implement `publish_status()` for status publishing
+- [x] Add `create_action_server()` to `ConnectedNode`
+- [x] Add `create_action_server_sized()` for custom buffer/goal limits
+- [ ] Unit tests for goal state machine
+- [ ] Integration test with mock client
 
 ### 4.5 Action Client Implementation
 
-- [ ] Create `crates/nano-ros-node/src/action_client.rs`
-- [ ] Implement `send_goal()` (blocking)
-- [ ] Implement `cancel_goal()`
-- [ ] Implement `get_result()` (blocking)
-- [ ] Implement feedback subscription
-- [ ] Implement status tracking
-- [ ] Add `create_action_client()` to `ConnectedNode`
+**Status:** COMPLETE
+**Dependencies:** 4.1, 4.3
+**Enables:** 4.6a (native client example)
+
+- [x] Define `ConnectedActionClient<A, GOAL_BUF, RESULT_BUF, FEEDBACK_BUF>` struct
+- [x] Create internal service client: send_goal
+- [x] Create internal service client: cancel_goal
+- [x] Create internal service client: get_result
+- [x] Create internal subscriber: feedback
+- [x] Create internal subscriber: status
+- [x] Define `GoalHandle` for tracking sent goals
+- [x] Implement `send_goal(&mut self, goal) -> Result<GoalHandle>`
+- [x] Implement `try_recv_feedback(&mut self) -> Option<(GoalId, Feedback)>`
+- [x] Implement `cancel_goal(&mut self, goal_id) -> Result<CancelResponse>`
+- [x] Implement `get_result(&mut self, goal_id) -> Result<(GoalStatus, A::Result)>`
+- [x] Implement `try_recv_status()` for status updates
+- [x] Implement `get_goal_status()` helper
+- [x] Add `create_action_client()` to `ConnectedNode`
+- [x] Add `create_action_client_sized()` for custom buffer limits
+- [ ] Unit tests for client operations
+- [ ] Integration test with mock server
 
 ### 4.6 Examples
 
-#### Native Examples
-- [x] Create `examples/native-rs-action-server/` - Fibonacci server
-- [x] Create `examples/native-rs-action-client/` - Fibonacci client
+#### 4.6a Native Examples
+
+**Status:** Scaffolding complete, awaiting action core
+**Dependencies:** 4.4, 4.5
+**Enables:** 4.6b, 4.7
+
+- [x] Create `examples/native-rs-action-server/` directory structure
+- [x] Create `examples/native-rs-action-client/` directory structure
 - [x] Add package.xml with `example_interfaces` dependency
+- [ ] Implement Fibonacci action server using `ActionServer<Fibonacci>`
+- [ ] Implement Fibonacci action client using `ActionClient<Fibonacci>`
+- [ ] Test native server ↔ native client communication
 - [ ] Document example usage in README
 
-#### Zephyr Examples (Future)
-- [ ] Create `examples/zephyr-rs-action-server/` - Action server on Zephyr
-- [ ] Create `examples/zephyr-rs-action-client/` - Action client on Zephyr
-- [ ] Test on native_sim and real hardware
+#### 4.6b Zephyr Examples
 
-**Note:** Zephyr action examples depend on Zephyr service support being complete.
+**Status:** Blocked on action core (4.1-4.5)
+**Dependencies:** 4.6a (native examples working first), Zephyr service support (COMPLETE)
+**Enables:** Embedded action-based applications
+
+- [ ] Create `examples/zephyr-rs-action-server/` directory structure
+  - [ ] CMakeLists.txt with zenoh shim
+  - [ ] prj.conf with queryable + publication support
+  - [ ] Cargo.toml with zenoh-pico-shim dependency
+  - [ ] Copy generated example_interfaces bindings
+- [ ] Create `examples/zephyr-rs-action-client/` directory structure
+  - [ ] CMakeLists.txt with zenoh shim
+  - [ ] prj.conf with query + subscription support
+  - [ ] Cargo.toml with zenoh-pico-shim dependency
+  - [ ] Copy generated example_interfaces bindings
+- [ ] Implement ZephyrActionServer wrapper over zenoh-pico-shim
+  - [ ] Use `ShimQueryable` for send_goal, cancel_goal, get_result services
+  - [ ] Use `ShimPublisher` for feedback, status topics
+- [ ] Implement ZephyrActionClient wrapper over zenoh-pico-shim
+  - [ ] Use `ShimContext::get()` for service calls
+  - [ ] Use `ShimSubscriber` for feedback, status topics
+- [ ] Test on native_sim/native/64 target
+- [ ] Test Zephyr server ↔ native client
+- [ ] Test native server ↔ Zephyr client
+- [ ] Test on real hardware (NUCLEO-F429ZI)
+
+**Prerequisites (all COMPLETE):**
+- [x] Zephyr service support (Phase 3.1.6)
+- [x] zenoh-pico queryable C shim (`zenoh_shim_declare_queryable`)
+- [x] zenoh-pico query C shim (`zenoh_shim_get`)
+- [x] Rust FFI wrappers in zenoh-pico-shim
 
 ### 4.7 Integration Tests
 

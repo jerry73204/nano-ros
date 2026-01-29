@@ -125,6 +125,7 @@ pub use nano_ros_transport::{
 pub use connected::{
     // Action types
     ActiveGoal,
+    CompletedGoal,
     ConnectedActionClient,
     ConnectedActionServer,
     // Node types
@@ -136,6 +137,7 @@ pub use connected::{
     ConnectedSubscriber,
     GoalHandle,
     // Buffer size constants
+    DEFAULT_CANCEL_BUFFER_SIZE,
     DEFAULT_FEEDBACK_BUFFER_SIZE,
     DEFAULT_GOAL_BUFFER_SIZE,
     DEFAULT_MAX_ACTIVE_GOALS,
@@ -144,6 +146,7 @@ pub use connected::{
     DEFAULT_REQ_BUFFER_SIZE,
     DEFAULT_RESULT_BUFFER_SIZE,
     DEFAULT_RX_BUFFER_SIZE,
+    DEFAULT_STATUS_BUFFER_SIZE,
 };
 
 // Re-export context types when zenoh feature is enabled (rclrs-style API)
