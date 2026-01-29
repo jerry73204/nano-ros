@@ -2208,6 +2208,756 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
 
 #[cfg(all(test, feature = "zenoh"))]
 mod tests {
-    // Tests require a running zenoh router or peer mode
-    // They are in the integration test file
+    use super::*;
+    use nano_ros_core::{CdrReader, CdrWriter, DeserError, Deserialize, SerError, Serialize};
+
+    // =========================================================================
+    // Mock Action Types for Testing
+    // =========================================================================
+
+    /// Mock action goal
+    #[derive(Debug, Clone, Default, PartialEq)]
+    struct MockGoal {
+        pub order: i32,
+    }
+
+    impl Serialize for MockGoal {
+        fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+            writer.write_i32(self.order)
+        }
+    }
+
+    impl Deserialize for MockGoal {
+        fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+            Ok(Self {
+                order: reader.read_i32()?,
+            })
+        }
+    }
+
+    impl nano_ros_core::RosMessage for MockGoal {
+        const TYPE_NAME: &'static str = "test_msgs::msg::dds_::MockGoal_";
+        const TYPE_HASH: &'static str = "mock_goal_hash_placeholder";
+    }
+
+    /// Mock action result
+    #[derive(Debug, Clone, Default, PartialEq)]
+    struct MockResult {
+        pub sequence: heapless::Vec<i32, 16>,
+    }
+
+    impl Serialize for MockResult {
+        fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+            writer.write_u32(self.sequence.len() as u32)?;
+            for val in &self.sequence {
+                writer.write_i32(*val)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Deserialize for MockResult {
+        fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+            let len = reader.read_u32()? as usize;
+            let mut sequence = heapless::Vec::new();
+            for _ in 0..len {
+                let _ = sequence.push(reader.read_i32()?);
+            }
+            Ok(Self { sequence })
+        }
+    }
+
+    impl nano_ros_core::RosMessage for MockResult {
+        const TYPE_NAME: &'static str = "test_msgs::msg::dds_::MockResult_";
+        const TYPE_HASH: &'static str = "mock_result_hash_placeholder";
+    }
+
+    /// Mock action feedback
+    #[derive(Debug, Clone, Default, PartialEq)]
+    struct MockFeedback {
+        pub partial_sequence: heapless::Vec<i32, 16>,
+    }
+
+    impl Serialize for MockFeedback {
+        fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+            writer.write_u32(self.partial_sequence.len() as u32)?;
+            for val in &self.partial_sequence {
+                writer.write_i32(*val)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Deserialize for MockFeedback {
+        fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+            let len = reader.read_u32()? as usize;
+            let mut partial_sequence = heapless::Vec::new();
+            for _ in 0..len {
+                let _ = partial_sequence.push(reader.read_i32()?);
+            }
+            Ok(Self { partial_sequence })
+        }
+    }
+
+    impl nano_ros_core::RosMessage for MockFeedback {
+        const TYPE_NAME: &'static str = "test_msgs::msg::dds_::MockFeedback_";
+        const TYPE_HASH: &'static str = "mock_feedback_hash_placeholder";
+    }
+
+    /// Mock action type
+    struct MockAction;
+
+    impl RosAction for MockAction {
+        type Goal = MockGoal;
+        type Result = MockResult;
+        type Feedback = MockFeedback;
+
+        const ACTION_NAME: &'static str = "test_msgs::action::dds_::MockAction_";
+        const ACTION_HASH: &'static str = "mock_hash_123";
+    }
+
+    // =========================================================================
+    // ActiveGoal Tests
+    // =========================================================================
+
+    #[test]
+    fn test_active_goal_creation() {
+        let goal_id = GoalId::from_counter(1);
+        let goal = MockGoal { order: 5 };
+
+        let active_goal = ActiveGoal::<MockAction> {
+            goal_id,
+            status: GoalStatus::Accepted,
+            goal: goal.clone(),
+        };
+
+        assert_eq!(active_goal.goal_id, goal_id);
+        assert_eq!(active_goal.status, GoalStatus::Accepted);
+        assert_eq!(active_goal.goal.order, 5);
+    }
+
+    #[test]
+    fn test_active_goal_status_transitions() {
+        let goal_id = GoalId::from_counter(1);
+        let mut active_goal = ActiveGoal::<MockAction> {
+            goal_id,
+            status: GoalStatus::Accepted,
+            goal: MockGoal { order: 5 },
+        };
+
+        // Accepted -> Executing
+        active_goal.status = GoalStatus::Executing;
+        assert_eq!(active_goal.status, GoalStatus::Executing);
+        assert!(active_goal.status.is_active());
+        assert!(!active_goal.status.is_terminal());
+
+        // Executing -> Canceling
+        active_goal.status = GoalStatus::Canceling;
+        assert_eq!(active_goal.status, GoalStatus::Canceling);
+        assert!(active_goal.status.is_active());
+
+        // Canceling -> Canceled (terminal)
+        active_goal.status = GoalStatus::Canceled;
+        assert_eq!(active_goal.status, GoalStatus::Canceled);
+        assert!(active_goal.status.is_terminal());
+        assert!(!active_goal.status.is_active());
+    }
+
+    // =========================================================================
+    // CompletedGoal Tests
+    // =========================================================================
+
+    #[test]
+    fn test_completed_goal_creation() {
+        let goal_id = GoalId::from_counter(42);
+        let mut result = MockResult::default();
+        let _ = result.sequence.push(1);
+        let _ = result.sequence.push(1);
+        let _ = result.sequence.push(2);
+
+        let completed = CompletedGoal::<MockAction> {
+            goal_id,
+            status: GoalStatus::Succeeded,
+            result: result.clone(),
+        };
+
+        assert_eq!(completed.goal_id, goal_id);
+        assert_eq!(completed.status, GoalStatus::Succeeded);
+        assert_eq!(completed.result.sequence.len(), 3);
+    }
+
+    // =========================================================================
+    // GoalHandle Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_handle_accepted() {
+        let goal_id = GoalId::from_counter(1);
+        let handle = GoalHandle {
+            goal_id,
+            accepted: true,
+        };
+
+        assert!(handle.accepted);
+        assert_eq!(handle.goal_id, goal_id);
+    }
+
+    #[test]
+    fn test_goal_handle_rejected() {
+        let goal_id = GoalId::from_counter(1);
+        let handle = GoalHandle {
+            goal_id,
+            accepted: false,
+        };
+
+        assert!(!handle.accepted);
+    }
+
+    // =========================================================================
+    // GoalId Serialization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_id_roundtrip() {
+        let original = GoalId::from_counter(12345);
+
+        let mut buf = [0u8; 32];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalId::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original, deserialized);
+    }
+
+    // =========================================================================
+    // GoalInfo Serialization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_info_roundtrip() {
+        let goal_id = GoalId::from_counter(999);
+        let original = GoalInfo::new(goal_id, 1234567890, 123456789);
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalInfo::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original.goal_id, deserialized.goal_id);
+        assert_eq!(original.stamp_sec, deserialized.stamp_sec);
+        assert_eq!(original.stamp_nanosec, deserialized.stamp_nanosec);
+    }
+
+    // =========================================================================
+    // GoalStatusStamped Serialization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_status_stamped_roundtrip() {
+        let goal_id = GoalId::from_counter(777);
+        let goal_info = GoalInfo::new(goal_id, 100, 200);
+        let original = GoalStatusStamped::new(goal_info, GoalStatus::Executing);
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+        original.serialize(&mut writer).unwrap();
+        let len = writer.position();
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = GoalStatusStamped::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original.goal_info.goal_id, deserialized.goal_info.goal_id);
+        assert_eq!(original.status, deserialized.status);
+    }
+
+    // =========================================================================
+    // CancelResponse Tests
+    // =========================================================================
+
+    #[test]
+    fn test_cancel_response_serialization() {
+        for response in [
+            CancelResponse::Ok,
+            CancelResponse::Rejected,
+            CancelResponse::UnknownGoal,
+            CancelResponse::GoalTerminated,
+        ] {
+            let mut buf = [0u8; 8];
+            let len = {
+                let mut writer = CdrWriter::new(&mut buf);
+                response.serialize(&mut writer).unwrap();
+                writer.position()
+            };
+
+            let mut reader = CdrReader::new(&buf[..len]);
+            let deserialized = CancelResponse::deserialize(&mut reader).unwrap();
+
+            assert_eq!(response, deserialized);
+        }
+    }
+
+    // =========================================================================
+    // Mock Goal/Result/Feedback Serialization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_mock_goal_serialization() {
+        let original = MockGoal { order: 10 };
+
+        let mut buf = [0u8; 32];
+        let len = {
+            let mut writer = CdrWriter::new(&mut buf);
+            original.serialize(&mut writer).unwrap();
+            writer.position()
+        };
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = MockGoal::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_mock_result_serialization() {
+        let mut original = MockResult::default();
+        let _ = original.sequence.push(1);
+        let _ = original.sequence.push(1);
+        let _ = original.sequence.push(2);
+        let _ = original.sequence.push(3);
+        let _ = original.sequence.push(5);
+
+        let mut buf = [0u8; 64];
+        let len = {
+            let mut writer = CdrWriter::new(&mut buf);
+            original.serialize(&mut writer).unwrap();
+            writer.position()
+        };
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = MockResult::deserialize(&mut reader).unwrap();
+
+        assert_eq!(original.sequence.len(), deserialized.sequence.len());
+        for (a, b) in original.sequence.iter().zip(deserialized.sequence.iter()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn test_mock_feedback_serialization() {
+        let mut original = MockFeedback::default();
+        let _ = original.partial_sequence.push(1);
+        let _ = original.partial_sequence.push(1);
+        let _ = original.partial_sequence.push(2);
+
+        let mut buf = [0u8; 64];
+        let len = {
+            let mut writer = CdrWriter::new(&mut buf);
+            original.serialize(&mut writer).unwrap();
+            writer.position()
+        };
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let deserialized = MockFeedback::deserialize(&mut reader).unwrap();
+
+        assert_eq!(
+            original.partial_sequence.len(),
+            deserialized.partial_sequence.len()
+        );
+    }
+
+    // =========================================================================
+    // Buffer Size Constants Tests
+    // =========================================================================
+
+    #[test]
+    fn test_default_buffer_sizes() {
+        assert_eq!(DEFAULT_GOAL_BUFFER_SIZE, 1024);
+        assert_eq!(DEFAULT_RESULT_BUFFER_SIZE, 1024);
+        assert_eq!(DEFAULT_FEEDBACK_BUFFER_SIZE, 1024);
+        assert_eq!(DEFAULT_CANCEL_BUFFER_SIZE, 256);
+        assert_eq!(DEFAULT_STATUS_BUFFER_SIZE, 512);
+        assert_eq!(DEFAULT_MAX_ACTIVE_GOALS, 8);
+    }
+
+    // =========================================================================
+    // GoalStatus Helper Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_status_is_terminal() {
+        assert!(!GoalStatus::Unknown.is_terminal());
+        assert!(!GoalStatus::Accepted.is_terminal());
+        assert!(!GoalStatus::Executing.is_terminal());
+        assert!(!GoalStatus::Canceling.is_terminal());
+        assert!(GoalStatus::Succeeded.is_terminal());
+        assert!(GoalStatus::Canceled.is_terminal());
+        assert!(GoalStatus::Aborted.is_terminal());
+    }
+
+    #[test]
+    fn test_goal_status_is_active() {
+        assert!(!GoalStatus::Unknown.is_active());
+        assert!(GoalStatus::Accepted.is_active());
+        assert!(GoalStatus::Executing.is_active());
+        assert!(GoalStatus::Canceling.is_active());
+        assert!(!GoalStatus::Succeeded.is_active());
+        assert!(!GoalStatus::Canceled.is_active());
+        assert!(!GoalStatus::Aborted.is_active());
+    }
+
+    // =========================================================================
+    // GoalResponse Tests
+    // =========================================================================
+
+    #[test]
+    fn test_goal_response_is_accepted() {
+        assert!(!GoalResponse::Reject.is_accepted());
+        assert!(GoalResponse::AcceptAndExecute.is_accepted());
+        assert!(GoalResponse::AcceptAndDefer.is_accepted());
+    }
+
+    // =========================================================================
+    // Active Goals Collection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_active_goals_vec_operations() {
+        let mut active_goals: heapless::Vec<ActiveGoal<MockAction>, 4> = heapless::Vec::new();
+
+        // Add goals
+        for i in 0..3 {
+            let goal = ActiveGoal {
+                goal_id: GoalId::from_counter(i as u64),
+                status: GoalStatus::Accepted,
+                goal: MockGoal { order: i },
+            };
+            assert!(active_goals.push(goal).is_ok());
+        }
+
+        assert_eq!(active_goals.len(), 3);
+
+        // Find a goal
+        let goal_id = GoalId::from_counter(1);
+        let found = active_goals.iter().find(|g| g.goal_id == goal_id);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().goal.order, 1);
+
+        // Update status
+        for goal in &mut active_goals {
+            if goal.goal_id == goal_id {
+                goal.status = GoalStatus::Executing;
+            }
+        }
+
+        let updated = active_goals.iter().find(|g| g.goal_id == goal_id).unwrap();
+        assert_eq!(updated.status, GoalStatus::Executing);
+
+        // Remove by swap_remove
+        let index = active_goals
+            .iter()
+            .position(|g| g.goal_id == goal_id)
+            .unwrap();
+        active_goals.swap_remove(index);
+        assert_eq!(active_goals.len(), 2);
+
+        // Goal should no longer be found
+        let not_found = active_goals.iter().find(|g| g.goal_id == goal_id);
+        assert!(not_found.is_none());
+    }
+
+    // =========================================================================
+    // Completed Goals Collection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_completed_goals_storage() {
+        let mut completed_goals: heapless::Vec<CompletedGoal<MockAction>, 4> = heapless::Vec::new();
+
+        // Add completed goals
+        for i in 0..3 {
+            let mut result = MockResult::default();
+            let _ = result.sequence.push(i);
+
+            let completed = CompletedGoal {
+                goal_id: GoalId::from_counter(i as u64),
+                status: GoalStatus::Succeeded,
+                result,
+            };
+            assert!(completed_goals.push(completed).is_ok());
+        }
+
+        assert_eq!(completed_goals.len(), 3);
+
+        // Find a completed goal
+        let goal_id = GoalId::from_counter(2);
+        let found = completed_goals.iter().find(|g| g.goal_id == goal_id);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().result.sequence[0], 2);
+    }
+
+    // =========================================================================
+    // Status Array Helper Tests
+    // =========================================================================
+
+    #[test]
+    fn test_get_goal_status_from_array() {
+        let mut statuses: heapless::Vec<GoalStatusStamped, 16> = heapless::Vec::new();
+
+        // Add some statuses
+        for i in 0..5 {
+            let goal_id = GoalId::from_counter(i as u64);
+            let goal_info = GoalInfo::with_id(goal_id);
+            let status = match i % 3 {
+                0 => GoalStatus::Executing,
+                1 => GoalStatus::Succeeded,
+                _ => GoalStatus::Canceled,
+            };
+            let _ = statuses.push(GoalStatusStamped::new(goal_info, status));
+        }
+
+        // Test finding status
+        let goal_id_0 = GoalId::from_counter(0);
+        let goal_id_1 = GoalId::from_counter(1);
+        let goal_id_99 = GoalId::from_counter(99);
+
+        let status_0 = statuses
+            .iter()
+            .find(|s| s.goal_info.goal_id == goal_id_0)
+            .map(|s| s.status);
+        assert_eq!(status_0, Some(GoalStatus::Executing));
+
+        let status_1 = statuses
+            .iter()
+            .find(|s| s.goal_info.goal_id == goal_id_1)
+            .map(|s| s.status);
+        assert_eq!(status_1, Some(GoalStatus::Succeeded));
+
+        let status_99 = statuses
+            .iter()
+            .find(|s| s.goal_info.goal_id == goal_id_99)
+            .map(|s| s.status);
+        assert_eq!(status_99, None);
+    }
+
+    // =========================================================================
+    // Wire Format Tests (CDR Encoding)
+    // =========================================================================
+
+    #[test]
+    fn test_send_goal_request_format() {
+        // SendGoal Request format: UUID (16 bytes) + Goal
+        let goal_id = GoalId::from_counter(123);
+        let goal = MockGoal { order: 5 };
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        // Write UUID
+        for byte in &goal_id.uuid {
+            writer.write_u8(*byte).unwrap();
+        }
+        // Write goal
+        goal.serialize(&mut writer).unwrap();
+
+        let len = writer.position();
+        assert!(len >= 16 + 4); // UUID (16) + i32 (4)
+
+        // Verify we can read it back
+        let mut reader = CdrReader::new(&buf[..len]);
+
+        // Read UUID
+        let mut uuid = [0u8; 16];
+        for byte in &mut uuid {
+            *byte = reader.read_u8().unwrap();
+        }
+        let read_goal_id = GoalId::new(uuid);
+        assert_eq!(read_goal_id, goal_id);
+
+        // Read goal
+        let read_goal = MockGoal::deserialize(&mut reader).unwrap();
+        assert_eq!(read_goal, goal);
+    }
+
+    #[test]
+    fn test_feedback_message_format() {
+        // FeedbackMessage format: UUID (16 bytes) + Feedback
+        let goal_id = GoalId::from_counter(456);
+        let mut feedback = MockFeedback::default();
+        let _ = feedback.partial_sequence.push(1);
+        let _ = feedback.partial_sequence.push(2);
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        // Write UUID
+        for byte in &goal_id.uuid {
+            writer.write_u8(*byte).unwrap();
+        }
+        // Write feedback
+        feedback.serialize(&mut writer).unwrap();
+
+        let len = writer.position();
+
+        // Verify we can read it back
+        let mut reader = CdrReader::new(&buf[..len]);
+
+        // Read UUID
+        let mut uuid = [0u8; 16];
+        for byte in &mut uuid {
+            *byte = reader.read_u8().unwrap();
+        }
+        let read_goal_id = GoalId::new(uuid);
+        assert_eq!(read_goal_id, goal_id);
+
+        // Read feedback
+        let read_feedback = MockFeedback::deserialize(&mut reader).unwrap();
+        assert_eq!(read_feedback.partial_sequence.len(), 2);
+    }
+
+    #[test]
+    fn test_cancel_goal_request_format() {
+        // CancelGoal Request format: GoalInfo (goal_id + stamp)
+        let goal_id = GoalId::from_counter(789);
+        let goal_info = GoalInfo::new(goal_id, 1000, 2000);
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+        goal_info.serialize(&mut writer).unwrap();
+        let len = writer.position();
+
+        // Should be 16 (UUID) + 4 (sec) + 4 (nsec) = 24 bytes
+        assert_eq!(len, 24);
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let read_info = GoalInfo::deserialize(&mut reader).unwrap();
+
+        assert_eq!(read_info.goal_id, goal_id);
+        assert_eq!(read_info.stamp_sec, 1000);
+        assert_eq!(read_info.stamp_nanosec, 2000);
+    }
+
+    #[test]
+    fn test_cancel_goal_response_format() {
+        // CancelGoal Response format: return_code (i8) + goals_canceling (sequence<GoalInfo>)
+        let mut buf = [0u8; 128];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        // Write return code
+        writer.write_i8(CancelResponse::Ok as i8).unwrap();
+
+        // Write sequence of canceled goals
+        let canceled_goals = [
+            GoalInfo::with_id(GoalId::from_counter(1)),
+            GoalInfo::with_id(GoalId::from_counter(2)),
+        ];
+
+        writer.write_u32(canceled_goals.len() as u32).unwrap();
+        for goal_info in &canceled_goals {
+            goal_info.serialize(&mut writer).unwrap();
+        }
+
+        let len = writer.position();
+
+        // Read it back
+        let mut reader = CdrReader::new(&buf[..len]);
+
+        let return_code = reader.read_i8().unwrap();
+        assert_eq!(return_code, CancelResponse::Ok as i8);
+
+        let count = reader.read_u32().unwrap();
+        assert_eq!(count, 2);
+
+        for i in 0..count {
+            let goal_info = GoalInfo::deserialize(&mut reader).unwrap();
+            assert_eq!(goal_info.goal_id, GoalId::from_counter((i + 1) as u64));
+        }
+    }
+
+    #[test]
+    fn test_get_result_request_format() {
+        // GetResult Request format: UUID (16 bytes)
+        let goal_id = GoalId::from_counter(321);
+
+        let mut buf = [0u8; 32];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        for byte in &goal_id.uuid {
+            writer.write_u8(*byte).unwrap();
+        }
+
+        let len = writer.position();
+        assert_eq!(len, 16);
+
+        let mut reader = CdrReader::new(&buf[..len]);
+        let mut uuid = [0u8; 16];
+        for byte in &mut uuid {
+            *byte = reader.read_u8().unwrap();
+        }
+        assert_eq!(GoalId::new(uuid), goal_id);
+    }
+
+    #[test]
+    fn test_get_result_response_format() {
+        // GetResult Response format: status (i8) + result
+        let mut result = MockResult::default();
+        let _ = result.sequence.push(1);
+        let _ = result.sequence.push(1);
+        let _ = result.sequence.push(2);
+        let _ = result.sequence.push(3);
+        let _ = result.sequence.push(5);
+
+        let mut buf = [0u8; 64];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        writer.write_i8(GoalStatus::Succeeded as i8).unwrap();
+        result.serialize(&mut writer).unwrap();
+
+        let len = writer.position();
+
+        let mut reader = CdrReader::new(&buf[..len]);
+
+        let status = reader.read_i8().unwrap();
+        assert_eq!(status, GoalStatus::Succeeded as i8);
+
+        let read_result = MockResult::deserialize(&mut reader).unwrap();
+        assert_eq!(read_result.sequence.len(), 5);
+    }
+
+    #[test]
+    fn test_goal_status_array_format() {
+        // GoalStatusArray format: sequence<GoalStatusStamped>
+        let mut buf = [0u8; 256];
+        let mut writer = CdrWriter::new(&mut buf);
+
+        // Write count
+        writer.write_u32(3).unwrap();
+
+        // Write statuses
+        for i in 0..3 {
+            let goal_id = GoalId::from_counter(i as u64);
+            let goal_info = GoalInfo::with_id(goal_id);
+            let status = GoalStatusStamped::new(goal_info, GoalStatus::Executing);
+            status.serialize(&mut writer).unwrap();
+        }
+
+        let len = writer.position();
+
+        // Read it back
+        let mut reader = CdrReader::new(&buf[..len]);
+
+        let count = reader.read_u32().unwrap();
+        assert_eq!(count, 3);
+
+        for i in 0..count {
+            let status = GoalStatusStamped::deserialize(&mut reader).unwrap();
+            assert_eq!(status.goal_info.goal_id, GoalId::from_counter(i as u64));
+            assert_eq!(status.status, GoalStatus::Executing);
+        }
+    }
 }
