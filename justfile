@@ -420,60 +420,60 @@ clean-cpp:
 # Build C++ examples
 build-examples-cpp: build-cpp
     @echo "Building C++ examples..."
-    cd examples/ros2-cpp-talker && cmake -B build && cmake --build build
-    cd examples/ros2-cpp-listener && cmake -B build && cmake --build build
-    cd examples/ros2-cpp-custom-msg && cmake -B build && cmake --build build
-    cd examples/ros2-cpp-service-server && cmake -B build && cmake --build build
-    cd examples/ros2-cpp-service-client && cmake -B build && cmake --build build
+    cd examples/native-cpp-talker && cmake -B build && cmake --build build
+    cd examples/native-cpp-listener && cmake -B build && cmake --build build
+    cd examples/native-cpp-custom-msg && cmake -B build && cmake --build build
+    cd examples/native-cpp-service-server && cmake -B build && cmake --build build
+    cd examples/native-cpp-service-client && cmake -B build && cmake --build build
 
 # Format C++ examples
 format-examples-cpp:
     @echo "Formatting C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/ros2-cpp-talker/src examples/ros2-cpp-listener/src examples/ros2-cpp-custom-msg/src \
-        examples/ros2-cpp-service-server/src examples/ros2-cpp-service-client/src -name '*.cpp' | \
+    find examples/native-cpp-talker/src examples/native-cpp-listener/src examples/native-cpp-custom-msg/src \
+        examples/native-cpp-service-server/src examples/native-cpp-service-client/src -name '*.cpp' | \
         xargs clang-format -i --style=file:crates/nano-ros-cpp/.clang-format
 
 # Check C++ examples
 check-examples-cpp:
     @echo "Checking C++ examples..."
     @which clang-format > /dev/null || (echo "Error: clang-format not found." && exit 1)
-    find examples/ros2-cpp-talker/src examples/ros2-cpp-listener/src examples/ros2-cpp-custom-msg/src \
-        examples/ros2-cpp-service-server/src examples/ros2-cpp-service-client/src -name '*.cpp' | \
+    find examples/native-cpp-talker/src examples/native-cpp-listener/src examples/native-cpp-custom-msg/src \
+        examples/native-cpp-service-server/src examples/native-cpp-service-client/src -name '*.cpp' | \
         xargs clang-format --dry-run --Werror --style=file:crates/nano-ros-cpp/.clang-format
 
 # Clean C++ examples build
 clean-examples-cpp:
-    rm -rf examples/ros2-cpp-talker/build examples/ros2-cpp-listener/build examples/ros2-cpp-custom-msg/build \
-        examples/ros2-cpp-service-server/build examples/ros2-cpp-service-client/build
+    rm -rf examples/native-cpp-talker/build examples/native-cpp-listener/build examples/native-cpp-custom-msg/build \
+        examples/native-cpp-service-server/build examples/native-cpp-service-client/build
     @echo "C++ examples build cleaned"
 
 # Run C++ talker (requires zenohd)
-run-ros2-cpp-talker:
+run-native-cpp-talker:
     @echo "Running C++ talker (requires zenohd)..."
-    examples/ros2-cpp-talker/build/cpp_talker
+    examples/native-cpp-talker/build/cpp_talker
 
 # Run C++ listener (requires zenohd)
-run-ros2-cpp-listener:
+run-native-cpp-listener:
     @echo "Running C++ listener (requires zenohd)..."
-    examples/ros2-cpp-listener/build/cpp_listener
+    examples/native-cpp-listener/build/cpp_listener
 
 # Run C++ custom message example (requires zenohd)
-run-ros2-cpp-custom-msg:
+run-native-cpp-custom-msg:
     @echo "Running C++ custom message example (requires zenohd)..."
-    examples/ros2-cpp-custom-msg/build/cpp_custom_msg
+    examples/native-cpp-custom-msg/build/cpp_custom_msg
 
 # Run C++ service server (requires zenohd)
-run-ros2-cpp-service-server:
+run-native-cpp-service-server:
     @echo "Running C++ service server (requires zenohd)..."
-    examples/ros2-cpp-service-server/build/cpp_service_server
+    examples/native-cpp-service-server/build/cpp_service_server
 
 # Run C++ service client (requires zenohd + service server)
 # NOTE: Service client is not yet supported in transport layer
-run-ros2-cpp-service-client:
+run-native-cpp-service-client:
     @echo "Running C++ service client (requires zenohd + service server)..."
     @echo "NOTE: Service client creation will fail - not yet implemented in transport layer"
-    examples/ros2-cpp-service-client/build/cpp_service_client
+    examples/native-cpp-service-client/build/cpp_service_client
 
 # =============================================================================
 # Zenoh
