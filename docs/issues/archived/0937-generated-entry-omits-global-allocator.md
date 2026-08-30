@@ -1,93 +1,102 @@
 ---
 id: 937
-title: "A generated Entry names only its platform feature, so a `no_std` platform
-  with no other allocator provider cannot link — nuttx has been red every nightly"
-status: open
+title: "The NuttX Entry reached the tree's only `#[global_allocator]` through the
+  selection facade, and the facade is emitted only if its directory happens to exist"
+status: resolved
 type: bug
 area: codegen
 related: [0594, 0616]
 ---
 
-## What is wrong
+## Correction to the first version of this issue
 
-`packages/cli/nros-cli-core/src/builder/entry.rs:344` writes the Entry's
-dependency on `nros-platform` with exactly one feature — the board's
-`platform_feature`:
+The first filing blamed `builder/entry.rs:344` for naming only `platform_feature`
+and prescribed a new board-descriptor field so the Entry would name
+`global-allocator` itself. **That diagnosis was wrong**, and it was wrong in the
+way that matters: it named a plausible cause without measuring the graph, so the
+prescribed fix would have papered over the real mechanism while leaving it live
+for every other board.
+
+What is true: no generated Entry names `global-allocator`. What is false: that
+this is why nuttx failed. Boards do not rely on the Entry for it — they enable it
+on their own `nros-platform` dependency, and cargo feature unification carries it
+to the Entry. Five of six bare-metal/RTOS boards do exactly that.
+
+## The actual mechanism
+
+`nros-board-nuttx-qemu` was the one board that did **not**:
+
+```
+nros-board-mps2-an385                 features = ["platform-mps2-an385", "global-allocator", "critical-section"]
+nros-board-mps2-an385-freertos        features = ["platform-freertos", "global-allocator"]
+nros-board-mps3-an536-freertos        features = ["platform-freertos", "global-allocator"]
+nros-board-s32z270-freertos           features = ["platform-freertos", "global-allocator"]
+nros-board-threadx-qemu-riscv64       features = ["platform-threadx", "global-allocator"]
+nros-board-nuttx-qemu                 (none)
+```
+
+It reached the allocator by a longer route — `nros-board-nuttx-qemu/default =
+["image-runtime"]` → `nros-board-nuttx/image-runtime =
+["nros-platform/global-allocator"]`. But the generated Entry depends on the board
+crate with `default-features = false`, so that route runs **only** through the
+generated selection facade, which re-enables `image-runtime` explicitly.
+
+And the facade is optional (`cmd/build.rs:927`):
 
 ```rust
-out.push_str(&format!(
-    "nros-platform = {{ path = \"{plat_rel}\", default-features = false, \
-     features = [\"{}\"] }}\n",
-    board.platform_feature
-));
+let facade_dir = {
+    let d = root.join("generated/nros-selection")
+               .join(crate::builder::entry::package_name(image_id));
+    d.is_dir().then_some(d)          // absent -> None, silently
+};
 ```
 
-`#[global_allocator]` in `nros-platform` is **opt-in**, behind the
-`global-allocator` feature, and deliberately so — `lib.rs:133` says *"Off by
-default — `platform-posix` users link against libstd's allocator"*. Since
-phase-361 W8.c / issue 0594 it is the ONE `#[global_allocator]` in the tree.
+A bare directory probe. When it misses, `builder/entry.rs:287` emits the Entry
+without the facade and says nothing — dropping the RMW, the ROS edition, the
+capability features and, for NuttX alone, the allocator.
 
-A generated Entry therefore never enables it. On any `no_std` platform where
-nothing else supplies one, the build ends at:
+## Why it looked impossible
 
-```
-error: no global memory allocator found but one is required; link to std or
-       add `#[global_allocator]` to a static item that implements the
-       GlobalAlloc trait
-error: could not compile `nuttx_entry` (bin "nuttx_entry") due to 1 previous error
-```
-
-That is the nightly `nuttx` cell, on
-`examples/workspaces/realtime-rust/build/nuttx-zenoh/nuttx_entry`. It has been
-red for every run in the scanned window.
-
-## Why only nuttx
-
-The feature is enabled in exactly six places in the tree, all HAND-WRITTEN
-examples on one platform:
+In the same nightly job, in the same cargo run order:
 
 ```
-examples/qemu-riscv64-threadx/rust/{talker,listener,service-*,action-*}/Cargo.toml:
-  nros-platform = { ..., features = ["platform-threadx", "global-allocator", "critical-section"] }
+7765  Compiling nuttx_entry_nros_selection  (examples/workspaces/rust/generated/...)
+7766  Compiling nuttx_entry                 (examples/workspaces/rust/...)          -> OK
+7949  Compiling nuttx_entry                 (examples/workspaces/realtime-rust/...) -> no global memory allocator
 ```
 
-No generated Entry has ever carried it. Other platforms survive because
-something else in their graph provides an allocator — Zephyr's Rust images get
-one from `zephyr-lang-rust`, POSIX from libstd. NuttX has no such provider, so
-it is the platform where the omission becomes a link error rather than a latent
-gap. Any future `no_std` platform without a provider inherits the same failure.
+One selection-crate compile against two Entry compiles. `workspaces/rust` had a
+facade; `realtime-rust` did not, though `nros sync` ran for both. Identical Entry
+manifests on a developer host, because there the facade exists and the failure
+cannot reproduce.
 
-## The shape of the fix
+## Verified by measurement, not by rebuild
 
-Do NOT hardcode a platform list in the generator. The Entry builder already
-takes everything platform-specific from the board descriptor —
-`platform_feature` (`entry.rs:107`) and `crate_root_deps` (`entry.rs:113`), the
-latter existing precisely because *"the descriptor is the only place that
-knows"*. Whether a platform supplies its own allocator is the same kind of fact.
+The graph was measured with `cargo tree -e features -i nros-platform` in
+`examples/workspaces/realtime-rust/build/nuttx-zenoh/nuttx_entry`, removing the
+facade dependency to reproduce the CI condition. No NuttX SDK needed:
 
-So: give the descriptor a field for the extra `nros-platform` features an Entry
-needs on that board (or a narrower `needs_global_allocator` flag), default it
-off, set it for the NuttX boards, and have `entry.rs` emit it alongside
-`platform_feature`.
+| board fix | facade | `global-allocator` in the graph |
+| --- | --- | --- |
+| no | present | 1 — via `image-runtime` (why a dev host always passes) |
+| no | **absent** | **0** — the CI failure |
+| yes | absent | 1 — via the board crate |
+| yes | present | 1 |
 
-The comment two lines above the offending code already states the principle this
-violates — the platform feature is named explicitly because *"an unselected
-platform is a link error a long way from its cause"*. An unselected allocator is
-the same error from the same cause, and was left out.
+## Fixed
 
-## Verification
+1. `nros-board-nuttx-qemu` names `global-allocator` on its own `nros-platform`
+   dependency, unconditionally, as its five siblings do. The board is now
+   self-sufficient and does not depend on the facade for a lang item.
+2. A missing facade now WARNS, naming what the Entry is being built without and
+   pointing at `nros sync`. It stays a warning rather than an error because an
+   unsynced workspace is a state `nros build` is documented to tolerate — what it
+   may not do is tolerate it without saying so. That half is the class fix: every
+   other board still loses its RMW, edition and capability features to the same
+   silent branch, and those failures will be no easier to read than this one.
 
-`nuttx` is one of five cells `just nightly-triage` reports as red across every
-run in the window. The other four are already fixed and awaiting a nightly:
-`esp32` by #89 (DRAM overflow — service buffers for services the image lacks),
-and `freertos` / `threadx_linux` / `threadx_riscv64` by #90, which share ONE
-cause — `idlc not found on PATH`, the Cyclone host tool that `nros setup` never
-provisioned because `--rmw` defaulted to zenoh. Both merged at ~14:04 and
-~14:20 UTC on 2026-08-30, after the 07:10 run that produced the failures above.
-
-Note the two shapes the three `idlc` cells took, because they read completely
-differently in the run list: `freertos` died at cmake configure with the tool
-named, while both `threadx` cells built, then SKIPPED all 9 cyclone tests for
-unmet preconditions and went red on `_check-skip-budget` reporting
-`Real failures: 0 / 0 total failures`. Same root cause, one visible and one
-laundered into a skip-budget red.
+Still open, deliberately not guessed at here: **why** `nros sync` produced a
+facade for `examples/workspaces/rust` and not for `examples/workspaces/realtime-rust`
+in the same job. The two builds also resolve different board tokens for the same
+platform — `nuttx-qemu-arm` against `nuttx` — which is the next thread to pull.
+The warning above is what makes that thread visible the next time it happens.
