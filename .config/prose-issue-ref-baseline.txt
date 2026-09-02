@@ -1,0 +1,14 @@
+# Prose references to an issue id with no file on disk.
+#
+# A RATCHET, not an allowlist: this file may only shrink. Each row is
+# `<path>:<id>`. The legitimate reason to be here is an IN-FLIGHT issue —
+# the citing doc is on main, its issue file is in another open PR — where
+# deleting the correct citation would be the wrong fix.
+#
+# Regenerate: python3 scripts/check-prose-issue-refs.py --write-baseline
+book/src/getting-started/zephyr.md:0940
+cmake/NanoRosCodegenCore.cmake:0940
+cmake/NanoRosGenerateInterfaces.cmake:0940
+cmake/NanoRosMessageBounds.cmake:0940
+cmake/NanoRosWorkspace.cmake:0949
+just/check.just:0940
