@@ -370,7 +370,7 @@ to — `net/` `serial/` `ipc/` `sys/` — documented in `packages/drivers/README
   reach its own guard** — `metadata-mode` carried an unreachable `compile_error!` for two phases.
   And where a consumer GETS `std` is not uniform (`examples/native/rust/*` inherit it from
   `nros-board-linux`; `nros-tests/bins/*` must name it), so a manifest-READING sweep looks complete
-  while half the tree is red — build the candidates. → issues 0632, 0640.
+  while half the tree is red — build the candidates.
 - **Messages are generated** (`nros generate-rust` from `package.xml`) — never hand-write. Detail
   → RFC-0023 + [docs/guides/message-generation.md](docs/guides/message-generation.md).
 - Unused vars: `_name` + comment, or `#[allow(dead_code)]` for test struct fields.
