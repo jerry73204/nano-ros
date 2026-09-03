@@ -23,8 +23,21 @@
 #define NROS_CPP_HEAP_STRING_HPP
 
 #include <cstddef>
+#include <string.h> // strcmp/strlen — `<cstring>` isn't in Zephyr's minimal libcpp
 
 #include <nros/platform.h>
+
+// phase-417 W1.c — `std::string` interop, gated exactly as `fixed_string.hpp`
+// gates it (`__has_include`, not `__STDC_HOSTED__` — issue 0112).
+#if defined(NROS_CPP_STD)
+#include <string>
+#define NROS_CPP_HAS_STD_STRING 1
+#elif defined(__has_include)
+#if __has_include(<string>)
+#include <string>
+#define NROS_CPP_HAS_STD_STRING 1
+#endif
+#endif
 
 namespace nros {
 
@@ -88,6 +101,71 @@ struct HeapString {
         size = 0;
         capacity = 0;
     }
+
+    /// Assign from a NUL-terminated C string. Returns false on alloc failure,
+    /// in which case the string is left EMPTY rather than holding its previous
+    /// value — a stale read is the one outcome a caller cannot detect.
+    bool assign(const char* src) {
+        if (src == nullptr) {
+            clear();
+            return true;
+        }
+        if (!assign(src, strlen(src))) {
+            clear();
+            return false;
+        }
+        return true;
+    }
+
+    /// Compare with a C string.
+    bool operator==(const char* s) const {
+        if (s == nullptr) return size == 0;
+        return strcmp(c_str(), s) == 0;
+    }
+    bool operator!=(const char* s) const { return !(*this == s); }
+
+#ifdef NROS_CPP_HAS_STD_STRING
+    // phase-417 W1.c — `std::string` interop, the same conversions
+    // `FixedString<N>` carries, so a ported assignment reads identically
+    // whichever string mode (RFC-0033) codegen picked for the field.
+    //
+    // These COPY and call through to `assign()`; no data member is added, so
+    // the `{ char* data; size_t size; size_t capacity; }` repr(C) layout this
+    // type exists for is unchanged.
+    //
+    // NOTE the divergence from `std::string`, which is why `assign()` stays
+    // the verb for anything that must handle failure: `std::string` THROWS on
+    // allocation failure and nano-ros has no exceptions (RFC-0018), so
+    // `operator=` cannot report one. It leaves the string EMPTY rather than
+    // stale, which `empty()` can see.
+
+    /// Assign from a `std::string`. Empty on alloc failure — see the note
+    /// above; use `assign()` when the failure must be handled.
+    HeapString& operator=(const std::string& s) {
+        if (!assign(s.data(), s.size())) clear();
+        return *this;
+    }
+
+    /// Assign from a C string. Empty on alloc failure — see `operator=(const
+    /// std::string&)`.
+    HeapString& operator=(const char* s) {
+        (void)assign(s);
+        return *this;
+    }
+
+    /// Copy out as a `std::string`. Implicit, so `std::string s = msg.data;`
+    /// works the same as it does for `FixedString<N>`.
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    operator std::string() const { return std::string(c_str(), size); }
+
+    /// Explicit spelling of the conversion above.
+    std::string to_string() const { return std::string(c_str(), size); }
+
+    bool operator==(const std::string& s) const {
+        return size == s.size() && memcmp(c_str(), s.data(), size) == 0;
+    }
+    bool operator!=(const std::string& s) const { return !(*this == s); }
+#endif
 };
 
 } // namespace nros

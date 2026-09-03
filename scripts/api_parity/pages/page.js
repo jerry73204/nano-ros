@@ -6,6 +6,12 @@ const STATES = [
 ];
 const GLYPH = Object.fromEntries(STATES.map(s => [s[0], s[2]]));
 const LABEL = Object.fromEntries(STATES.map(s => [s[0], s[1]]));
+// RFC-0087 dispositions. A SECOND axis, not an eighth state: the state says
+// what we did, the disposition says what a porting user gets.
+const DISP = {
+  "adopt": "adopt", "adopt-bounded": "adopt \u00b7 bounded",
+  "refuse-loud": "refuses loudly", "absent": "absent"
+};
 const on = new Set(STATES.map(s => s[0]));
 let query = "";
 let alias = false;   // render our side under ROS 2's spelling
@@ -50,7 +56,7 @@ function cellHTML(cell, renamed, ours) {
 
 function searchText(r) {
   if (r._s === undefined) {
-    const bits = [r.k, r.w];
+    const bits = [r.k, r.w, r.d || "", r.su === "ported" ? "compat shim rclcpp_compat" : ""];
     [r.T, r.O].forEach(c => {
       if (!c) return;
       bits.push(c.n, c.r || "");
@@ -70,6 +76,19 @@ function match(r) {
 function rowHTML(r) {
   let why = "";
   why += '<div class="st s-' + r.s + '">' + GLYPH[r.s] + " " + LABEL[r.s] + "</div>";
+  // issue 1020: our side of this row exists only inside `rclcpp_compat.hpp`, or
+  // the native headers answer it differently. Either way the reader is told,
+  // rather than reading one merged number for two questions.
+  if (r.su === "ported" || r.nb) {
+    let bits = [];
+    if (r.su === "ported") bits.push("via <code>rclcpp_compat.hpp</code>");
+    if (r.nb) bits.push("native API: <b>" + esc(r.nb) + "</b>");
+    why += '<div class="surf">' + bits.join(" \u00b7 ") + "</div>";
+  }
+  if (r.d) {
+    why += '<div class="disp d-' + esc(r.d) + '">' +
+      esc(DISP[r.d] || r.d) + "</div>";
+  }
   if (r.p && r.p.length) {
     why += '<div class="answers">' +
       r.p.map(x => '<div class="ans"><code>' + esc(x) + "</code></div>").join("") + "</div>";

@@ -35,6 +35,17 @@
   those rows carry an explicit <code>provides</code> arrow, hand-authored, never inferred;
   <b>rejected</b> means we declined it on the record; <b>not implemented</b> is an open gap;
   <b>ours only</b> has no upstream counterpart.</p>
+  <p><b>Two surfaces, on one page.</b> The C++ rows measure what a PORTED FILE reaches —
+  <code>rclcpp_compat.hpp</code> included, because <code>#include &lt;rclcpp/rclcpp.hpp&gt;</code>
+  resolves to it. A row marked <i>via <code>rclcpp_compat.hpp</code></i> is one the shim alone
+  answers; a row marked <i>native API</i> is one the native <code>nros::</code> headers answer
+  differently, and that second label is the number this page used to report on its own
+  (<b>issue 1020</b>).</p>
+  <p><b>Disposition</b> is a second axis and answers a different question from the state: not
+  what we did, but what a porting user GETS — <i>adopt</i>, <i>adopt · bounded</i> (weaker inside
+  a documented envelope), <i>refuses loudly</i> (the name exists and fails to COMPILE, with the
+  alternative named), <i>absent</i>. Rows without one have not been classified yet; that pass is
+  phase-417 W-M2 (<b>RFC-0087</b>).</p>
   <p>A group states its reason once when every member shares one verdict, rather than
   repeating it across the members. Where a reason cites a symbol in
   <code>backticks</code>, that symbol is meant to exist — fifteen currently do not, which is

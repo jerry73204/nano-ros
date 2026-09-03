@@ -48,6 +48,9 @@
 #include "nros/clock.hpp"
 #include "nros/guard_condition.hpp"
 #include "nros/executor.hpp"
+// phase-417 stage 2b (RFC-0087) — `nros::TopicEndpointInfo` and the visitor
+// typedef used by the graph forwarders below.
+#include "nros/graph.hpp"
 // Phase 273 (RFC-0047) — callback-group token (value type, no heap).
 #include "nros/callback_group.hpp"
 
@@ -344,6 +347,195 @@ class Node {
     /// but a stateful component binding those transports raw needs direct access.
     /// `nullptr` on an uninitialized node.
     void* executor_handle() const { return initialized_ ? executor_handle_ : nullptr; }
+
+    // ---- Graph queries — phase-417 stage 2b (RFC-0087) --------------------
+    //
+    // rclcpp puts these on the node. `nros::Executor` owns them here because
+    // one session per image makes the executor the graph's receiver
+    // (RFC-0002), so each method below FORWARDS to the executor this node was
+    // opened against and nothing else: no state, no loop, no caching, no name
+    // construction. RFC-0019 — the behaviour is Rust's and stays there.
+    //
+    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0087): they
+    // report what has been DISCOVERED and never block, so an empty result
+    // means "nobody seen yet" and never "nobody exists" — poll rather than
+    // calling once and concluding. `ErrorCode::Unsupported`, which is what a
+    // backend with no graph at all returns, is a DIFFERENT answer from an
+    // empty one and must not be collapsed into zero.
+
+    /// Every node on the graph, with its namespace — rclcpp's
+    /// `Node::get_node_names()`.
+    ///
+    /// `visit(ctx, name, ns, enclave)` runs once per node; `enclave` is
+    /// `nullptr` where the backend tracks none, which is what lets one call
+    /// answer both `rmw_get_node_names` forms. Every string is BORROWED for
+    /// the duration of the call; return `false` to stop early.
+    ///
+    /// rclcpp hands back a `std::vector<std::string>`. There is no allocator
+    /// here (RFC-0022), so the same enumeration streams through a visitor —
+    /// a plain function pointer plus `ctx`, because these headers compile
+    /// `-nostdinc++` against Zephyr's minimal libcpp, where `<functional>`
+    /// does not exist (issue 0112).
+    ///
+    /// Reports what has been DISCOVERED and never blocks: an empty
+    /// enumeration means "nobody seen yet", not "nobody exists", and
+    /// `ErrorCode::Unsupported` from a backend with no graph stays distinct
+    /// from it.
+    Result get_node_names(nros_cpp_node_visit_fn visit, void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_node_names(executor_handle_, visit, ctx));
+    }
+
+    /// Every topic on the graph, with the types on it — rclcpp's
+    /// `Node::get_topic_names_and_types()`.
+    ///
+    /// `visit(ctx, name, types, types_count)` runs once per distinct TOPIC: a
+    /// topic carrying two types is one call with two entries, not two calls.
+    /// `types_count` may legitimately be 0 on a partially discovered graph.
+    /// Same discovery envelope as [`get_node_names`].
+    Result get_topic_names_and_types(nros_cpp_names_and_types_visit_fn visit, void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_topic_names_and_types(executor_handle_, visit, ctx));
+    }
+
+    /// Every service on the graph, with its types — rclcpp's
+    /// `Node::get_service_names_and_types()`. As
+    /// [`get_topic_names_and_types`], over servers and clients.
+    Result get_service_names_and_types(nros_cpp_names_and_types_visit_fn visit, void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_service_names_and_types(executor_handle_, visit, ctx));
+    }
+
+    /// How many publishers are visible on `topic_name` — rclcpp's
+    /// `Node::count_publishers()`.
+    ///
+    /// `topic_name` is a ROS name (`"/chatter"`), used as given: it is not
+    /// remapped and not expanded against this node's namespace, which is what
+    /// rclcpp documents for this call too. The count reflects what has been
+    /// DISCOVERED, so it can be low right after startup and a zero is never a
+    /// proof of absence.
+    Result count_publishers(const char* topic_name, size_t* out_count) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_count_publishers(executor_handle_, topic_name, out_count));
+    }
+
+    /// How many subscribers are visible on `topic_name` — rclcpp's
+    /// `Node::count_subscribers()`. See [`count_publishers`] for the caveats.
+    Result count_subscribers(const char* topic_name, size_t* out_count) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_count_subscribers(executor_handle_, topic_name, out_count));
+    }
+
+    /// What one named node PUBLISHES, with the types — rclcpp's
+    /// `NodeGraph::get_publisher_names_and_types_by_node()`. Same discovery
+    /// envelope as [`get_node_names`].
+    Result get_publisher_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                                 nros_cpp_names_and_types_visit_fn visit,
+                                                 void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_publisher_names_and_types_by_node(
+            executor_handle_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What one named node SUBSCRIBES to, with the types.
+    ///
+    /// `subscription`, not `subscriber`: the C++ surface takes rclcpp's
+    /// vocabulary (`create_subscription`, `Subscription<T>`,
+    /// `get_subscriptions_info_by_topic`), and `nros::Executor` spells it that
+    /// way — this forwarder keeps our two spellings identical rather than
+    /// introducing a third. The C surface says `subscriber` because rcl does,
+    /// and the vtable slot because upstream rmw does.
+    ///
+    /// Same discovery envelope as [`get_node_names`].
+    Result get_subscription_names_and_types_by_node(const char* node_name,
+                                                    const char* node_namespace,
+                                                    nros_cpp_names_and_types_visit_fn visit,
+                                                    void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_subscription_names_and_types_by_node(
+            executor_handle_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What services one named node SERVES, with the types — rclcpp's
+    /// `Node::get_service_names_and_types_by_node()`. Servers only, not
+    /// clients, as upstream. Same discovery envelope as [`get_node_names`].
+    Result get_service_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                               nros_cpp_names_and_types_visit_fn visit,
+                                               void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_service_names_and_types_by_node(
+            executor_handle_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What services one named node CALLS, with the types — rclcpp's
+    /// `NodeGraph::get_client_names_and_types_by_node()`. Same discovery
+    /// envelope as [`get_node_names`].
+    Result get_client_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                              nros_cpp_names_and_types_visit_fn visit,
+                                              void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_client_names_and_types_by_node(
+            executor_handle_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// The publishers discovered on `topic_name`, one visit each — rclcpp's
+    /// `Node::get_publishers_info_by_topic()`.
+    ///
+    /// The endpoint carries NO QoS profile: rclcpp's `qos_profile()` reports
+    /// the GRANTED profile, no backend behind this API can read a remote's
+    /// granted profile back, and reporting the remote's DECLARED one instead
+    /// would be a confident wrong answer to the question ("why is nothing
+    /// arriving?") the field exists to answer. See [`nros::TopicEndpointInfo`].
+    ///
+    /// rclcpp also takes `no_mangle`; there is no such parameter here, because
+    /// accepting one and ignoring it would silently drop configuration —
+    /// exactly what RFC-0087's rule forbids.
+    ///
+    /// Same discovery envelope as [`get_node_names`].
+    Result get_publishers_info_by_topic(const char* topic_name,
+                                        nros_cpp_endpoint_info_visit_fn visit, void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_publishers_info_by_topic(executor_handle_, topic_name,
+                                                                     visit, ctx));
+    }
+
+    /// The publishers on `topic_name`, visited as [`nros::TopicEndpointInfo`]
+    /// — the rclcpp-shaped overload of the call above.
+    ///
+    /// A pure conversion over the same query: the visitor sees an endpoint
+    /// with rclcpp's accessor names (`node_name()`, `endpoint_type()`,
+    /// `endpoint_gid()`) instead of the raw C struct. Every caveat of the
+    /// `nros_cpp_endpoint_info_visit_fn` overload applies unchanged, including
+    /// the absent QoS profile and the borrowed strings.
+    Result get_publishers_info_by_topic(const char* topic_name, TopicEndpointInfoVisitFn visit,
+                                        void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        detail::EndpointInfoTrampoline tramp{visit, ctx};
+        return Result(nros_cpp_executor_get_publishers_info_by_topic(
+            executor_handle_, topic_name, &detail::EndpointInfoTrampoline::thunk, &tramp));
+    }
+
+    /// The subscriptions discovered on `topic_name`, one visit each —
+    /// rclcpp's `Node::get_subscriptions_info_by_topic()`. See
+    /// [`get_publishers_info_by_topic`] for the QoS, `no_mangle` and discovery
+    /// envelopes.
+    Result get_subscriptions_info_by_topic(const char* topic_name,
+                                           nros_cpp_endpoint_info_visit_fn visit, void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_get_subscriptions_info_by_topic(executor_handle_,
+                                                                        topic_name, visit, ctx));
+    }
+
+    /// The subscriptions on `topic_name`, visited as
+    /// [`nros::TopicEndpointInfo`] — the rclcpp-shaped overload of the call
+    /// above.
+    Result get_subscriptions_info_by_topic(const char* topic_name, TopicEndpointInfoVisitFn visit,
+                                           void* ctx) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        detail::EndpointInfoTrampoline tramp{visit, ctx};
+        return Result(nros_cpp_executor_get_subscriptions_info_by_topic(
+            executor_handle_, topic_name, &detail::EndpointInfoTrampoline::thunk, &tramp));
+    }
 
     /// Create a publisher for a topic.
     ///

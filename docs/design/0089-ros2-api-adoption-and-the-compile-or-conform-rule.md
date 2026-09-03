@@ -510,6 +510,36 @@ in this RFC about "how far we are" is therefore measured against the NATIVE API,
 not against what ported code reaches. Fixing that is stage 0 of the roadmap:
 without it, progress and noise are indistinguishable.
 
+## The measurement can flatter, which is why `disposition` is not bookkeeping
+
+Stage 0 admitted `rclcpp_compat.hpp` as a fourth translation unit, so the lane
+now reports two surfaces: the NATIVE API's distance from rclcpp, and what a
+ported file actually reaches. The ported surface is better by construction —
+`same` goes 84 → 110, `theirs-only` 717 → 692.
+
+**Two of those newly-`same` rows are the live inversions this RFC was written
+about.** Measured 2026-09-04:
+
+```
+ParametersQoS                          state=same   surface=ported
+NodeOptions::use_intra_process_comms   state=same   surface=ported
+```
+
+`ParametersQoS()` returns `QoS(10)` where upstream is `KEEP_LAST, 1000`, and
+that `NodeOptions` setter stores its argument and is never read. Both now
+correlate `same`, because correlation compares NAMES and SHAPES and neither
+differs. The instrument cannot see the defect it is measuring.
+
+So a row can be `same` by shape and `refuse-loud` by disposition at the same
+time, and those are not in tension — they answer different questions. Without
+the disposition, "the ported surface matches on 110 items" is a claim the
+campaign cannot back, because two of the 110 are known to differ silently and
+nothing in the row says so.
+
+That is the argument for the field. It is not metadata about the ledger; it is
+the only thing standing between a compatibility number and a false one. The
+gate exists (`--require-disposition`) and is off until W-M2 populates the rows.
+
 ## Consequences for RFC-0036
 
 RFC-0036 catalogues divergences and says a preference may not be recorded as one.

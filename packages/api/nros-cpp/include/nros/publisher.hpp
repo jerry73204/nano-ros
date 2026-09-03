@@ -21,6 +21,32 @@
 
 #include "nros_cpp_ffi.h"
 
+// phase-417 W1.a — the nested pointer aliases below (`Publisher<M>::SharedPtr`
+// and friends, the spelling nearly every rclcpp source uses for a member) are
+// `std::shared_ptr` / `std::unique_ptr`, so they need `<memory>` — which a
+// MINIMAL freestanding libcpp does not ship (Zephyr's is `<cstddef>`,
+// `<cstdint>`, `<new>`, plus this repo's `zephyr/cxx-compat/`; neither has
+// `<memory>`).
+//
+// Gate on the declared std flavour, else ASK THE COMPILER. `__STDC_HOSTED__` is
+// the WRONG question here (issue 0112), and measurably so: the Zephyr XRCE C++
+// leaves compile with `-fno-freestanding -nostdinc++`, i.e. they read HOSTED
+// while having no `<memory>` at all, and the aarch64 workspace leaf has
+// `-nostdinc++` with no `-ffreestanding` either. `__has_include` answers the
+// question that is actually being asked, and is the idiom
+// `declared_qos.hpp:80` / `nros-c/include/nros/component.h:59` already use.
+//
+// The other entity headers repeat this block; the rationale lives here.
+#if defined(NROS_CPP_STD)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#elif defined(__has_include)
+#if __has_include(<memory>)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#endif
+#endif
+
 namespace nros {
 
 /// Maximum topic name length stored inside `nros::Publisher<M>` (256).
@@ -47,6 +73,23 @@ static constexpr size_t PUBLISHER_TOPIC_NAME_MAX = 256;
 /// ```
 template <typename M> class Publisher {
   public:
+#ifdef NROS_CPP_HAS_SHARED_PTR
+    /// `rclcpp::Publisher<M>::SharedPtr` — phase-417 W1.a.
+    ///
+    /// rclcpp indexes its entity types this way, and
+    /// `rclcpp::Publisher<M>::SharedPtr member_;` is close to universal in
+    /// ported source. Ergonomics only (RFC-0087 §"Who implements an adopted
+    /// name"): a spelling for `std::shared_ptr<Publisher<M>>`, no second code path.
+    ///
+    /// Present only where `<memory>` is — a freestanding target has no
+    /// `std::shared_ptr` to alias.
+    using SharedPtr = std::shared_ptr<Publisher<M>>;
+    /// `rclcpp::Publisher<M>::ConstSharedPtr` — see `SharedPtr`.
+    using ConstSharedPtr = std::shared_ptr<const Publisher<M>>;
+    /// `rclcpp::Publisher<M>::UniquePtr` — see `SharedPtr`.
+    using UniquePtr = std::unique_ptr<Publisher<M>>;
+#endif
+
     /// Publish a typed message.
     ///
     /// Calls the codegen-generated `M::ffi_publish()` which serializes the

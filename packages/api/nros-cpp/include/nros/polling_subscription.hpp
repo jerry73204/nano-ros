@@ -28,6 +28,19 @@
 #include "nros/result.hpp"
 #include "nros/subscription.hpp"
 
+// phase-417 W1.a — `<memory>` for the nested pointer aliases. Rationale (and
+// why the test is `__has_include` rather than `__STDC_HOSTED__`, issue 0112)
+// lives in `publisher.hpp`.
+#if defined(NROS_CPP_STD)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#elif defined(__has_include)
+#if __has_include(<memory>)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#endif
+#endif
+
 namespace nros {
 
 /// Latest-value polling subscription.
@@ -44,6 +57,28 @@ namespace nros {
 /// ```
 template <typename M> class PollingSubscription {
   public:
+#ifdef NROS_CPP_HAS_SHARED_PTR
+    /// `PollingSubscription<M>::SharedPtr` — phase-417 W1.a.
+    ///
+    /// The nested-pointer spelling rclcpp uses for every entity type, carried
+    /// here so a member declaration reads the same as its
+    /// `Subscription<M>::SharedPtr` sibling. There is no upstream
+    /// `PollingSubscription`; the analog is `autoware_utils::
+    /// InterProcessPollingSubscriber` (issue 0278).
+    ///
+    /// Ergonomics only (RFC-0087 §"Who implements an adopted name"): a
+    /// spelling for `std::shared_ptr<PollingSubscription<M>>`, no second code
+    /// path.
+    ///
+    /// Present only where `<memory>` is — a freestanding target has no
+    /// `std::shared_ptr` to alias.
+    using SharedPtr = std::shared_ptr<PollingSubscription<M>>;
+    /// `PollingSubscription<M>::ConstSharedPtr` — see `SharedPtr`.
+    using ConstSharedPtr = std::shared_ptr<const PollingSubscription<M>>;
+    /// `PollingSubscription<M>::UniquePtr` — see `SharedPtr`.
+    using UniquePtr = std::unique_ptr<PollingSubscription<M>>;
+#endif
+
     PollingSubscription() : sub_(), latest_(), has_ever_(false) {}
 
     PollingSubscription(const PollingSubscription&) = delete;

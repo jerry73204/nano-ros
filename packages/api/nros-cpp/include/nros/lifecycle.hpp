@@ -18,9 +18,13 @@
 #ifndef NROS_CPP_LIFECYCLE_HPP
 #define NROS_CPP_LIFECYCLE_HPP
 
+#include <cstddef>
 #include <cstdint>
 
 #include "nros/result.hpp"
+// phase-417 stage 2b (RFC-0087) — `nros::TopicEndpointInfo` and the visitor
+// typedef used by the graph forwarders below.
+#include "nros/graph.hpp"
 
 #include "nros_cpp_ffi.h" // lifecycle FFI: register_lifecycle_services / get_current_state /
                           // change_state / autostart / register_on_* (+ the
@@ -168,6 +172,141 @@ class LifecycleNode {
     /// ported rclcpp node could not call at all.
     Result trigger_transition(uint8_t transition_id) {
         return Result(nros_cpp_lifecycle_change_state(exec_, transition_id));
+    }
+
+    // ---- Graph queries — phase-417 stage 2b (RFC-0087) --------------------
+    //
+    // rclcpp_lifecycle's `LifecycleNode` carries the same graph surface as
+    // `rclcpp::Node`, so a ported managed node reaches these on `this`. Each
+    // one FORWARDS to the executor this node is bound to — the graph's
+    // receiver, because there is one session per image (RFC-0002) — and does
+    // nothing else: no state, no loop, no caching, no name construction.
+    // RFC-0019 keeps the behaviour in Rust. The bodies are the same one-line
+    // forwards `nros::Node` carries; see `node.hpp` for the per-call
+    // documentation.
+    //
+    // On an UNBOUND node (default-constructed, `bind()` not yet called) they
+    // return `InvalidArgument`, matching the register/transition calls above
+    // rather than trapping.
+    //
+    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0087): they
+    // report what has been DISCOVERED and never block, so an empty result
+    // means "nobody seen yet" and never "nobody exists". `ErrorCode::
+    // Unsupported`, which is what a backend with no graph at all returns, is a
+    // DIFFERENT answer from an empty one and must not be collapsed into zero.
+
+    /// Every node on the graph, with its namespace — rclcpp's
+    /// `get_node_names()`. `enclave` is `nullptr` where the backend tracks
+    /// none; strings are BORROWED for the call; return `false` to stop.
+    Result get_node_names(nros_cpp_node_visit_fn visit, void* ctx) const {
+        return Result(nros_cpp_executor_get_node_names(exec_, visit, ctx));
+    }
+
+    /// Every topic on the graph, with the types on it — rclcpp's
+    /// `get_topic_names_and_types()`. One visit per distinct TOPIC.
+    Result get_topic_names_and_types(nros_cpp_names_and_types_visit_fn visit, void* ctx) const {
+        return Result(nros_cpp_executor_get_topic_names_and_types(exec_, visit, ctx));
+    }
+
+    /// Every service on the graph, with its types — rclcpp's
+    /// `get_service_names_and_types()`, over servers and clients.
+    Result get_service_names_and_types(nros_cpp_names_and_types_visit_fn visit, void* ctx) const {
+        return Result(nros_cpp_executor_get_service_names_and_types(exec_, visit, ctx));
+    }
+
+    /// How many publishers are visible on `topic_name` — rclcpp's
+    /// `count_publishers()`. The name is used as given: not remapped, not
+    /// expanded. A zero is never a proof of absence.
+    Result count_publishers(const char* topic_name, size_t* out_count) const {
+        return Result(nros_cpp_executor_count_publishers(exec_, topic_name, out_count));
+    }
+
+    /// How many subscribers are visible on `topic_name` — rclcpp's
+    /// `count_subscribers()`. See [`count_publishers`].
+    Result count_subscribers(const char* topic_name, size_t* out_count) const {
+        return Result(nros_cpp_executor_count_subscribers(exec_, topic_name, out_count));
+    }
+
+    /// What one named node PUBLISHES, with the types.
+    Result get_publisher_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                                 nros_cpp_names_and_types_visit_fn visit,
+                                                 void* ctx) const {
+        return Result(nros_cpp_executor_get_publisher_names_and_types_by_node(
+            exec_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What one named node SUBSCRIBES to, with the types. `subscription`, not
+    /// `subscriber` — the C++ surface takes rclcpp's vocabulary and this
+    /// matches `nros::Node` / `nros::Executor` rather than adding a third
+    /// spelling.
+    Result get_subscription_names_and_types_by_node(const char* node_name,
+                                                    const char* node_namespace,
+                                                    nros_cpp_names_and_types_visit_fn visit,
+                                                    void* ctx) const {
+        return Result(nros_cpp_executor_get_subscription_names_and_types_by_node(
+            exec_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What services one named node SERVES, with the types — servers only,
+    /// not clients, as upstream.
+    Result get_service_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                               nros_cpp_names_and_types_visit_fn visit,
+                                               void* ctx) const {
+        return Result(nros_cpp_executor_get_service_names_and_types_by_node(
+            exec_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// What services one named node CALLS, with the types.
+    Result get_client_names_and_types_by_node(const char* node_name, const char* node_namespace,
+                                              nros_cpp_names_and_types_visit_fn visit,
+                                              void* ctx) const {
+        return Result(nros_cpp_executor_get_client_names_and_types_by_node(
+            exec_, node_name, node_namespace, visit, ctx));
+    }
+
+    /// The publishers discovered on `topic_name`, one visit each — rclcpp's
+    /// `get_publishers_info_by_topic()`.
+    ///
+    /// The endpoint carries NO QoS profile: rclcpp's `qos_profile()` reports
+    /// the GRANTED profile, no backend behind this API can read a remote's
+    /// granted profile back, and reporting the remote's DECLARED one instead
+    /// would be a confident wrong answer to the question ("why is nothing
+    /// arriving?") the field exists to answer.
+    ///
+    /// rclcpp also takes `no_mangle`; there is no such parameter here, because
+    /// accepting one and ignoring it would silently drop configuration.
+    Result get_publishers_info_by_topic(const char* topic_name,
+                                        nros_cpp_endpoint_info_visit_fn visit, void* ctx) const {
+        return Result(
+            nros_cpp_executor_get_publishers_info_by_topic(exec_, topic_name, visit, ctx));
+    }
+
+    /// The publishers on `topic_name`, visited as [`nros::TopicEndpointInfo`]
+    /// — the rclcpp-shaped overload of the call above, a pure conversion over
+    /// the same query.
+    Result get_publishers_info_by_topic(const char* topic_name, TopicEndpointInfoVisitFn visit,
+                                        void* ctx) const {
+        detail::EndpointInfoTrampoline tramp{visit, ctx};
+        return Result(nros_cpp_executor_get_publishers_info_by_topic(
+            exec_, topic_name, &detail::EndpointInfoTrampoline::thunk, &tramp));
+    }
+
+    /// The subscriptions discovered on `topic_name`, one visit each —
+    /// rclcpp's `get_subscriptions_info_by_topic()`. See
+    /// [`get_publishers_info_by_topic`] for the QoS and `no_mangle` envelopes.
+    Result get_subscriptions_info_by_topic(const char* topic_name,
+                                           nros_cpp_endpoint_info_visit_fn visit, void* ctx) const {
+        return Result(
+            nros_cpp_executor_get_subscriptions_info_by_topic(exec_, topic_name, visit, ctx));
+    }
+
+    /// The subscriptions on `topic_name`, visited as
+    /// [`nros::TopicEndpointInfo`] — the rclcpp-shaped overload.
+    Result get_subscriptions_info_by_topic(const char* topic_name, TopicEndpointInfoVisitFn visit,
+                                           void* ctx) const {
+        detail::EndpointInfoTrampoline tramp{visit, ctx};
+        return Result(nros_cpp_executor_get_subscriptions_info_by_topic(
+            exec_, topic_name, &detail::EndpointInfoTrampoline::thunk, &tramp));
     }
 
   protected:
