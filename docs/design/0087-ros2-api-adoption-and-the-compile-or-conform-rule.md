@@ -9,6 +9,10 @@ mirror may take upstream's names.
 rclcpp / rclrs, and the intent to retire `rclcpp_compat.hpp` by making our own
 names ROS 2's.
 **Implements-tracked-by:** phase-417-ros2-api-adoption
+**Governed by:** RFC-0019 / RFC-0020 (thin-wrapper discipline) — the Rust API
+is the implementation source of truth; C and C++ delegate. This RFC does not
+relax that, and §"Who implements an adopted name" states what it means for
+adoption.
 **Related:** RFC-0002 (one executor per RTOS task), RFC-0021 (blocking API
 rules), RFC-0035 (RMW seam), RFC-0044 (component model); issues 1012, 1019, 1020.
 
@@ -95,6 +99,76 @@ nothing. A deleted overload produces the migration at the point of failure:
 ```
 
 That costs one line and is the highest-leverage documentation in the design.
+
+## Who implements an adopted name
+
+RFC-0019 is Stable and says it plainly: **the Rust API is the source of truth;
+C and C++ are thin shims that delegate.** Adopting ROS 2's names must not become
+a licence to grow a second implementation behind them — a compat surface is
+exactly where that pressure appears, because the fastest way to make a ported
+line compile is often to write the logic in the wrapper.
+
+The distinction that decides the hard cases:
+
+> **Ergonomics may live in the wrapper. Behaviour may not.** A second
+> *spelling* is free; a second *code path that can produce a different answer*
+> is a violation.
+
+Not a second implementation, and therefore fine in C/C++ alone:
+
+* type aliases and nested typedefs (`Publisher<T>::SharedPtr`)
+* inline forwarders and convenience overloads that convert and delegate
+* `= delete` / `static_assert` diagnostics — a REFUSE-LOUD name emits no code
+* doc comments, including the ADOPT-BOUNDED envelopes
+* container/string conversions that copy and call through (`FixedString` ↔
+  `std::string`)
+
+A second implementation, and therefore Rust-side work first — these are
+RFC-0020's five violation classes, restated as they show up in adoption:
+
+* state machines (goal lifecycle, request/reply tracking)
+* retry / timeout / polling loops that spin the executor from inside the wrapper
+* CDR serialisation or deserialisation
+* topic / service / action name construction, and remap resolution
+* direct transport calls
+
+### The consequence for planning
+
+**A C or C++ gap is frequently a Rust gap wearing a wrapper's clothes**, and the
+two cost very different amounts. So every work item carries the question *which
+layer implements this?* and the order is Rust → FFI slot → C → C++.
+
+The cross-language audit makes this cheap to exploit: of the 37 capabilities
+where our own three surfaces disagree, roughly half are ones **Rust already has
+and one or both wrappers never exposed** — named loggers and per-logger levels,
+parameter type queries, undeclare, descriptors and ranges, QoS equality, GID
+attribution, name resolution. Under SSoT those are the cheapest work in the
+whole roadmap: the behaviour exists and is tested, and the wrapper is a
+forwarder.
+
+The remainder genuinely need Rust to grow first, and planning them as C/C++
+tasks would have mis-costed them by an order of magnitude:
+
+* typed C subscription delivery needs an `add_subscription` variant that carries
+  caller-owned message storage through the FFI (stage 5);
+* `rclcpp::init(argc, argv)` honouring `--ros-args` is remap resolution — name
+  construction, violation class 4 — so the parser belongs beside
+  `nros::resolve_name`, not in the shim;
+* `rclcpp::Rate` is the sharpest case: a loop in the wrapper that spins the
+  executor is violation class 2 *and* the thing RFC-0021 forbids. It is
+  admissible only as a forwarder onto an executor-driving entry point that
+  already exists in Rust — which is why it is planned that way rather than as
+  the obvious fifteen-line C++ class.
+
+### When a second path is warranted
+
+Only when the wrapper must satisfy a language contract the Rust side cannot
+express, and then it is recorded rather than assumed. The bar is the same one
+RFC-0020 audits against, and a new second path needs: what language contract
+forces it, why no FFI slot can carry it, and what keeps the two from drifting.
+`nros::Expected<T>` is the model — it exists because RFC-0018 forbids
+exceptions and Rust's `Result` cannot cross `extern "C"`, and it holds no state
+of its own.
 
 ## Naming: alias, not replace
 
