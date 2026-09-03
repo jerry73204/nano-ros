@@ -47,6 +47,16 @@ have those semantics.
 A rename is therefore not a cosmetic change. It is the act of promising, for
 every name taken, that the contract behind it holds.
 
+And this is not hypothetical: the compat shim already ships two of them.
+`ParametersQoS()` returns `QoS(10)` where `rmw_qos_profile_parameters` is
+`KEEP_LAST, 1000` — a hundred-fold history difference under a name that claims
+to be the ROS 2 profile, costing samples under load with nothing to read. Ten
+`NodeOptions` setters store their argument in a private field that nothing
+reads, and return `*this` so the idiomatic chained call compiles and configures
+nothing; the header calls them "intentionally inert today" (`:125`), which is
+the deferral this RFC is written to end. **A rename would inherit both, not
+introduce them.**
+
 ## The rule
 
 > **An upstream name may be adopted only if its observable contract is the same,
@@ -65,6 +75,8 @@ this way rather than as "match ROS 2 where possible":
 | `rclcpp::init(argc, argv)` — `--ros-args` dropped | must fail to compile, or honour them | compiles, drops them silently |
 | `create_wall_timer` — period accuracy is the spin cadence | may be adopted, envelope documented | adopted, envelope undocumented |
 | `Publisher::get_publisher_handle` — reaches past the API | absent is correct | absent (RFC-0035) |
+| `ParametersQoS()` — history depth 10, upstream's is 1000 | must not carry that name at that value | **shipping** (`rclcpp_compat.hpp:117`) |
+| `NodeOptions::use_intra_process_comms(true)` — stored, never read | must fail to compile | **shipping**, chainable, inert (`:125`) |
 
 Note what the rule does NOT say. It does not require the implementation to
 match; it requires the *contract a caller can observe* to match. A timer whose
@@ -213,13 +225,34 @@ incompatible with ours:
 | --- | ---: | --- |
 | executor as wait-set assembler over polymorphic `Waitable`s | ~128 | no — dynamic membership needs an allocator (RFC-0002) |
 | parameters as a distributed service with owned-storage values | ~56 | partly — server side yes, client side is a product choice |
-| graph and middleware queryable at runtime | ~55 | no — no dynamic discovery |
+| graph and middleware queryable at runtime | ~55 | **partly, and the table above was wrong.** `nros::Executor` already ships `get_node_names`, `count_publishers`/`count_subscribers`, the four `*_names_and_types_by_node` forms and `get_{publishers,subscriptions}_info_by_topic` (`executor.hpp:205-301`) over shipped FFI. 18 rows are pure forwarders from `Executor` to `Node`. What is genuinely impossible is a GRANTED QoS read-back and graph *events* |
 | types erased and resolved at runtime | ~45 | no — no dynamic loader |
 
 The honest claim is therefore about PROGRAMS, not surface: *the shapes a ROS 2
 node is actually written in compile and behave, and everything else fails
 loudly.* That is measurable — the in-tree ported templates are the measurement —
 and it is what the roadmap targets.
+
+## The split, measured
+
+All 717 uncovered rclcpp items, classified against the rule:
+
+| disposition | rows | distinct sites | cost |
+| --- | ---: | ---: | --- |
+| ADOPT | 117 | ~45 | ~820 lines |
+| ADOPT-BOUNDED | 123 | ~50 | ~1150 lines |
+| REFUSE-LOUD | 69 | **17** | ~120 lines, diagnostics only |
+| ABSENT | 408 | — | 0 |
+
+ABSENT is 57 % and is not a concession — 83 rows are the wait-set/`Waitable`
+protocol, 42 runtime type erasure, 35 parameter-client internals, 18
+`get_node_*_interface`, 21 `make_shared` on types a user never constructs. A
+ported user program names none of them.
+
+The shape worth noticing: **69 refusals collapse into 17 diagnostics**, because
+a refusal is per-CONCEPT, not per-symbol — the sixteen inert `NodeOptions`
+setters share one message. That is the whole loudness pass at about 120 lines,
+which is why it can gate the rename without gating the schedule.
 
 ## Prerequisite: the measurement must include the shim
 
