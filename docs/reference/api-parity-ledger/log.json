@@ -32,10 +32,6 @@
     "verdict": "gap",
     "why": "OUR LANGUAGES DISAGREE: this is rcl's \"set THIS logger's level\", the one member of `rcl_log_levels_*` that is a capability rather than allocation bookkeeping. Rust has it -- `nros_log::Logger::set_level(Severity)`, and `examples/native/rust/logging/src/main.rs` calls it to drop a live logger to `Warn`. C and C++ have NO way to reach it: `<nros/log.h>` exposes only `nros_log_emit`, `nros_log_emit_fmt`, `nros_log_init` and `nros_log_default_logger`, and there is no `nros_logger_set_level` / `nros_logger_get_level` on the `nros_logger_t` handle. The C example's own file comment claims otherwise (\"Threshold adjustment uses the same `nros_logger_t` handle through a small helper that calls into the Rust facade\") and `examples/native/c/logging/src/main.c` contains no such call -- it works around the absence by narrating that TRACE and DEBUG drop at the default Info threshold. Nothing about `no_std` prevents the two accessors; the state is already an `AtomicU8` behind the pointer C is holding. Phase 379 W3."
   },
-  "c:log_severity_t": {
-    "verdict": "gap",
-    "why": "OUR LANGUAGES DISAGREE: we HAVE this enum -- `nros_log_severity_t` in `packages/api/nros-c/include/nros/log.h`, the same six-level REP-2012 ladder with the same discriminants as `rcutils_log_severity_t` (0=TRACE .. 5=FATAL). It reads as missing because `<nros/nros.h>`, the umbrella this tool and every C example include, does not `#include \"nros/log.h\"` -- while `<nros/nros.hpp>` DOES include `nros/log.hpp`. So a C user who includes the umbrella gets no logging surface and a C++ user gets all of it. One `#include` line closes this row and makes `nros_log_emit`, `nros_log_emit_fmt`, `nros_log_init`, `nros_log_default_logger`, `nros_logger_t` and the six `NROS_LOG_*` macros visible to the report at all. Phase 379 W3."
-  },
   "c:logger_setting_t": {
     "verdict": "divergence",
     "why": "the (name, severity) pair `rcl_log_levels_t` holds an array of. Ours is the `Logger` object itself -- name plus `AtomicU8` threshold, `const`-constructible as a `static`. See `c:log_levels_*`."

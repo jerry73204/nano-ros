@@ -65,7 +65,7 @@
   },
   "c:lifecycle_get_default_state_machine_options": {
     "verdict": "declined",
-    "why": "no runtime options struct; see the `compile-time-options` rule and `c:lifecycle_state_machine_options_t`."
+    "why": "the LIFECYCLE STATE MACHINE takes no options: `nros_lifecycle_init(sm)` (`nros_generated.h:5035`) has no options parameter and there is no `nros_lifecycle_state_machine_options_t`, so there is nothing to default. See `c:lifecycle_state_machine_options_t` for what rcl's carries and where each half went. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:lifecycle_get_current_state": {
     "verdict": "extension",
@@ -173,7 +173,7 @@
   },
   "c:lifecycle_state_machine_init": {
     "verdict": "declined",
-    "why": "rcl's lower-layer constructor: `(state_machine, node, six typesupports, options)`. `nros_lifecycle_init(sm)` is this function -- the typesupports come from the compile-time type registry rather than the caller, and the options struct is covered by the `compile-time-options` rule. rcl's `node` argument has no counterpart on ours: rcl's state machine owns the REP-2002 communication interface and so needs the node to build it, while ours is a pure state machine and the services live on the executor (`c:executor_register_lifecycle_services`). Issue 0792 removed the vestigial `node` parameter, and with it the rclc-shaped `nros_make_node_a_lifecycle_node` alias -- see that row."
+    "why": "rcl's lower-layer constructor: `(state_machine, node, six typesupports, options)`. `nros_lifecycle_init(sm)` is this function -- the typesupports come from the compile-time type registry rather than the caller, and `nros_lifecycle_init(sm)` takes no options parameter at all -- see `c:lifecycle_state_machine_options_t` for rcl's two fields and where each went (CORRECTED 2026-09-04, phase-417: this deferred to the `compile-time-options` rule, whose \"no runtime options struct\" is false of the seven entity options structs the C surface ships; the state machine's absence is its own, narrower fact). rcl's `node` argument has no counterpart on ours: rcl's state machine owns the REP-2002 communication interface and so needs the node to build it, while ours is a pure state machine and the services live on the executor (`c:executor_register_lifecycle_services`). Issue 0792 removed the vestigial `node` parameter, and with it the rclc-shaped `nros_make_node_a_lifecycle_node` alias -- see that row."
   },
   "c:lifecycle_state_machine_is_initialized": {
     "verdict": "declined",
@@ -408,7 +408,7 @@
   },
   "cpp:create_default_publisher_options": {
     "verdict": "declined",
-    "why": "`rclcpp_lifecycle`'s helper for building the options a lifecycle publisher is created with. No runtime options struct here; see the `compile-time-options` rule. The behaviour those options carry is the `cpp:LifecyclePublisher` gap, not the struct."
+    "why": "`rclcpp_lifecycle`'s helper for building the options a lifecycle publisher is created with. There is no lifecycle-publisher options type here and no C++ factory to build one -- `nros::Node::create_publisher<M>(out, topic, qos)` takes the QoS directly.CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface. The behaviour those options carry is the `cpp:LifecyclePublisher` gap, not the struct."
   },
   "cpp:create_default_subscription_options": {
     "verdict": "declined",

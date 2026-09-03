@@ -53,11 +53,21 @@ THEIRS_DROPS = [
     {
         "id": "compile-time-options",
         "type": re.compile(r"(_options_t\b|\brmw_qos_profile_t\b)"),
+        # CORRECTED 2026-09-04 (phase-417, issue 1022): the previous text said
+        # "there is no runtime options struct to accept". Seven ship --
+        # nros_{node,publisher,subscription,service,client,action_client,
+        # action_server}_options_t -- plus seven *_get_default_options, and the
+        # correlator buckets all fourteen `same`. nros_node_options_t carries a
+        # RUNTIME domain_id_override. Because this rule GENERATES row text rather
+        # than storing it, the false sentence reached ~12 rows that no ledger edit
+        # could reach; correcting the ledger alone would have been whack-a-mole.
         "constraint": (
-            "QoS and entity options are selected at COMPILE time (RFC-0036 'QoS "
-            "subset ... selected at compile time'; RFC-0045 bakes boot config), so "
-            "there is no runtime options struct to accept. Accepting one would "
-            "promise a negotiation the backends do not perform."
+            "we ship the options STRUCT (`nros_*_options_t`, with "
+            "`*_get_default_options`) but not its LIFECYCLE: there is no "
+            "`*_options_copy`, `*_options_fini` or `*_get_options` readback, "
+            "because an option that is baked at build time (RFC-0045) has no "
+            "second state to copy or read back. The upstream call differs in "
+            "taking an options object this entity's initialiser does not."
         ),
         "covers": "publisher_init, subscription_init, service_init, client_init, action_client_init, action_server_init, guard_condition_init, node_init",
     },
