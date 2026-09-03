@@ -76,6 +76,26 @@ VERDICT_STATE = {
     "divergence": "reshaped",
 }
 
+# RFC-0087's four dispositions, rendered as a chip beside the state.
+#
+# The state answers "what did WE do"; the disposition answers "what does a
+# PORTING USER GET", and they are not the same question -- `rejected` covers
+# both "the name does not exist" and "the name exists and refuses loudly at
+# compile time", which is the whole difference between an hour and a week for
+# whoever is porting the file. It is a SEPARATE chip and not a ninth state for
+# that reason: state is derived from bucket + verdict, disposition is authored,
+# and collapsing them would make one un-derivable from the other.
+#
+# Optional today (phase-417 W0.b); W-M2 is the pass that fills it in. A row
+# without one renders no chip rather than a placeholder -- an "unknown" badge on
+# ~700 rows is noise, and the count is already reported by `api-parity.py`.
+DISPOSITION_LABEL = {
+    "adopt": "adopt",
+    "adopt-bounded": "adopt · bounded",
+    "refuse-loud": "refuses loudly",
+    "absent": "absent",
+}
+
 
 def state(row):
     """The seven-way state, derived -- never authored.
@@ -342,6 +362,17 @@ def collect(langs):
                     "w": rec["why"],
                     "p": rec["provides"],
                     "i": 1 if inherited else 0,
+                    # RFC-0087 disposition -- authored, optional, never inferred
+                    # from the verdict. "" means nobody has classified this row.
+                    "d": entry.get("disposition") or "",
+                    # issue 1020's two surfaces. `su` is "ported" when the
+                    # compat shim is the ONLY way to reach our side of this
+                    # row; `nb` carries the native answer when it differs from
+                    # the ported one, so a `same` the shim produced can never
+                    # read as the native API having closed the gap.
+                    "su": r.get("surface") or "",
+                    "nb": (r.get("native_bucket")
+                           if r.get("native_bucket") != r["bucket"] else ""),
                     "g": (TOPIC_TITLE.get(topic, topic) if lang == "c"
                           else owner(r["key"])),
                     "sec": ("" if lang == "c"
@@ -501,6 +532,33 @@ def self_test():
     # the embed escape must survive a ledger reason containing markup
     blob = json.dumps({"w": "see </script> and <b>"}, ensure_ascii=False).replace("</", "<\\/")
     check("</script>" not in blob, "embedded JSON can close the script tag")
+
+    # ---- phase-417 W0.b: the RFC-0087 disposition ------------------------
+    # A SECOND axis, so it must not perturb the derived state. If it ever did,
+    # an authored field would be silently deciding a computed one.
+    check(state({"bucket": "theirs-only", "verdict": "declined", "provides": [],
+                 "disposition": "refuse-loud"}) == "rejected",
+          "the disposition changed the derived state")
+    # The four labels are RFC-0087's, and the page's JS copy must agree with the
+    # generator's -- two spellings of one vocabulary is how a chip goes blank.
+    ap = load_api_parity()
+    check(set(DISPOSITION_LABEL) == set(ap.DISPOSITIONS),
+          "the page's dispositions disagree with the ledger's: %r vs %r"
+          % (sorted(DISPOSITION_LABEL), sorted(ap.DISPOSITIONS)))
+    js = open(os.path.join(PAGES, "page.js")).read()
+    for d in ap.DISPOSITIONS:
+        check('"%s":' % d in js, "page.js has no label for disposition %r" % d)
+        check(".d-%s{" % d in open(os.path.join(PAGES, "page.css")).read(),
+              "page.css has no chip style for disposition %r" % d)
+
+    # ---- phase-417 W0.a: the two surfaces --------------------------------
+    # The page must be able to SAY which surface a row is on, or the C++ page
+    # merges the two questions again one layer down from where issue 1020
+    # separated them.
+    check('r.su === "ported"' in js, "page.js does not mark a compat-shim row")
+    check("r.nb" in js, "page.js does not show the native-surface answer")
+    check(".surf{" in open(os.path.join(PAGES, "page.css")).read(),
+          "page.css has no style for the surface note")
 
     # templates must still carry every placeholder the renderer fills
     shell = open(os.path.join(PAGES, "page.html")).read()

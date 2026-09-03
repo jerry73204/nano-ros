@@ -76,8 +76,21 @@ issue and not a patch:
    and "what does a ported file hit". Those are different questions and the
    current lane answers only the first. A `surface:` field, or a separate lane,
    rather than silently merging them.
-3. **The shim is std-only.** It is reachable only under `NROS_CPP_STD`, so its
-   rows carry the same `std_only` marking the third TU already sets (`:189`).
+3. **The shim is std-only** — but not for the reason first written here, and
+   the mechanism cited did not exist. Two corrections, both measured while
+   implementing this:
+   * It is **not** macro-gated. Extracting it with and without
+     `-DNROS_CPP_STD=1` yields the identical record set. It is std-only because
+     it includes `<memory>/<string>/<functional>/<vector>/<chrono>`
+     *unconditionally* (`rclcpp_compat.hpp:63-67`) and hands out
+     `std::shared_ptr`/`std::function` in public signatures — a STRONGER claim
+     than the `std` TU's, since a no_std consumer cannot compile the header at
+     all.
+   * `std_only` was cited above as "the precedent for how such a marker is set
+     and consumed". **It had no consumer.** It was set at `api-parity.py:190`
+     and dropped one call later by `correlate.flatten`, in every version since
+     issue 0818. A `surface` marker copied from that precedent would have died
+     the same way; carrying it through `flatten` was part of the fix.
 
 ## Known defects the blind spot has been hiding
 

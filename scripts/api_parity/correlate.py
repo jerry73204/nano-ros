@@ -156,6 +156,37 @@ def normalize(lang, side, qual, kind):
     return ("%s::%s" % (owner, tail)) if owner and owner[:1].isupper() else tail
 
 
+# Reachability marks a RECORD may carry, and how they combine when several
+# records land on one key.
+#
+# `flatten` merges records: `nros::Node::create_publisher` from the base TU and
+# `rclcpp::Node::create_publisher` from the compat shim are two records under
+# one key. A mark that says "you can only reach this under condition X" is
+# therefore an AND across every record that contributed -- if ANY record is
+# reachable without X, the item is.
+#
+# Both marks were previously set on the record and then DROPPED here, which is
+# why `std_only` had no consumer anywhere in the tree for two phases: the
+# extractor tagged it (`api-parity.py:190`) and `flatten` threw it away one
+# call later. `surface` would have died the same way.
+REACH_MARKS = ("std_only",)
+
+# `surface` is not a boolean, so it combines by its own rule: an item reachable
+# from the NATIVE headers is native, whatever else also declares it.
+NATIVE = "native"
+PORTED = "ported"
+
+
+def _merge_marks(slot, rec):
+    """Fold one record's reachability marks into the item it merged into."""
+    for mark in REACH_MARKS:
+        slot[mark] = bool(slot.get(mark, True)) and bool(rec.get(mark))
+    cur = rec.get("surface") or NATIVE
+    prev = slot.get("surface")
+    slot["surface"] = cur if prev is None else (
+        NATIVE if NATIVE in (prev, cur) else cur)
+
+
 def flatten(records, lang, side):
     """Records -> {key: item}, one entry per callable or type.
 
@@ -168,15 +199,18 @@ def flatten(records, lang, side):
         key = normalize(lang, side, rec["qual"], kind)
         header = rec.get("header", "")
         if kind in ("type", "enum"):
-            out.setdefault(
-                key,
-                {
-                    "key": key,
-                    "kind": kind,
-                    "qual": rec["qual"],
-                    "header": header,
-                    "values": rec.get("values"),
-                },
+            _merge_marks(
+                out.setdefault(
+                    key,
+                    {
+                        "key": key,
+                        "kind": kind,
+                        "qual": rec["qual"],
+                        "header": header,
+                        "values": rec.get("values"),
+                    },
+                ),
+                rec,
             )
             for m in rec.get("members", []):
                 if m.get("field"):
@@ -201,6 +235,7 @@ def flatten(records, lang, side):
                         "template": m.get("template", []),
                     }
                 )
+                _merge_marks(slot, rec)
         elif kind == "function":
             slot = out.setdefault(
                 key,
@@ -214,9 +249,14 @@ def flatten(records, lang, side):
                     "template": rec.get("template", []),
                 }
             )
+            _merge_marks(slot, rec)
         else:
-            out.setdefault(
-                key, {"key": key, "kind": kind, "qual": rec["qual"], "header": header}
+            _merge_marks(
+                out.setdefault(
+                    key,
+                    {"key": key, "kind": kind, "qual": rec["qual"], "header": header},
+                ),
+                rec,
             )
     return out
 

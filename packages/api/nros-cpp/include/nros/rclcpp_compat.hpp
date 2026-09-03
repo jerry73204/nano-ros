@@ -71,6 +71,13 @@ namespace rclcpp {
 
 using ::nros::Result;
 
+// phase-417 W1.d — the clock vocabulary. `rclcpp::Time` / `Duration` / `Clock`
+// are the spellings a ported node writes (`rclcpp::Time stamp = node->now();`);
+// each is the nano-ros type unchanged, not a wrapper over it.
+using Time = ::nros::Time;
+using Duration = ::nros::Duration;
+using Clock = ::nros::Clock;
+
 // rclcpp::QoS subclasses nros::QoS to add the `QoS(depth)` integer ctor every
 // ported source uses; the chainable setters (`reliable()`, `best_effort()`,
 // `keep_last(n)`, …) are inherited. Implicit-converts to `nros::QoS` (used in
@@ -91,13 +98,17 @@ template <typename S> using Service = ::nros::Service<S>;
 
 template <typename S> using Client = ::nros::Client<S>;
 
-// `rclcpp::Publisher<M>::SharedPtr` — rclcpp users index types this way.
-namespace detail {
-template <typename T> struct SharedPtrTrait {
-    using SharedPtr = std::shared_ptr<T>;
-    using ConstSharedPtr = std::shared_ptr<const T>;
-};
-} // namespace detail
+// `rclcpp::Publisher<M>::SharedPtr` — rclcpp users index types this way, and
+// as of phase-417 W1.a they can: the nested `SharedPtr` / `ConstSharedPtr` /
+// `UniquePtr` aliases live on `nros::Publisher` / `Subscription` /
+// `PollingSubscription` / `Service` / `Client` / `Timer` themselves, so the
+// alias templates above carry them through without help from here.
+//
+// `detail::SharedPtrTrait` was written for this job in phase 209 and never
+// wired up — one occurrence in all of `packages/api/`, its own definition. It
+// is DELETED rather than adopted: a trait cannot make `T::SharedPtr` resolve
+// (that spelling has to be a member of `T`), so it could never have done the
+// job it was named for.
 
 // --- QoS conveniences --------------------------------------------------------
 //
@@ -274,6 +285,15 @@ inline bool ok() {
 // caller drives.
 class TimerBase {
   public:
+    /// phase-417 W1.a — `rclcpp::TimerBase::SharedPtr timer_;` is how upstream
+    /// source declares a timer member. `<memory>` is unconditional in this
+    /// header (the compat surface is hosted-STL by construction — see
+    /// `cmake/compat/NrosRclcppCompat.cmake`, which refuses to force-include it
+    /// on Zephyr for exactly that reason), so these need no gate.
+    using SharedPtr = std::shared_ptr<TimerBase>;
+    using ConstSharedPtr = std::shared_ptr<const TimerBase>;
+    using UniquePtr = std::unique_ptr<TimerBase>;
+
     virtual ~TimerBase() = default;
 };
 
@@ -318,6 +338,38 @@ class Node : public std::enable_shared_from_this<Node> {
     ::nros::Node& nros_node() { return node_; }
 
     bool initialized() const { return initialized_; }
+
+    // --- phase-417 W1.d — identity + clock -----------------------------------
+    //
+    // All four already exist on `nros::Node` (`node.hpp:217,223,249,260`);
+    // these are one-line forwarders, which is all RFC-0087 §"Who implements an
+    // adopted name" permits the wrapper to be. An uninitialized node answers
+    // `""` / the node's own default-constructed clock, matching what
+    // `nros::Node` does — this shim adds no behaviour of its own.
+
+    /// `rclcpp::Node::get_name()` — the node's name.
+    const char* get_name() const { return node_.get_name(); }
+
+    /// `rclcpp::Node::get_namespace()` — the node's namespace.
+    const char* get_namespace() const { return node_.get_namespace(); }
+
+    /// `rclcpp::Node::get_clock()`.
+    ///
+    /// ADOPT-BOUNDED: upstream hands back a `rclcpp::Clock::SharedPtr`; there
+    /// is no allocator here (RFC-0022), so the clock is a member of the
+    /// underlying `nros::Node` and this returns a pointer to it. The call
+    /// spelling `node->get_clock()->now()` is unchanged; the pointer is valid
+    /// for as long as the node is, and must not be freed.
+    ::nros::Clock* get_clock() { return node_.get_clock(); }
+    /// Const overload of `get_clock()`.
+    const ::nros::Clock* get_clock() const { return node_.get_clock(); }
+
+    /// `rclcpp::Node::now()` — the current time on the node's clock.
+    ///
+    /// Shorthand for `get_clock()->now()`, and the call a ported publisher
+    /// makes to stamp a header. See `nros::Clock` for what ROS time does and
+    /// does not yet do here (issue 0789).
+    ::nros::Time now() const { return node_.now(); }
 
     Logger get_logger() const { return Logger("nros.compat"); }
 
