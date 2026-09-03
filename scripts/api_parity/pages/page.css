@@ -183,6 +183,26 @@ pre{
 .st.s-rejected{color:var(--rejected-f)}
 .st.s-missing{color:var(--missing-f)}
 .st.s-ours{color:var(--ours-f)}
+/* issue 1020 — the ported-file surface, and the native answer when it differs.
+   Deliberately quiet: it qualifies the state chip above it rather than
+   competing with it. */
+.surf{
+  font-size:11.5px;color:var(--muted);margin:0 0 6px;
+  padding-left:9px;border-left:2px solid var(--line2);
+}
+.surf code{font-family:var(--mono);font-size:11px}
+/* RFC-0087 disposition — what a PORTING USER gets. `refuse-loud` is the one
+   that has to catch the eye: it is the only value that promises a compile
+   error, which is the difference between an hour and a week. */
+.disp{
+  display:inline-block;margin:0 0 8px;padding:1px 7px;border-radius:9px;
+  font-size:11px;font-weight:600;letter-spacing:.02em;
+  border:1px solid var(--line2);color:var(--muted);
+}
+.disp.d-adopt{background:var(--same-b);color:var(--same-f);border-color:transparent}
+.disp.d-adopt-bounded{background:var(--reshaped-b);color:var(--reshaped-f);border-color:transparent}
+.disp.d-refuse-loud{background:var(--rejected-b);color:var(--rejected-f);border-color:transparent}
+.disp.d-absent{background:var(--missing-b);color:var(--missing-f);border-color:transparent}
 .answers{margin:0 0 8px}
 .ans{padding:1px 0 1px 15px;position:relative;font-size:12px}
 .ans:before{content:"\2192";position:absolute;left:0;color:var(--remapped-f)}

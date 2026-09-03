@@ -20,6 +20,19 @@
 #include <memory>
 #endif
 
+// phase-417 W1.a — `<memory>` for the nested pointer aliases. Rationale (and
+// why the test is `__has_include` rather than `__STDC_HOSTED__`, issue 0112)
+// lives in `publisher.hpp`.
+#if defined(NROS_CPP_STD)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#elif defined(__has_include)
+#if __has_include(<memory>)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#endif
+#endif
+
 #include "nros_cpp_ffi.h"
 
 namespace nros {
@@ -41,6 +54,24 @@ namespace nros {
 /// ```
 class Timer {
   public:
+#ifdef NROS_CPP_HAS_SHARED_PTR
+    /// `Timer::SharedPtr` — phase-417 W1.a; the analog of
+    /// `rclcpp::TimerBase::SharedPtr`, which is how ported source declares a
+    /// timer member (`rclcpp::TimerBase::SharedPtr timer_;`). The shim's own
+    /// `rclcpp::TimerBase` carries the same three aliases.
+    ///
+    /// Ergonomics only (RFC-0087 §"Who implements an adopted name"): a
+    /// spelling for `std::shared_ptr<Timer>`, no second code path.
+    ///
+    /// Present only where `<memory>` is — a freestanding target has no
+    /// `std::shared_ptr` to alias.
+    using SharedPtr = std::shared_ptr<Timer>;
+    /// `rclcpp::TimerBase::ConstSharedPtr` — see `SharedPtr`.
+    using ConstSharedPtr = std::shared_ptr<const Timer>;
+    /// `rclcpp::TimerBase::UniquePtr` — see `SharedPtr`.
+    using UniquePtr = std::unique_ptr<Timer>;
+#endif
+
     /// Cancel the timer. It stops firing but remains in the executor.
     /// Use `reset()` to restart it.
     Result cancel() {

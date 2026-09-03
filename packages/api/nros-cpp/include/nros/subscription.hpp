@@ -21,6 +21,19 @@
 #include "nros/serialization_format.hpp"
 #include "nros/stream.hpp"
 
+// phase-417 W1.a — `<memory>` for the nested pointer aliases. Rationale (and
+// why the test is `__has_include` rather than `__STDC_HOSTED__`, issue 0112)
+// lives in `publisher.hpp`.
+#if defined(NROS_CPP_STD)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#elif defined(__has_include)
+#if __has_include(<memory>)
+#include <memory>
+#define NROS_CPP_HAS_SHARED_PTR 1
+#endif
+#endif
+
 #include "nros_cpp_ffi.h"
 
 // Phase 189.M3.x — `nros_cpp_subscription_register` is excluded from cbindgen
@@ -99,6 +112,23 @@ static constexpr size_t SUBSCRIPTION_TOPIC_NAME_MAX = 256;
 /// ```
 template <typename M> class Subscription {
   public:
+#ifdef NROS_CPP_HAS_SHARED_PTR
+    /// `rclcpp::Subscription<M>::SharedPtr` — phase-417 W1.a.
+    ///
+    /// rclcpp indexes its entity types this way, and
+    /// `rclcpp::Subscription<M>::SharedPtr member_;` is close to universal in
+    /// ported source. Ergonomics only (RFC-0087 §"Who implements an adopted
+    /// name"): a spelling for `std::shared_ptr<Subscription<M>>`, no second code path.
+    ///
+    /// Present only where `<memory>` is — a freestanding target has no
+    /// `std::shared_ptr` to alias.
+    using SharedPtr = std::shared_ptr<Subscription<M>>;
+    /// `rclcpp::Subscription<M>::ConstSharedPtr` — see `SharedPtr`.
+    using ConstSharedPtr = std::shared_ptr<const Subscription<M>>;
+    /// `rclcpp::Subscription<M>::UniquePtr` — see `SharedPtr`.
+    using UniquePtr = std::unique_ptr<Subscription<M>>;
+#endif
+
     /// Phase 189.M3.x — typed message-handler signatures for the
     /// *callback-style* subscription (rclcpp dispatch model). The executor
     /// invokes the handler during `spin_once()` on each new sample.

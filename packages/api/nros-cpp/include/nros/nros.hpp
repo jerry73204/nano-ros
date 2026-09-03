@@ -51,6 +51,15 @@
 #include "nros/parameter.hpp"
 #include "nros/tick_ctx.hpp"
 #include "nros/lifecycle.hpp"
+// phase-417 W2.b — the component model carries the rclcpp-shaped, value-returning
+// `declare_parameter<T>` / `get_parameter<T>` / `has_parameter` (RFC-0044). It sat
+// OUTSIDE this umbrella, so a ported rclcpp node reaching through <nros/nros.hpp>
+// got `nros::Node`, which has no parameter method at all, while the faithful
+// surface was one include away and only the generated entry pulled it in. That is
+// 26 ledger rows filed as gaps in a capability we ship. Freestanding-safe: its
+// `<string>` use is gated on NROS_CPP_STD (issue 0112) and its placement-new
+// shim is gated on Zephyr's stub <new>.
+#include "nros/component_node.hpp"
 
 namespace nros {
 

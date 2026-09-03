@@ -19,6 +19,8 @@ does not correspond.
     scripts/api-parity.py --topic pubsub   # one stage, all three languages
     scripts/api-parity.py --by-topic      # what is left, per stage
     scripts/api-parity.py --check         # fail on anything unledgered
+    scripts/api-parity.py --check-ported  # ...including the compat-shim surface
+    scripts/api-parity.py --check --require-disposition   # RFC-0087's four
     scripts/api-parity.py --refresh       # re-derive the ROS 2 side from source
     scripts/api-parity.py --self-test
 
@@ -73,6 +75,22 @@ each tier removed. `--include-internal` compares everything.
               rclrs / rclc / an interface package) and the `outlier`.
 
 The gate is not "no differences". It is "no UNEXPLAINED differences".
+
+# What a DISPOSITION means (RFC-0087, phase-417 W0.b)
+
+A verdict says why WE differ. A disposition says what a PORTING USER GETS:
+`adopt`, `adopt-bounded`, `refuse-loud`, `absent`. It is optional today and
+validated when present; `--require-disposition` gates `declined` rows on it,
+and phase-417 W-M2 is the pass that makes it the default. See DISPOSITIONS.
+
+# The C++ lane measures TWO surfaces (issue 1020, phase-417 W0.a)
+
+`rclcpp_compat.hpp` is what a ported file actually reaches, so it is the fourth
+C++ translation unit and namespace `rclcpp` is admitted for it. But the shim's
+rows answer a DIFFERENT question from the native `nros::` headers' rows, so
+they are not merged into one number: every row carries `surface` and
+`native_bucket`, and the report prints both summaries. See CPP_TRANSLATION_UNITS
+and `run_lang`.
 """
 
 import argparse
@@ -113,6 +131,27 @@ THEIR_RENAME_FIELDS = ("ours", "majority", "outlier")
 # verdict is that ROS 2 ITSELF is on our side.
 UPSTREAM_TOKENS = ("rcl", "rclcpp", "rclrs", "rclc", "rcl_interfaces",
                    "action_msgs", "lifecycle_msgs", "rosidl", "rmw", "REP-")
+
+# RFC-0087's four dispositions. A verdict says WHY we differ; a disposition says
+# what a PORTING USER GETS, which is the only half a porting user can act on:
+#
+#   adopt          same name, same observable contract.
+#   adopt-bounded  same name and contract, weaker inside an envelope that the
+#                  doc comment states. The envelope is part of the API.
+#   refuse-loud    we cannot have the contract, and the name is common enough
+#                  that a user will reach for it -- so the name EXISTS as a
+#                  deleted overload or a `static_assert` naming the constraint
+#                  and the nano-ros alternative. Never compile and differ.
+#   absent         the name does not exist. Correct for rclcpp internals a user
+#                  program never names.
+#
+# OPTIONAL for now, deliberately. Phase-417 W-M2 is the pass that classifies
+# every `declined` row, and `--require-disposition` is the gate it turns on;
+# making it mandatory before that pass runs would fail the tree on ~700 rows
+# nobody has been asked to classify yet. What IS enforced today is that a
+# disposition, if written, is one of these four -- a typo that silently
+# satisfies a future gate is the failure a ledger exists to prevent.
+DISPOSITIONS = ("adopt", "adopt-bounded", "refuse-loud", "absent")
 
 BUCKETS = ("systematic", "arity-only", "differs", "ours-only", "theirs-only")
 
@@ -173,11 +212,74 @@ RCLC_SOURCE = (
 # everything, because a `no_std` consumer genuinely does not get those symbols —
 # folding them into the base surface would trade one wrong answer for another.
 # Items reachable only with the flag are tagged `std_only` so a row can say so.
+#
+# issue 1020 — and the FOURTH TU is `rclcpp_compat.hpp`, which is issue 0818 one
+# level up. The argument the comment above makes for `component_node.hpp` was
+# never made for the compat shim, and it is the stronger case: 589 lines whose
+# entire purpose is drop-in compatibility, and what a ported file actually
+# reaches, because `#include <rclcpp/rclcpp.hpp>` resolves to it through
+# `cmake/compat/NrosRclcppCompat.cmake`. Excluded TWICE until now — the header
+# was never included, and everything it declares is in namespace `rclcpp`, which
+# the `{"nros"}` filter would have dropped anyway. So the 717 uncovered rclcpp
+# rows measured how far the NATIVE `nros::` API is from rclcpp, not how far
+# nano-ros is, and that was the headline number.
+#
+# Hence the per-TU namespace roots: the shim admits `rclcpp`, and the native TUs
+# stay on `nros` so a native row cannot silently become a shim row.
+#
+# `surface` is the answer to issue 1020's second question — see SURFACE_* below.
+NATIVE, PORTED = correlate.NATIVE, correlate.PORTED
+
 CPP_TRANSLATION_UNITS = (
-    ("base", '#include "nros/nros.hpp"\n', ()),
-    ("component", '#include "nros/component_node.hpp"\n', ()),
-    ("std", '#include "nros/nros.hpp"\n', ("-DNROS_CPP_STD=1",)),
+    # label, source, extra clang args, namespace roots, marks on every record
+    ("base", '#include "nros/nros.hpp"\n', (), {"nros"}, {}),
+    ("component", '#include "nros/component_node.hpp"\n', (), {"nros"}, {}),
+    ("std", '#include "nros/nros.hpp"\n', ("-DNROS_CPP_STD=1",), {"nros"},
+     {"std_only": True}),
+    # issue 1020, decision 3: the shim's rows are std-only, the same marking the
+    # `std` TU sets. The MEASURED reason is not the one the issue states,
+    # though, and the difference matters for anyone acting on it. The issue says
+    # the shim is "reachable only under `NROS_CPP_STD`"; it is not macro-gated
+    # at all — extracting it with and without `-DNROS_CPP_STD=1` yields the
+    # identical 25 records. What makes it std-only is that it includes
+    # `<memory>`, `<string>`, `<functional>`, `<vector>` and `<chrono>`
+    # UNCONDITIONALLY (`rclcpp_compat.hpp:63-67`) and hands out
+    # `std::shared_ptr` and `std::function` in its public signatures. That is a
+    # stronger claim than the `std` TU's, not a weaker one: a consumer without
+    # the std flavour cannot reach these items, and cannot COMPILE the header
+    # either. It parses here only because a hosted clang has libstdc++ whatever
+    # we define.
+    #
+    # Extracted WITH the flag regardless, because that is the flavour the compat
+    # CMake path builds under, and a surface should be measured as it ships.
+    ("compat", '#include "nros/rclcpp_compat.hpp"\n', ("-DNROS_CPP_STD=1",),
+     {"rclcpp", "rclcpp_action", "rclcpp_lifecycle"},
+     {"std_only": True, "surface": PORTED}),
 )
+
+
+# issue 1020, decision 2: TWO surfaces, one lane, one ledger.
+#
+# "How close is the NATIVE API to rclcpp" and "what does a PORTED FILE hit" are
+# different questions with different answers, and the lane answered only the
+# first. Merging them silently would answer neither: measured, the shim moves
+# five rows OFF a real classification — `Node::create_publisher`,
+# `Node::create_subscription` and `spin` go `systematic` -> `same`, `Node::Node`
+# and `init` go `arity-only` -> `same` — because `compare` merges the shim's
+# overload into the native item's key and `arity_verdict` reports agreement if
+# ANY overload pair agrees. The native answer for those rows would simply cease
+# to exist.
+#
+# A separate LANE was the alternative and is worse: it doubles the clang run,
+# and it forks the ledger, so a row would need classifying twice and the two
+# copies would drift. Instead every row carries `surface` (which of the two it
+# is reachable from) and `native_bucket` (what the correlator said before the
+# shim was admitted), and the report prints both summaries. One extraction, one
+# ledger, two answers.
+SURFACE_NOTE = {
+    NATIVE: "reachable from the nros:: headers",
+    PORTED: "only via rclcpp_compat.hpp",
+}
 
 
 def ours_cpp(tmpdir):
@@ -194,12 +296,12 @@ def ours_cpp(tmpdir):
     # reported as agreement -- one level down.
     seen = set()
     order = []
-    for label, source, extra in CPP_TRANSLATION_UNITS:
+    for _label, source, extra, roots, marks in CPP_TRANSLATION_UNITS:
         items = extract_cxx.extract(
             source,
             "c++",
             extract_cxx.nros_cpp_include_args() + list(extra),
-            {"nros"},
+            roots,
             tmpdir,
         )
         for item in items:
@@ -207,9 +309,11 @@ def ours_cpp(tmpdir):
             if key in seen:
                 continue
             seen.add(key)
-            if label == "std":
-                # Only reachable when the consumer opted into the std flavour.
-                item["std_only"] = True
+            # Marks are applied AFTER the de-dup test, never before: they would
+            # otherwise be part of the key, and a record emitted identically by
+            # two TUs would stop de-duplicating. `std_only` has always been set
+            # here for that reason; `surface` joins it.
+            item.update(marks)
             order.append(item)
     return order
 
@@ -555,6 +659,15 @@ def validate_ledger(entries):
             problems.append("ledger %s: unknown verdict %r" % (key, value.get("verdict")))
         if not value.get("why", "").strip():
             problems.append("ledger %s: empty reason" % key)
+        # `disposition` is OPTIONAL (see DISPOSITIONS) -- but a value that is
+        # present must be one of the four. An unrecognised one would satisfy
+        # `--require-disposition` when W-M2 turns it on while saying nothing,
+        # which is the exact shape of the typo'd-verdict failure above.
+        if "disposition" in value and value["disposition"] not in DISPOSITIONS:
+            problems.append(
+                "ledger %s: unknown disposition %r (one of %s)"
+                % (key, value.get("disposition"), ", ".join(DISPOSITIONS))
+            )
         problems.extend(validate_their_rename(key, value))
         pattern = key.partition(":")[2]
         if "*" in pattern and value.get("bucket") not in BUCKETS:
@@ -565,6 +678,7 @@ def validate_ledger(entries):
         lang = key.split(":", 1)[0]
         if lang not in LANGS:
             problems.append("ledger %s: unknown language %r" % (key, lang))
+
         if "_shard" in value and value["_shard"] not in topics.NAMES:
             problems.append(
                 "ledger %s: %s is not a topic; shards are named for one of %s"
@@ -573,12 +687,56 @@ def validate_ledger(entries):
     return problems
 
 
+def undisposed(entries):
+    """`declined` rows that do not say what a porting user GETS.
+
+    RFC-0087's consequence for RFC-0036: a `declined` verdict with no
+    disposition does not say whether a ported program gets a compile error or a
+    surprise, and that is the only thing a porting user needs to know.
+
+    NOT wired into `--check`, on purpose, and phase-417 W-M2 is the work item
+    that wires it. Two reasons it waits. The classification pass has not run --
+    all ~700 declines would fail at once, so the gate would be turned off again
+    the same day it landed. And the ledger shards are being edited concurrently
+    by the correction track (issues 1012, 1022); a field that is required
+    before anyone has been asked to write it breaks whoever is mid-edit.
+
+    `--require-disposition` opts in early, so the pass can gate itself as it
+    goes rather than in one flip at the end.
+    """
+    return sorted(
+        key for key, value in entries.items()
+        if value.get("verdict") == "declined" and not value.get("disposition")
+    )
+
+
 # --------------------------------------------------------------------------
 # report
 # --------------------------------------------------------------------------
 
 
 def run_lang(lang, tmpdir, include_internal=False):
+    """Rows for one language, each annotated with WHICH SURFACE it belongs to.
+
+    Every row gains two fields beyond the correlator's own:
+
+      `surface`        `native`, `ported`, or "" for a row we do not ship at
+                       all. It is the OURS item's mark, so a key that both a
+                       native header and the compat shim declare reads `native`
+                       -- the shim is the second way to reach it, not the only
+                       one.
+      `native_bucket`  the bucket the correlator assigns with the compat shim's
+                       records removed, or None if the key does not exist
+                       natively. This is RE-CORRELATED, not derived from the
+                       merged rows, because the merge is lossy in both
+                       directions: the shim can turn `systematic` into `same`
+                       by adding an agreeing overload, and it can turn a
+                       `theirs-only` TYPE into `same` and thereby stop its
+                       members inheriting that type's ledger verdict.
+
+    The second run is pure Python over ~1200 keys; the expensive half (clang,
+    rustdoc) has already happened by then, so two answers cost one extraction.
+    """
     ours_records = {"c": ours_c, "cpp": ours_cpp, "rust": ours_rust}[lang](tmpdir)
     payload = load_theirs(lang)
     theirs_records = payload["records"]
@@ -589,9 +747,40 @@ def run_lang(lang, tmpdir, include_internal=False):
         # code change rather than a re-derivation on a host with ROS installed.
         theirs_records, removed = public_surface.filter_records(theirs_records)
     clang = {"c": "c", "cpp": "c++", "rust": "rust"}[lang]
-    ours = correlate.flatten(ours_records, clang, "ours")
     theirs = correlate.flatten(theirs_records, clang, "theirs")
-    return correlate.compare(ours, theirs, clang), payload.get("provenance", {}), removed
+    rows = correlate.compare(correlate.flatten(ours_records, clang, "ours"),
+                             theirs, clang)
+
+    native_records = [r for r in ours_records if r.get("surface") != PORTED]
+    if len(native_records) == len(ours_records):
+        native = {r["key"]: r["bucket"] for r in rows}
+    else:
+        native = {
+            r["key"]: r["bucket"]
+            for r in correlate.compare(
+                correlate.flatten(native_records, clang, "ours"), theirs, clang)
+        }
+    for row in rows:
+        item = row.get("ours")
+        row["surface"] = (item.get("surface") or NATIVE) if item else ""
+        row["native_bucket"] = native.get(row["key"])
+    return rows, payload.get("provenance", {}), removed
+
+
+def surface_counts(rows):
+    """(ported_counts, native_counts) -- the two answers, side by side.
+
+    A row absent from the native surface contributes to `native` only when it
+    still exists there as a `theirs-only` statement about upstream; a shim-only
+    `ours-only` row has no native counterpart at all and is simply not counted.
+    """
+    ported, native = {}, {}
+    for r in rows:
+        ported[r["bucket"]] = ported.get(r["bucket"], 0) + 1
+        nb = r.get("native_bucket")
+        if nb:
+            native[nb] = native.get(nb, 0) + 1
+    return ported, native
 
 
 def row_topic(row):
@@ -654,35 +843,94 @@ def by_topic(langs, tmpdir):
     return 0
 
 
-def report(langs, show, check, suggest, include_internal, grep=None, topic=None):
+def _bucket_line(counts):
+    return (
+        "same %d   arity-only %d   systematic %d   differs %d   "
+        "ours-only %d   theirs-only %d"
+        % (
+            counts.get("same", 0),
+            counts.get("arity-only", 0),
+            counts.get("systematic", 0),
+            counts.get("differs", 0),
+            counts.get("ours-only", 0),
+            counts.get("theirs-only", 0),
+        )
+    )
+
+
+def gate_rows(ledger, lang, rows, key_bucket="bucket"):
+    """Every row that differs and carries no ledger entry, on ONE surface.
+
+    `key_bucket` selects which correlation is being gated: `bucket` is the
+    ported-file surface, `native_bucket` the native one. The bucket is not a
+    cosmetic choice -- `lookup` inherits a type's verdict only when the member
+    sits in the SAME bucket as its type, so the two surfaces genuinely disagree
+    about which rows are answered.
+
+    Runs over ALL rows, independently of `--grep` / `--topic` / `--show`. The
+    gate used to be collected inside the printing loop, so a filtered report
+    silently gated a filtered surface.
+    """
+    buckets = {}
+    for r in rows:
+        b = r.get(key_bucket)
+        if b:
+            buckets[r["key"]] = b
+    out = []
+    for r in rows:
+        b = r.get(key_bucket)
+        if not b or b in ("same", "systematic"):
+            continue
+        if lookup(ledger, lang, r["key"], b, buckets)[0] is None:
+            out.append((lang, b, r["key"]))
+    return out
+
+
+def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
+           check_ported=False, require_disposition=False):
     ledger = load_ledger()
     unledgered = []
+    ported_unledgered = []
     misfiled = []
     with tempfile.TemporaryDirectory() as tmpdir:
         for lang in langs:
             rows, prov, removed = run_lang(lang, tmpdir, include_internal)
-            counts = {}
-            by_key = {}
-            for r in rows:
-                counts[r["bucket"]] = counts.get(r["bucket"], 0) + 1
-                by_key[r["key"]] = r["bucket"]
+            ported_counts, native_counts = surface_counts(rows)
+            counts = ported_counts
+            by_key = {r["key"]: r["bucket"] for r in rows}
+
+            # The gate runs on the NATIVE surface, which is the one the ledger
+            # was written against. The ported surface is REPORTED and, for now,
+            # not enforced -- see `--check-ported`.
+            unledgered.extend(gate_rows(ledger, lang, rows, "native_bucket"))
+            ported_only = [
+                x for x in gate_rows(ledger, lang, rows, "bucket")
+                if x not in set(unledgered)
+            ]
+            ported_unledgered.extend(ported_only)
 
             print("\n=== %s vs %s ===" % (lang, prov.get("package", "?")))
             if prov:
                 bits = [f"{k}={v}" for k, v in sorted(prov.items()) if v]
                 print("    " + "  ".join(bits))
-            print(
-                "    same %d   arity-only %d   systematic %d   differs %d   "
-                "ours-only %d   theirs-only %d"
-                % (
-                    counts.get("same", 0),
-                    counts.get("arity-only", 0),
-                    counts.get("systematic", 0),
-                    counts.get("differs", 0),
-                    counts.get("ours-only", 0),
-                    counts.get("theirs-only", 0),
-                )
-            )
+            two_surfaces = native_counts and native_counts != ported_counts
+            if two_surfaces:
+                # issue 1020: the two questions, answered separately and in the
+                # order a reader of the campaign's headline number needs them.
+                print("    ported-file surface (what a file including "
+                      "<rclcpp/rclcpp.hpp> reaches):")
+                print("      " + _bucket_line(ported_counts))
+                print("    native API surface (nros:: headers alone, the "
+                      "denominator this lane used to report):")
+                print("      " + _bucket_line(native_counts))
+                moved = sum(1 for r in rows
+                            if r.get("native_bucket") and
+                            r["native_bucket"] != r["bucket"])
+                added = sum(1 for r in rows if r.get("native_bucket") is None)
+                print("      the compat shim reclassifies %d row(s) and adds "
+                      "%d that do not exist natively" % (moved, added))
+            else:
+                print("    " + _bucket_line(counts))
             if removed:
                 # Never silent: a filter that shrinks a number without saying
                 # what it took reads exactly like progress.
@@ -718,11 +966,24 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None)
                     # would restate one sentence once per site, which is how the
                     # sentence stops being read.
                     verdict = "rule:" + ",".join(r["detail"]["rules"])
-                elif bucket != "same" and entry is None:
-                    unledgered.append((lang, bucket, r["key"]))
                 mark = {"same": " ", "arity-only": "?", "systematic": "=",
                         "differs": "!", "ours-only": "+", "theirs-only": "-"}[bucket]
-                line = "  %s %-52s %-12s %s" % (mark, r["key"], verdict or "UNLEDGERED", bucket)
+                # The two-surface annotation, per row. `[shim]` says a ported
+                # file is the only way to reach our side of this row;
+                # `native:X` says the native answer differs from the ported one
+                # and states it, so a `same` the shim produced can never be
+                # read as the native API having closed the gap.
+                note = ""
+                if r.get("surface") == PORTED:
+                    note += "  [shim]"
+                nb = r.get("native_bucket")
+                if nb and nb != bucket:
+                    note += "  native:%s" % nb
+                disp = (entry or {}).get("disposition")
+                if disp:
+                    note += "  <%s>" % disp
+                line = "  %s %-52s %-12s %s%s" % (
+                    mark, r["key"], verdict or "UNLEDGERED", bucket, note)
                 print(line)
                 if bucket in ("differs", "systematic", "arity-only") and r.get("detail"):
                     print(
@@ -742,6 +1003,28 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None)
                 for ours_key, theirs_key, ratio in pairs:
                     print("    %.2f  %-42s ->  %s" % (ratio, ours_key, theirs_key))
 
+    def _list(rows_):
+        for lang_, bucket_, key_ in rows_[:40]:
+            print("  %s:%s  (%s)" % (lang_, key_, bucket_), file=sys.stderr)
+        if len(rows_) > 40:
+            print("  ... and %d more" % (len(rows_) - 40), file=sys.stderr)
+
+    if ported_unledgered:
+        # Printed ALWAYS, gated only under `--check-ported`. These are the rows
+        # the compat shim opened up and nobody has classified, and the whole
+        # point of stage 0 is that the number stops being invisible. Most are
+        # the same mechanism: the shim ships `NodeOptions`, `Logger` and
+        # `Server` as names, so those types stop being `theirs-only`, so their
+        # members stop inheriting "we do not have this type" -- and a gap INSIDE
+        # a type we ship is a different claim that has to be argued on its own.
+        print(
+            "\n%d item(s) on the PORTED-FILE surface have no ledger entry "
+            "(reported, not gated -- phase-417 W-M2 classifies them; "
+            "--check-ported gates them now):" % len(ported_unledgered),
+            file=sys.stderr,
+        )
+        _list(ported_unledgered)
+
     if check:
         if misfiled:
             print(
@@ -753,17 +1036,30 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None)
                 print("  %s  is in %s.json, belongs in %s.json" % (key, was, want),
                       file=sys.stderr)
             return 1
-        if unledgered:
+        if require_disposition:
+            missing = undisposed(ledger)
+            if missing:
+                print(
+                    "\n%d `declined` ledger row(s) carry no disposition. RFC-0087: "
+                    "a decline that does not say what a porting user GETS is not "
+                    "actionable. Add `\"disposition\"` -- one of: %s"
+                    % (len(missing), ", ".join(DISPOSITIONS)),
+                    file=sys.stderr,
+                )
+                for key in missing[:40]:
+                    print("  " + key, file=sys.stderr)
+                if len(missing) > 40:
+                    print("  ... and %d more" % (len(missing) - 40), file=sys.stderr)
+                return 1
+        failing = list(unledgered) + (ported_unledgered if check_ported else [])
+        if failing:
             print(
                 "\n%d item(s) differ with no ledger entry. Add a row to "
                 "%s/<lang>.json\nwith one of: %s"
-                % (len(unledgered), os.path.relpath(LEDGER_DIR, ROOT), ", ".join(VERDICTS)),
+                % (len(failing), os.path.relpath(LEDGER_DIR, ROOT), ", ".join(VERDICTS)),
                 file=sys.stderr,
             )
-            for lang, bucket, key in unledgered[:40]:
-                print("  %s:%s  (%s)" % (lang, key, bucket), file=sys.stderr)
-            if len(unledgered) > 40:
-                print("  ... and %d more" % (len(unledgered) - 40), file=sys.stderr)
+            _list(failing)
             return 1
         print("\nevery divergence carries a ledger entry")
     return 0
@@ -1090,6 +1386,152 @@ def self_test():
             {"c:foo_*": {"verdict": "gap", "why": "x"}})):
         failures.append("a bucketless glob row was accepted")
 
+    # ---------------------------------------------------------------- W0.a
+    # issue 1020: the C++ lane must SEE the compat shim, and must not merge
+    # what it sees with the native surface.
+
+    # The table itself. A shim TU that quietly reverts to `{"nros"}` roots would
+    # parse the header, extract nothing, and report the fix as done.
+    compat = [t for t in CPP_TRANSLATION_UNITS if t[0] == "compat"]
+    check("the compat shim is a translation unit", len(compat), 1)
+    if compat:
+        _label, source, extra, roots, marks = compat[0]
+        check("the compat TU reads rclcpp_compat.hpp",
+              "rclcpp_compat.hpp" in source, True)
+        check("the compat TU admits namespace rclcpp", "rclcpp" in roots, True)
+        # Decision 3: the shim's rows are std-only, the same marking the `std`
+        # TU sets. Not a cosmetic tag -- a `no_std` consumer reaches none of it.
+        check("the compat TU marks its rows std_only", marks.get("std_only"), True)
+        check("the compat TU marks its rows ported", marks.get("surface"), PORTED)
+        check("the compat TU is built under NROS_CPP_STD",
+              "-DNROS_CPP_STD=1" in extra, True)
+    check("the native TUs stay on the nros namespace",
+          [t[3] for t in CPP_TRANSLATION_UNITS if t[0] != "compat"],
+          [{"nros"}, {"nros"}, {"nros"}])
+
+    # Decision 1: a `rclcpp::` alias resolving to a `nros::` type correlates
+    # `same` on NAME -- and the row says the shape underneath is ours, because
+    # `surface` rides along. An alias contributes ONE key and no members, so
+    # this cannot make the measurement rosier than it is: the known defect
+    # `rclcpp::Publisher<T>::SharedPtr` is still not a row.
+    alias_ours = correlate.flatten(
+        [{"kind": "alias", "qual": "rclcpp::Publisher", "name": "Publisher",
+          "type": "nros::Publisher<M>", "surface": PORTED, "std_only": True}],
+        "c++", "ours")
+    alias_rows = correlate.compare(
+        alias_ours,
+        correlate.flatten(
+            [{"kind": "type", "qual": "rclcpp::Publisher", "name": "Publisher",
+              "members": []}],
+            "c++", "theirs"),
+        "c++")
+    check("a shim alias correlates on name",
+          {r["key"]: r["bucket"] for r in alias_rows}.get("Publisher"), "same")
+    check("a shim alias says whose shape it is",
+          alias_ours["Publisher"]["surface"], PORTED)
+    check("a shim alias contributes no members", sorted(alias_ours), ["Publisher"])
+
+    # The marks must SURVIVE `flatten`. They did not before: `std_only` was set
+    # on the record and dropped one call later, so it had no consumer anywhere.
+    both = correlate.flatten(
+        [{"kind": "type", "qual": "nros::Node", "name": "Node",
+          "members": [{"name": "spin", "params": [], "ret": "", "template": []}]},
+         {"kind": "type", "qual": "rclcpp::Node", "name": "Node",
+          "surface": PORTED, "std_only": True,
+          "members": [{"name": "spin", "params": [], "ret": "", "template": []},
+                      {"name": "pump", "params": [], "ret": "", "template": []}]}],
+        "c++", "ours")
+    check("a key both surfaces declare is native", both["Node"]["surface"], NATIVE)
+    check("a key only the shim declares is ported",
+          both["Node::pump"]["surface"], PORTED)
+    check("std_only is an AND over the records that merged",
+          both["Node::spin"]["std_only"], False)
+    check("std_only survives on a shim-only item",
+          both["Node::pump"]["std_only"], True)
+
+    # Decision 2: two surfaces, not one. The merge is LOSSY -- an agreeing
+    # overload from the shim turns a real `systematic` into `same` -- so the
+    # native answer has to be re-correlated, never derived from the merged row.
+    theirs_two = correlate.flatten(
+        [{"kind": "type", "qual": "rclcpp::Node", "name": "Node",
+          "members": [{"name": "create_publisher",
+                       "params": [{"type": "const std::string &"}],
+                       "ret": "", "template": []}]}],
+        "c++", "theirs")
+    native_only = correlate.flatten(
+        [{"kind": "type", "qual": "nros::Node", "name": "Node",
+          "members": [{"name": "create_publisher",
+                       "params": [{"type": "const char *"}, {"type": "uint8_t"}],
+                       "ret": "", "template": []}]}],
+        "c++", "ours")
+    merged = correlate.flatten(
+        [{"kind": "type", "qual": "nros::Node", "name": "Node",
+          "members": [{"name": "create_publisher",
+                       "params": [{"type": "const char *"}, {"type": "uint8_t"}],
+                       "ret": "", "template": []}]},
+         {"kind": "type", "qual": "rclcpp::Node", "name": "Node",
+          "surface": PORTED,
+          "members": [{"name": "create_publisher",
+                       "params": [{"type": "const std::string &"}],
+                       "ret": "", "template": []}]}],
+        "c++", "ours")
+    nb = {r["key"]: r["bucket"]
+          for r in correlate.compare(native_only, theirs_two, "c++")}
+    pb = {r["key"]: r["bucket"]
+          for r in correlate.compare(merged, theirs_two, "c++")}
+    check("the shim can mask a native divergence",
+          (nb.get("Node::create_publisher"), pb.get("Node::create_publisher")),
+          ("differs", "same"))
+
+    # `surface_counts` must report BOTH, and must not count a shim-only row
+    # against the native surface it does not exist on.
+    ported_c, native_c = surface_counts([
+        {"key": "A", "bucket": "same", "native_bucket": "arity-only"},
+        {"key": "B", "bucket": "ours-only", "native_bucket": None},
+    ])
+    check("both surfaces are counted",
+          (ported_c, native_c),
+          ({"same": 1, "ours-only": 1}, {"arity-only": 1}))
+
+    # And the gate must be selectable per surface, or `--check` silently starts
+    # gating rows the ledger was never written against.
+    gled = {"cpp:X": {"verdict": "gap", "why": "x"}}
+    grows = [{"key": "X", "bucket": "differs", "native_bucket": "differs"},
+             {"key": "Y", "bucket": "ours-only", "native_bucket": None},
+             {"key": "Z", "bucket": "same", "native_bucket": "theirs-only"}]
+    check("the native gate ignores a shim-only row",
+          gate_rows(gled, "cpp", grows, "native_bucket"),
+          [("cpp", "theirs-only", "Z")])
+    check("the ported gate sees it",
+          gate_rows(gled, "cpp", grows, "bucket"),
+          [("cpp", "ours-only", "Y")])
+
+    # ---------------------------------------------------------------- W0.b
+    # RFC-0087's four dispositions.
+    check("the four dispositions are RFC-0087's",
+          set(DISPOSITIONS),
+          {"adopt", "adopt-bounded", "refuse-loud", "absent"})
+    for good in DISPOSITIONS:
+        if validate_ledger({"cpp:A": {"verdict": "declined", "why": "x",
+                                      "disposition": good}}):
+            failures.append("validate_ledger rejected disposition %r" % good)
+    if not any("unknown disposition" in c for c in validate_ledger(
+            {"cpp:A": {"verdict": "declined", "why": "x",
+                       "disposition": "adopt-ish"}})):
+        failures.append("a typo'd disposition was accepted")
+    # OPTIONAL, and that is load-bearing until phase-417 W-M2: a required field
+    # would fail every `declined` row in the tree the day it landed, and would
+    # break whoever is mid-edit on the correction track.
+    if validate_ledger({"cpp:A": {"verdict": "declined", "why": "x"}}):
+        failures.append("a row without a disposition was rejected; W-M2 turns "
+                        "that on, not W0.b")
+    check("undisposed finds a declined row with no disposition",
+          undisposed({"cpp:A": {"verdict": "declined", "why": "x"},
+                      "cpp:B": {"verdict": "declined", "why": "x",
+                                "disposition": "refuse-loud"},
+                      "cpp:C": {"verdict": "gap", "why": "x"}}),
+          ["cpp:A"])
+
     failures.extend(public_surface.self_test())
     failures.extend(signature_rules.self_test())
     failures.extend(topics.self_test())
@@ -1106,6 +1548,12 @@ def main():
     ap.add_argument("--show", action="append", default=None,
                     help="buckets: same, arity-only, systematic, differs, ours-only, theirs-only, all")
     ap.add_argument("--check", action="store_true", help="exit non-zero on an unledgered difference")
+    ap.add_argument("--check-ported", action="store_true",
+                    help="also gate the ported-file surface (rclcpp_compat.hpp); "
+                         "phase-417 W-M2 makes this the default")
+    ap.add_argument("--require-disposition", action="store_true",
+                    help="with --check, fail when a `declined` row carries no "
+                         "RFC-0087 disposition; phase-417 W-M2 makes this the default")
     ap.add_argument("--suggest-renames", action="store_true",
                     help="pair unmatched names by similarity (suggestions, never findings)")
     ap.add_argument("--include-internal", action="store_true",
@@ -1139,7 +1587,8 @@ def main():
 
     grep = re.compile(args.grep) if args.grep else None
     return report(langs, show, args.check, args.suggest_renames,
-                  args.include_internal, grep, args.topic)
+                  args.include_internal, grep, args.topic,
+                  args.check_ported, args.require_disposition)
 
 
 if __name__ == "__main__":
