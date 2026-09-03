@@ -9,7 +9,7 @@
   },
   "c:client_get_options": {
     "verdict": "declined",
-    "why": "no runtime options struct; see the `compile-time-options` rule."
+    "why": "reads back the options a client was created with. `nros_client_options_t` ships and `nros_client_init_with_options` takes it; what is missing is the READBACK -- no `*_get_options` exists anywhere in our C surface, for any entity. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:client_get_rmw_handle": {
     "verdict": "declined",
@@ -44,12 +44,12 @@
     "why": "see `c:publisher_init_with_qos`."
   },
   "c:client_request_publisher_get_actual_qos": {
-    "verdict": "declined",
-    "why": "QoS is compile-time; actual and requested are the same value. See `c:publisher_get_actual_qos`."
+    "verdict": "gap",
+    "why": "reports the QoS this entity actually ended up with. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap: the \"QoS is compile-time, so actual and requested are the same value\" justification was false and is deleted. See `c:publisher_get_actual_qos` for the launch-lowered override path that makes the two differ, and for why nobody can answer it today."
   },
   "c:client_response_subscription_get_actual_qos": {
-    "verdict": "declined",
-    "why": "QoS is compile-time; actual and requested are the same value. See `c:publisher_get_actual_qos`."
+    "verdict": "gap",
+    "why": "reports the QoS this entity actually ended up with. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap: the \"QoS is compile-time, so actual and requested are the same value\" justification was false and is deleted. See `c:publisher_get_actual_qos` for the launch-lowered override path that makes the two differ, and for why nobody can answer it today."
   },
   "c:client_send_request_async": {
     "verdict": "divergence",
@@ -160,7 +160,7 @@
   },
   "c:service_get_options": {
     "verdict": "declined",
-    "why": "no runtime options struct; see the `compile-time-options` rule."
+    "why": "reads back the options a service was created with. `nros_service_options_t` ships and `nros_service_init_with_options` takes it; what is missing is the READBACK -- no `*_get_options` exists anywhere in our C surface, for any entity. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:service_get_rmw_handle": {
     "verdict": "declined",
@@ -195,12 +195,12 @@
     "why": "see `c:publisher_init_with_qos`."
   },
   "c:service_request_subscription_get_actual_qos": {
-    "verdict": "declined",
-    "why": "QoS is compile-time; actual and requested are the same value. See `c:publisher_get_actual_qos`."
+    "verdict": "gap",
+    "why": "reports the QoS this entity actually ended up with. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap: the \"QoS is compile-time, so actual and requested are the same value\" justification was false and is deleted. See `c:publisher_get_actual_qos` for the launch-lowered override path that makes the two differ, and for why nobody can answer it today."
   },
   "c:service_response_publisher_get_actual_qos": {
-    "verdict": "declined",
-    "why": "QoS is compile-time; actual and requested are the same value. See `c:publisher_get_actual_qos`."
+    "verdict": "gap",
+    "why": "reports the QoS this entity actually ended up with. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap: the \"QoS is compile-time, so actual and requested are the same value\" justification was false and is deleted. See `c:publisher_get_actual_qos` for the launch-lowered override path that makes the two differ, and for why nobody can answer it today."
   },
   "c:service_send_reply_raw": {
     "verdict": "rename",
@@ -457,7 +457,7 @@
   },
   "cpp:Client::take_type_erased_response": {
     "verdict": "declined",
-    "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. The blocker asked which suffix ours should carry (`_raw` vs `_serialized` vs `type_erased`); the question was moot, because there is no ours-side method here to suffix.\n`ClientBase::take_type_erased_response(void * response_out, rmw_request_id_t & request_header_out)` erases over a DESERIALIZED response STRUCT -- it is the function the typed `Client::take_response` forwards to (`client.hpp:515`). Our C++ client has no such entry point: the reply comes back concretely typed through `Future<ResponseType>` from `Client::async_send_request`. Our only erasure is BYTES (`nros_cpp_service_client_try_recv_reply`, `nros_client_try_recv_reply_raw`), and those correlate with the SERIALIZED/RAW rows, not with this one -- so pointing this row at a `_raw` form was the same mis-pairing that `cpp:Subscription::take_type_erased` had.\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence.",
+    "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. The blocker asked which suffix ours should carry (`_raw` vs `_serialized` vs `type_erased`); the question was moot, because there is no ours-side method here to suffix.\n`ClientBase::take_type_erased_response(void * response_out, rmw_request_id_t & request_header_out)` erases over a DESERIALIZED response STRUCT -- it is the function the typed `Client::take_response` forwards to (`client.hpp:515`). Our C++ client has no such entry point: the reply comes back concretely typed through `Future<ResponseType>` from `Client::async_send_request`. Our only erasure is BYTES (`nros_cpp_service_client_take_response` at `nros_cpp_ffi.h:1651`, `nros_client_take_response_raw`; both were named here by their pre-W6 spellings until 2026-09-04, phase-417), and those correlate with the SERIALIZED/RAW rows, not with this one -- so pointing this row at a `_raw` form was the same mis-pairing that `cpp:Subscription::take_type_erased` had.\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence.",
     "rename": {
       "category": "B",
       "status": "resolved",
@@ -604,7 +604,7 @@
   },
   "cpp:Service::take_type_erased_request": {
     "verdict": "declined",
-    "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. Same evidence as `cpp:Client::take_type_erased_response`.\n`ServiceBase::take_type_erased_request(void * request_out, rmw_request_id_t & request_id_out)` erases over a DESERIALIZED request STRUCT -- the function the typed `Service::take_request` forwards to (`service.hpp:452`). Ours is `Service<S>::try_recv_request(RequestType& req, int64_t& seq_id)`, a template on the concrete type, and it already belongs to `cpp:Service::take_request`. The byte form underneath (`nros_cpp_service_server_try_recv_raw`) is FFI, not a user-facing C++ method, and belongs to the SERIALIZED/RAW rows. Note ours carries a bare `int64_t seq_id` where rclcpp carries `rmw_request_id_t`; that difference is its own row (`rust:RequestId` / `rust:rmw_request_id_t`, verdict divergence).\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence.",
+    "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. Same evidence as `cpp:Client::take_type_erased_response`.\n`ServiceBase::take_type_erased_request(void * request_out, rmw_request_id_t & request_id_out)` erases over a DESERIALIZED request STRUCT -- the function the typed `Service::take_request` forwards to (`service.hpp:452`). Ours is `Service<S>::take_request(RequestType& req, int64_t& seq_id)`, a template on the concrete type, and it already belongs to `cpp:Service::take_request`. The byte form underneath (`nros_cpp_service_server_take_request_raw`, `nros_cpp_ffi.h:1553`) is FFI, not a user-facing C++ method, and belongs to the SERIALIZED/RAW rows. Note ours carries a bare `int64_t seq_id` where rclcpp carries `rmw_request_id_t`; that difference is its own row (`rust:RequestId` / `rust:rmw_request_id_t`, verdict divergence).\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence. (CORRECTED 2026-09-04, phase-417: the prose named `Service<S>::try_recv_request` and `nros_cpp_service_server_try_recv_raw` in the present tense; both were retired by phase-379 W6 decision 1.)",
     "rename": {
       "category": "B",
       "status": "resolved",
@@ -709,7 +709,7 @@
       "nros_rmw::ClientTrait::send_request",
       "nros_rmw::ClientTrait::take_response"
     ],
-    "why": "rclrs's `call` returns a future. Ours (`ClientTrait::send_request` + `try_recv_reply`, or the C++ `Client::call`) drives the executor. See `cpp:Client::async_send_request`."
+    "why": "rclrs's `call` returns a future. Ours (`ClientTrait::send_request` + `ClientTrait::take_response`, or the C++ `Client::call`) drives the executor. (CORRECTED 2026-09-04, phase-417: this said `try_recv_reply`, retired by phase-379 W6 decision 1; the live name is the one this row's own `provides` already carried.) See `cpp:Client::async_send_request`."
   },
   "rust:Client::call_then": {
     "verdict": "declined",
@@ -725,7 +725,7 @@
   },
   "rust:Client::service_is_ready": {
     "verdict": "rename",
-    "why": "LANDED 2026-09-03 (phase-379 W6 decision 2). The name is rclcpp's; the SHAPE is rcl's -- `rcl_service_server_is_available` returns OK \"regardless of the service readiness\" and carries the answer in an out-param, so the return code says whether the CHECK worked. rclcpp collapses that to `bool` and throws; RFC-0018 forbids exceptions, so C++ returns `Expected<bool>`, Rust `Result<bool, E>`, C keeps rcl's out-param (RFC-0036). see `cpp:Client::service_is_ready`; ours is `ClientTrait::is_server_ready`.",
+    "why": "LANDED 2026-09-03 (phase-379 W6 decision 2). The name is rclcpp's; the SHAPE is rcl's -- `rcl_service_server_is_available` returns OK \"regardless of the service readiness\" and carries the answer in an out-param, so the return code says whether the CHECK worked. rclcpp collapses that to `bool` and throws; RFC-0018 forbids exceptions, so C++ returns `Expected<bool>`, Rust `Result<bool, E>`, C keeps rcl's out-param (RFC-0036). see `cpp:Client::service_is_ready`. CORRECTED 2026-09-04 (phase-417): this said \"ours is `ClientTrait::is_server_ready`\" in the present tense. That method was DELETED by W6 decision 2 / issue 1008 -- its trait default was `true`, so every cffi-backed image answered \"ready\" without asking (see `rust:ClientTrait::is_server_ready`). The live trait method is `ClientTrait::service_is_ready` (`packages/core/nros-rmw/src/traits.rs:2816`), returning `Result<bool, Self::Error>`.",
     "rename": {
       "to": "service_is_ready",
       "status": "landed"

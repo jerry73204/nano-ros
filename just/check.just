@@ -4275,6 +4275,38 @@ cpp: cpp-fmt
     # `the_committed_compile_fixture_is_what_this_emitter_renders` in
     # nros-cli-core, so this fixture cannot drift into a table that matches
     # nothing (which would leave every assertion below vacuous and green).
+    # phase-417 stages 1 + 2b — the ROS 2 adoption surface. Two probes, both
+    # POSITIVE: the facilities a ported rclcpp file reaches must exist and
+    # type-check. `test -f` first, because a syntax-only compile of a missing
+    # file is a pass, and six mechanisms in this campaign were right and never
+    # ran (issue 0196's class).
+    #
+    # `ros2_api_adoption.cpp` is HOSTED deliberately — no -ffreestanding. It
+    # includes `rclcpp_compat.hpp`, which pulls <memory>/<string> unconditionally
+    # and hands out std::shared_ptr in public signatures, so a freestanding
+    # compile would fail for a reason that says nothing about the surface.
+    for probe in ros2_api_adoption node_graph_forwarders; do \
+        test -f "packages/api/nros-cpp/tests/compile/$probe.cpp" || { \
+            echo "ERROR: $probe.cpp is MISSING -- this check would pass on absence." >&2; \
+            exit 1; \
+        }; \
+    done
+    echo "  - phase-417: ported-file surface COMPILES (SharedPtr aliases, string interop, graph forwarders)"
+    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-cpp/tests/compile/ros2_api_adoption.cpp
+    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-cpp/tests/compile/node_graph_forwarders.cpp
+
     echo "  - declared QoS depth: the three cases COMPILE (c++17)"
     c++ -fsyntax-only -std=c++17 -fno-exceptions -fno-rtti \
         -Ipackages/api/nros-cpp/tests/compile/declared-qos-fixture \

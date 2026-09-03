@@ -12,7 +12,14 @@ not by rewriting the source.
 ## What changed vs an upstream ROS 2 package
 
 The C++ source (`src/minimal_publisher.cpp`) is the upstream tutorial's
-`minimal_publisher.cpp` **verbatim**. The CMakeLists.txt's stock-ROS-2 shape
+`minimal_publisher.cpp` **verbatim** — true as of 2026-09-04 (phase-417 stage 1).
+It was NOT true when first written: three lines carried adaptations, and the
+README claimed verbatim anyway. What made the claim true is that
+`rclcpp::Publisher<T>::SharedPtr` / `rclcpp::TimerBase::SharedPtr` now resolve
+(the nested aliases exist on the entity types) and `FixedString<N>` accepts a
+`std::string`, so the two member declarations and the
+`message.data = "Hello, world! " + std::to_string(count_++);` assignment are
+upstream's own lines again. The CMakeLists.txt's stock-ROS-2 shape
 (`find_package(ament_cmake_auto)` / `ament_auto_add_executable` /
 `ament_target_dependencies` / `ament_auto_package`) is **untouched**.
 

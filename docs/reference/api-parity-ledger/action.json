@@ -73,7 +73,7 @@
   },
   "c:action_client_get_options": {
     "verdict": "declined",
-    "why": "no runtime options struct; see the `compile-time-options` rule and the service stage's `c:client_get_options`."
+    "why": "reads back the options an action client was created with. `nros_action_client_options_t` ships, and so does `nros_action_client_get_default_options`; what is missing is the READBACK -- no `*_get_options` exists anywhere in our C surface, for any entity. See the service stage's `c:client_get_options`. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:action_client_get_zero_initialized": {
     "verdict": "extension",
@@ -566,12 +566,12 @@
     "why": "OUR LANGUAGES DISAGREE: rclcpp_action aliases the goal id as a named type. Our C has `nros_goal_uuid_t` with `nros_goal_uuid_generate` and `nros_goal_uuid_equal`; our Rust has `GoalId` with `new`/`zero`/`is_zero`/`from_counter`. Our C++ has nothing -- every action signature in `action_server.hpp`, `action_client.hpp` and the two polling headers passes a raw `uint8_t goal_id[16]`, which decays to a pointer, compares with neither `==` nor `!=`, and cannot be stored in a container without the user writing the wrapper. Phase 379 W3."
   },
   "cpp:Node::create_action_client": {
-    "verdict": "declined",
+    "verdict": "rename",
     "why": "see `cpp:Node::create_action_server`."
   },
   "cpp:Node::create_action_server": {
-    "verdict": "declined",
-    "why": "rclcpp_action ships FREE functions (`rclcpp_action::create_server(node, ...)`) because it is a separate package that cannot add members to `rclcpp::Node`. Ours is one library, so the factory is a node method like every other entity's. A user porting `rclcpp_action::create_server(node, name, goal_cb, cancel_cb, accepted_cb)` must rewrite it as `node.create_action_server(out, name)` followed by `set_goal_callback` / `set_cancel_callback`. See `cpp:create_server`."
+    "verdict": "rename",
+    "why": "RE-VERDICTED 2026-09-04 (phase-417), declined -> rename. This item is OURS-ONLY, so `declined` -- ROS 2 has it, we deliberately do not -- could not have been true of it in either direction. rclcpp_action ships FREE functions (`rclcpp_action::create_server(node, ...)`) because it is a separate package that cannot add members to `rclcpp::Node`; ours is one library, so the factory is a node method like every other entity's. A user porting `rclcpp_action::create_server(node, name, goal_cb, cancel_cb, accepted_cb)` rewrites it as `node.create_action_server(out, name)` followed by `set_goal_callback` / `set_cancel_callback`. The decision about which spelling survives is on the theirs-only half, `cpp:create_server`."
   },
   "cpp:Node::create_polling_action_client": {
     "verdict": "extension",
@@ -607,7 +607,7 @@
   },
   "cpp:ServerGoalHandle": {
     "verdict": "divergence",
-    "why": "the server side of `cpp:ClientGoalHandle`. Its methods are the ones we moved onto `(server, goal)`: `succeed`/`abort`/`canceled`/`execute` are `nros_action_succeed`/`_abort`/`_canceled`/`nros_action_execute`, and `is_active`/`is_executing`/`is_canceling` are one `nros_action_get_goal_status` call. `get_goal` has no counterpart -- the arena never keeps the goal payload, so a user who needs it stashes it in the goal callback. our goal handle is a 16-byte UUID TOKEN, not an owning object: `nros_goal_handle_t` holds the uuid and nothing else, and every lifecycle fact lives in the executor's static goal arena (read back with `nros_action_get_goal_status`). rcl's `rcl_action_goal_handle_t` is allocator-constructed, carries its own state machine and is finalised by the caller -- no allocator, so there is nothing to construct, nothing to fini, and no object to hang the lifecycle methods on. It is also why our terminal verbs take `(server, goal)` where rclcpp's are members: see `c:action_succeed`."
+    "why": "the server side of `cpp:ClientGoalHandle`. CORRECTED 2026-09-04 (phase-417): this row answered a `cpp:` question entirely in C -- `nros_action_succeed` / `_abort` / `_canceled` / `nros_action_execute` / `nros_action_get_goal_status` -- and never named the C++ surface a porting rclcpp_action user actually writes. THE C++ ANSWER: `succeed`/`abort`/`canceled` are one call, `nros::ActionServer<A>::complete_goal(goal_id, GoalStatus, result)` (`packages/api/nros-cpp/include/nros/action_server.hpp:257`, with a two-argument overload defaulting `Succeeded`), and `is_active`/`is_executing`/`is_canceling` are `ActionServer::for_each_active_goal(f)` (`:284`), which visits `(uuid, status)` for every live goal. `get_goal` has no counterpart -- the arena never keeps the goal payload, so a user who needs it stashes it in the goal callback. THE DIVERGENCE, unchanged: our goal handle is a 16-byte UUID TOKEN, not an owning object. `nros_goal_handle_t` holds the uuid and nothing else, and every lifecycle fact lives in the executor's static goal arena. rcl's `rcl_action_goal_handle_t` is allocator-constructed, carries its own state machine and is finalised by the caller -- no allocator, so there is nothing to construct, nothing to fini, and no object to hang the lifecycle methods on. It is also why the C verbs take `(server, goal)` where rclcpp's are members: see `c:action_succeed`."
   },
   "cpp:TickCtx::send_goal_raw": {
     "verdict": "extension",
@@ -642,13 +642,19 @@
     "why": "the three FFI steps a raw action server needs, in one call against caller-owned storage: create, register on the executor, then set the goal and cancel callbacks. The goal callback returns a `GoalResponse` discriminant (`0` reject / `1` accept-and-execute / `2` accept-defer) and the cancel callback a `CancelResponse`; a goal is completed afterwards with `nros_cpp_action_server_complete_goal`. rclcpp_action's `create_server` takes goal, cancel AND accepted callbacks and returns a `SharedPtr`; ours has no accepted callback because there is no owning goal handle to hand back (see `cpp:ActionServer`) and no allocator to return from. Public and documented, but in practice reached through `cpp:bind_action_server_raw`, which supplies the trampolines."
   },
   "cpp:create_server": {
-    "verdict": "declined",
+    "verdict": "rename",
     "provides": [
       "nros::Node::create_action_server",
       "nros::ActionServer::set_goal_callback",
       "nros::ActionServer::set_cancel_callback"
     ],
-    "why": "the free-function factory; ours is the method `Node::create_action_server`. See that row for what a porting user loses, and the service stage's `cpp:create_client` for the same pair one entity over."
+    "why": "the free-function factory; ours is the method `nros::Node::create_action_server` plus `ActionServer::set_goal_callback` / `set_cancel_callback`. RE-VERDICTED 2026-09-04 (phase-417), declined -> rename: the capability is present under another spelling, so `declined` -- ROS 2 has it and we deliberately do not -- was never the right word, and the identical shape one entity over is already verdict `rename` at the service stage's `cpp:create_client`. What a porting user rewrites is in `cpp:Node::create_action_server`.",
+    "rename": {
+      "to": null,
+      "category": "B",
+      "status": "blocked-needs-decision",
+      "blocker": "Which side moves is unsettled, exactly as at `cpp:create_client`: rclcpp_action ships free functions only because it is a separate package that cannot add members to `rclcpp::Node`, a constraint we do not have. Adding `nros::make_action_server` beside the method would match upstream without removing ours; the pubsub stage did that for `create_publisher`/`make_publisher` (landed 2026-08-26). Nobody has decided whether actions follow."
+    }
   },
   "rust:AcceptedGoal": {
     "verdict": "divergence",
@@ -792,7 +798,7 @@
   },
   "rust:ActionClientCore::is_server_ready": {
     "verdict": "rename",
-    "why": "TARGET SETTLED 2026-08-27 (phase-379 W5), not executed. Verdict stays `rename`: this is the half of the pair that should move, and the surviving spelling is `action_server_is_ready` — rclcpp_action's word, our C's word (`nros_action_client_action_server_is_ready`) and the word our own outer type already uses (`rust:ActionClient::action_server_is_ready`, now re-verdicted `extension` as the survivor). So `ActionClientCore::is_server_ready` (packages/core/nros-node/src/executor/action_core.rs:1144) -> `action_server_is_ready`. NOT executed here: `nros-node` is outside this work item's ownership, and the rename has in-tree callers (`handles.rs:2180`, `:2825`). NOTE the entanglement, which is why this is not a one-line edit: the body forwards to `send_goal_client.is_server_ready()`, which is `ClientTrait::is_server_ready` (nros-rmw/src/traits.rs:2404) — the trait method whose own naming is BLOCKED at `rust:ClientTrait::server_available` on the tri-state question. Renaming the action-side wrapper does not touch the trait and does not depend on that decision, but whoever executes it should say so in the commit or the next reader will assume it did. ORIGINAL ROW: the second Rust spelling of `rust:ActionClient::action_server_is_ready`, on the type one layer below. The service stage recorded the same defect for clients (`rust:ClientTrait::is_server_ready` beside `ClientTrait::server_available` beside `Client::service_is_ready`); actions repeat it. Phase 379 W5.",
+    "why": "TARGET SETTLED 2026-08-27 (phase-379 W5), not executed. Verdict stays `rename`: this is the half of the pair that should move, and the surviving spelling is `action_server_is_ready` — rclcpp_action's word, our C's word (`nros_action_client_action_server_is_ready`) and the word our own outer type already uses (`rust:ActionClient::action_server_is_ready`, now re-verdicted `extension` as the survivor). So `ActionClientCore::is_server_ready` (packages/core/nros-node/src/executor/action_core.rs:1144) -> `action_server_is_ready`. NOT executed here: `nros-node` is outside this work item's ownership, and the rename has in-tree callers (`handles.rs:2180`, `:2825`). NOTE the entanglement, which is why this is not a one-line edit: the body forwarded to `send_goal_client.is_server_ready()`. CORRECTED 2026-09-04 (phase-417): that trait method has since been DELETED (phase-379 W6 decision 2 / issue 1008 -- its default was `true`, so every cffi-backed image answered without asking; see `rust:ClientTrait::is_server_ready`), and the live trait method is `ClientTrait::service_is_ready` (`packages/core/nros-rmw/src/traits.rs:2816`). The tri-state question this row recorded as BLOCKING is therefore settled, and the blocker named a ledger key -- `rust:ClientTrait::server_available` -- that has never existed. Renaming the action-side wrapper is now unentangled. ORIGINAL ROW: the second Rust spelling of `rust:ActionClient::action_server_is_ready`, on the type one layer below. The service stage recorded the same defect for clients (`rust:ClientTrait::is_server_ready` beside `ClientTrait::server_available` beside `Client::service_is_ready`); actions repeat it. Phase 379 W5.",
     "rename": {
       "from": "is_server_ready",
       "to": "action_server_is_ready",

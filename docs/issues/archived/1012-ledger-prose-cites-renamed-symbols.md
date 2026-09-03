@@ -2,7 +2,7 @@
 id: 1012
 title: "Parity-ledger `why` prose names symbols a rename retired — 15 rows describe
   current state using dead spellings, and nothing checks it"
-status: open
+status: resolved
 type: bug
 area: docs, api
 related: [phase-379, issue-0826]
@@ -19,9 +19,9 @@ rename rows, so the ledger is stale against renames the ledger itself recorded:
 
 | dead spelling | live spelling | rows |
 | --- | --- | ---: |
-| `is_server_ready` | deleted (issue 1008) | 2 |
-| `server_available` | `service_is_ready` | 5 |
-| `try_recv` / `try_recv_raw` | `take` / `take_raw` | 5 |
+| `is_server_ready` | **partly** deleted — `ClientTrait::is_server_ready` is gone (issue 1008), `ActionClientCore::is_server_ready` is still live (`action_core.rs:1144`) | 2 |
+| `server_available` | `service_is_ready` in **C++ only** — C still exports `nros_client_server_available` beside `nros_client_service_is_ready` | 5 |
+| `try_recv` / `try_recv_raw` | `take` / **`take_serialized`** | 5 |
 | `SubscriberOptions` / `SubscriberHandle` | `SubscriptionOptions` / `SubscriptionHandle` | 2 |
 | `send_reply` | `send_response` | 1 |
 
@@ -75,3 +75,15 @@ deliberate counterexamples. Options, cheapest first:
    so tense becomes machine-readable rather than inferred.
 3. Leave it ungated and re-audit after each rename batch — what happened here,
    and it did not hold for one phase.
+
+## Resolved 2026-09-04 (phase-417 correction track)
+
+23 rows fixed across pubsub / serde / service / exec / graph / action. The ~21
+legitimately historical rows were left alone per the tense rule above.
+
+The durable half — a gate — is NOT done, and the reason is recorded in issue
+1022's corrections: this issue's own rename table was imprecise in three places
+(`try_recv_raw` maps to `take_serialized` not `take_raw`; `is_server_ready` is
+deleted only on `ClientTrait`, not on `ActionClientCore`; `server_available` is
+retired in C++ only, C still exports it). A gate built on that table would have
+been wrong in three ways. Making tense machine-readable remains the prerequisite.

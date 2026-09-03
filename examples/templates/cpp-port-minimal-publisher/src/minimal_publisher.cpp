@@ -41,16 +41,13 @@ public:
 private:
     void timer_callback() {
         std_msgs::msg::String message;
-        // Upstream: `message.data = "Hello, world! " + std::to_string(count_++);`.
-        // nano-ros codegen field `data` is a FixedString<N>; assign via c_str().
-        const std::string s = std::string("Hello, world! ") + std::to_string(count_++);
-        message.data = s.c_str();
+        message.data = "Hello, world! " + std::to_string(count_++);
         RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
         publisher_->publish(message);
     }
 
-    std::shared_ptr<rclcpp::TimerBase> timer_;
-    std::shared_ptr<rclcpp::Publisher<std_msgs::msg::String>> publisher_;
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
     size_t count_;
 };
 
