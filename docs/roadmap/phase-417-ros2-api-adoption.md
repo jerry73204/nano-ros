@@ -54,15 +54,19 @@ file. Roughly 75 lines total.
   dead code — one occurrence in all of `packages/api/`, its own definition.
   Unblocks `rclcpp::Publisher<T>::SharedPtr member_;`, which is close to
   universal in rclcpp source.
-* W1.b **[wrapper]** — emit `<pkg>/msg/<snake>.hpp` as an alias header including the
-  prefixed one. The name is already computed
-  (`packages/cli/rosidl-codegen/src/generator/cpp.rs:403`). Unblocks the FIRST
-  line of every ported file.
+* W1.b — **ALREADY DONE; verify and close.** `write_b8_alias_header`
+  (`packages/cli/cargo-nano-ros/src/lib.rs:1858`) is called from three sites
+  (`:1706,1748,1790`), and `rosidl-bindgen` has the same. This item was written
+  from the ledger, which measures the native API and cannot see generated
+  headers. Confirm on a fresh `nros sync` and strike it.
 * W1.c **[wrapper]** — `NROS_CPP_STD`-gated `std::string` interop on `FixedString<N>`
   (`operator=`, conversion, `operator==`), plus ungated `size()`/`empty()`.
 * W1.d **[wrapper]** — forward `now()`, `get_clock()`, `get_name()`, `get_namespace()` on the
   shim `Node`; alias `rclcpp::Time`/`Duration`/`Clock`. All four already exist
   on `nros::Node` (`node.hpp:217,223,249,260`).
+
+W1.a and W1.c also gate stages 6's lifecycle and action work, which hand
+entities back and therefore need the nested pointer types first.
 
 **Acceptance:** `examples/templates/cpp-port-minimal-publisher/` compiles with
 its source byte-identical to upstream's tutorial. Today its README claims
@@ -98,6 +102,15 @@ Where a real node stops being a tutorial. Each item is independently useful.
 **Acceptance:** a node that declares a parameter, calls a service and reads the
 clock compiles unmodified. Measured by a new ported template, not by inspection.
 
+## Stage 2b — graph forwarders **[wrapper]**, 18 rows
+
+`nros::Executor` already ships the whole graph surface — `get_node_names`,
+`count_publishers`/`count_subscribers`, the four `*_names_and_types_by_node`
+forms, `get_{publishers,subscriptions}_info_by_topic` (`executor.hpp:205-301`)
+over FFI that exists. The rows are open because `Node`/`LifecycleNode` do not
+forward to it, not because the capability is missing. Pure delegation, no new
+behaviour, and it needs a `TopicEndpointInfo` value type.
+
 ## Stage 3 — the loudness pass (the safety gate)
 
 RFC-0087's rule applied to everything already adopted. **This stage gates the
@@ -111,8 +124,17 @@ ways a ported program can compile and differ.
   runtime. Honour them on posix boards, or refuse the two-argument form.
   Honouring them is remap resolution — name construction, RFC-0020 violation
   class 4 — so the parser belongs beside `nros::resolve_name`, not in the shim.
-* W3.c — write the REFUSE-LOUD diagnostics for the items a user will actually
-  reach. A deleted overload carrying the migration beats `no member named X`.
+* W3.c — write the REFUSE-LOUD diagnostics. **69 rows collapse into 17
+  messages** — a refusal is per-concept, not per-symbol; the sixteen inert
+  `NodeOptions` setters share one. ~120 lines for the whole pass.
+* W3.f — **the two live inversions the shim already ships**, which a rename
+  would inherit: `ParametersQoS()` returns `QoS(10)` where upstream is
+  `KEEP_LAST, 1000` (`rclcpp_compat.hpp:117`), and ten `NodeOptions` setters
+  store their argument and are never read (`:125`, "intentionally inert
+  today"). Adopting the named QoS profiles at all is ADOPT **only** with each
+  profile's values transcribed from upstream and a table-driven test against
+  `rmw_qos_profile_*` — the shim already got two wrong, which is the evidence
+  for why the test is not optional.
 * W3.d — document the ADOPT-BOUNDED envelopes in the doc comments, starting
   with `create_wall_timer` (period accuracy is the spin cadence, because the
   timer is polled from `Node::pump()`, not driven by the executor).
@@ -166,6 +188,26 @@ one out in 15.
 * W5.e **[rust-first]** — a typed service/client path; `service.h.jinja` generates only
   `_get_type_name`/`_get_type_hash` today, so every C service in the tree is
   raw bytes with hand-written CDR.
+
+## The structural blocker the rename cannot paper over
+
+**Two spin worlds, and no compile signal.** The shim `rclcpp::Node` dispatches
+subscription callbacks and wall timers from its own `pump()`, driven only by
+`rclcpp::spin(node)` / `rclcpp::spin_some(node)`
+(`rclcpp_compat.hpp:428-451,454-470`). A ported file that instead calls
+`nros::spin_once()`, `nros::spin()`, or drives an `nros::Executor` directly —
+all of which are in the umbrella, all of which a mixed file plausibly reaches —
+gets **zero callbacks and no diagnostic**.
+
+Today the two node types have different names, which is the only thing making
+this visible at all. **After the rename they would have the same name**, so the
+rename makes it strictly worse. No message can be written for it: both spellings
+are legitimate, and which one is wrong depends on which node object the file
+holds.
+
+This is why the rename is gated on more than the loudness pass. The fix is
+structural — one node stack, the shim `Node` re-parented onto the arena-driven
+one rather than pumping its own — and it belongs before stage 6, not in it.
 
 ## Stage 6 — the rename
 
