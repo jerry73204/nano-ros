@@ -64,10 +64,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      # A runner that lies about its labels wins jobs it cannot run, and the red
-      # lands on the author's change looking like a code failure. Assert first.
-      - name: Verify this runner's labels are true
-        run: ./scripts/ci/runner-doctor.sh nros-sdk-zephyr,nros-big
       # phase-411 W4 — a CI job is `just setup <scope>` then one command a
       # developer can type. Nothing here is CI-only orchestration.
       #
@@ -105,6 +101,21 @@ jobs:
         run: |
           source ./activate.sh
           just setup tier2
+
+      # AFTER `setup` — phase-413 W2, same reason as `run-matrix.yml`.
+      #
+      # `runner-doctor.sh` checks `$root/build/qemu/bin/qemu-system-arm` first
+      # ("the project-local patched build is the PRIMARY path (phase-143)") and
+      # only falls back to the system qemu. That path is inside the CHECKOUT and
+      # `just setup tier2` creates it — the tier-2 preset includes the `qemu`
+      # module, whose `setup` ends in `just qemu setup-qemu`. Asserting before
+      # provisioning asks the host for something the next step supplies, which
+      # is what killed every `run-matrix` run at step 2 on a system qemu 6.2.
+      #
+      # A genuinely mislabeled runner still fails here, and `setup` would have
+      # failed on it first.
+      - name: Verify this runner's labels are true
+        run: ./scripts/ci/runner-doctor.sh nros-sdk-zephyr,nros-big
 
       # `ci matrix build` — the (breadth, depth) pair, not a lane letter.
       # phase-410 W4: `l3` survives as the implementation; this spelling says
