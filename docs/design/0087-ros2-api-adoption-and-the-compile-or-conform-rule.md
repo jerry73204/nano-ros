@@ -182,38 +182,65 @@ forces it, why no FFI slot can carry it, and what keeps the two from drifting.
 exceptions and Rust's `Result` cannot cross `extern "C"`, and it holds no state
 of its own.
 
-## Naming: alias, not replace
+## Naming: replace, with alias as the migration step
 
-Two readings of "rename our items to ROS 2's names":
+The end state is the one the rename intends: **our API carries ROS 2's names.**
+`nros::` stops being the spelling a user writes.
 
-**(a) Replace.** `nros::` becomes `rclcpp::`; one name, one namespace.
-**(b) Alias.** `nros::` stays the definition; the ROS 2 spelling becomes a
-first-class alias declared in the API headers themselves, and the separate
-`rclcpp_compat.hpp` file disappears because its content moved into the headers.
+Getting there is a two-step, and the intermediate step is what makes it safe
+rather than a flag day:
 
-**This RFC chooses (b)**, for three reasons.
+1. **Alias.** The ROS 2 spelling becomes a first-class name declared in the API
+   headers, `nros::` remains and both work. `rclcpp_compat.hpp` disappears as a
+   separate file because its content has moved into the headers it was shimming.
+2. **Replace.** `nros::` is deprecated, then removed, and in-tree call sites
+   (110 C++ and 75 C example files) migrate. This is the irreversible step for
+   out-of-tree consumers and happens once, deliberately, with a changelog entry
+   — the same discipline phase-379 W7 step 4 applies to the deprecated-alias
+   batch.
 
-1. **ODR.** If we define `rclcpp::Node` and a host build also links real
-   rclcpp — which host-side tests, bridges and tooling plausibly do — the two
-   definitions collide silently. Under (b) the collision is still possible, so
-   the compat header must `#error` when upstream's include guard is already
-   defined; under (a) there is no fallback spelling to recover with.
-2. **Diagnosability.** A compiler error, a stack trace or a `nm` dump should be
-   able to say *which* implementation this is. Under (a) it cannot.
-3. **It costs nothing.** An alias adds no member. `rclcpp::Publisher<T>::SharedPtr`
-   requires a nested `SharedPtr` on our `Publisher` whatever the namespace is
-   called.
+### On ODR
 
-Point 3 generalises into the strategic claim of this RFC:
+An earlier draft of this RFC treated the ODR collision — nano-ros defining
+`rclcpp::Node` in a build that also links real rclcpp — as a primary argument
+for keeping `nros::` permanently. **That is overstated: nano-ros and ROS 2 are
+not linked into one binary.** They interoperate over the wire, and the host-side
+tooling that talks to a nano-ros image is a separate process.
+
+It is kept as a guard rather than as an argument, because the guard is one line
+and the failure it prevents is silent:
+
+```cpp
+#ifdef RCLCPP__RCLCPP_HPP_
+#error "nano-ros and ROS 2's rclcpp are both in this translation unit. \
+        They define the same names differently. Link one."
+#endif
+```
+
+Cheap insurance against a configuration nobody intends, not a reason to keep two
+vocabularies forever.
+
+### What survives the correction
+
+The ordering does, and it never depended on ODR:
 
 > **The rename is cheap and cosmetic; the compatibility is the work.** Adopting
 > ROS 2's names does not by itself make one more ported line compile. What makes
 > lines compile is nested `SharedPtr` types, `create_service`, parameters on the
 > node, `now()`. Those are needed whatever the namespace is called.
 
-So the rename goes LAST. Doing it first would relabel the gaps without closing
-one, and would spend the safety property — "our names are different, so a
-mismatch is visible" — before the mismatches are fixed.
+So the rename lands last. Doing it first would relabel the gaps without closing
+one, and would spend the property that currently makes a mismatch visible —
+our names differ, so a shape that differs is *visible* — while the mismatches
+are still there. The two live inversions above (`ParametersQoS`, the inert
+`NodeOptions` setters) are exactly what "inherited by a rename" looks like.
+
+There is also one mismatch the rename makes strictly worse, and it is not
+fixable by a diagnostic: the shim `Node` pumps its own callbacks while
+`nros::Node` is arena-driven, and a file that mixes them gets no callbacks and
+no error. Today the two types have different NAMES, which is the only thing
+making that visible. That is a structural prerequisite for step 2, not a
+loudness item — see phase-417.
 
 ## What "mostly full compat" can honestly mean
 
