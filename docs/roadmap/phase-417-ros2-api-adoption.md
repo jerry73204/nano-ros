@@ -5,8 +5,14 @@ started. Stage 0 is a prerequisite for measuring any of the others, so it is
 also the first thing to land.
 
 Goal: a ROS 2 node written against rclcpp / rclc / rclrs compiles and behaves
-against nano-ros, or fails loudly. End state is that our API carries ROS 2's
-names as first-class aliases and `rclcpp_compat.hpp` is gone.
+against nano-ros, or fails loudly. **End state is that our API carries ROS 2's
+names** — `nros::` stops being the spelling a user writes — and
+`rclcpp_compat.hpp` is gone because its content moved into the headers it was
+shimming.
+
+This phase is also the **home for every correction, migration and retirement
+job** in the API campaign: the tracks are listed below, and each names its
+issue. An issue with no work item is an issue nobody is accountable for.
 
 Two ordering principles, both from RFC-0087.
 
@@ -209,19 +215,37 @@ This is why the rename is gated on more than the loudness pass. The fix is
 structural — one node stack, the shim `Node` re-parented onto the arena-driven
 one rather than pumping its own — and it belongs before stage 6, not in it.
 
-## Stage 6 — the rename
+## Stage 6 — the rename, in two steps
 
-Only after stages 1–4. Mechanical once the shapes match.
+Only after stages 1–5 and the structural blocker above. Mechanical once the
+shapes match; the two steps exist so the irreversible half happens once.
 
-* W6.a — declare the ROS 2 spellings as first-class aliases IN the API headers;
-  delete `rclcpp_compat.hpp` as a separate file.
-* W6.b — `#error` when upstream rclcpp's include guard is already defined, so
-  the ODR collision RFC-0087 names is a compile error rather than a silent one.
-* W6.c — migrate the in-tree call sites (110 C++ and 75 C example files) and
-  the book.
+**Step A — alias (reversible).**
+
+* W6.a — declare the ROS 2 spellings as first-class names IN the API headers;
+  delete `rclcpp_compat.hpp` as a separate file. Both spellings work.
+* W6.b — `#error` when upstream rclcpp's include guard is already defined. Not
+  because we expect a build to link both — we do not, they interoperate over
+  the wire and the host tooling is a separate process — but because the guard
+  is one line and the failure it prevents is silent.
+
+**Step B — replace (irreversible for out-of-tree consumers).**
+
+* W6.c — deprecate `nros::` / `nros_` spellings, per the settled policy:
+  `NROS_DEPRECATED_MSG` static inline for C, `[[deprecated("…")]]` for C++,
+  and nothing for Rust trait methods (a rename there breaks implementors, and
+  a compile error is what a backend author wants).
+* W6.d — migrate the in-tree call sites: **110 C++ and 75 C example files**,
+  the six compat-built templates, and the book.
+* W6.e — remove the deprecated spellings as ONE batch, with a changelog entry.
+  Carry phase-379 W7 step 4's two warnings: **C cannot portably deprecate a
+  `typedef`** (MSVC rejects the attribute, `[[deprecated]]` is C23), so renamed
+  C types disappear silently for anyone who never rebuilt; and a defaulted
+  trait method's alias is weaker than it looks, because an out-of-tree
+  override is silently ignored rather than warned.
 
 **Acceptance:** the compat shim is gone, ported templates still build, and no
-in-tree source names a spelling that upstream does not have — except where a
+in-tree source names a spelling upstream does not have — except where a
 disposition says why.
 
 ## The cheapest work is wrapper work, and there is a lot of it
@@ -233,6 +257,75 @@ and ranges, QoS equality, GID attribution, name resolution. The behaviour
 exists and is tested; the wrapper is a forwarder. Under RFC-0019 that is both
 the cheapest work in this phase and the work that reduces the most divergence
 per line, which is why stage 4 is not deferred behind the C-side stages.
+
+## Correction track — the ledger says false things, and they misdirect
+
+The measurement is the campaign's instrument; a wrong row is worse than a
+missing one because it forecloses the fix. Three issues, ~140 rows, no code.
+
+* **W-C1 — issue 1012** (15 rows): prose names a symbol a rename retired.
+  Fifteen describe the CURRENT tree with a dead spelling; a further 21 name one
+  legitimately (a deprecated-alias row must). The distinguishing property is
+  tense, which is why a sweep on the spelling alone breaks the correct ones.
+  The issue's durable half — whether to gate it — needs the tense made
+  machine-readable first.
+* **W-C2 — issue 1022** (~95 rows): prose states something FALSE about our own
+  code. "There is no runtime options struct" where seven ship;
+  `nros_borrowed_str_t` for `nros_view_str_t`; `get_actual_qos` "would return
+  its own input" when `set_qos_overrides` makes it differ; `cpp:` rows
+  answering in C spellings; ~14 rows verdicted `declined` whose own prose
+  describes a capability we have under another name.
+* **W-C3 — issue 1022's systematic half**: a divergence justified by a
+  constraint the compared surface refutes. Byte-oriented delivery is blamed on
+  "no allocator"; rclc has no allocator on that path either and delivers typed
+  by making the caller own the storage. RFC-0036 forbids recording a preference
+  as a divergence and has no rule against recording a real divergence under a
+  false cause. Closing W-C3 means adding one.
+
+## Migration track — what moves, and in what order
+
+Inherited from phase-379 W7, which owns steps 1–3 and is in flight. This phase
+owns what follows.
+
+* **W-M1** — 379 W7 steps 1–3 (collapse landed rows, execute the W6 verb
+  decisions, the remaining open rows). **Stays homed in 379**; listed here so
+  the sequence is readable end to end.
+* **W-M2** — the disposition pass: every upstream item gets adopt /
+  adopt-bounded / refuse-loud / absent (stage 0 W0.b), because a `declined` row
+  that does not say what a porting user GETS is not actionable.
+* **W-M3** — stages 1–5 above, in dependency order.
+* **W-M4** — stage 6 step A (alias), then step B (replace).
+
+## Retirement track — irreversible, batched, once
+
+* **W-R1 — phase-379 W7 step 4**, in flight there: the `nros_param_*` family
+  (25 forwarders), the service reply verbs, the QoS `*_raw()`/`*_ms()`
+  accessors, `BoardConfig::zenoh_locator` and `ThreadxConfig::zenoh_locator`,
+  the five `with_zenoh_locator()` builders.
+* **W-R2 — `rclcpp_compat.hpp` itself** (stage 6 step A). Not a deletion of
+  capability: its content moves into the headers. What retires is the file and
+  the force-include.
+* **W-R3 — the `nros::` / `nros_` spellings** (stage 6 step B). The only step
+  in this phase that breaks an out-of-tree consumer who did nothing wrong.
+
+Retirement happens once per batch, deliberately, with a changelog entry — never
+opportunistically as each rename lands. That rule is phase-379's and it carries
+forward unchanged.
+
+## Issues homed here
+
+Every issue this phase owns, with what closing it means. A mention is not an
+owner.
+
+| issue | track | closing it means |
+| --- | --- | --- |
+| 1012 | correction | 15 rows re-worded; a decision on whether tense becomes machine-readable |
+| 1019 | correction + loudness (W3.a) | `RCLCPP_*` reaches `nros_log` on embedded, or refuses; `_STREAM` stops discarding its message |
+| 1020 | stage 0 | the C++ lane sees the compat shim; native-API distance and ported-file distance are distinguishable |
+| 1022 | correction | ~95 rows corrected; RFC-0036 gains the rule that a divergence's cause must not be one the compared surface also operates under |
+| 0793 | stage 2 (W2.a) | one parameter store in C; the unfiled C++ twin filed and fixed with it |
+| 0829 | stage 5 | `SYSTEM_DEFAULT` stops disagreeing with itself; folds into the named-profile transcription |
+| 0589 | stage 4 (W4.d) | the façade re-exports `nros_log`, so it is the easy path rather than `std::println!` |
 
 ## What this phase does NOT promise
 

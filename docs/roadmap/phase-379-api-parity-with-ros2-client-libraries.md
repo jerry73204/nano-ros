@@ -902,6 +902,24 @@ each rename lands. Two things to carry into it:
 * `--show all` prints matching rows too, which is the fastest way to check
   whether a name you are about to add already correlates.
 
+## Handoff to phase-417 (2026-09-04)
+
+This phase owns the MEASUREMENT campaign and W7 steps 1–4. Adoption — taking
+ROS 2's names, and everything that must be true first — moves to
+**phase-417**, which implements RFC-0087 and is the home for the correction,
+migration and retirement tracks going forward.
+
+W7 steps 1–3 stay here and are in flight. W7 step 4 (the deprecated-alias
+retirement batch) stays here too; 417 lists it as W-R1 so the retirement
+sequence reads end to end in one place.
+
+What moved: the ledger corrections found by the 2026-09-04 audits (issues 1012
+and 1022, ~140 rows), the measurement blind spot (1020 — the C++ lane cannot
+see `rclcpp_compat.hpp`, so every count in this doc measures the NATIVE API
+rather than what a ported file reaches), and the compat-surface defects (1019).
+
+Read 1020 before quoting any C++ number in this document.
+
 ## Issues homed here (survey 2026-09-03)
 Every open issue was checked for a home phase; these had none, or were
 mentioned here only in passing. A mention is not an owner — an issue with
