@@ -94,6 +94,7 @@ Each RFC carries frontmatter: `rfc`, `title`, `status`, `since`, `last-reviewed`
 | 0022 | [entity-api-tiers](0022-entity-api-tiers.md) | Stable | convenient `fork` + customizable `clone` entity ctors |
 | 0036 | [ros2-api-divergences](0036-ros2-api-divergences.md) | Draft | authoritative catalog of nano-ros vs rclrs/rclcpp/rclc divergences + rationale |
 | 0037 | [rust-c-user-api-surface](0037-rust-c-user-api-surface.md) | Draft | records the Rust (`nros-node`) + C (`nros-c`) user surfaces; C++ is 0018 |
+| 0087 | [ros2-api-adoption-and-the-compile-or-conform-rule](0087-ros2-api-adoption-and-the-compile-or-conform-rule.md) | Draft | when our API may take ROS 2's NAMES: adopt / adopt-bounded / refuse-loud / absent, never compile-and-differ |
 
 ### Codegen, workspace & user workflow
 
