@@ -27,7 +27,7 @@
   "c:init_options_*": {
     "verdict": "divergence",
     "bucket": "theirs-only",
-    "why": "the options half of the same collapse. `rcl_init_options_t` is built, mutated (set_domain_id), copied and finalised before rcl_init consumes it; ours are the two arguments `nros_support_init` takes. Same constraint as the `compile-time-options` signature rule -- there is no runtime options object because nothing negotiates at runtime."
+    "why": "the options half of the same collapse. `rcl_init_options_t` is built, mutated (set_domain_id), copied and finalised before rcl_init consumes it; ours are the two arguments `nros_support_init` takes. There is no `nros_init_options_t`: `nros_support_init(support, locator, domain_id)` takes as arguments the two values rcl's options would carry. CORRECTED 2026-09-04 (phase-417): the sweeping form of this claim -- \"there is no runtime options object\" -- is false one stage over. Seven ENTITY options structs ship and correlate `same` (see `c:node_options_*`); INIT is a stage that genuinely has none."
   },
   "c:shutdown": {
     "verdict": "declined",

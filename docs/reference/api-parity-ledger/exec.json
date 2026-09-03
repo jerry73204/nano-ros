@@ -25,7 +25,7 @@
   },
   "c:executor_add_service_with_request_id": {
     "verdict": "declined",
-    "why": "see `c:executor_add_client_with_request_id`; the deferred-reply path is `nros_service_try_recv_request_raw` + `nros_service_send_response_raw(sequence_number, ...)`. (CORRECTED 2026-08-27, phase-379 W5: this named two symbols that do not work. `nros_service_send_response` was renamed from `nros_service_send_reply_raw` and is now a deprecated forwarder -- see `c:service_send_response_raw` in service.json. `nros_service_take_request` was, and still is, a permanent `NROS_RET_NOT_INIT` stub; its working twin is `nros_service_try_recv_request_raw`, and which spelling survives is `c:take_request`.)"
+    "why": "see `c:executor_add_client_with_request_id`; the deferred-reply path is `nros_service_take_request_raw` + `nros_service_send_response_raw(sequence_number, ...)`. (CORRECTED 2026-08-27, phase-379 W5: this named two symbols that do not work. `nros_service_send_response` was renamed from `nros_service_send_reply_raw` and is now a deprecated forwarder -- see `c:service_send_response_raw` in service.json. `nros_service_take_request` was, and still is, a permanent `NROS_RET_NOT_INIT` stub; its working twin was `nros_service_try_recv_request_raw`, renamed to `nros_service_take_request_raw` by phase-379 W6 decision 1; which of `take_request` / `take_request_raw` survives is `c:service_take_request`.) CORRECTED 2026-09-04 (phase-417): the sentence above described the CURRENT deferred-reply path using the retired `try_recv` spelling."
   },
   "c:executor_add_subscription_with_context": {
     "verdict": "declined",
@@ -128,11 +128,11 @@
   },
   "c:guard_condition_get_default_options": {
     "verdict": "declined",
-    "why": "no runtime options struct: QoS and entity options are compile-time (RFC-0036/0045). See the `compile-time-options` signature rule."
+    "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_get_options": {
     "verdict": "declined",
-    "why": "no runtime options struct: QoS and entity options are compile-time (RFC-0036/0045). See the `compile-time-options` signature rule."
+    "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_get_rmw_handle": {
     "verdict": "declined",
@@ -160,7 +160,7 @@
   },
   "c:guard_condition_options_t": {
     "verdict": "declined",
-    "why": "no runtime options struct: QoS and entity options are compile-time (RFC-0036/0045). See the `compile-time-options` signature rule."
+    "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_set_callback": {
     "verdict": "divergence",
@@ -388,8 +388,18 @@
     "why": "see `cpp:Executor::spin_node_once`."
   },
   "cpp:Executor::spin_some": {
-    "verdict": "declined",
-    "why": "rclcpp's `spin_some(max_duration = 0ns)` collects work once and executes everything already ready, without waiting. RFC-0002 section 3 makes one `spin_once` do exactly that -- it computes the ready bitmap over every arena entry and dispatches EVERY ready one -- so `spin_once(0)` is the capability. Worth stating plainly because the correlator scores `spin_once` as `same` while the two libraries mean different things by it: rclcpp's `spin_once` executes the NEXT available work item (one), ours executes all of them. The names line up and the semantics do not. See `cpp:Executor::spin_for` for the bounded verb and `cpp:spin_once` for the free function."
+    "verdict": "rename",
+    "why": "RE-VERDICTED 2026-09-04 (phase-417), declined -> rename. `declined` means ROS 2 has it and we deliberately do not; we DO have it, under another word, which is what this row's own text said. rclcpp's `spin_some(max_duration = 0ns)` collects work once and executes everything already ready, without waiting -- and RFC-0002 section 3 makes one `spin_once` do exactly that: it computes the ready bitmap over every arena entry and dispatches EVERY ready one. So `spin_once(0)` IS `spin_some`. Worth stating plainly because the correlator scores `spin_once` as `same` while the two libraries mean different things by it: rclcpp's `spin_once` executes the NEXT available work item (one), ours executes all of them. The names line up and the semantics do not, which is worse for a porting reader than a name that simply differs. See `cpp:Executor::spin_for` for the bounded verb and `cpp:spin_once` for the free function.",
+    "provides": [
+      "nros::Executor::spin_once"
+    ],
+    "rename": {
+      "from": "Executor::spin_once (all-ready semantics)",
+      "to": null,
+      "category": "B",
+      "status": "blocked-needs-decision",
+      "blocker": "Renaming ours to `spin_some` is only half a fix: it frees the word `spin_once` for rclcpp's meaning (execute ONE ready item), which we do not implement, so a ported source file would then compile against a name that is absent rather than against one that behaves differently. Both outcomes are bad in different ways and the choice has not been made. `spin_once` is also load-bearing across RFC-0002, the C API and every example, so this is a tree-wide edit, not a method rename."
+    }
   },
   "cpp:Executor::spin_until_future_complete": {
     "verdict": "declined",
@@ -397,7 +407,7 @@
   },
   "cpp:ExecutorOptions": {
     "verdict": "declined",
-    "why": "rclcpp's executor options -- memory strategy, context, max entities, notify-waitable. Every field is either declined on its own (`set_memory_strategy`, `cpp:Context`) or compile-time here (arena size). no runtime options struct: QoS and entity options are compile-time (RFC-0036/0045). See the `compile-time-options` signature rule. Ours are the arguments to `Executor::create(out, locator, domain_id, session_name)`."
+    "why": "rclcpp's executor options -- memory strategy, context, max entities, notify-waitable. Every field is either declined on its own (`set_memory_strategy`, `cpp:Context`) or compile-time here (arena size). The EXECUTOR has no options type at all -- unlike the seven ENTITY options structs the C surface ships.CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface. Ours are the arguments to `Executor::create(out, locator, domain_id, session_name)`."
   },
   "cpp:ExecutorOptions::ExecutorOptions": {
     "verdict": "declined",
@@ -532,8 +542,11 @@
     "why": "rclcpp's free spin functions take the node to spin (`rclcpp::spin(node)`); ours take no node, because a node is not a unit of dispatch (see `cpp:Executor::spin_node_once`) and the global session is singular (see `cpp:Context`). `nros::spin_once(timeout_ms)` drives the one global executor `nros::init()` created. rclcpp has no free `spin_once` at all -- and note this one has `spin_some` semantics, not rclcpp's `spin_once` semantics; see `cpp:Executor::spin_some`. OUR LANGUAGES DISAGREE: the one-cycle verb is `spin_once` in C++ and Rust and `nros_executor_spin_some` in C (matching rclc), so a reader moving between our own surfaces meets the same operation under rclcpp's name for a different operation."
   },
   "cpp:spin_some": {
-    "verdict": "declined",
-    "why": "the free form of `cpp:Executor::spin_some`, and declined for the same reason; ours is `nros::spin_once(0)`."
+    "verdict": "rename",
+    "why": "the free form of `cpp:Executor::spin_some`; ours is `nros::spin_once(0)`. RE-VERDICTED 2026-09-04 (phase-417), declined -> rename, for the same reason and with the same blocker -- the capability is present under another word, which is not what `declined` means. See that row.",
+    "provides": [
+      "nros::spin_once"
+    ]
   },
   "cpp:spin_until_future_complete": {
     "verdict": "declined",

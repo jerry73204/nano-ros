@@ -190,7 +190,7 @@
   },
   "cpp:QOSDeadlineOfferedInfo": {
     "verdict": "divergence",
-    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. Ours are `nros_count_status_t` and `nros_liveliness_changed_status_t`; see `c:count_status_t`."
+    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. The C++ payloads are THREE distinct types, not two: `nros_cpp_pub_count_status_t` for the publisher events (`Publisher::on_liveliness_lost`, `on_offered_deadline_missed`), `nros_cpp_count_status_t` for the counted subscription events (`Subscription::on_message_lost`, `on_requested_deadline_missed`) and `nros_cpp_liveliness_changed_status_t` for `Subscription::on_liveliness_changed` (`packages/api/nros-cpp/include/nros/nros_cpp_ffi.h:441,524,513`). CORRECTED 2026-09-04 (phase-417): this answered a `cpp:` question in C spellings -- `nros_count_status_t` and `nros_liveliness_changed_status_t` (`nros_generated.h:1831,1814`) are the C types -- and so also got the COUNT wrong, saying ours are two. See `c:count_status_t` for the C half, where one shared count struct does serve all three counted events."
   },
   "cpp:QOSDeadlineRequestedCallbackType": {
     "verdict": "divergence",
@@ -198,7 +198,7 @@
   },
   "cpp:QOSDeadlineRequestedInfo": {
     "verdict": "divergence",
-    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. Ours are `nros_count_status_t` and `nros_liveliness_changed_status_t`; see `c:count_status_t`."
+    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. The C++ payloads are THREE distinct types, not two: `nros_cpp_pub_count_status_t` for the publisher events (`Publisher::on_liveliness_lost`, `on_offered_deadline_missed`), `nros_cpp_count_status_t` for the counted subscription events (`Subscription::on_message_lost`, `on_requested_deadline_missed`) and `nros_cpp_liveliness_changed_status_t` for `Subscription::on_liveliness_changed` (`packages/api/nros-cpp/include/nros/nros_cpp_ffi.h:441,524,513`). CORRECTED 2026-09-04 (phase-417): this answered a `cpp:` question in C spellings -- `nros_count_status_t` and `nros_liveliness_changed_status_t` (`nros_generated.h:1831,1814`) are the C types -- and so also got the COUNT wrong, saying ours are two. See `c:count_status_t` for the C half, where one shared count struct does serve all three counted events."
   },
   "cpp:QOSEventHandler": {
     "verdict": "divergence",
@@ -210,7 +210,7 @@
   },
   "cpp:QOSLivelinessChangedInfo": {
     "verdict": "divergence",
-    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. Ours are `nros_count_status_t` and `nros_liveliness_changed_status_t`; see `c:count_status_t`."
+    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. The C++ payloads are THREE distinct types, not two: `nros_cpp_pub_count_status_t` for the publisher events (`Publisher::on_liveliness_lost`, `on_offered_deadline_missed`), `nros_cpp_count_status_t` for the counted subscription events (`Subscription::on_message_lost`, `on_requested_deadline_missed`) and `nros_cpp_liveliness_changed_status_t` for `Subscription::on_liveliness_changed` (`packages/api/nros-cpp/include/nros/nros_cpp_ffi.h:441,524,513`). CORRECTED 2026-09-04 (phase-417): this answered a `cpp:` question in C spellings -- `nros_count_status_t` and `nros_liveliness_changed_status_t` (`nros_generated.h:1831,1814`) are the C types -- and so also got the COUNT wrong, saying ours are two. See `c:count_status_t` for the C half, where one shared count struct does serve all three counted events."
   },
   "cpp:QOSLivelinessLostCallbackType": {
     "verdict": "divergence",
@@ -218,7 +218,7 @@
   },
   "cpp:QOSLivelinessLostInfo": {
     "verdict": "divergence",
-    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. Ours are `nros_count_status_t` and `nros_liveliness_changed_status_t`; see `c:count_status_t`."
+    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. The C++ payloads are THREE distinct types, not two: `nros_cpp_pub_count_status_t` for the publisher events (`Publisher::on_liveliness_lost`, `on_offered_deadline_missed`), `nros_cpp_count_status_t` for the counted subscription events (`Subscription::on_message_lost`, `on_requested_deadline_missed`) and `nros_cpp_liveliness_changed_status_t` for `Subscription::on_liveliness_changed` (`packages/api/nros-cpp/include/nros/nros_cpp_ffi.h:441,524,513`). CORRECTED 2026-09-04 (phase-417): this answered a `cpp:` question in C spellings -- `nros_count_status_t` and `nros_liveliness_changed_status_t` (`nros_generated.h:1831,1814`) are the C types -- and so also got the COUNT wrong, saying ours are two. See `c:count_status_t` for the C half, where one shared count struct does serve all three counted events."
   },
   "cpp:QOSMessageLostCallbackType": {
     "verdict": "divergence",
@@ -226,7 +226,7 @@
   },
   "cpp:QOSMessageLostInfo": {
     "verdict": "divergence",
-    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. Ours are `nros_count_status_t` and `nros_liveliness_changed_status_t`; see `c:count_status_t`."
+    "why": "rclcpp's name for the event payload -- a typedef of the matching `rmw_*_status_t`. The C++ payloads are THREE distinct types, not two: `nros_cpp_pub_count_status_t` for the publisher events (`Publisher::on_liveliness_lost`, `on_offered_deadline_missed`), `nros_cpp_count_status_t` for the counted subscription events (`Subscription::on_message_lost`, `on_requested_deadline_missed`) and `nros_cpp_liveliness_changed_status_t` for `Subscription::on_liveliness_changed` (`packages/api/nros-cpp/include/nros/nros_cpp_ffi.h:441,524,513`). CORRECTED 2026-09-04 (phase-417): this answered a `cpp:` question in C spellings -- `nros_count_status_t` and `nros_liveliness_changed_status_t` (`nros_generated.h:1831,1814`) are the C types -- and so also got the COUNT wrong, saying ours are two. See `c:count_status_t` for the C half, where one shared count struct does serve all three counted events."
   },
   "cpp:QOSOfferedIncompatibleQoSCallbackType": {
     "verdict": "declined",
