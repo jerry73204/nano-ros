@@ -1521,9 +1521,10 @@ unsafe fn set_action_server_wake_callback(
 // `nros_action_server_active_goal_count_raw` lived here until
 // phase-379 W6 decision 3 merged it into
 // `nros_action_server_get_active_goal_count`, which now branches on
-// `state` to serve the polling tier too. The old spelling survives as a
-// deprecated `static inline` forwarder in `nros/action.h`, so it exports
-// no symbol from here any more.
+// `state` to serve the polling tier too. The old spelling survived one
+// release as a deprecated `static inline` forwarder in `nros/action.h` and was
+// retired by phase-417 stage 6 step B; either way it exports no symbol from
+// here.
 
 // ============================================================================
 // Kani Verification

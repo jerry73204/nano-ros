@@ -18,11 +18,12 @@
  * silent for: out-of-tree consumers, who do not build with our flags. Two
  * things make it loud, and both are needed:
  *
- *   1. the RENAME — a stale call under the OLD identifier `nros_node_init`
- *      reaches the deprecated forwarder, which still takes the OLD order, so
- *      it keeps working and merely warns. A caller who has moved to the NEW
- *      identifier and kept the OLD order is the dangerous case, and that is
- *      what this file writes;
+ *   1. the RENAME — a stale call under the OLD identifier `nros_node_init` no
+ *      longer resolves to anything (step B retired the forwarder that used to
+ *      take the OLD order and merely warn), so C rejects it on the identifier.
+ *      A caller who has moved to the NEW identifier and kept the OLD order is
+ *      the case no identifier check can catch, and that is what this file
+ *      writes;
  *   2. the PRAGMA — `#pragma GCC diagnostic error
  *      "-Wincompatible-pointer-types"`, scoped to this TU.
  *

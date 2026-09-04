@@ -3061,9 +3061,10 @@ pub unsafe extern "C" fn rclc_executor_spin_one_period(
 /// Ask a spinning executor to stop — `rclcpp::Executor::cancel` /
 /// `rcl`'s context shutdown, phase-417 W4.c.
 ///
-/// Renamed from `nros_executor_stop`, which survives as a deprecated
-/// `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
-/// had three answers to "stop spinning"; `cancel` is ROS 2's.
+/// Renamed from `nros_executor_stop`, whose deprecated `static inline`
+/// forwarder in `<nros/executor.h>` was retired by phase-417 stage 6 step B.
+/// Three of our own languages had three answers to "stop spinning"; `cancel`
+/// is ROS 2's.
 ///
 /// # ADOPT-BOUNDED (RFC-0089)
 ///

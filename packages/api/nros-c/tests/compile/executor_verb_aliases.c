@@ -29,11 +29,15 @@ static nros_ret_t (*const kAddGuard)(struct nros_executor_t*, struct nros_guard_
 /* 2. The deprecated aliases still resolve, to the SAME functions. */
 static nros_ret_t (*const kOldTimer)(struct nros_executor_t*,
                                      struct nros_timer_t*) = nros_executor_register_timer;
-/* The `-Wdeprecated-declarations` warning on the line above is EXPECTED and is
- * the point: phase-417 stage 6 made `nros_executor_add_timer` a deprecated
- * forwarder onto `rclc_executor_add_timer`, so the issue-0338 macro resolves
- * through two deprecations. This TU is compiled without `-Werror`; the
- * assertion here is that the name still RESOLVES with this signature. */
+/* `nros_executor_register_timer` is the one member of this family whose target
+ * moved. Phase-417 stage 6 made `nros_executor_add_timer` a deprecated
+ * forwarder onto `rclc_executor_add_timer`, so for one release the macro
+ * resolved through TWO deprecations; step B retired that forwarder and the
+ * macro now names `rclc_executor_add_timer` directly. It therefore no longer
+ * warns on the way through — the 0338 aliases have their own retirement, and
+ * until it lands this spelling is silent. Every other target below is a live
+ * exported symbol. The assertion here is that the name still RESOLVES with
+ * this signature. */
 static nros_ret_t (*const kOldService)(struct nros_executor_t*,
                                        struct nros_service_t*) = nros_executor_register_service;
 static nros_ret_t (*const kOldGuard)(struct nros_executor_t*, struct nros_guard_condition_t*) =

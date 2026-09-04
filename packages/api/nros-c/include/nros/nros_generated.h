@@ -5057,9 +5057,10 @@ nros_ret_t rclc_executor_spin_one_period(struct nros_executor_t *executor,
  * Ask a spinning executor to stop — `rclcpp::Executor::cancel` /
  * `rcl`'s context shutdown, phase-417 W4.c.
  *
- * Renamed from `nros_executor_stop`, which survives as a deprecated
- * `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
- * had three answers to "stop spinning"; `cancel` is ROS 2's.
+ * Renamed from `nros_executor_stop`, whose deprecated `static inline`
+ * forwarder in `<nros/executor.h>` was retired by phase-417 stage 6 step B.
+ * Three of our own languages had three answers to "stop spinning"; `cancel`
+ * is ROS 2's.
  *
  * # ADOPT-BOUNDED (RFC-0089)
  *
@@ -5530,11 +5531,11 @@ NROS_PUBLIC struct nros_node_t rcl_get_zero_initialized_node(void);
  * a **WARNING**, not an error, even under `-Wall -Wextra`, so a reorder alone
  * is silent-by-default for out-of-tree callers who do not build with our
  * flags. Renaming makes a stale call fail on the IDENTIFIER, which C does
- * diagnose fatally. `nros_node_init` therefore survives only as an
- * `NROS_DEPRECATED_MSG` `static inline` in `<nros/node.h>` that names each
- * parameter and forwards in the OLD order — never a macro, which would
- * forward positionally and silently build a node with its name in the
- * support slot.
+ * diagnose fatally, and that is the whole guard now: phase-417 stage 6 step B
+ * retired the `nros_node_init` forwarder, so the old identifier resolves to
+ * nothing. While it existed it was a `static inline` naming each parameter
+ * and never a macro, because a macro would have forwarded positionally and
+ * silently built a node with its name in the support slot.
  *
  * Equivalent to building a [`nros_node_options_t`] via
  * [`rcl_node_get_default_options`], copying `namespace_` into its
@@ -6217,9 +6218,10 @@ nros_ret_t nros_service_init_with_qos(struct nros_service_t *service,
  * 2026-09-04: a rosidl typesupport's members are its contract, including a
  * `func` dispatcher we do not have.
  *
- * The deprecated six-argument `nros_service_init` survives as an
- * `NROS_DEPRECATED_MSG` `static inline` in `<nros/service.h>` forwarding to
- * [`nros_service_init_with_qos`], so old behaviour is preserved exactly.
+ * The six-argument `nros_service_init` is GONE (phase-417 stage 6 step B
+ * retired it). Its behaviour is not: [`nros_service_init_with_qos`] takes the
+ * same six arguments, so a caller who needs the old shape names that
+ * instead.
  *
  * # Safety
  * All non-NULL pointers must be valid + the node initialized.
@@ -6759,10 +6761,10 @@ NROS_PUBLIC struct nros_subscription_options_t rcl_subscription_get_default_opti
  * 2026-09-04). It costs a ported call site nothing — the argument comes from
  * our codegen either way.
  *
- * The deprecated six-argument `nros_subscription_init` survives as an
- * `NROS_DEPRECATED_MSG` `static inline` in `<nros/subscription.h>`; it
- * forwards to [`nros_subscription_init_with_qos`], which still carries the
- * callback, so the old behaviour is preserved exactly.
+ * The six-argument `nros_subscription_init` is GONE (phase-417 stage 6 step
+ * B retired it). Its behaviour is not: [`nros_subscription_init_with_qos`]
+ * still carries the callback in the old positions, so a caller who needs the
+ * old shape names that instead.
  *
  * # Parameters
  * * `subscription` - Pointer to a zero-initialized subscription

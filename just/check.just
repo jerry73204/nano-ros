@@ -3791,126 +3791,33 @@ c: c-fmt
         echo "       message would publish through a CDR backend with no diagnostic." >&2; \
         exit 1; \
     fi
-    echo "  - parameter name spelling + deprecated forwarders (phase 379 W5)"
-    # The parameter family is `nros_parameter_*`; the old `nros_param_*` names
-    # survive one release as NROS_DEPRECATED_MSG `static inline` forwarders. The
-    # TU takes function POINTERS with the DECLARED signatures, so a forwarder
-    # whose argument list drifted from the function it forwards to fails here.
-    cc -fsyntax-only -std=c11 \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/param_name_aliases.c
-    # ...and the forwarders must WARN. A deprecation nobody is told about is an
-    # alias, and the whole reason this family used forwarders instead of issue
-    # 0338's macros was to get the diagnostic. So the assertion is a NEGATIVE
-    # one: with `-Werror=deprecated-declarations` the old spelling must FAIL to
-    # compile. Written as an expected-failure because a passing compile is
-    # exactly what a silently-dropped attribute looks like.
-    # An expected-failure compile cannot distinguish "the deprecation
-    # attribute fired" from "the file is not there" -- both are a non-zero
-    # cc, and the second reads as a pass. Phase-379 W5 landed this check
-    # without its probe and the gate was silently vacuous. Assert first.
-    test -f packages/api/nros-c/tests/compile/param_deprecation_probe.c || { \
-        echo "ERROR: param_deprecation_probe.c is MISSING -- the expected-failure check below" >&2; \
-        echo "       would PASS on a missing file, which is why this asserts first." >&2; \
-        exit 1; \
-    }
-    if cc -fsyntax-only -std=c11 -Werror=deprecated-declarations \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/param_deprecation_probe.c 2>/dev/null; then \
-        echo "ERROR: param_deprecation_probe.c compiled clean under -Werror=deprecated-declarations." >&2; \
-        echo "       The NROS_DEPRECATED_MSG on the nros_param_* forwarders in" >&2; \
-        echo "       nros/parameter.h is not reaching callers, so the rename ships" >&2; \
-        echo "       with no migration warning at all." >&2; \
-        exit 1; \
-    fi
-    echo "  - service reply verb spelling + deprecated forwarders (phase 379 W5)"
-    # `send_reply` -> `send_response`, same shape as the parameter family one
-    # slot up. TWO old spellings forward to `nros_service_send_response_raw`:
-    # `nros_service_send_reply_raw` (the plain rename) and
-    # `nros_service_send_response` (a permanent NROS_RET_NOT_INIT stub from
-    # before the polling API, kept so the un-suffixed name cannot read like a
-    # second, working entry point). Function POINTERS again, so a forwarder
-    # whose argument list drifted fails here.
-    cc -fsyntax-only -std=c11 \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/service_name_aliases.c
-    # ...and they must WARN, asserted as the same expected-failure compile.
-    # An expected-failure compile cannot distinguish "the deprecation
-    # attribute fired" from "the file is not there" -- both are a non-zero
-    # cc, and the second reads as a pass. Phase-379 W5 landed this check
-    # without its probe and the gate was silently vacuous. Assert first.
-    test -f packages/api/nros-c/tests/compile/service_deprecation_probe.c || { \
-        echo "ERROR: service_deprecation_probe.c is MISSING -- the expected-failure check below" >&2; \
-        echo "       would PASS on a missing file, which is why this asserts first." >&2; \
-        exit 1; \
-    }
-    if cc -fsyntax-only -std=c11 -Werror=deprecated-declarations \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/service_deprecation_probe.c 2>/dev/null; then \
-        echo "ERROR: service_deprecation_probe.c compiled clean under -Werror=deprecated-declarations." >&2; \
-        echo "       The NROS_DEPRECATED_MSG on the send_reply forwarders in" >&2; \
-        echo "       nros/service.h is not reaching callers, so the rename ships" >&2; \
-        echo "       with no migration warning at all." >&2; \
-        exit 1; \
-    fi
-    # The active-goal count pair collapsed into ONE function in rcl's shape,
-    # `nros_action_server_get_active_goal_count(server, size_t *out) ->
-    # nros_ret_t`. The old polling-tier spelling
-    # `nros_action_server_active_goal_count_raw` survives one release as an
-    # NROS_DEPRECATED_MSG `static inline` forwarder that must keep its ORIGINAL
-    # `int32_t` tri-state convention. The old callback-tier spelling cannot
-    # survive at all -- it IS the merged name with a different signature -- so
-    # this TU also pins the merged signature, which is what proves the old
-    # `size_t` form is gone. Function POINTERS again, so a forwarder whose
-    # argument list or return type drifted fails here.
-    echo "  - action goal-count merge + deprecated forwarder (phase 379 W6)"
-    cc -fsyntax-only -std=c11 \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/action_name_aliases.c
-    # ...and the forwarder must WARN, asserted as the same expected-failure
-    # compile. An expected-failure compile cannot distinguish "the deprecation
-    # attribute fired" from "the file is not there" -- both are a non-zero cc,
-    # and the second reads as a pass. Phase-379 W5 landed two of these checks
-    # without their probes and both gates were silently vacuous. Assert first.
-    test -f packages/api/nros-c/tests/compile/action_deprecation_probe.c || { \
-        echo "ERROR: action_deprecation_probe.c is MISSING -- the expected-failure check below" >&2; \
-        echo "       would PASS on a missing file, which is why this asserts first." >&2; \
-        exit 1; \
-    }
-    if cc -fsyntax-only -std=c11 -Werror=deprecated-declarations \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/action_deprecation_probe.c 2>/dev/null; then \
-        echo "ERROR: action_deprecation_probe.c compiled clean under -Werror=deprecated-declarations." >&2; \
-        echo "       The NROS_DEPRECATED_MSG on the active_goal_count_raw forwarder in" >&2; \
-        echo "       nros/action.h is not reaching callers, so the merge ships" >&2; \
-        echo "       with no migration warning at all." >&2; \
-        exit 1; \
-    fi
-    echo "  - receive verb spelling + deprecated forwarders (phase 379 W6)"
-    # `try_recv` -> `take`, and `_raw` -> `_serialized` for the pre-CDR byte
-    # form (ROS 2's word: `rcl_take_serialized_message`). Note which direction
-    # this moves: the RMW vtable one layer down has said `take` / `take_request`
-    # / `take_response` / `take_sequence` since W3.b, so the USER API was the
-    # only layer still spelling it the Rust-channel way. Old spellings survive
-    # one release as NROS_DEPRECATED_MSG `static inline` forwarders. Function
-    # POINTERS again, so a forwarder whose argument list drifted fails here.
-    cc -fsyntax-only -std=c11 \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/receive_verb_aliases.c
+    echo "  - parameter / service-reply / receive-verb / action-count entry points"
+    # phase-417 stage 6 step B RETIRED every NROS_DEPRECATED_MSG forwarder in
+    # <nros/*.h>, so the four TUs below no longer have an old half to pin and
+    # the five expected-failure deprecation probes that asserted the attribute
+    # reached callers are DELETED with them. Deleting rather than keeping was
+    # the only honest option: an expected-failure compile cannot tell "the
+    # deprecation fired" from "the identifier does not exist", so each probe
+    # would have gone on passing while asserting nothing.
+    #
+    # What survives is the half that was never about deprecation: every live
+    # entry point, pinned by SIGNATURE. Function POINTERS again, so a
+    # declaration whose argument list drifts from the Rust definition cbindgen
+    # emitted fails here rather than at a consumer's call site.
+    #
+    # `test -f` first on every one: a syntax-only compile of a MISSING file is
+    # a pass, and phase-379 W5 shipped two gates whose probes were never
+    # committed (issue 0196's class).
+    for probe in param_entry_points service_reply_entry_point \
+                 receive_verb_entry_points action_goal_count_entry_point; do \
+        test -f "packages/api/nros-c/tests/compile/$probe.c" || { \
+            echo "ERROR: $probe.c is MISSING -- this check passes on absence." >&2; exit 1; }; \
+        cc -fsyntax-only -std=c11 \
+            -Itarget/nros-c-generated \
+            -Ipackages/api/nros-c/include \
+            -Ipackages/platform/nros-platform-api/include \
+            "packages/api/nros-c/tests/compile/$probe.c" || exit 1; \
+    done
 
     # phase-417 stage 5 — the typed C surface a ported rclc file reaches, plus
     # the rcl spelling layer. `test -f` first on every one: a syntax-only
@@ -3946,7 +3853,7 @@ c: c-fmt
     # ARGUMENT as a warning even under -Wall -Wextra. That is why a C reorder
     # ships with a RENAME beside it (RFC-0089): a stale call must fail on the
     # identifier, which C does diagnose fatally.
-    for probe in rcl_rename_deprecation_probe rcl_node_init_reorder_probe; do \
+    for probe in rcl_node_init_reorder_probe; do \
         f="packages/api/nros-c/tests/compile/$probe.c"; \
         test -f "$f" || { echo "ERROR: $f is MISSING -- an expected-failure check" >&2; \
                           echo "       passes on a missing file." >&2; exit 1; }; \
@@ -3974,27 +3881,6 @@ c: c-fmt
         echo "ERROR: rcl_compat_collision_probe.c compiled clean. <nros/rcl_compat.h>'s" >&2; \
         echo "       guard against the real <rcl/types.h> is gone; a TU with both now" >&2; \
         echo "       silently takes one of two DIFFERENT numberings." >&2; exit 1; \
-    fi
-    # ...and they must WARN, asserted as the same expected-failure compile.
-    # An expected-failure compile cannot distinguish "the deprecation
-    # attribute fired" from "the file is not there" -- both are a non-zero cc,
-    # and the second reads as a pass. Phase-379 W5 landed two of these checks
-    # without their probes and both gates were silently vacuous. Assert first.
-    test -f packages/api/nros-c/tests/compile/receive_deprecation_probe.c || { \
-        echo "ERROR: receive_deprecation_probe.c is MISSING -- the expected-failure check below" >&2; \
-        echo "       would PASS on a missing file, which is why this asserts first." >&2; \
-        exit 1; \
-    }
-    if cc -fsyntax-only -std=c11 -Werror=deprecated-declarations \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-c/tests/compile/receive_deprecation_probe.c 2>/dev/null; then \
-        echo "ERROR: receive_deprecation_probe.c compiled clean under -Werror=deprecated-declarations." >&2; \
-        echo "       The NROS_DEPRECATED_MSG on the try_recv* forwarders in" >&2; \
-        echo "       nros/subscription.h, nros/service.h and nros/client.h is not" >&2; \
-        echo "       reaching callers, so the rename ships with no migration warning." >&2; \
-        exit 1; \
     fi
     echo "  - cross-include (nros_cpp_ffi.h + component.h in one TU)"
     # Issue 0160 — the C prototypes and struct typedefs component.h re-declares
@@ -4296,9 +4182,11 @@ cpp: cpp-fmt
         -Ipackages/platform/nros-platform-api/include \
         packages/api/nros-cpp/tests/compile/qos_policy_accessors.cpp
     # ...and the old spellings must WARN. A deprecation nobody is told about is
-    # an alias. NEGATIVE assertion, the C half's shape one language over
-    # (`param_deprecation_probe.c`): with `-Werror=deprecated-declarations` the
-    # old spelling must FAIL to compile. Written as an expected-failure because
+    # an alias. NEGATIVE assertion: with `-Werror=deprecated-declarations` the
+    # old spelling must FAIL to compile. (The C lane had four probes of this
+    # shape; phase-417 stage 6 step B retired the forwarders they guarded and
+    # deleted them with it. The C++ ones stay because the C++ deprecations do.)
+    # Written as an expected-failure because
     # a passing compile is exactly what a silently-dropped attribute looks like.
     # An expected-failure compile cannot distinguish "the deprecation
     # attribute fired" from "the file is not there" -- both are a non-zero

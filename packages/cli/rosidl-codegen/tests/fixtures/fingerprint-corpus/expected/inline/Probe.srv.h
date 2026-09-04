@@ -260,8 +260,8 @@ static inline bool fingerprint_corpus_srv_probe_service_handle_request(
 /// Register it with `nros_executor_add_service()` exactly as for a raw server.
 ///
 /// phase-417 stage 6 — this delegates to `nros_service_init_with_qos(..., NULL)`
-/// rather than to `nros_service_init`, which is now an `NROS_DEPRECATED_MSG`
-/// forwarder. The typed macro binds its trampoline at CREATION on purpose: the
+/// rather than to `nros_service_init`, which step B retired. The
+/// typed macro binds its trampoline at CREATION on purpose: the
 /// trampoline is derived from the type, not chosen by the caller, so there is
 /// nothing for a later `nros_executor_add_service_raw()` to decide. rclc's
 /// four-argument `rclc_service_init_default` is the shape for a caller who
