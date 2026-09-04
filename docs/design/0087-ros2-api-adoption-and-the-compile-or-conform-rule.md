@@ -271,6 +271,50 @@ Consequences, in the order they bite:
   seams. This is the one place where taking rcl's spelling must not mean taking
   rcl's values.
 
+## Settled: each language follows ITS OWN upstream (2026-09-04)
+
+Where the three upstreams disagree with each other, we follow each language's
+own. The worked case is logging:
+
+```
+rclrs    log_info!(logger, "…")
+rclcpp   RCLCPP_INFO(logger, "…")
+rcl/rcutils  RCUTILS_LOG_INFO_NAMED(name, "…")
+```
+
+There is no single "ROS 2 spelling" to match, so "respect the official API" does
+not resolve it on its own. The tie-break is what a porting user actually reads:
+**one client library, not three.** A Rust node ported from rclrs is read beside
+rclrs; matching rclcpp there would be matching a library that user never opens.
+
+**This deliberately gives up part of stage 4's convergence, and that is the
+cost, stated rather than hidden.** Stage 4 spent real effort making our three
+surfaces agree — and that was always INSTRUMENTAL to drop-in, never an end in
+itself. Where agreeing with each other and agreeing with upstream pull apart,
+upstream wins, because upstream is what a ported file was written against.
+
+The rule survives the exception: our languages must still agree about
+CAPABILITY and CONTRACT. What may differ is the spelling, and only where the
+upstreams differ first. A capability present in one of our languages and absent
+in another is still the defect stage 4 exists to remove.
+
+## Settled: the typesupport parameter keeps OUR type (2026-09-04)
+
+`rcl_publisher_init` takes `const rosidl_message_type_support_t *`; ours takes
+`const nros_message_type_t *` in the same position. We keep ours.
+
+Not a preference — a rosidl typesupport's MEMBERS are its contract
+(`typesupport_identifier`, `data`, and the `func` dispatcher that resolves the
+implementation at runtime), against our flat `type_name` / `type_hash` /
+`serialized_size_max`. Adopting the name would claim a dispatcher we do not
+have, and the "compiles and differs" that follows is exactly what this RFC
+forbids.
+
+It costs a ported call site nothing today, because the argument comes from our
+codegen either way — `ROSIDL_GET_MSG_TYPE_SUPPORT` does not exist here. What it
+costs is one type NAME visible in a signature after the compat layers are gone,
+and that is the honest price of not faking a structure.
+
 ## End state: no compat layer survives
 
 Confirmed 2026-09-04. The compat headers are SCAFFOLDING with a demolition
