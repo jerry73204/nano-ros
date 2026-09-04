@@ -320,7 +320,18 @@ impl<const N: usize, const FLLEN: usize> FreeListHeap<N, FLLEN> {
                 Some(p) => {
                     #[cfg(feature = "stats")]
                     {
-                        let used = self.used_bytes.fetch_add(size, Ordering::Relaxed) + size;
+                        // phase-412 -- charge the USABLE size, not the requested
+                        // one. `free` has only the pointer, so the only size it
+                        // can credit is what rlsf reports for the block; if alloc
+                        // charged `size` and free credited the usable size (>= it,
+                        // rounded to GRANULARITY) the counter would drift toward
+                        // zero and stick there.
+                        //
+                        // Usable is also the honest figure: it is what the block
+                        // costs the arena, which is what a heap-size knob covers.
+                        let charged =
+                            Tlsf::<'static, FlBitmap, u16, FLLEN, SLLEN>::allocation_usable_size(p);
+                        let used = self.used_bytes.fetch_add(charged, Ordering::Relaxed) + charged;
                         let _ = self.peak_bytes.fetch_max(used, Ordering::Relaxed);
                     }
                     p.as_ptr() as *mut core::ffi::c_void
@@ -439,6 +450,24 @@ impl<const N: usize, const FLLEN: usize> FreeListHeap<N, FLLEN> {
             self.ensure_init();
             let tlsf = &mut *self.tlsf.get();
             if let Some(nn) = NonNull::new(ptr as *mut u8) {
+                // phase-412 -- BEFORE `deallocate`, which invalidates the block
+                // header the size is read from. Until this existed the rlsf path
+                // credited nothing, so `used()` was cumulative-allocated rather
+                // than live and `peak()` merely tracked it: the island reported
+                // 395,132 used against a 94,720-byte arena.
+                #[cfg(feature = "stats")]
+                {
+                    let freed =
+                        Tlsf::<'static, FlBitmap, u16, FLLEN, SLLEN>::allocation_usable_size(nn);
+                    // Saturating, not `fetch_sub`: an unmatched free would wrap,
+                    // and a counter stuck at zero is wrong in a way a reader can
+                    // see, where an enormous one looks like a measurement.
+                    let _ =
+                        self.used_bytes
+                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
+                                Some(u.saturating_sub(freed))
+                            });
+                }
                 tlsf.deallocate(nn, ALIGN);
             }
         }
@@ -787,5 +816,66 @@ mod tests {
             assert_eq!(unsafe { *q.add(i as usize) }, i);
         }
         H.free(q as *mut core::ffi::c_void);
+    }
+}
+
+#[cfg(all(test, feature = "stats"))]
+mod stats_accounting_tests {
+    use super::*;
+
+    /// phase-412 -- `used()` must come back DOWN.
+    ///
+    /// The rlsf free path credited nothing, so `used()` was
+    /// cumulative-allocated: the island reported 395,132 used against a
+    /// 94,720-byte arena, and `peak()` merely tracked it. A counter that only
+    /// grows cannot size a heap knob, which is the whole reason it exists.
+    #[test]
+    fn freeing_returns_the_bytes_to_the_counter() {
+        static H: FreeListHeap<8192> = FreeListHeap::new();
+        let base = H.used();
+
+        // Larger than SLAB_SLOT_SIZE, so this is the rlsf path rather than the
+        // slab fast-path, which was already symmetric.
+        let p = H.alloc(1024);
+        assert!(!p.is_null());
+        let after_alloc = H.used();
+        assert!(
+            after_alloc >= base + 1024,
+            "alloc charged {} for a 1024-byte request",
+            after_alloc - base
+        );
+
+        H.free(p);
+        assert_eq!(H.used(), base, "free did not credit what alloc charged");
+    }
+
+    /// Churn must not drift the counter in either direction.
+    #[test]
+    fn repeated_churn_does_not_drift() {
+        static H: FreeListHeap<8192> = FreeListHeap::new();
+        let base = H.used();
+        for _ in 0..64 {
+            let p = H.alloc(512);
+            assert!(!p.is_null());
+            H.free(p);
+        }
+        assert_eq!(H.used(), base, "64 alloc/free pairs drifted the counter");
+    }
+
+    /// Sizes that are not multiples of GRANULARITY are where an asymmetric
+    /// charge/credit shows up fastest.
+    #[test]
+    fn odd_sizes_round_trip() {
+        static H: FreeListHeap<16384> = FreeListHeap::new();
+        let base = H.used();
+        let mut ps = [core::ptr::null_mut(); 8];
+        for (i, p) in ps.iter_mut().enumerate() {
+            *p = H.alloc(65 + i * 37);
+            assert!(!p.is_null());
+        }
+        for p in ps {
+            H.free(p);
+        }
+        assert_eq!(H.used(), base, "odd-sized blocks drifted the counter");
     }
 }

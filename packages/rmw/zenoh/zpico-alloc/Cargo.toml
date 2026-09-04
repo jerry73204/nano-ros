@@ -21,7 +21,12 @@ categories = ["embedded", "no-std", "memory-management"]
 # it is proven to build for a bare-metal target in this tree, and it is present
 # in the local registry — which matters because `--locked` is injected
 # project-wide by the scripts/bin/cargo shim.
-rlsf = { version = "0.2.3", default-features = false }
+# `unstable` is an EMPTY, purely additive feature in rlsf 0.2.3 -- it gates
+# extra APIs and nothing else; the only nightly `feature(...)` in that crate
+# is behind `doc_cfg`, which stays off. It is enabled for
+# `Tlsf::allocation_usable_size`, without which a freed block's size is
+# unknown and `used_bytes` can only ever grow (phase-412).
+rlsf = { version = "0.2.3", default-features = false, features = ["unstable"] }
 
 # The counters below use atomic READ-MODIFY-WRITE (`fetch_add`), which
 # `core::sync::atomic` does not provide on every target this crate builds for:
