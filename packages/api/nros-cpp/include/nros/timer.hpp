@@ -172,4 +172,111 @@ class Timer {
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp::TimerBase (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`. rclcpp users typically store a
+// `rclcpp::TimerBase::SharedPtr` and only care that it stays alive as long as
+// the timer should fire. The dispatch happens through
+// `rclcpp::Node::create_wall_timer(period, callback)` (`nros/nros.hpp`).
+//
+// phase-417 — ONE DISPATCH PATH. `create_wall_timer` registers an EXECUTOR
+// timer via `nros::Node::create_timer` (`node.hpp:718`), so the period
+// arithmetic, the missed-deadline policy and the clock are the executor's,
+// Rust-side. Until this landed, `WallTimer` carried its own
+// `std::chrono::steady_clock` deadline and a `Node::pump()` fired it from
+// `rclcpp::spin` / `spin_some` ONLY — a ported file driving `nros::spin_once()`
+// or an `nros::Executor` got zero callbacks and no diagnostic, and no
+// diagnostic could be written for it because both spin spellings are
+// legitimate and which one is wrong depends on the node object the file holds.
+// Scheduling in the wrapper is RFC-0019/RFC-0020 violation class 2; this is the
+// structural fix RFC-0087 makes a prerequisite for the stage-6 rename. Do not
+// reintroduce a second dispatch loop.
+//
+// ADOPT-BOUNDED, and both halves of the envelope come with the executor:
+//
+//   * PERIOD RESOLUTION IS ONE MILLISECOND. `nros_cpp_timer_create` takes a
+//     `uint64_t period_ms`, so `create_wall_timer(500us, …)` truncates to 0 and
+//     fires every spin. Activations land on spin boundaries either way, so the
+//     achievable cadence was already the spin period — the truncation only
+//     makes the floor explicit.
+//   * MISSED DEADLINES CATCH UP, where rcl's DROP. `TimerState::fire` keeps the
+//     overshoot (`elapsed_ms -= period_ms`, `nros-node/src/timer.rs:298`), so
+//     after a stall the callback runs once per `spin_once` until the backlog is
+//     drained and the mean cadence is preserved. `rcl_timer_call` instead skips
+//     whole missed periods and re-phases onto the grid, firing once. Closing
+//     the gap means a missed-deadline POLICY on the executor's timer —
+//     Rust-side work, not a loop re-added here (issue 1041).
+
+// `<functional>` for the type-erased callback cell. Gated for the same reason
+// `<memory>` is above — issue 0112, rationale in `publisher.hpp`.
+#if defined(NROS_CPP_STD)
+#include <functional>
+#define NROS_CPP_HAS_STD_FUNCTION 1
+#elif defined(__has_include)
+#if __has_include(<functional>)
+#include <functional>
+#define NROS_CPP_HAS_STD_FUNCTION 1
+#endif
+#endif
+
+#ifdef NROS_CPP_HAS_SHARED_PTR
+namespace rclcpp {
+
+/// `rclcpp::TimerBase` — what `rclcpp::TimerBase::SharedPtr timer_;` names.
+///
+/// Present only where `<memory>` is: the three nested aliases ARE the reason
+/// upstream source declares this type, and a freestanding target has no
+/// `std::shared_ptr` to alias.
+class TimerBase {
+  public:
+    /// phase-417 W1.a — `rclcpp::TimerBase::SharedPtr timer_;` is how upstream
+    /// source declares a timer member.
+    using SharedPtr = std::shared_ptr<TimerBase>;
+    using ConstSharedPtr = std::shared_ptr<const TimerBase>;
+    using UniquePtr = std::unique_ptr<TimerBase>;
+
+    virtual ~TimerBase() = default;
+};
+
+#ifdef NROS_CPP_HAS_STD_FUNCTION
+namespace detail {
+
+/// An executor-registered timer plus the heap cell holding the user's callable.
+///
+/// TYPE ERASURE IS THE ONLY THING THIS ADDS. The executor's callback slot is
+/// `nros_cpp_timer_callback_t` — `void(*)(void* ctx)` — and a ported rclcpp
+/// timer callback is a capturing lambda or a `std::bind` result, which cannot
+/// convert to a function pointer. `trampoline` recovers the cell from `ctx` and
+/// calls it. That is a spelling, not a second code path (RFC-0087 §"Who
+/// implements an adopted name"); no schedule, no clock read, no ordering.
+///
+/// LIFETIME: the arena stores `this` as the dispatch context and nothing
+/// unregisters it, so the cell has to outlive the registration.
+/// `rclcpp::Node::timers_` holds a `shared_ptr` for the node's lifetime, and
+/// the MEMBER ORDER below is load-bearing — members destruct in reverse
+/// declaration order, so `timer` goes first and `~nros::Timer` cancels the
+/// arena slot (`timer.hpp:70`) before `callback` is destroyed. Declared the
+/// other way round, a tick landing between the two destructions would run a
+/// destroyed `std::function`.
+class WallTimer : public TimerBase {
+  public:
+    static void trampoline(void* ctx) {
+        auto* self = static_cast<WallTimer*>(ctx);
+        if (self != nullptr && self->callback) {
+            self->callback();
+        }
+    }
+
+    std::function<void()> callback; // destroyed LAST
+    ::nros::Timer timer;            // destroyed FIRST — cancels the arena slot
+};
+
+} // namespace detail
+#endif // NROS_CPP_HAS_STD_FUNCTION
+
+} // namespace rclcpp
+#endif // NROS_CPP_HAS_SHARED_PTR
+
 #endif // NROS_CPP_TIMER_HPP

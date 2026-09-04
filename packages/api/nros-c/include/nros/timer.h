@@ -88,4 +88,76 @@ static inline nros_ret_t nros_difference_times(const struct nros_time_t* start,
     return NROS_RET_OK;
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ===================================================================
+ * DEPRECATED spellings -- phase-417 stage 6 (RFC-0087, 2026-09-04)
+ *
+ * RFC-0087 settled that **the C API takes rcl's spellings**: the goal is
+ * drop-in replacement and a ported file's line is rcl's line. These names
+ * are the pre-stage-6 `nros_` spellings, kept one release as
+ * `NROS_DEPRECATED_MSG` `static inline` forwarders so an out-of-tree C node
+ * that still writes them keeps compiling and gets a diagnostic naming its
+ * replacement.
+ *
+ * An inline definition in a header has no external linkage, so every
+ * translation unit may define it and none exports it: the rcl/rclc name is
+ * the ONLY exported symbol. This is a SOURCE compatibility promise, not a
+ * binary one -- an object file built against the pre-rename library must be
+ * recompiled.
+ *
+ * `nros_ret_t`'s VALUES are unchanged. RFC-0087 records this as the one place
+ * where taking rcl's spelling must not mean taking rcl's numbering; the
+ * mapping lives in `<nros/rcl_compat.h>` and is the one part of that header
+ * which does not dissolve.
+ *
+ * Define NROS_NO_DEPRECATED_TIMER_ALIASES to compile without any of it --
+ * for a consumer whose build is `-Werror` and who wants the old names to be a
+ * hard error rather than a warning.
+ *
+ * Scheduled for removal as ONE batch (stage 6 step B); migrate.
+ * =================================================================== */
+
+#ifndef NROS_NO_DEPRECATED_TIMER_ALIASES
+
+NROS_DEPRECATED_MSG(
+    "nros_timer_get_zero_initialized() is deprecated; use rcl_get_zero_initialized_timer()")
+static inline struct nros_timer_t nros_timer_get_zero_initialized(void) {
+    return rcl_get_zero_initialized_timer();
+}
+
+NROS_DEPRECATED_MSG("nros_timer_fini() is deprecated; use rcl_timer_fini()")
+static inline nros_ret_t nros_timer_fini(struct nros_timer_t* timer) {
+    return rcl_timer_fini(timer);
+}
+
+NROS_DEPRECATED_MSG("nros_timer_cancel() is deprecated; use rcl_timer_cancel()")
+static inline nros_ret_t nros_timer_cancel(struct nros_timer_t* timer) {
+    return rcl_timer_cancel(timer);
+}
+
+NROS_DEPRECATED_MSG("nros_timer_reset() is deprecated; use rcl_timer_reset()")
+static inline nros_ret_t nros_timer_reset(struct nros_timer_t* timer) {
+    return rcl_timer_reset(timer);
+}
+
+NROS_DEPRECATED_MSG("nros_timer_is_canceled() is deprecated; use rcl_timer_is_canceled()")
+static inline nros_ret_t nros_timer_is_canceled(const struct nros_timer_t* timer,
+                                                bool* is_canceled) {
+    return rcl_timer_is_canceled(timer, is_canceled);
+}
+
+NROS_DEPRECATED_MSG("nros_timer_is_ready() is deprecated; use rcl_timer_is_ready()")
+static inline nros_ret_t nros_timer_is_ready(const struct nros_timer_t* timer, bool* is_ready) {
+    return rcl_timer_is_ready(timer, is_ready);
+}
+
+#endif /* NROS_NO_DEPRECATED_TIMER_ALIASES */
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* NROS_TIMER_H */

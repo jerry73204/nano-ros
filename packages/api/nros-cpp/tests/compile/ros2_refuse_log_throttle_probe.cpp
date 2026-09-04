@@ -18,7 +18,7 @@
  * of being discarded. Compile that one first.
  */
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 int ros2_refuse_log_throttle_probe(nros::Clock& clock);
 int ros2_refuse_log_throttle_probe(nros::Clock& clock) {

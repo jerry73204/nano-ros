@@ -18,14 +18,19 @@
 // PARSES templates, so a nested alias inside a class template is never
 // checked there; this TU instantiates them.
 //
-// Compiled HOSTED (no `-ffreestanding`): `rclcpp_compat.hpp` includes
-// `<memory>` / `<string>` unconditionally and is excluded from the
-// freestanding probe by design. The freestanding half of the contract — that
-// the aliases VANISH rather than break the build where `<memory>` is absent —
-// is covered by the header loop itself, which parses every entity header with
-// `-ffreestanding`.
+// phase-417 stage 6 step A — this reaches the surface through `<nros/nros.hpp>`
+// and no longer through `nros/rclcpp_compat.hpp`, which now declares nothing.
+// The include is the POINT of the probe as much as the body is: the `rclcpp::`
+// names are declared by the API headers themselves, so a probe that still went
+// through the shim would pass whether or not the move had happened.
+//
+// Compiled HOSTED (no `-ffreestanding`): `std::shared_ptr` is in the public
+// signature of every `rclcpp::Node::create_*`. The freestanding half of the
+// contract — that those names VANISH rather than break the build where
+// `<memory>` is absent — is covered by the header loop itself, which parses
+// every header including `nros.hpp` with `-ffreestanding`.
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 // The string containers codegen emits for a message field. Neither is reachable
 // from the `nros.hpp` umbrella today (a separate stage-2 gap: 15 of 46 headers

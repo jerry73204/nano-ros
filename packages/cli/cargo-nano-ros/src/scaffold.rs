@@ -1225,13 +1225,13 @@ int main(int argc, char** argv) {{
         return 1;
     }}
 
-    nros_node_t node = nros_node_get_zero_initialized();
+    nros_node_t node = rcl_get_zero_initialized_node();
     if (nros_node_init(&node, &support, "{name}", "/") != NROS_RET_OK) {{
         fprintf(stderr, "nros_node_init failed\n");
         return 1;
     }}
 
-    nros_publisher_t pub = nros_publisher_get_zero_initialized();
+    nros_publisher_t pub = rcl_get_zero_initialized_publisher();
     if (nros_publisher_init(&pub, &node,
                             std_msgs_msg_int32_get_type_support(),
                             "/chatter") != NROS_RET_OK) {{

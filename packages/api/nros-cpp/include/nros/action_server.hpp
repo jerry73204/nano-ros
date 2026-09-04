@@ -634,4 +634,21 @@ Result Node::create_action_server(ActionServer<A>& out, const char* action_name,
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
+// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// makes the ROS 2 spelling a first-class name declared by the API header that
+// owns the concept, at which point a shim has nothing left to bridge.
+
+// `rclcpp_action::Server<A>` — a type alias only. The call shapes
+// (`send_goal_async`, the goal-response callbacks) are their own item; what a
+// ported file gets today is the type name and everything `nros::ActionServer`
+// already offers under it.
+namespace rclcpp_action {
+template <typename A> using Server = ::nros::ActionServer<A>;
+} // namespace rclcpp_action
+
 #endif // NROS_CPP_ACTION_SERVER_HPP

@@ -1,4 +1,4 @@
-//! Phase 88.2 — `nros_*!` macros.
+//! Phase 88.2 — the emission macros.
 //!
 //! Each macro formats its arguments into a stack-resident
 //! [`crate::FormatBuffer`] (capacity picked at compile time by the
@@ -8,10 +8,43 @@
 //! Compile-time ceiling: macros below
 //! [`crate::compile_time_ceiling`](super::severity_enabled_at_compile_time)
 //! expand to `()` — the format call is dead-code-eliminated.
+//!
+//! ## Naming (RFC-0087, settled 2026-09-04)
+//!
+//! The three ROS 2 client libraries disagree with each other about how to
+//! spell a log line:
+//!
+//! ```text
+//! rclrs    log_info!(logger, "…")        <- Rust follows THIS
+//! rclcpp   RCLCPP_INFO(logger, "…")
+//! rcutils  RCUTILS_LOG_INFO_NAMED(…)
+//! ```
+//!
+//! There is no single "ROS 2 spelling", so each of our languages follows ITS
+//! OWN upstream. For Rust that is rclrs, and rclrs's five severity macros are
+//! [`log_debug!`], [`log_info!`], [`log_warn!`], [`log_error!`],
+//! [`log_fatal!`] — which is what this module now exports. The former
+//! `nros_*!` spellings survive as `#[deprecated]` forwarders (see the
+//! "migration forwarders" section below); removal is a later batch.
+//!
+//! **A name takes rclrs's spelling exactly when rclrs HAS that name.** Two
+//! families deliberately keep the `nros_` prefix, because inventing a name
+//! inside rclrs's namespace-alike would claim an upstream twin that does not
+//! exist:
+//!
+//! * [`nros_trace!`] — rclrs stops at `debug`. TRACE is ours (ledger
+//!   `rust:nros_trace`, verdict `extension`), so it keeps a name that says so.
+//! * the `nros_*_throttle!` / `nros_*_throttle_at!` family — rclrs expresses
+//!   throttling as a modifier on ONE macro
+//!   (`log_info!(logger.throttle(Duration::from_millis(500)), "…")` via
+//!   `LogParams` / `ToLogParams`), not as a macro per severity. Ours is a
+//!   different DECOMPOSITION of the same capability, already ledgered as
+//!   `divergence`; see that family's own note for what adopting rclrs's shape
+//!   would cost.
 
 /// Internal macro emitting one log record at `$severity`.
 ///
-/// Use the named helpers ([`nros_trace!`], [`nros_debug!`], etc.) — they
+/// Use the named helpers ([`nros_trace!`], [`log_debug!`], etc.) — they
 /// gate on the compile-time ceiling before evaluating this body.
 #[doc(hidden)]
 #[macro_export]
@@ -55,8 +88,12 @@ macro_rules! nros_trace {
 }
 
 /// Emit at [`crate::Severity::Debug`].
+///
+/// `rclrs::log_debug!`'s spelling — see the module note on RFC-0087's
+/// "each language follows its own upstream" rule. [`nros_debug!`] is the
+/// deprecated former name.
 #[macro_export]
-macro_rules! nros_debug {
+macro_rules! log_debug {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Debug) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Debug, $($arg)+);
@@ -65,8 +102,12 @@ macro_rules! nros_debug {
 }
 
 /// Emit at [`crate::Severity::Info`].
+///
+/// `rclrs::log_info!`'s spelling — see the module note on RFC-0087's
+/// "each language follows its own upstream" rule. [`nros_info!`] is the
+/// deprecated former name.
 #[macro_export]
-macro_rules! nros_info {
+macro_rules! log_info {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Info) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Info, $($arg)+);
@@ -75,8 +116,12 @@ macro_rules! nros_info {
 }
 
 /// Emit at [`crate::Severity::Warn`].
+///
+/// `rclrs::log_warn!`'s spelling — see the module note on RFC-0087's
+/// "each language follows its own upstream" rule. [`nros_warn!`] is the
+/// deprecated former name.
 #[macro_export]
-macro_rules! nros_warn {
+macro_rules! log_warn {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Warn) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Warn, $($arg)+);
@@ -85,8 +130,12 @@ macro_rules! nros_warn {
 }
 
 /// Emit at [`crate::Severity::Error`].
+///
+/// `rclrs::log_error!`'s spelling — see the module note on RFC-0087's
+/// "each language follows its own upstream" rule. [`nros_error!`] is the
+/// deprecated former name.
 #[macro_export]
-macro_rules! nros_error {
+macro_rules! log_error {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Error) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Error, $($arg)+);
@@ -95,12 +144,130 @@ macro_rules! nros_error {
 }
 
 /// Emit at [`crate::Severity::Fatal`].
+///
+/// `rclrs::log_fatal!`'s spelling — see the module note on RFC-0087's
+/// "each language follows its own upstream" rule. [`nros_fatal!`] is the
+/// deprecated former name.
 #[macro_export]
-macro_rules! nros_fatal {
+macro_rules! log_fatal {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Fatal) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Fatal, $($arg)+);
         }
+    };
+}
+
+// -----------------------------------------------------------------------------
+// Migration forwarders — the pre-rename `nros_*!` spellings.
+//
+// RFC-0087 "Naming: replace, with alias as the migration step": the ROS 2
+// spelling becomes the first-class name, ours remains, both work, and the old
+// one is removed in a later deliberate batch with a changelog entry.
+//
+// These forward TOKEN-FOR-TOKEN to the new macros, so a forwarded record is
+// byte-identical to a direct one — same severity, same logger, same
+// `file!()`/`line!()` (both resolve at the OUTERMOST invocation, which is the
+// user's call site however many expansions deep the emit sits), same
+// dispatcher. `deprecated_forwarders.rs` asserts that rather than asserting it
+// merely compiles.
+//
+// WHY THE `#[deprecated]` IS BEHIND A FEATURE. This workspace sets
+// `warnings = "deny"` (root `Cargo.toml`, `[workspace.lints.rust]`). An
+// always-armed deprecation there is not a warning a migrating author sees and
+// schedules — it is a COMPILE ERROR in every crate that still writes the old
+// name, which is the flag day the two-step alias exists to prevent. Measured
+// when this rename landed: arming it stopped the workspace build with 9 errors
+// in `nros-rmw-cffi` alone, before reaching `nros-node`, the boards, or
+// `nros-tests`.
+//
+// So the attribute is written and inert, and `deprecate-legacy-names` is the
+// migration batch's switch: turn it on, fix everything it names, delete these
+// five macros. A `#[deprecated]` nobody can compile against is not a softer
+// deprecation than none — it is a rename pretending to be one.
+// -----------------------------------------------------------------------------
+
+/// Deprecated spelling of [`log_debug!`].
+#[cfg_attr(
+    feature = "deprecate-legacy-names",
+    deprecated(
+        since = "0.5.0",
+        note = "renamed to `log_debug!`, rclrs's spelling (RFC-0087: each language follows its \
+                own upstream). The forwarder emits an identical record; it is removed in a \
+                later batch."
+    )
+)]
+#[macro_export]
+macro_rules! nros_debug {
+    ($logger:expr, $($arg:tt)+) => {
+        $crate::log_debug!($logger, $($arg)+)
+    };
+}
+
+/// Deprecated spelling of [`log_info!`].
+#[cfg_attr(
+    feature = "deprecate-legacy-names",
+    deprecated(
+        since = "0.5.0",
+        note = "renamed to `log_info!`, rclrs's spelling (RFC-0087: each language follows its \
+                own upstream). The forwarder emits an identical record; it is removed in a \
+                later batch."
+    )
+)]
+#[macro_export]
+macro_rules! nros_info {
+    ($logger:expr, $($arg:tt)+) => {
+        $crate::log_info!($logger, $($arg)+)
+    };
+}
+
+/// Deprecated spelling of [`log_warn!`].
+#[cfg_attr(
+    feature = "deprecate-legacy-names",
+    deprecated(
+        since = "0.5.0",
+        note = "renamed to `log_warn!`, rclrs's spelling (RFC-0087: each language follows its \
+                own upstream). The forwarder emits an identical record; it is removed in a \
+                later batch."
+    )
+)]
+#[macro_export]
+macro_rules! nros_warn {
+    ($logger:expr, $($arg:tt)+) => {
+        $crate::log_warn!($logger, $($arg)+)
+    };
+}
+
+/// Deprecated spelling of [`log_error!`].
+#[cfg_attr(
+    feature = "deprecate-legacy-names",
+    deprecated(
+        since = "0.5.0",
+        note = "renamed to `log_error!`, rclrs's spelling (RFC-0087: each language follows its \
+                own upstream). The forwarder emits an identical record; it is removed in a \
+                later batch."
+    )
+)]
+#[macro_export]
+macro_rules! nros_error {
+    ($logger:expr, $($arg:tt)+) => {
+        $crate::log_error!($logger, $($arg)+)
+    };
+}
+
+/// Deprecated spelling of [`log_fatal!`].
+#[cfg_attr(
+    feature = "deprecate-legacy-names",
+    deprecated(
+        since = "0.5.0",
+        note = "renamed to `log_fatal!`, rclrs's spelling (RFC-0087: each language follows its \
+                own upstream). The forwarder emits an identical record; it is removed in a \
+                later batch."
+    )
+)]
+#[macro_export]
+macro_rules! nros_fatal {
+    ($logger:expr, $($arg:tt)+) => {
+        $crate::log_fatal!($logger, $($arg)+)
     };
 }
 
@@ -127,6 +294,34 @@ macro_rules! nros_fatal {
 // constant does not rate-limit — it admits every record, forever, while
 // reading at the call site exactly like a working throttle. RFC-0087: never
 // compile and differ.
+//
+// WHY THIS FAMILY KEEPS THE `nros_` PREFIX WHILE THE FIVE SEVERITY MACROS TOOK
+// rclrs's (phase-417, 2026-09-04). rclrs has no `log_info_throttle!` to follow.
+// Its throttle is a MODIFIER on the one macro — `log_info!(logger.throttle(
+// Duration::from_millis(500)), "…")`, where the first argument is anything
+// implementing `ToLogParams` — so adopting "rclrs's spelling" here means
+// adopting `ToLogParams` and `LogParams`, not renaming a macro. That is a
+// SHAPE change, and three ledger rows have already decided against the pieces
+// it needs, each on a platform ground:
+//
+//   * `rust:ToLogParams` — `declined`, an ergonomic overload trait over what
+//     is one concrete caller shape here (`&Logger`).
+//   * `rust:LogOccurrence` — `divergence`; `once` / `skip_first` take a
+//     CALLER-SUPPLIED `&OnceFlag` because riscv32imc has no CAS, so the
+//     occurrence state cannot live inside a params value.
+//   * `rust:ThrottleClock` — `divergence`; rclrs's `LogParams` names the clock
+//     a window is measured against and we have none to name.
+//
+// A `LogParams` missing those members is not rclrs's `LogParams`; it is a new
+// divergence wearing an upstream name, which is the "compiles and differs"
+// RFC-0087 exists to forbid. There is also a live cost: in the modifier form
+// whether a throttle was requested is a RUNTIME field, so the `platform-clock`
+// refusal above stops being expressible at the call site — the exact
+// silently-admits-everything failure the `compile_error!` was added to prevent.
+//
+// So: ours is KEPT, and it keeps the `nros_` prefix that says it is ours. The
+// ledger already records it as a `divergence` with a `provides` arrow at
+// `rust:nros_debug_throttle`; that verdict stands unchanged.
 // -----------------------------------------------------------------------------
 
 /// Resolves the timestamp the `nros_*_throttle!` family measures against.

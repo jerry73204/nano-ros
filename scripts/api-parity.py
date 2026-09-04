@@ -236,23 +236,28 @@ CPP_TRANSLATION_UNITS = (
     ("component", '#include "nros/component_node.hpp"\n', (), {"nros"}, {}),
     ("std", '#include "nros/nros.hpp"\n', ("-DNROS_CPP_STD=1",), {"nros"},
      {"std_only": True}),
-    # issue 1020, decision 3: the shim's rows are std-only, the same marking the
-    # `std` TU sets. The MEASURED reason is not the one the issue states,
-    # though, and the difference matters for anyone acting on it. The issue says
-    # the shim is "reachable only under `NROS_CPP_STD`"; it is not macro-gated
-    # at all — extracting it with and without `-DNROS_CPP_STD=1` yields the
-    # identical 25 records. What makes it std-only is that it includes
-    # `<memory>`, `<string>`, `<functional>`, `<vector>` and `<chrono>`
-    # UNCONDITIONALLY (`rclcpp_compat.hpp:63-67`) and hands out
-    # `std::shared_ptr` and `std::function` in its public signatures. That is a
-    # stronger claim than the `std` TU's, not a weaker one: a consumer without
-    # the std flavour cannot reach these items, and cannot COMPILE the header
-    # either. It parses here only because a hosted clang has libstdc++ whatever
-    # we define.
+    # The PORTED surface — what a file including <rclcpp/rclcpp.hpp> reaches.
     #
-    # Extracted WITH the flag regardless, because that is the flavour the compat
-    # CMake path builds under, and a surface should be measured as it ships.
-    ("compat", '#include "nros/rclcpp_compat.hpp"\n', ("-DNROS_CPP_STD=1",),
+    # It used to be `nros/rclcpp_compat.hpp`, a shim declaring the `rclcpp::`
+    # names over ours. phase-417 stage 6 step A moved every one of those
+    # declarations into the header that owns the concept and DELETED the shim,
+    # so the source here is the umbrella — the same text as the `base` TU, read
+    # for a different namespace. That is the whole point of the step: there is
+    # one set of headers and two vocabularies, not two sets of headers.
+    #
+    # Still `std_only`, and the MEASURED reason is not the one issue 1020
+    # states. The issue says the shim was "reachable only under NROS_CPP_STD";
+    # it was never macro-gated — extracting with and without the flag yielded
+    # identical records. What made it std-only was unconditional `<memory>`,
+    # `<string>`, `<functional>`, `<vector>`, `<chrono>` and `std::shared_ptr`
+    # in public signatures. After the move those includes are `__has_include`-
+    # gated, so the `rclcpp::` names that need them are genuinely absent from a
+    # freestanding build — which makes the marking TRUE now in the way the issue
+    # only claimed it was.
+    #
+    # Extracted WITH the flag, because that is the flavour the compat CMake path
+    # builds under, and a surface should be measured as it ships.
+    ("compat", '#include "nros/nros.hpp"\n', ("-DNROS_CPP_STD=1",),
      {"rclcpp", "rclcpp_action", "rclcpp_lifecycle"},
      {"std_only": True, "surface": PORTED}),
 )
@@ -637,6 +642,44 @@ def validate_their_rename(key, value):
                 "ecosystem" % (key, "/".join(UPSTREAM_TOKENS[:5]))
             )
     return problems
+
+
+def _validate_provides_targets(entries, surfaces):
+    """Every UPSTREAM-shaped `provides` target must resolve in a recorded surface.
+
+    phase-417 stage 6. Two rows carried `provides: ["rclrs::log_trace"]` and
+    rclrs's severity family stops at `debug` -- the arrows pointed at nothing.
+    They were generated MECHANICALLY as `rclrs::log_<severity>` from the macro
+    name, which is the one thing the original `provides` pass avoided: it
+    hand-wrote every arrow, and two independent authors rejected ~76% of
+    mechanically proposed candidates as noise.
+
+    Only upstream-shaped targets are checked. An arrow may legitimately name one
+    of OUR symbols (most do -- 133 of 143), and this file has no view of our
+    surface without running the extractors, which would make a cheap structural
+    check depend on clang and a nightly rustdoc.
+    """
+    known = set()
+    for payload in surfaces.values():
+        for record in payload.get("records", []):
+            qual = record.get("qual")
+            if qual:
+                known.add(qual)
+    if not known:
+        return []
+    complaints = []
+    for key, value in entries.items():
+        if key == "_doc" or not isinstance(value, dict):
+            continue
+        for target in value.get("provides", []) or []:
+            upstream = target.startswith(("rclrs::", "rclcpp::", "rcl_", "rclc_"))
+            if upstream and target not in known:
+                complaints.append(
+                    "ledger %s: `provides` names %s, which no recorded surface declares. "
+                    "An arrow that resolves to nothing reads as a re-map and is one."
+                    % (key, target)
+                )
+    return complaints
 
 
 def validate_ledger(entries):
@@ -1301,6 +1344,29 @@ def self_test():
     if unparsed:
         failures.append("load_ledger left nested objects unparsed: %r" % (unparsed[:3],))
 
+    # ...and every upstream-shaped `provides` target must RESOLVE. Two rows
+    # named `rclrs::log_trace`, which does not exist -- rclrs stops at `debug`.
+    # Generated mechanically from the macro name, which is exactly what the
+    # `provides` authoring pass avoided by hand-writing each arrow.
+    surfaces = {}
+    for lang in ("c", "cpp", "rust"):
+        try:
+            surfaces[lang] = load_theirs(lang)
+        except Exception:  # a surface file may be absent on a partial checkout
+            pass
+    provides_complaints = _validate_provides_targets(load_ledger(), surfaces)
+    failures.extend(provides_complaints)
+
+    # The validator must also CATCH one, or it proves only that today's ledger
+    # is today's ledger.
+    planted = _validate_provides_targets(
+        {"rust:x": {"verdict": "divergence", "why": "x",
+                    "provides": ["rclrs::log_trace"]}},
+        surfaces,
+    )
+    if surfaces and not planted:
+        failures.append("a `provides` naming a symbol no surface declares was accepted")
+
     # And the validator itself must reject each shape, or it only proves the
     # ledger on disk is the ledger on disk.
     bad = {
@@ -1396,8 +1462,16 @@ def self_test():
     check("the compat shim is a translation unit", len(compat), 1)
     if compat:
         _label, source, extra, roots, marks = compat[0]
-        check("the compat TU reads rclcpp_compat.hpp",
-              "rclcpp_compat.hpp" in source, True)
+        # NOT a filename check any more. phase-417 stage 6 step A moved every
+        # `rclcpp::` declaration into the header that owns the concept and
+        # DELETED `rclcpp_compat.hpp`; the old assertion named that file and so
+        # failed on the step succeeding. What actually matters is that the TU
+        # parses a real header of ours -- a shim TU pointed at nothing would
+        # extract nothing and report the ported surface as empty, which reads
+        # like perfect parity.
+        check("the compat TU reads one of our headers",
+              source.startswith('#include "nros/') and source.rstrip().endswith('"'),
+              True)
         check("the compat TU admits namespace rclcpp", "rclcpp" in roots, True)
         # Decision 3: the shim's rows are std-only, the same marking the `std`
         # TU sets. Not a cosmetic tag -- a `no_std` consumer reaches none of it.

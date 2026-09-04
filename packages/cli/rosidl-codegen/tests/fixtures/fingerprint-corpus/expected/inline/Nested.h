@@ -218,7 +218,8 @@ static inline int32_t fingerprint_corpus_msg_nested_deserialize_erased(void* msg
 /// `rclc_subscription_callback_with_context_t`. Cast `msg` to
 /// `const fingerprint_corpus_msg_nested*` and read FIELDS; there is no CDR in a ported
 /// callback body. `ctx` is passed straight through — it is NOT the context
-/// given to `nros_subscription_init`, which belongs to the raw registration.
+/// given to `nros_executor_add_subscription_raw`, which belongs to the raw
+/// registration.
 ///
 /// If the sample cannot be decoded into `msg` — including a string or sequence
 /// longer than the bound this type declares — the callback is NOT invoked, the

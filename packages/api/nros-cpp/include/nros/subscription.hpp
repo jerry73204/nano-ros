@@ -854,4 +854,64 @@ Result Node::create_subscription_with_safety(Subscription<M>& out, const char* t
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp::Subscription<M> (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`. The alias is the whole adoption:
+// `rclcpp::Subscription<M>::SharedPtr` resolves because the nested pointer
+// aliases live on `nros::Subscription<M>` itself (phase-417 W1.a), so the
+// alias template carries them through with no wrapper type in between.
+
+// `<functional>` for the type-erased callback cell below. Gated — issue 0112,
+// rationale in `publisher.hpp`.
+#if defined(NROS_CPP_STD)
+#include <functional>
+#define NROS_CPP_HAS_STD_FUNCTION 1
+#elif defined(__has_include)
+#if __has_include(<functional>)
+#include <functional>
+#define NROS_CPP_HAS_STD_FUNCTION 1
+#endif
+#endif
+
+namespace rclcpp {
+
+template <typename M> using Subscription = ::nros::Subscription<M>;
+
+#ifdef NROS_CPP_HAS_STD_FUNCTION
+namespace detail {
+
+/// A ported subscription's type-erased callable, and the raw trampoline the
+/// executor arena dispatches into.
+///
+/// Same split as `rclcpp::detail::WallTimer`: the arena's callback slot carries
+/// `(bytes, len, ctx)`, the wrapper supplies the `ctx` and the
+/// `M::ffi_deserialize` call the generated header already provides, and the
+/// executor owns the subscriber and decides when the callback runs. This
+/// mirrors `nros::bind_subscription` (`component.hpp:107`) with a heap cell in
+/// place of its member-pointer template parameter — a ported rclcpp callback
+/// captures, so there is no member pointer to template on.
+template <typename M> struct SubscriptionCallback {
+    static void trampoline(const uint8_t* data, size_t len, void* ctx) {
+        auto* self = static_cast<SubscriptionCallback*>(ctx);
+        if (self == nullptr || !self->fn) return;
+        M msg;
+        if (M::ffi_deserialize(data, len, &msg) != 0) return;
+        self->fn(msg);
+    }
+
+    std::function<void(const M&)> fn;
+    /// The object `rclcpp::Node::create_subscription` hands back. The executor
+    /// owns the real subscriber, so this is the ported source's
+    /// `rclcpp::Subscription<M>::SharedPtr member_;` keep-alive and nothing
+    /// more — see the note on `Node::create_subscription` in `nros/nros.hpp`.
+    ::nros::Subscription<M> handle;
+};
+
+} // namespace detail
+#endif // NROS_CPP_HAS_STD_FUNCTION
+
+} // namespace rclcpp
+
 #endif // NROS_CPP_SUBSCRIPTION_HPP

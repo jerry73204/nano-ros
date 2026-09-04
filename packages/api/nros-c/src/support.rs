@@ -373,7 +373,7 @@ pub unsafe extern "C" fn nros_support_init_rmw(
 /// # Safety
 /// * `support` must be a valid pointer to an initialized nros_support_t
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_support_fini(support: *mut nros_support_t) -> nros_ret_t {
+pub unsafe extern "C" fn rclc_support_fini(support: *mut nros_support_t) -> nros_ret_t {
     if support.is_null() {
         return NROS_RET_INVALID_ARGUMENT;
     }

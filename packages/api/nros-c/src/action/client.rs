@@ -165,7 +165,7 @@ impl Default for nros_action_client_t {
 
 /// Get a zero-initialized action client.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_action_client_get_zero_initialized() -> nros_action_client_t {
+pub extern "C" fn rcl_action_get_zero_initialized_client() -> nros_action_client_t {
     nros_action_client_t::default()
 }
 
@@ -230,7 +230,7 @@ pub struct nros_action_client_options_t {
 
 /// Get a zero-initialised [`nros_action_client_options_t`] (`sched_context = 0`).
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_action_client_get_default_options() -> nros_action_client_options_t {
+pub extern "C" fn rcl_action_client_get_default_options() -> nros_action_client_options_t {
     nros_action_client_options_t::default()
 }
 
@@ -366,7 +366,7 @@ pub unsafe extern "C" fn nros_action_client_wait_for_action_server(
             }
 
             loop {
-                crate::executor::nros_executor_spin_some(executor, 10_000_000);
+                crate::executor::rclc_executor_spin_some(executor, 10_000_000);
 
                 let exec = crate::executor::get_executor(&mut exec_t._opaque);
                 let core = match exec.action_client_core_mut(internal.arena_entry_index as usize) {
@@ -517,7 +517,7 @@ pub unsafe extern "C" fn nros_action_send_goal(
     let start_ns = crate::platform::get_time_ns();
     let timeout_ns: u64 = ACTION_BLOCKING_TIMEOUT_MS.saturating_mul(1_000_000);
     loop {
-        crate::executor::nros_executor_spin_some(executor, 10_000_000);
+        crate::executor::rclc_executor_spin_some(executor, 10_000_000);
         let flag = BLOCKING_ACCEPTED.load(Ordering::Acquire);
         if flag >= 0 {
             client_ref.goal_response_callback = orig_cb;
@@ -657,7 +657,7 @@ pub unsafe extern "C" fn nros_action_get_result(
     let start_ns = crate::platform::get_time_ns();
     let timeout_ns: u64 = ACTION_RESULT_TIMEOUT_MS.saturating_mul(1_000_000);
     loop {
-        crate::executor::nros_executor_spin_some(executor, 10_000_000);
+        crate::executor::rclc_executor_spin_some(executor, 10_000_000);
         let rlen = BLK_RESULT_LEN.load(Ordering::Acquire);
         if rlen >= 0 {
             client_ref.result_callback = orig_cb;
@@ -774,7 +774,7 @@ pub unsafe extern "C" fn nros_action_try_recv_feedback(
 /// Sends the goal request and returns immediately. The goal response
 /// (accepted/rejected) arrives via the goal_response_callback registered
 /// with `nros_action_client_set_goal_response_callback`, invoked during
-/// `nros_executor_spin_some`.
+/// `rclc_executor_spin_some`.
 ///
 /// The `goal_uuid` output is filled with the generated goal UUID on success.
 ///
@@ -824,7 +824,7 @@ pub unsafe extern "C" fn nros_action_send_goal_async(
 /// Sends the get_result request and returns immediately. The result
 /// arrives via the result_callback registered with
 /// `nros_action_client_set_result_callback`, invoked during
-/// `nros_executor_spin_some`.
+/// `rclc_executor_spin_some`.
 ///
 /// # Safety
 /// All pointers must be valid.
@@ -860,7 +860,7 @@ pub unsafe extern "C" fn nros_action_get_result_async(
 
 /// Set the goal response callback for async goal sending.
 ///
-/// Called during `nros_executor_spin_some` when the server accepts or
+/// Called during `rclc_executor_spin_some` when the server accepts or
 /// rejects a goal sent via `nros_action_send_goal_async`.
 ///
 /// # Safety
@@ -883,7 +883,7 @@ pub unsafe extern "C" fn nros_action_client_set_goal_response_callback(
 
 /// Poll the action client for pending async replies (non-blocking).
 ///
-/// **Note**: In the unified design (77.6+), `nros_executor_spin_some` already
+/// **Note**: In the unified design (77.6+), `rclc_executor_spin_some` already
 /// dispatches `action_client_raw_try_process` which invokes callbacks. This
 /// function is provided for manual polling outside the executor loop.
 ///
@@ -1098,7 +1098,7 @@ pub unsafe extern "C" fn nros_action_client_init_polling(
     #[cfg(feature = "rmw-cffi")]
     {
         // Phase 156 Sub-bug D — multi-Session dispatch (see
-        // `nros_publisher_init`).
+        // `rclc_publisher_init_default`).
         let (session, domain_id) = match crate::node::resolve_session_and_domain(node_ref) {
             Some(t) => t,
             None => return NROS_RET_NOT_INIT,
@@ -1589,7 +1589,7 @@ mod verification {
     fn action_client_init_null_ptrs() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let node = crate::node::nros_node_get_zero_initialized();
+        let node = crate::node::rcl_get_zero_initialized_node();
 
         // NULL client
         assert_eq!(
@@ -1605,7 +1605,7 @@ mod verification {
         );
 
         // NULL node
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe {
                 nros_action_client_init(
@@ -1619,14 +1619,14 @@ mod verification {
         );
 
         // NULL action_name
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe { nros_action_client_init(&mut cli, &node, ptr::null(), &type_info) },
             NROS_RET_INVALID_ARGUMENT,
         );
 
         // NULL type_info
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe {
                 nros_action_client_init(
@@ -1645,9 +1645,9 @@ mod verification {
     fn action_client_init_uninit_node() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let node = crate::node::nros_node_get_zero_initialized();
+        let node = crate::node::rcl_get_zero_initialized_node();
 
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe {
                 nros_action_client_init(
@@ -1664,7 +1664,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     fn action_client_zero_initialized_state() {
-        let cli = nros_action_client_get_zero_initialized();
+        let cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             cli.state,
             nros_action_client_state_t::NROS_ACTION_CLIENT_STATE_UNINITIALIZED,
@@ -1686,7 +1686,7 @@ mod verification {
         );
 
         // UNINITIALIZED → NOT_INIT
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe { nros_action_client_fini(&mut cli) },
             NROS_RET_NOT_INIT,
@@ -1706,7 +1706,7 @@ mod verification {
         );
 
         // NULL goal
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe { nros_action_send_goal(&mut cli, ptr::null(), 0, &mut uuid) },
             NROS_RET_INVALID_ARGUMENT,
@@ -1743,7 +1743,7 @@ mod verification {
         );
 
         // NULL uuid
-        let mut cli = nros_action_client_get_zero_initialized();
+        let mut cli = rcl_action_get_zero_initialized_client();
         assert_eq!(
             unsafe {
                 nros_action_get_result(

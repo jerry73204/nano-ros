@@ -26,7 +26,7 @@
 #include <memory>
 #include <thread>
 
-#include <rclcpp/rclcpp.hpp>                           // → nros/rclcpp_compat.hpp
+#include <rclcpp/rclcpp.hpp>                           // → nros/nros.hpp
 #include <diagnostic_updater/diagnostic_updater.hpp>   // → 209.D shim
 
 // nano-ros codegen umbrella for std_msgs (Int32 lives here).
