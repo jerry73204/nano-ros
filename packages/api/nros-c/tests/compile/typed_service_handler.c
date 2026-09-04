@@ -181,25 +181,6 @@ static nros_ret_t drive_typed_client(void) {
 
 static void (*const k_report_error)(int32_t, const char*) = nros_service_typed_report_error;
 
-/* ===================================================================
- * 5. The retired stub. `nros_service_take_request()` used to be a permanent
- * `NROS_RET_NOT_INIT` — it is now a deprecated `static inline` forwarder onto
- * `nros_service_take_request_raw()`, so the un-suffixed name works instead of
- * merely existing. Naming it is supposed to WARN, so the warning is suppressed
- * here (it would be noise on a passing gate) and asserted separately by
- * `service_deprecation_probe.c`.
- * =================================================================== */
-
-#ifndef NROS_NO_DEPRECATED_SERVICE_ALIASES
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-
-static nros_ret_t (*const k_take_request)(struct nros_service_t*, uint8_t*, size_t, size_t*,
-                                          int64_t*) = nros_service_take_request;
-
-#pragma GCC diagnostic pop
-#endif /* NROS_NO_DEPRECATED_SERVICE_ALIASES */
-
 /* Reference everything so no compiler prunes the lookups this file exists to
  * force. */
 const void* nros_typed_service_anchors[] = {
@@ -209,7 +190,4 @@ const void* nros_typed_service_anchors[] = {
     (const void*)(const void* const*)&bring_up_typed_service,
     (const void*)(const void* const*)&typed_service_is_healthy,
     (const void*)(const void* const*)&drive_typed_client,
-#ifndef NROS_NO_DEPRECATED_SERVICE_ALIASES
-    (const void*)&k_take_request,
-#endif
 };
