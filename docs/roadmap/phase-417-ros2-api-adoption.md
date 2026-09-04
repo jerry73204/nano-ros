@@ -1,8 +1,21 @@
 # Phase 417 — ROS 2 user-API adoption
 
-**Status (2026-09-04). Planning. Implements RFC-0087.** No work item has
-started. Stage 0 is a prerequisite for measuring any of the others, so it is
-also the first thing to land.
+**Status (2026-09-04). In flight. Implements RFC-0087.** Stages 0, 1 and 2b are
+LANDED, and so is the correction track (issues 1012 and 1022 resolved, 92 rows).
+Stage 1's acceptance is met: `cpp-port-minimal-publisher/src/minimal_publisher.cpp`
+is upstream's file again. Stages 2 (node surface), 3 (loudness), 4 (cross-language)
+and 5 (C) are open; stage 6 (the rename) is gated on stage 3 AND on the structural
+blocker below.
+
+**What stage 0 revealed, and it reframes the phase.** Admitting the compat shim as
+a fourth TU made the ported surface look better — `same` 84 → 110 — while the
+defects were unchanged. `ParametersQoS` and `NodeOptions::use_intra_process_comms`
+now correlate `same`: the first returns `QoS(10)` where upstream is `KEEP_LAST,
+1000`, the second stores its argument and is never read. Correlation compares names
+and shapes and neither differs, so **the instrument cannot see the defect it is
+measuring.** A row can be `same` by shape and `refuse-loud` by disposition at once,
+which is why `disposition` is not bookkeeping — it is the only thing between a
+compatibility number and a false one.
 
 Goal: a ROS 2 node written against rclcpp / rclc / rclrs compiles and behaves
 against nano-ros, or fails loudly. **End state is that our API carries ROS 2's
