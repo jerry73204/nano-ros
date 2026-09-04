@@ -296,10 +296,12 @@ typedef struct nros_support_t rclc_support_t;
  * So a C reorder is silent-by-default for exactly the callers it must not be
  * silent for — out-of-tree consumers, who do not build with our flags. A
  * rename makes the stale call fail on the IDENTIFIER, which C does diagnose
- * fatally. The old `nros_node_init` survives as an `NROS_DEPRECATED_MSG`
- * `static inline` in `<nros/node.h>` that names each parameter and forwards in
- * the old order; it is deliberately not a macro, because a macro would forward
- * positionally and silently build a node with its name in the support slot.
+ * fatally. Step B retired the old `nros_node_init` forwarder, so that is now
+ * the ONLY diagnostic a stale call gets — an unknown identifier, not a
+ * deprecation naming its replacement. The reorder is the reason the identifier
+ * had to change at all: had the name been kept, a stale four-argument call
+ * would still compile with a warning and build a node with its name in the
+ * support slot.
  *
  * TWO of rclc's six `_init_default` constructors were refused here as recently
  * as stage 5 and are now native, because the reason was withdrawn rather than

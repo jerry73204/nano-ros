@@ -201,10 +201,10 @@ pub extern "C" fn rcl_subscription_get_default_options() -> nros_subscription_op
 /// 2026-09-04). It costs a ported call site nothing — the argument comes from
 /// our codegen either way.
 ///
-/// The deprecated six-argument `nros_subscription_init` survives as an
-/// `NROS_DEPRECATED_MSG` `static inline` in `<nros/subscription.h>`; it
-/// forwards to [`nros_subscription_init_with_qos`], which still carries the
-/// callback, so the old behaviour is preserved exactly.
+/// The six-argument `nros_subscription_init` is GONE (phase-417 stage 6 step
+/// B retired it). Its behaviour is not: [`nros_subscription_init_with_qos`]
+/// still carries the callback in the old positions, so a caller who needs the
+/// old shape names that instead.
 ///
 /// # Parameters
 /// * `subscription` - Pointer to a zero-initialized subscription
