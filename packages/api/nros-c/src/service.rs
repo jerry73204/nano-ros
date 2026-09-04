@@ -851,7 +851,10 @@ unsafe fn bounded_cstr(ptr: *const c_char, max: usize) -> &'static [u8] {
     while len < max && *ptr.add(len) != 0 {
         len += 1;
     }
-    core::slice::from_raw_parts(ptr, len)
+    // `c_char` is `i8` on x86_64/aarch64-linux and `u8` on some targets, so the
+    // pointer must be re-cast rather than assumed: `from_raw_parts::<u8>` on a
+    // `*const c_char` compiles on exactly one of them.
+    core::slice::from_raw_parts(ptr.cast::<u8>(), len)
 }
 
 /// Report a typed service/client glue failure as an `ERROR` log record.
