@@ -1463,6 +1463,12 @@ pub struct Executor<'s> {
     /// image; every monitor path below folds away).
     pub(crate) monitor_table: &'static [super::monitor::MonitorSpec],
     pub(crate) monitor_states: [super::monitor::MonitorState; super::monitor::MAX_MONITORS],
+    /// Dispatches per SchedContext, for alive supervision. Counted in the
+    /// dispatch path where the SC index is already resolved, and read once
+    /// per monitor tick. A fixed array like `monitor_states`, not an arena
+    /// allocation: MAX_SC is a build-time constant (8 by default).
+    pub(crate) sc_dispatches: [u32; crate::config::MAX_SC],
+    pub(crate) alive_states: [super::monitor::AliveState; crate::config::MAX_SC],
     /// W3b.5 — baked subscriber age-contract table (empty = none).
     pub(crate) age_table: &'static [super::monitor::AgeMonitorSpec],
     pub(crate) age_states: [super::monitor::AgeState; super::monitor::MAX_MONITORS],
@@ -1725,6 +1731,8 @@ impl<'s> Executor<'s> {
             epoch_us_fn: super::types::default_epoch_us_fn(),
             monitor_table: &[],
             monitor_states: [super::monitor::MonitorState::default(); super::monitor::MAX_MONITORS],
+            sc_dispatches: [0; crate::config::MAX_SC],
+            alive_states: [super::monitor::AliveState::default(); crate::config::MAX_SC],
             age_table: &[],
             age_states: [super::monitor::AgeState::default(); super::monitor::MAX_MONITORS],
             fault_fn: None,
@@ -2743,6 +2751,44 @@ impl<'s> Executor<'s> {
             }
             if self.monitor_violations.push(v).is_err() {
                 self.monitor_violations_dropped = self.monitor_violations_dropped.saturating_add(1);
+            }
+        }
+    }
+
+    /// AUTOSAR-style ALIVE supervision: report a SchedContext that produced
+    /// no dispatch at all over a full window while declaring a period.
+    ///
+    /// Every other rule here fires when something happens and is wrong. This
+    /// one fires when nothing happens, which is the failure a watchdog
+    /// exists for and the one `rate-hierarchy-runtime` cannot see: that rule
+    /// counts publishes on an endpoint, so a callback that stops firing while
+    /// its topic is published from elsewhere leaves it satisfied.
+    fn check_alive_supervision(&mut self) {
+        let Some(now_us) = self.now_us() else {
+            // No clock, no windows. Silence here is honest: the rule cannot
+            // tell a stalled context from a fast one without time.
+            return;
+        };
+        let n = self.alive_states.len().min(self.sched_contexts.len());
+        for i in 0..n {
+            let period_us = match self.sched_contexts[i].as_ref() {
+                Some(sc) => sc.period_us.get().map(|nz| nz.get() as u64).unwrap_or(0),
+                None => continue,
+            };
+            let dispatches = self.sc_dispatches.get(i).copied().unwrap_or(0);
+            if let Some(v) = super::monitor::check_alive(
+                period_us,
+                dispatches,
+                &mut self.alive_states[i],
+                now_us,
+            ) {
+                if self.report_violations {
+                    super::monitor::log_violation(&v);
+                }
+                if self.monitor_violations.push(v).is_err() {
+                    self.monitor_violations_dropped =
+                        self.monitor_violations_dropped.saturating_add(1);
+                }
             }
         }
     }
@@ -7341,11 +7387,20 @@ impl<'s> Executor<'s> {
              sched_context_bindings: &[super::sched_context::SchedContextId],
              sched_contexts: &[Option<super::sched_context::SchedContext>],
              sporadic_states: &mut [Option<super::sched_context::SporadicState>],
+             sc_dispatches: &mut [u32],
              #[cfg(feature = "alloc")] sporadic_atomic_states: &[Option<(
                 portable_atomic_util::Arc<super::sched_context::AtomicSporadicState>,
                 OpaqueTimerHandle,
             )>]| {
                 let sc_idx = sched_context_bindings[desc_idx].0 as usize;
+                // Alive supervision counts EVERY dispatch, before the class
+                // gate below: a Fifo or time-triggered context can fall
+                // silent exactly as a sporadic one can, and the rule that
+                // notices must not be scoped to the class that happens to
+                // carry a budget.
+                if let Some(n) = sc_dispatches.get_mut(sc_idx) {
+                    *n = n.wrapping_add(1);
+                }
                 let sc_class = sched_contexts
                     .get(sc_idx)
                     .and_then(|s| s.as_ref())
@@ -7460,6 +7515,7 @@ impl<'s> Executor<'s> {
                             &self.sched_context_bindings[..],
                             &self.sched_contexts[..],
                             &mut self.sporadic_states[..],
+                            &mut self.sc_dispatches[..],
                             #[cfg(feature = "alloc")]
                             &self.sporadic_atomic_states[..],
                         );
@@ -7500,6 +7556,7 @@ impl<'s> Executor<'s> {
                             &self.sched_context_bindings[..],
                             &self.sched_contexts[..],
                             &mut self.sporadic_states[..],
+                            &mut self.sc_dispatches[..],
                             #[cfg(feature = "alloc")]
                             &self.sporadic_atomic_states[..],
                         );
@@ -7537,6 +7594,7 @@ impl<'s> Executor<'s> {
         self.check_timer_overruns();
         self.check_release_jitter_rule();
         self.check_stack_headroom_rule();
+        self.check_alive_supervision();
 
         // Process parameter services (outside the arena)
         #[cfg(feature = "param-services")]
