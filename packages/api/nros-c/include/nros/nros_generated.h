@@ -215,6 +215,41 @@ struct nros_goal_uuid_t;
 #define NROS_DOMAIN_ID_INHERIT UINT32_MAX
 
 /**
+ * Typed glue succeeded.
+ */
+#define NROS_SERVICE_TYPED_OK 0
+
+/**
+ * `<Req>_deserialize` rejected the request bytes — the request was malformed,
+ * truncated, or encoded by a peer whose schema disagrees. No reply is sent.
+ */
+#define NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE -1
+
+/**
+ * `<Resp>_serialize` did not fit the executor's reply buffer. No reply is
+ * sent — a truncated CDR payload is a wrong answer, not a partial one.
+ */
+#define NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE -2
+
+/**
+ * `<Req>_serialize` did not fit the scratch buffer the caller supplied to
+ * `<Srv>_client_send_request`. Nothing is sent.
+ */
+#define NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE -3
+
+/**
+ * `<Resp>_deserialize` rejected the reply bytes. The response struct is left
+ * zero-initialised rather than half-filled.
+ */
+#define NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE -4
+
+/**
+ * The handler struct reached the trampoline with no user callback installed —
+ * `<Srv>_service_handler_init` was skipped or the struct was re-zeroed.
+ */
+#define NROS_SERVICE_TYPED_ERR_NO_CALLBACK -5
+
+/**
  * Issue #227 — pass this as `domain_id` to `nros_support_init[_named]` to
  * request an EXPLICIT domain 0. Plain `0` is the UNSET sentinel (defers to
  * `ROS_DOMAIN_ID` env on hosted, then the baked/default rungs — the #206
@@ -844,7 +879,28 @@ typedef struct nros_clock_t {
 /**
  * Return type for nros C API functions.
  *
- * Compatible with rcl_ret_t for familiarity.
+ * NOT value-compatible with `rcl_ret_t` — only `OK` (0) agrees.
+ *
+ * CORRECTED 2026-09-04 (phase-417 W5.b). This said "Compatible with rcl_ret_t
+ * for familiarity", which is false for five of six shared codes: ours are
+ * NEGATIVE where rcl's are positive.
+ *
+ * | code | ours | rcl |
+ * | --- | ---: | ---: |
+ * | OK | 0 | 0 |
+ * | ERROR | -1 | 1 |
+ * | TIMEOUT | -2 | 2 |
+ * | UNSUPPORTED | -16 | 3 |
+ * | INVALID_ARGUMENT | -3 | 11 |
+ * | NOT_INIT | -7 | 101 |
+ *
+ * A ported `if (ret == RCL_RET_TIMEOUT)` compiled against the old comment and
+ * never matched — the "compiles and differs" shape RFC-0087 forbids, arriving
+ * through a doc comment rather than a signature.
+ *
+ * `<nros/rcl_compat.h>` maps rcl's constant SPELLINGS onto these values. The
+ * values are deliberately NOT renumbered: doing so would silently flip the
+ * meaning of every stored return code across the C, C++ and Rust FFI seams.
  */
 typedef int nros_ret_t;
 
@@ -2016,6 +2072,36 @@ typedef struct nros_node_options_t {
    */
   uint8_t _reserved[3];
 } nros_node_options_t;
+
+/**
+ * phase-417 W5.a — the deserialiser handed to
+ * [`nros_executor_add_subscription_typed`].
+ *
+ * Writes the CDR bytes at `buffer[..buffer_size]` into `msg`, which is storage
+ * the CALLER owns. Returns `0` on success, non-zero on failure. This is the
+ * type-erased form of the generated `<Msg>_deserialize`, which already has
+ * exactly this contract; generated headers emit a `<Msg>_deserialize_erased`
+ * with this signature so no call goes through a cast function pointer.
+ */
+typedef int32_t (*nros_message_deserialize_fn_t)(void *msg,
+                                                 const uint8_t *buffer,
+                                                 size_t buffer_size);
+
+/**
+ * phase-417 W5.a — a subscription callback that receives the DESERIALISED
+ * message, the shape rclc delivers
+ * (`rclc_subscription_callback_with_context_t`).
+ *
+ * `msg` is the caller's own storage, populated by this subscription's
+ * [`nros_message_deserialize_fn_t`] immediately before the call. It is valid
+ * for the duration of the call and is overwritten by the next dispatch — copy
+ * out anything retained.
+ *
+ * The `context` parameter is why this is the analog of rclc's
+ * *with-context* callback rather than its bare `void (*)(const void *)`: C has
+ * no closures and every other callback in this API already carries one.
+ */
+typedef void (*nros_typed_subscription_callback_t)(const void *msg, void *context);
 
 /**
  * Subscription callback that also receives the sample's wire **attachment**
@@ -4621,6 +4707,112 @@ nros_ret_t nros_executor_add_subscription(struct nros_executor_t *executor,
                                           enum nros_executor_handle_invocation_t invocation);
 
 /**
+ * phase-417 W5.a (RFC-0087 stage 5) — add a subscription that delivers a
+ * **deserialised message** into storage the CALLER owns.
+ *
+ * The rclc-shaped registration:
+ *
+ * ```c
+ * rclc_executor_add_subscription(&exec, &sub, &msg, &cb, ON_NEW_DATA);
+ * rclc_executor_add_subscription_with_context(&exec, &sub, &msg, &cb, &ctx, ON_NEW_DATA);
+ * nros_executor_add_subscription_typed(&exec, &sub, &msg, MyMsg_deserialize_erased,
+ *                                      &cb, &ctx, NROS_EXECUTOR_ON_NEW_DATA);
+ * ```
+ *
+ * One argument more than rclc's, and it is the only one: `nros_message_type_t`
+ * carries a type NAME and a type HASH and no deserialiser, so the function
+ * that writes this type into `msg` has to arrive from somewhere. Generated
+ * headers collapse it away, so a ported line is rclc's six arguments in rclc's
+ * order:
+ * `MyMsg_executor_add_subscription(&exec, &sub, &msg, &cb, &ctx, NROS_EXECUTOR_ON_NEW_DATA)`.
+ *
+ * The CONTEXT-LESS `rclc_executor_add_subscription` (a `void (*)(const void*)`
+ * callback) is deliberately absent: adapting it needs a trampoline that
+ * remembers the original function pointer, and state in the wrapper is
+ * RFC-0019/0020's violation rather than an ergonomic. `nros/rcl_compat.h`
+ * records the same refusal.
+ *
+ * **No allocator is involved, and none is needed.** The caller owning the
+ * storage IS the mechanism — the same one rclc uses. The C ledger recorded our
+ * byte-oriented delivery as forced by "no allocator"; the compared surface
+ * operates under the same constraint, so the stated reason was refuted by the
+ * thing it was compared against (issue 1022, W-C3).
+ *
+ * The byte-oriented [`nros_executor_add_subscription`] is untouched and stays.
+ * This is additive; a raw subscriber is a legitimate thing to want.
+ *
+ * # What the callback sees when decoding fails
+ * **Nothing — it is not called.** A non-zero return from `deserialize` drops
+ * the sample, leaves `msg` as it was, counts a `subscription_errors` in the
+ * spin result, and emits a rate-limited `nros_log` error naming the sample
+ * length and the return code. Dispatching anyway would hand the callback the
+ * PREVIOUS message under the impression it was the new one, which is exactly
+ * the "compile and differ" RFC-0087 forbids.
+ *
+ * A message too large for the caller's storage arrives here as that same
+ * failure and never as a truncation: a bounded string whose wire length
+ * exceeds its declared capacity fails in `nros_cdr_read_string`
+ * (`str_len > max_len`), and a bounded sequence fails on
+ * `len > capacity` — both return `-1` rather than writing a short value.
+ *
+ * # The subscription's own callback and context are not used on this path
+ * `subscription->callback` and `subscription->context` (given to
+ * `nros_subscription_init`) belong to the RAW registration and are **not read
+ * here**: the typed callback and its `context` are supplied at registration,
+ * exactly as rclc's `rclc_executor_add_subscription_with_context` does. Taking
+ * the context from two places would be two sources for one value and therefore
+ * a place for them to disagree.
+ *
+ * What IS read from the subscription is what describes the ENTITY — topic,
+ * type name, type hash, QoS, node binding, and the scheduling context
+ * requested via `nros_subscription_init_with_options`.
+ *
+ * `nros_subscription_init` currently rejects a NULL callback, so a typed-only
+ * user must still pass one that never fires. That belongs to
+ * `nros/subscription.h`'s owner, not here; see the W5.a report.
+ *
+ * # Safety
+ * * `executor` and `subscription` must be valid, initialised objects.
+ * * `msg` must point to writable storage of the type `deserialize` writes, and
+ *   must stay valid for as long as the subscription is registered. Nothing
+ *   here allocates it, copies it, or frees it.
+ */
+NROS_PUBLIC
+nros_ret_t nros_executor_add_subscription_typed(struct nros_executor_t *executor,
+                                                struct nros_subscription_t *subscription,
+                                                void *msg,
+                                                nros_message_deserialize_fn_t deserialize,
+                                                nros_typed_subscription_callback_t callback,
+                                                void *context,
+                                                enum nros_executor_handle_invocation_t invocation);
+
+/**
+ * phase-417 W5.a — [`nros_executor_add_subscription_typed`] with the
+ * receive-buffer hint stated by the caller.
+ *
+ * `rx_bytes` is the same hint the raw path takes (issue 0896 / phase-403 W5):
+ * the bytes this subscription expects to receive, sizing BOTH the backend's
+ * payload size class and the executor's arena slot. `0` means "this caller
+ * states nothing" and falls back to the image default — never a claim of zero
+ * bytes. A typed caller normally HAS the number, because its message type
+ * computes one (`<Msg>_RX_MAX_SERIALIZED_SIZE`), which is why the generated
+ * macro passes it and the plain form above exists only for a type with no
+ * bound.
+ *
+ * # Safety
+ * See [`nros_executor_add_subscription_typed`].
+ */
+NROS_PUBLIC
+nros_ret_t nros_executor_add_subscription_typed_sized(struct nros_executor_t *executor,
+                                                      struct nros_subscription_t *subscription,
+                                                      void *msg,
+                                                      nros_message_deserialize_fn_t deserialize,
+                                                      nros_typed_subscription_callback_t callback,
+                                                      void *context,
+                                                      enum nros_executor_handle_invocation_t invocation,
+                                                      uint32_t rx_bytes);
+
+/**
  * Phase 189.M3.4 — register a raw subscription whose callback also receives
  * the sample's wire **attachment** (the C analog of the Rust
  * `node.subscription(t).generic(..).message_info()` builder; rclc's
@@ -5437,6 +5629,137 @@ NROS_PUBLIC const char *nros_node_get_serialization_format(const struct nros_nod
 NROS_PUBLIC const void *nros_node_get_logger(const struct nros_node_t *node);
 
 /**
+ * Is this node handle usable?
+ *
+ * rcl's `rcl_node_is_valid`. We already had `nros_node_state_t` and
+ * `nros_support_is_valid` for the support object; the node had no predicate
+ * that read its own state, which is the whole of gap `c:node_is_valid`.
+ *
+ * Two questions, both answered, because either one alone is a lie:
+ *
+ * * the handle's own state is `INITIALIZED` — `nros_node_fini` sets
+ *   `SHUTDOWN`, so a finalised node reports false; and
+ * * the executor slot it is bound to still carries the generation it was
+ *   bound at (phase-379 W4). C has no move semantics, so
+ *   `nros_node_t copy = original;` is legal and silent — the copy keeps
+ *   `state == INITIALIZED` after the original is finalised, and only the
+ *   generation catches that.
+ *
+ * A legacy (`nros_node_init`) node is not executor-bound, so only the first
+ * question applies to it.
+ *
+ * # Safety
+ * * `node` must be NULL or point to a valid `nros_node_t`.
+ */
+NROS_PUBLIC bool nros_node_is_valid(const struct nros_node_t *node);
+
+/**
+ * The ROS domain this node's entities are declared on.
+ *
+ * rcl's `rcl_node_get_domain_id(node, size_t *domain_id)`. Gap
+ * `c:node_get_domain_id` records why it was missing: the domain is an INPUT
+ * to `nros_support_init` and could not be read back, while on a device the
+ * value that actually won came from the boot ladder.
+ *
+ * So this forwards to [`resolve_session_and_domain`] — the one place the
+ * ladder is decoded (per-node override → C-ABI byte → the session's own
+ * domain). Re-deriving it here is precisely issue 0972's defect: the same
+ * decode at a third call site, where `NROS_DOMAIN_ID_EXPLICIT_ZERO` (255)
+ * reads as an out-of-range domain and plain `0` reads as domain 0 rather
+ * than "unset".
+ *
+ * Out-param + status rather than a bare return, because this genuinely can
+ * fail to answer — an uninitialised support context, a retired node slot, or
+ * a domain byte above `DOMAIN_ID_MAX` all have no domain to report, and
+ * `0` is a legal domain that must not stand in for any of them.
+ *
+ * Returns `NROS_RET_UNSUPPORTED` in a build with no RMW (`rmw-cffi` off):
+ * there is no session, so there is no resolved domain to read.
+ *
+ * # Safety
+ * * `node` must be NULL or point to a valid `nros_node_t`.
+ * * `domain_id` must be NULL or writable.
+ */
+NROS_PUBLIC nros_ret_t nros_node_get_domain_id(const struct nros_node_t *node, uint32_t *domain_id);
+
+/**
+ * The node's namespace and name as one string — `/ns/name`, the form that
+ * appears on the wire.
+ *
+ * rcl's `rcl_node_get_fully_qualified_name`. Gap
+ * `c:node_get_fully_qualified_name` records that we exposed
+ * `nros_node_get_name` and `nros_node_get_namespace` separately and never
+ * their composition.
+ *
+ * The composition is NOT written here. It is `nros_node::names::expand_name`
+ * with the private-name source `~`, which is by definition
+ * `/<ns>/<node>` — the same seam every entity name on this node goes
+ * through (`Executor::resolve_entity_name_for`), so a node's FQN and its
+ * entities' FQNs can never disagree about namespace normalisation. A second
+ * `push(namespace); push('/'); push(name)` in the C layer is exactly
+ * RFC-0020's violation class 4 (name construction in a wrapper), and it is
+ * what the four sibling implementations of this already spelled differently.
+ *
+ * **Divergence from rcl, deliberate:** rcl returns `const char *` into
+ * node-owned storage. We have no allocator and the node struct holds no
+ * composed buffer, so the caller supplies one. `NROS_RET_FULL` when it is
+ * too small — a truncated FQN names a different node.
+ *
+ * # Safety
+ * * `node` must be NULL or point to a valid `nros_node_t`.
+ * * `output_name` must be NULL or writable for `output_size` bytes.
+ */
+NROS_PUBLIC
+nros_ret_t nros_node_get_fully_qualified_name(const struct nros_node_t *node,
+                                              char *output_name,
+                                              size_t output_size);
+
+/**
+ * Expand `input_name` against this node's namespace and apply its remap
+ * rules — what a topic or service name a caller builds at runtime will
+ * actually become on the wire.
+ *
+ * rcl's `rcl_node_resolve_name`. Gap `c:node_resolve_name` records the
+ * reason it was missing: our names are resolved at codegen/launch time
+ * (RFC-0046), so a C caller constructing one dynamically had no way to ask.
+ *
+ * Forwards to `Executor::resolve_entity_name_for` — the identical call the
+ * registration paths in `executor.rs` make for every publisher,
+ * subscription, service and action. That is the point: this answers what
+ * creating the entity WOULD do, not what a parallel implementation thinks
+ * it would do.
+ *
+ * `only_expand` is rcl's own parameter and carries rcl's meaning: `true`
+ * applies ROS 2 name expansion (`~`, relative → FQN) and ignores remap
+ * rules; `false` also applies them.
+ *
+ * **Remaps live on the executor, so `only_expand == false` needs an
+ * executor-bound node** (`nros_executor_node_init`). On the legacy
+ * `nros_node_init` path this returns `NROS_RET_NOT_INIT` rather than
+ * quietly expanding without the rules — silently dropping a routing rule is
+ * the failure this whole campaign exists to stop, and the caller who wants
+ * expansion alone can ask for it by passing `true`.
+ *
+ * **Divergences from rcl, both forced:** no `rcl_allocator_t` (we have no
+ * allocator, so the caller owns the buffer and `NROS_RET_FULL` reports a
+ * short one), and no `is_service` (it selects between rcl's topic- and
+ * service-name VALIDATORS, which we do not ship; taking the argument and
+ * ignoring it would be the inert-parameter defect RFC-0087 §"The hazard"
+ * names).
+ *
+ * # Safety
+ * * `node` must be NULL or point to a valid `nros_node_t`.
+ * * `input_name` must be NULL or a valid NUL-terminated C string.
+ * * `output_name` must be NULL or writable for `output_size` bytes.
+ */
+NROS_PUBLIC
+nros_ret_t nros_node_resolve_name(const struct nros_node_t *node,
+                                  const char *input_name,
+                                  bool only_expand,
+                                  char *output_name,
+                                  size_t output_size);
+
+/**
  * Get a zero-initialised [`nros_publisher_options_t`].
  *
  * All fields default to "inherit"/"none". Callers populate only the
@@ -5958,20 +6281,20 @@ nros_ret_t nros_service_send_response_raw(struct nros_service_t *service,
                                           size_t len);
 
 /**
- * Take a service request (non-blocking).
+ * Report a typed service/client glue failure as an `ERROR` log record.
  *
- * Currently not supported — service servers are callback-only through
- * the executor. Use `nros_executor_add_service()` with a callback instead.
+ * Called by the generated `static inline` trampolines. `error` is one of the
+ * `NROS_SERVICE_TYPED_ERR_*` codes above; `type_name` is the service type's
+ * own `<Srv>_get_type_name()`, so the record names the type without the
+ * generated header having to duplicate any string.
  *
- * # Returns
- * * `NROS_RET_NOT_INIT` always (manual poll not supported)
+ * Deliberately returns nothing and cannot fail: it is the loudness path, and
+ * a loudness path that itself has an error channel just moves the silence.
+ *
+ * # Safety
+ * `type_name` is NULL or a NUL-terminated string readable for its length.
  */
-NROS_PUBLIC
-nros_ret_t nros_service_take_request(struct nros_service_t *service,
-                                     uint8_t *_request_data,
-                                     size_t _request_capacity,
-                                     size_t *_request_len,
-                                     int64_t *_sequence_number);
+NROS_PUBLIC void nros_service_typed_report_error(int32_t error, const char *type_name);
 
 /**
  * Get the service name.
@@ -6870,6 +7193,90 @@ NROS_PUBLIC uint64_t nros_timer_get_period(const struct nros_timer_t *timer);
 NROS_PUBLIC
 uint64_t nros_timer_get_time_until_next_call(const struct nros_timer_t *timer,
                                              uint64_t current_time_ns);
+
+/**
+ * Has this timer been cancelled?
+ *
+ * rcl's `rcl_timer_is_canceled(timer, bool *)`. Gap `c:timer_is_canceled`
+ * records that our C timer had no cancel predicate under any spelling while
+ * C++ and Rust both did.
+ *
+ * Forwards to `Executor::timer_is_canceled` for a registered timer — the
+ * arena flag `arena::timer_try_process` actually consults, and the one
+ * `nros_timer_cancel` sets through `Executor::cancel_timer`. A timer that
+ * has been initialised but not yet added to an executor has no arena entry,
+ * so its own `nros_timer_state_t` is the whole truth and is read instead.
+ *
+ * # Returns
+ * * `NROS_RET_OK` with `*is_canceled` written
+ * * `NROS_RET_INVALID_ARGUMENT` if either pointer is NULL
+ * * `NROS_RET_NOT_INIT` if the timer is uninitialised or finalised
+ *
+ * # Safety
+ * * `timer` must be NULL or point to a valid `nros_timer_t`.
+ * * `is_canceled` must be NULL or writable.
+ */
+NROS_PUBLIC nros_ret_t nros_timer_is_canceled(const struct nros_timer_t *timer, bool *is_canceled);
+
+/**
+ * Would this timer fire on the next `nros_executor_spin_*` pass?
+ *
+ * rcl's `rcl_timer_is_ready(timer, bool *)`. Gap `c:timer_is_ready` records
+ * that Rust had the predicate and C did not.
+ *
+ * Forwards to `Executor::timer_is_ready`, which evaluates
+ * `arena::timer_try_process`'s own guard against the arena entry — cancelled
+ * is never ready, a fired one-shot is never ready again, otherwise
+ * `elapsed >= period`. Deliberately not re-derived here: a readiness answer
+ * that can disagree with the dispatcher is worse than no answer.
+ *
+ * # Returns
+ * * `NROS_RET_OK` with `*is_ready` written
+ * * `NROS_RET_INVALID_ARGUMENT` if either pointer is NULL
+ * * `NROS_RET_NOT_INIT` if the timer is uninitialised, finalised, or not
+ *   registered with an executor — an unregistered timer is dispatched by
+ *   nobody, so it has no readiness rather than a readiness of `false`
+ *
+ * # Safety
+ * * `timer` must be NULL or point to a valid `nros_timer_t`.
+ * * `is_ready` must be NULL or writable.
+ */
+NROS_PUBLIC nros_ret_t nros_timer_is_ready(const struct nros_timer_t *timer, bool *is_ready);
+
+/**
+ * Nanoseconds accumulated since this timer last fired.
+ *
+ * rcl's `rcl_timer_get_time_since_last_call(timer, int64_t *)`. Gap
+ * `c:timer_get_time_since_last_call` records that Rust had it and C did not.
+ *
+ * Forwards to `Executor::timer_elapsed_us`, the arena's `elapsed_us`
+ * counter. **This is why the accessor could not read `nros_timer_t` and had
+ * to reach the executor:** `nros_timer_t::last_call_time_ns` is written by
+ * `nros_timer_init` and `nros_timer_reset` and by nothing else — no
+ * dispatch path updates it — so a struct-local computation answers `0` for
+ * every timer that has ever fired.
+ *
+ * **Divergence from rcl, inherited:** the executor's timer accounting is
+ * MICROSECOND-based (issue #505), so the nanosecond value this reports is a
+ * microsecond quantity scaled by 1000, not a nanosecond measurement. The
+ * unit is rcl's; the resolution is ours. Unsigned because elapsed time
+ * since a past event cannot be negative, where rcl's `int64_t` inherits the
+ * signedness of its clock difference.
+ *
+ * # Returns
+ * * `NROS_RET_OK` with `*time_since_last_call_ns` written
+ * * `NROS_RET_INVALID_ARGUMENT` if either pointer is NULL
+ * * `NROS_RET_NOT_INIT` if the timer is uninitialised, finalised, or not
+ *   registered with an executor — nothing has been advancing its clock, so
+ *   there is no elapsed time rather than an elapsed time of zero
+ *
+ * # Safety
+ * * `timer` must be NULL or point to a valid `nros_timer_t`.
+ * * `time_since_last_call_ns` must be NULL or writable.
+ */
+NROS_PUBLIC
+nros_ret_t nros_timer_get_time_since_last_call(const struct nros_timer_t *timer,
+                                               uint64_t *time_since_last_call_ns);
 
 #ifdef __cplusplus
 }  // extern "C"

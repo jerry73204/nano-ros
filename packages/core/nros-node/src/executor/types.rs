@@ -892,6 +892,44 @@ impl core::fmt::Debug for Trigger {
 pub type RawSubscriptionCallback =
     unsafe extern "C" fn(data: *const u8, len: usize, context: *mut core::ffi::c_void);
 
+/// phase-417 W5.a — the deserialiser half of the TYPED C subscription path.
+///
+/// Writes the CDR bytes at `buffer[..buffer_size]` into `msg`, which is storage
+/// the CALLER owns and whose type only the caller knows. Returns `0` on success
+/// and non-zero on failure; the executor treats any non-zero as
+/// `TransportError::DeserializationError` and does NOT dispatch the callback.
+///
+/// This is the erased form of the generated `<Msg>_deserialize`, which already
+/// has exactly this contract — it writes into caller storage and returns
+/// `0`/`-1`. There is no allocator on this path and none is needed: caller-owned
+/// storage is the whole mechanism, which is also how rclc delivers a typed
+/// message without one.
+///
+/// # Safety
+/// `msg` must point to writable storage of the type this deserialiser was
+/// generated for; `buffer` is valid for `buffer_size` bytes during the call.
+pub type RawMessageDeserializeFn =
+    unsafe extern "C" fn(msg: *mut core::ffi::c_void, buffer: *const u8, buffer_size: usize) -> i32;
+
+/// phase-417 W5.a — a subscription callback that receives the DESERIALISED
+/// message rather than its CDR bytes.
+///
+/// `msg` is the caller-owned storage handed to the registration, populated by
+/// the [`RawMessageDeserializeFn`] for this subscription. It is valid for the
+/// duration of the call and is overwritten by the next dispatch; anything the
+/// callback retains must be copied out.
+///
+/// The `context` parameter is what makes this the analog of rclc's
+/// `rclc_subscription_callback_with_context_t` rather than its context-free
+/// `rclc_subscription_callback_t` — C has no closures, and every other callback
+/// in this API already carries one, so dropping it would have been the odd
+/// shape rather than the faithful one.
+///
+/// # Safety
+/// `msg` points to the caller's storage, valid during the call only.
+pub type TypedSubscriptionCallback =
+    unsafe extern "C" fn(msg: *const core::ffi::c_void, context: *mut core::ffi::c_void);
+
 /// Raw subscription callback that also receives the incoming sample's
 /// wire-level attachment (Phase 189.M3.4 — the C analog of the Rust
 /// `FnMut(&[u8], &RawMessageInfo)` builder path). `attachment` is valid

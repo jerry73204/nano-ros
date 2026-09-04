@@ -177,6 +177,62 @@ static inline nros_ret_t fingerprint_corpus_msg_bounded_publish(struct nros_publ
         (node), (topic), (cb), (ctx), (out_handle), \
         FINGERPRINT_CORPUS_MSG_BOUNDED_RX_MAX_SERIALIZED_SIZE)
 
+
+/// phase-417 W5.a — the TYPED delivery glue: the callback receives a
+/// deserialised Bounded, not CDR bytes.
+///
+/// `fingerprint_corpus_msg_bounded_deserialize` already writes into caller-owned storage and
+/// returns 0/-1 — the executor's typed path needs exactly that, with the type
+/// erased. This is a real function with the erased signature rather than a cast
+/// of `fingerprint_corpus_msg_bounded_deserialize`: calling through a function pointer of a
+/// different type is undefined even where it happens to work, and a
+/// control-flow-integrity build traps on it.
+static inline int32_t fingerprint_corpus_msg_bounded_deserialize_erased(void* msg, const uint8_t* buffer,
+                                                           size_t buffer_size) {
+    return fingerprint_corpus_msg_bounded_deserialize((fingerprint_corpus_msg_bounded*)msg, buffer, buffer_size);
+}
+
+/// rclc-shaped typed registration for Bounded.
+///
+///     rclc_executor_add_subscription_with_context(&exec, &sub, &msg, &cb, &ctx, ON_NEW_DATA);
+///     fingerprint_corpus_msg_bounded_executor_add_subscription(&exec, &sub, &msg, &cb, &ctx,
+///                                                 NROS_EXECUTOR_ON_NEW_DATA);
+///
+/// Six arguments, rclc's order. The deserialiser and the receive-buffer hint are
+/// derived from the ONE type token, so they cannot disagree with each other or
+/// with the type — the same argument `fingerprint_corpus_msg_bounded_subscribe` above makes
+/// for the raw path.
+///
+/// `cb` is an `nros_typed_subscription_callback_t`:
+/// `void (*)(const void* msg, void* context)`, rclc's
+/// `rclc_subscription_callback_with_context_t`. Cast `msg` to
+/// `const fingerprint_corpus_msg_bounded*` and read FIELDS; there is no CDR in a ported
+/// callback body. `ctx` is passed straight through — it is NOT the context
+/// given to `nros_subscription_init`, which belongs to the raw registration.
+///
+/// If the sample cannot be decoded into `msg` — including a string or sequence
+/// longer than the bound this type declares — the callback is NOT invoked, the
+/// sample is dropped, and the spin reports a subscription error. It never sees a
+/// truncated message.
+///
+/// A MACRO for the reason `fingerprint_corpus_msg_bounded_subscribe` is one: it expands at
+/// the CALL SITE, where <nros/executor.h> is already included, so this header
+/// keeps its single include of <nros/types.h> and names nothing from the
+/// executor ABI until the macro is actually used.
+#define fingerprint_corpus_msg_bounded_executor_add_subscription_sized(executor, subscription, msg, cb, ctx, \
+                                                          invocation, rx_bytes) \
+    nros_executor_add_subscription_typed_sized( \
+        (executor), (subscription), (msg), fingerprint_corpus_msg_bounded_deserialize_erased, (cb), (ctx), \
+        (invocation), (uint32_t)(rx_bytes))
+
+/// The six-argument form, with the receive-buffer hint this type computes for
+/// itself — max(XCDR1, XCDR2), because a non-default peer may negotiate either.
+#define fingerprint_corpus_msg_bounded_executor_add_subscription(executor, subscription, msg, cb, ctx, \
+                                                    invocation) \
+    fingerprint_corpus_msg_bounded_executor_add_subscription_sized( \
+        (executor), (subscription), (msg), (cb), (ctx), (invocation), \
+        FINGERPRINT_CORPUS_MSG_BOUNDED_RX_MAX_SERIALIZED_SIZE)
+
 #ifdef __cplusplus
 }
 #endif

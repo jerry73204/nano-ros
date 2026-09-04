@@ -2059,6 +2059,76 @@ fn test_timer_repeats() {
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
 
+/// phase-417 W5.c — `timer_is_ready` / `timer_elapsed_us` must report what the
+/// DISPATCHER is about to do, not a second opinion about it.
+///
+/// These two exist because the C accessors `nros_timer_is_ready` and
+/// `nros_timer_get_time_since_last_call` were filed as gaps: the state was
+/// already in the arena and nothing exposed it. The risk in exposing it is a
+/// readiness answer that drifts from `arena::timer_try_process`'s own guard,
+/// so the assertion here is agreement — not-yet-due, due, and due-again after
+/// a fire — plus the `None` that a non-timer handle must produce, since a
+/// `false` there would report a live timer as merely not ready.
+#[test]
+fn timer_readiness_and_elapsed_agree_with_the_dispatcher() {
+    let session = MockSession::new();
+    let mut executor: Executor = executor_with_clock(session);
+
+    // Bounds, not equalities, on the elapsed readings: `spin_once` credits the
+    // REAL wall-clock cost of the spin on top of the injected delta (see its
+    // note on the timer delta), so a driven timer runs a little ahead of the
+    // nominal schedule. The lower bound is the assertion — an upper-bound-only
+    // check passes a counter that never advanced.
+    let id = executor
+        .register_timer(TimerDuration::from_millis(100), || {})
+        .unwrap();
+
+    assert_eq!(executor.timer_elapsed_us(id), Some(0));
+    assert_eq!(executor.timer_is_ready(id), Some(false));
+
+    // Short of the period: elapsed advances, readiness does not.
+    let result = elapse_then_spin_once(&mut executor, 40);
+    assert_eq!(result.timers_fired, 0);
+    let elapsed = executor.timer_elapsed_us(id).unwrap();
+    assert!(
+        (40_000..50_000).contains(&elapsed),
+        "one 40ms step: {elapsed}us"
+    );
+    assert_eq!(executor.timer_is_ready(id), Some(false));
+
+    let result = elapse_then_spin_once(&mut executor, 40);
+    assert_eq!(result.timers_fired, 0, "80ms is short of the 100ms period");
+    let elapsed = executor.timer_elapsed_us(id).unwrap();
+    assert!(
+        (80_000..95_000).contains(&elapsed),
+        "two 40ms steps: {elapsed}us"
+    );
+    assert_eq!(executor.timer_is_ready(id), Some(false));
+
+    let result = elapse_then_spin_once(&mut executor, 40);
+    assert_eq!(result.timers_fired, 1, "120ms >= 100ms period");
+    // The activation rewound `elapsed_us` by one period, and that rewind is
+    // exactly what "time since last call" means: the reading must drop below
+    // the period rather than keep climbing.
+    let elapsed = executor.timer_elapsed_us(id).unwrap();
+    assert!(
+        (20_000..40_000).contains(&elapsed),
+        "the fire must rewind by one period: {elapsed}us"
+    );
+    assert_eq!(executor.timer_is_ready(id), Some(false));
+
+    // A cancelled timer is never ready, however much time has passed.
+    executor.cancel_timer(id).unwrap();
+    let _ = elapse_then_spin_once(&mut executor, 500);
+    assert_eq!(executor.timer_is_ready(id), Some(false));
+    assert!(executor.timer_is_canceled(id));
+
+    // A handle that is not a timer has no answer, which is not `false`.
+    let not_a_timer = HandleId(id.0 + 1);
+    assert_eq!(executor.timer_elapsed_us(not_a_timer), None);
+    assert_eq!(executor.timer_is_ready(not_a_timer), None);
+}
+
 #[test]
 fn test_timer_oneshot_fires_once() {
     let session = MockSession::new();
@@ -3067,6 +3137,223 @@ fn test_raw_subscription_info_callback() {
     assert_eq!(INFO_LEN.load(std::sync::atomic::Ordering::SeqCst), len);
     // MockSubscriber has no native attachment ⇒ default 0-length attachment.
     assert_eq!(INFO_ATT_LEN.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+// ====================================================================
+// phase-417 W5.a — TYPED C subscription delivery (caller-owned storage)
+//
+// rclc hands the callback a DESERIALISED message on a path with no
+// allocator, by making the caller own the storage. These two tests pin
+// both halves of that contract: the success path writes into the
+// caller's struct and dispatches, and the failure path does NOT — it
+// drops the sample and reports it, rather than handing the callback
+// storage that still holds the previous message.
+// ====================================================================
+
+/// Caller-owned storage, the shape a generated `<Msg>` struct has.
+#[repr(C)]
+struct TypedProbeMsg {
+    value: i32,
+    /// Written by the deserialiser so the test can prove the CDR bytes
+    /// reached it, not just that something was called.
+    decoded_len: usize,
+}
+
+/// The erased form of a generated `<Msg>_deserialize`: writes into caller
+/// storage, returns 0 / non-zero.
+unsafe extern "C" fn typed_probe_deserialize(
+    msg: *mut core::ffi::c_void,
+    buffer: *const u8,
+    buffer_size: usize,
+) -> i32 {
+    let bytes = unsafe { core::slice::from_raw_parts(buffer, buffer_size) };
+    let Ok(mut reader) = CdrReader::new_with_header(bytes) else {
+        return -1;
+    };
+    let Ok(value) = reader.read_i32() else {
+        return -1;
+    };
+    let out = unsafe { &mut *(msg as *mut TypedProbeMsg) };
+    out.value = value;
+    out.decoded_len = buffer_size;
+    0
+}
+
+/// A deserialiser that always refuses — stands in for a sample that does not
+/// fit the caller's storage (a string longer than its declared bound refuses
+/// exactly this way; `nros_cdr_read_string` errors on `str_len > max_len`
+/// rather than truncating).
+unsafe extern "C" fn typed_probe_deserialize_refuses(
+    _msg: *mut core::ffi::c_void,
+    _buffer: *const u8,
+    _buffer_size: usize,
+) -> i32 {
+    -1
+}
+
+static TYPED_CB_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static TYPED_CB_VALUE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static TYPED_CB_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static TYPED_CB_CTX_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The ported-rclc callback body: it reads FIELDS, and never CDR bytes.
+unsafe extern "C" fn typed_probe_callback(
+    msg: *const core::ffi::c_void,
+    context: *mut core::ffi::c_void,
+) {
+    let m = unsafe { &*(msg as *const TypedProbeMsg) };
+    TYPED_CB_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_VALUE.store(m.value, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_LEN.store(m.decoded_len, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_CTX_OK.store(!context.is_null(), std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn typed_c_subscription_delivers_into_caller_storage() {
+    let session = MockSession::new();
+    let mut executor: Executor = executor_with_clock(session);
+
+    TYPED_CB_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_VALUE.store(0, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+    TYPED_CB_CTX_OK.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // The caller owns this. Nothing in the executor allocates it, drops it, or
+    // copies it — that is the whole mechanism.
+    let mut storage = TypedProbeMsg {
+        value: 0,
+        decoded_len: 0,
+    };
+    let mut ctx: u32 = 0xC0FFEE;
+
+    let _id = unsafe {
+        executor.add_arena_subscription_c_typed_callback::<{ crate::config::DEFAULT_RX_BUF_SIZE }>(
+            None,
+            "/typed",
+            "test/msg/TestMsg",
+            "test_hash",
+            QoSProfile::default().keep_last(1),
+            core::ptr::NonNull::new(&mut storage as *mut TypedProbeMsg as *mut core::ffi::c_void)
+                .unwrap(),
+            typed_probe_deserialize,
+            typed_probe_callback,
+            &mut ctx as *mut u32 as *mut core::ffi::c_void,
+            None,
+            0,
+        )
+    }
+    .unwrap();
+
+    let (data, len) = encode_test_msg(4242);
+    let meta = executor.entries[0].as_ref().unwrap();
+    let arena_ptr = executor.arena.as_ptr() as *const u8;
+    unsafe {
+        let sub_ptr = arena_ptr.add(meta.offset) as *const MockSubscriber;
+        (*sub_ptr).load(data, len);
+    }
+
+    let result = executor.spin_once(core::time::Duration::from_millis(0));
+
+    assert_eq!(result.subscriptions_processed, 1);
+    assert_eq!(result.subscription_errors, 0);
+    assert_eq!(
+        TYPED_CB_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the typed callback must be dispatched exactly once per sample"
+    );
+    assert_eq!(
+        TYPED_CB_VALUE.load(std::sync::atomic::Ordering::SeqCst),
+        4242,
+        "the callback must see the DESERIALISED field, not CDR bytes"
+    );
+    assert_eq!(
+        TYPED_CB_LEN.load(std::sync::atomic::Ordering::SeqCst),
+        len,
+        "the deserialiser must have been handed the whole sample"
+    );
+    assert!(
+        TYPED_CB_CTX_OK.load(std::sync::atomic::Ordering::SeqCst),
+        "the caller's context must reach the callback"
+    );
+    // ...and the CALLER's storage is what was written, which is the claim that
+    // distinguishes this path from one that deserialises into an arena slot.
+    assert_eq!(storage.value, 4242);
+    assert_eq!(storage.decoded_len, len);
+}
+
+#[test]
+fn typed_c_subscription_refused_decode_is_loud_and_undelivered() {
+    let session = MockSession::new();
+    let mut executor: Executor = executor_with_clock(session);
+
+    TYPED_CB_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+
+    // Poisoned on purpose: if the executor dispatched on a refused decode, the
+    // callback would read THIS and report it as the message that just arrived.
+    let mut storage = TypedProbeMsg {
+        value: -1,
+        decoded_len: 0,
+    };
+
+    let failures_before = super::arena::typed_deserialize_failures();
+
+    let _id = unsafe {
+        executor.add_arena_subscription_c_typed_callback::<{ crate::config::DEFAULT_RX_BUF_SIZE }>(
+            None,
+            "/typed_bad",
+            "test/msg/TestMsg",
+            "test_hash",
+            QoSProfile::default().keep_last(1),
+            core::ptr::NonNull::new(&mut storage as *mut TypedProbeMsg as *mut core::ffi::c_void)
+                .unwrap(),
+            typed_probe_deserialize_refuses,
+            typed_probe_callback,
+            core::ptr::null_mut(),
+            None,
+            0,
+        )
+    }
+    .unwrap();
+
+    let (data, len) = encode_test_msg(7);
+    let meta = executor.entries[0].as_ref().unwrap();
+    let arena_ptr = executor.arena.as_ptr() as *const u8;
+    unsafe {
+        let sub_ptr = arena_ptr.add(meta.offset) as *const MockSubscriber;
+        (*sub_ptr).load(data, len);
+    }
+
+    let result = executor.spin_once(core::time::Duration::from_millis(0));
+
+    assert_eq!(
+        TYPED_CB_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a refused decode must NOT reach the callback — it would be handed the \
+         previous message under the impression it was the new one"
+    );
+    assert_eq!(
+        result.subscriptions_processed, 0,
+        "a dropped sample is not processed work"
+    );
+    assert_eq!(
+        result.subscription_errors, 1,
+        "a refused decode must be OBSERVABLE — silence here is exactly what \
+         RFC-0087 forbids"
+    );
+    assert!(
+        result.any_errors(),
+        "the spin result must report the failure"
+    );
+    assert_eq!(
+        super::arena::typed_deserialize_failures(),
+        failures_before + 1,
+        "the refusal must also be counted for the rate-limited nros_log report"
+    );
+    assert_eq!(
+        storage.value, -1,
+        "the caller's storage must be left as it was; a partial write the \
+         callback never sees is still a write the NEXT dispatch could show"
+    );
 }
 
 // ====================================================================

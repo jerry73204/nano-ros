@@ -198,5 +198,9 @@
   "rust:write_cdr_le_header": {
     "verdict": "extension",
     "why": "writes that header into a caller-owned buffer and returns the payload slice. The buffer is the caller's because there is no allocator -- serialisation targets storage the entity already owns. See `rust:CDR_LE_HEADER`."
+  },
+  "c:message_deserialize_fn_t": {
+    "verdict": "extension",
+    "why": "phase-417 W5.a — the erased deserialiser a typed subscription carries. Emitted per message as a REAL function (`<Msg>_deserialize_erased`), never a cast of `<Msg>_deserialize`: calling through a mismatched function-pointer type is UB and CFI traps on it. rosidl has no counterpart because its type support carries the dispatcher inline; ours is a flat descriptor (`type_name`, `type_hash`, `serialized_size_max`), so the deserialiser travels beside it."
   }
 }

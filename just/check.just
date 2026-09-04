@@ -3911,6 +3911,47 @@ c: c-fmt
         -Ipackages/api/nros-c/include \
         -Ipackages/platform/nros-platform-api/include \
         packages/api/nros-c/tests/compile/receive_verb_aliases.c
+
+    # phase-417 stage 5 — the typed C surface a ported rclc file reaches, plus
+    # the rcl spelling layer. `test -f` first on every one: a syntax-only
+    # compile of a MISSING file is a pass, and this campaign has already shipped
+    # one probe that never ran (issue 0196's class).
+    echo "  - phase-417 stage 5: typed delivery, node/timer accessors, rcl spellings"
+    for probe in typed_subscription_delivery node_timer_accessors rcl_compat_aliases; do \
+        test -f "packages/api/nros-c/tests/compile/$probe.c" || { \
+            echo "ERROR: $probe.c is MISSING -- this check passes on absence." >&2; exit 1; }; \
+        cc -fsyntax-only -std=c11 -Wall -Wextra \
+            -Itarget/nros-c-generated \
+            -Ipackages/api/nros-c/include \
+            -Ipackages/platform/nros-platform-api/include \
+            "packages/api/nros-c/tests/compile/$probe.c" || exit 1; \
+    done
+    # The typed SERVICE probe includes the committed golden output of the
+    # service codegen pack, so a pack edit that emits uncompilable C fails here
+    # in seconds rather than during a fixture build.
+    test -f packages/api/nros-c/tests/compile/typed_service_handler.c || { \
+        echo "ERROR: typed_service_handler.c is MISSING." >&2; exit 1; }
+    cc -fsyntax-only -std=c11 -Wall -Wextra \
+        -Ipackages/cli/rosidl-codegen/tests/fixtures/fingerprint-corpus/expected/configured \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-c/tests/compile/typed_service_handler.c
+    # ...and the rcl collision guard must FIRE. nano-ros and the real rcl define
+    # the same RCL_RET_* with DIFFERENT values, so a TU holding both compiles
+    # and silently takes whichever won the include race.
+    test -f packages/api/nros-c/tests/compile/rcl_compat_collision_probe.c || { \
+        echo "ERROR: rcl_compat_collision_probe.c is MISSING -- the expected-failure" >&2; \
+        echo "       check below would PASS on a missing file." >&2; exit 1; }
+    if cc -fsyntax-only -std=c11 \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-c/tests/compile/rcl_compat_collision_probe.c 2>/dev/null; then \
+        echo "ERROR: rcl_compat_collision_probe.c compiled clean. <nros/rcl_compat.h>'s" >&2; \
+        echo "       guard against the real <rcl/types.h> is gone; a TU with both now" >&2; \
+        echo "       silently takes one of two DIFFERENT numberings." >&2; exit 1; \
+    fi
     # ...and they must WARN, asserted as the same expected-failure compile.
     # An expected-failure compile cannot distinguish "the deprecation
     # attribute fired" from "the file is not there" -- both are a non-zero cc,
