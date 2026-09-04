@@ -2344,14 +2344,39 @@ int32_t zpico_declare_subscriber_direct_write(zpico_session_t* session, const ch
     return idx;
 }
 
+/* phase-412 -- which exit `zpico_declare_subscriber_ring` took, and the raw
+ * zenoh-pico code when the declare itself is what failed.
+ *
+ * The return value cannot carry this. Five exits collapse onto four ZPICO_ERR_*
+ * codes, and ZPICO_ERR_GENERIC in particular DISCARDS `sub_ret`, the only
+ * number saying what zenoh-pico objected to. The printk beside it carries both
+ * -- to the console, which is not wired on the MR-CANHUBK344. On the one board
+ * that needed the message it is written and unreadable.
+ *
+ * Globals rather than an out-param, so the ABI does not move: the Rust caller
+ * reads them immediately after a failed call, on a path that already failed.
+ *
+ * Numbering is stable and append-only. 0 after a call means NO exit stamped,
+ * which is itself a finding when the caller reports an error it believes came
+ * from here.
+ */
+int32_t zpico_last_sub_declare_exit = 0;
+int32_t zpico_last_sub_declare_ret = 0;
+
 int32_t zpico_declare_subscriber_ring(zpico_session_t* session, const char* keyexpr,
                                       zpico_ring_desc_t* desc, ZpicoNotifyCallback callback,
                                       void* ctx) {
     struct zpico_session* s = (struct zpico_session*)session;
+    /* Reset at entry: a value left by an earlier call must not be read as
+     * this one's. 0 therefore means "entered but stamped no exit". */
+    zpico_last_sub_declare_exit = 0;
+    zpico_last_sub_declare_ret = 0;
     if (!s->session_open) {
+        zpico_last_sub_declare_exit = 1;
         return ZPICO_ERR_SESSION;
     }
     if (desc == NULL || desc->slot_count == 0) {
+        zpico_last_sub_declare_exit = 2;
         return ZPICO_ERR_INVALID;
     }
 
@@ -2363,6 +2388,7 @@ int32_t zpico_declare_subscriber_ring(zpico_session_t* session, const char* keye
         }
     }
     if (idx < 0) {
+        zpico_last_sub_declare_exit = 3;
         return ZPICO_ERR_FULL;
     }
 
@@ -2379,6 +2405,7 @@ int32_t zpico_declare_subscriber_ring(zpico_session_t* session, const char* keye
         s->subscribers[idx].ctx = NULL;
         s->subscribers[idx].ring_mode = false;
         s->subscribers[idx].ring = NULL;
+        zpico_last_sub_declare_exit = 4;
         return ZPICO_ERR_KEYEXPR;
     }
 
@@ -2394,10 +2421,13 @@ int32_t zpico_declare_subscriber_ring(zpico_session_t* session, const char* keye
         s->subscribers[idx].ctx = NULL;
         s->subscribers[idx].ring_mode = false;
         s->subscribers[idx].ring = NULL;
+        zpico_last_sub_declare_exit = 5;
+        zpico_last_sub_declare_ret = (int32_t)sub_ret;
         return ZPICO_ERR_GENERIC;
     }
 
     s->subscribers[idx].active = true;
+        zpico_last_sub_declare_exit = 6;
     return idx;
 }
 

@@ -111,7 +111,7 @@ POOL_CLASSES = {5, 12, 14, 15, 17}
 # way and a call would be a cycle. See SubscriberAllocReport's own doc comment.
 ALLOC_SYMBOL = "NROS_SUBSCRIBER_ALLOC_REPORT"
 ALLOC_MAGIC = 0x53554241  # "SUBA"
-ALLOC_VERSION = 3
+ALLOC_VERSION = 4
 ALLOC_FIELDS = (
     "magic",
     "version",
@@ -129,6 +129,8 @@ ALLOC_FIELDS = (
     "keyexpr_cap",
     "zpico_err",
     "buffer_taken",
+    "zpico_exit",
+    "zpico_ret",
 )
 # Assigned by `zpico_err_class` in the zenoh shim. The variant is recorded on
 # the NEAR side of the C ABI because crossing it collapses Generic and Session
@@ -138,6 +140,17 @@ ZPICO_ERR = {
     0: "(none -- the declare succeeded)",
     1: "Generic", 2: "Config", 3: "Session", 4: "Task", 5: "KeyExpr",
     6: "Full", 7: "Invalid", 8: "Publish", 9: "NotOpen", 10: "Timeout",
+}
+
+# Exit markers stamped by `zpico_declare_subscriber_ring` in the C shim.
+ZPICO_EXIT = {
+    0: "stamped NOTHING -- the function did not run, or ran a path with no marker",
+    1: "session not open",
+    2: "bad ring descriptor",
+    3: "the zpico subscriber table is full",
+    4: "zenoh-pico rejected the keyexpr",
+    5: "z_declare_subscriber itself failed (zpico_ret carries its code)",
+    6: "success",
 }
 
 ALLOC_REFUSAL = {
@@ -376,6 +389,19 @@ def report_alloc(rec: dict[str, int]) -> int:
             "  Raise NROS_KEYEXPR_STRING_SIZE (note: currently fails to compile,\n"
             "  service.rs hardcodes 257)."
         )
+    zx = rec["zpico_exit"]
+    if rec["zpico_err"] or zx:
+        zr = rec["zpico_ret"]
+        zr_s = zr - (1 << 32) if zr >= (1 << 31) else zr
+        print(f"  zpico declare exit              {zx} -- {ZPICO_EXIT.get(zx, 'unknown')}")
+        if zx == 5:
+            print(f"  z_declare_subscriber returned   {zr_s}")
+        elif zx == 0:
+            print(
+                "  The caller saw an error it believes came from this function,\n"
+                "  and the function stamped no exit. Either it never ran, or the\n"
+                "  error came from somewhere else."
+            )
     ze = rec["zpico_err"]
     if ze:
         print(f"  zpico declare returned          {ZPICO_ERR.get(ze, f'unknown {ze}')}")

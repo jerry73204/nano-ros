@@ -361,12 +361,19 @@ pub struct SubscriberAllocReport {
     /// this record read on the island before the counter was added -- ten
     /// blocks taken, no refusal, and an error anyway.
     buffer_taken: AtomicU32,
+    /// Which exit the C shim's declare took: 1 session-not-open, 2 bad
+    /// descriptor, 3 table full, 4 keyexpr rejected, 5 the declare itself
+    /// failed, 6 success. 0 means it stamped nothing, which contradicts the
+    /// caller having seen an error from it.
+    zpico_exit: AtomicU32,
+    /// Raw `z_declare_subscriber` return, meaningful when the exit is 5.
+    zpico_ret: AtomicU32,
 }
 
 /// `"SUBA"` -- subscriber alloc. Written LAST by [`record_alloc_ceilings`].
 pub const SUBSCRIBER_ALLOC_MAGIC: u32 = 0x53554241;
 /// Layout version for [`SubscriberAllocReport`].
-pub const SUBSCRIBER_ALLOC_VERSION: u32 = 3;
+pub const SUBSCRIBER_ALLOC_VERSION: u32 = 4;
 
 /// The record, findable by symbol from a debugger.
 #[unsafe(no_mangle)]
@@ -388,6 +395,8 @@ pub static NROS_SUBSCRIBER_ALLOC_REPORT: SubscriberAllocReport = SubscriberAlloc
     keyexpr_cap: AtomicU32::new(0),
     zpico_err: AtomicU32::new(0),
     buffer_taken: AtomicU32::new(0),
+    zpico_exit: AtomicU32::new(0),
+    zpico_ret: AtomicU32::new(0),
 };
 
 /// Record the metadata-slot index that was refused.
@@ -430,6 +439,20 @@ pub(super) fn zpico_err_class(e: &crate::zpico::ZpicoError) -> u32 {
         Z::Publish => 8,
         Z::NotOpen => 9,
         Z::Timeout => 10,
+    }
+}
+
+/// Record the C shim's exit marker and raw declare code. FIRST wins.
+pub(super) fn record_zpico_declare(exit: i32, ret: i32) {
+    let r = &NROS_SUBSCRIBER_ALLOC_REPORT;
+    // The exit marker is written on EVERY call, so it is only meaningful
+    // paired with the failure that prompted the read -- hence first-wins,
+    // matching `record_zpico_err` beside it.
+    if r.zpico_exit
+        .compare_exchange(0, exit as u32, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+    {
+        r.zpico_ret.store(ret as u32, Ordering::Relaxed);
     }
 }
 
@@ -953,6 +976,14 @@ impl ZenohSubscriber {
                 >(s),
                 Err(e) => {
                     NEXT_BUFFER_INDEX.fetch_sub(1, Ordering::SeqCst);
+                    // phase-412 -- read the C shim's exit marker and raw code
+                    // BEFORE anything else can call the function again. The
+                    // mapped ZpicoError cannot say which of five exits ran, and
+                    // `Generic` in particular discards the zenoh-pico code.
+                    record_zpico_declare(
+                        zpico_sys::zpico_last_sub_declare_exit,
+                        zpico_sys::zpico_last_sub_declare_ret,
+                    );
                     record_zpico_err(zpico_err_class(&e));
                     return Err(TransportError::from(e));
                 }

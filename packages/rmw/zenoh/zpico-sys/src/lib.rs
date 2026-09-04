@@ -261,6 +261,15 @@ unsafe extern "C" {
         callback: ZpicoNotifyCallback,
         ctx: *mut c_void,
     ) -> i32;
+    /// phase-412 -- which exit `zpico_declare_subscriber_ring` took (1..=6,
+    /// 0 = entered and stamped nothing), and the raw zenoh-pico code when the
+    /// declare itself failed. Written by the C shim on every call; read by the
+    /// caller immediately after a failure. See the comment beside their
+    /// definition in `c/zpico/zpico.c`.
+    pub static zpico_last_sub_declare_exit: i32;
+    /// Raw `z_declare_subscriber` return, valid when the exit above is 5.
+    pub static zpico_last_sub_declare_ret: i32;
+
     pub fn zpico_declare_subscriber_ring(
         session: *mut zpico_session_t,
         keyexpr: *const core::ffi::c_char,
