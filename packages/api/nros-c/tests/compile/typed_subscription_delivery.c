@@ -1,5 +1,5 @@
 /*
- * phase-417 W5.a (RFC-0087 stage 5) — TYPED subscription delivery for C.
+ * phase-417 W5.a (RFC-0089 stage 5) — TYPED subscription delivery for C.
  *
  * rclc hands a subscription callback a DESERIALISED message, on a path with no
  * allocator, by making the caller own the storage:

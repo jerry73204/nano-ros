@@ -20,7 +20,7 @@ use core::ffi::c_int;
 /// | NOT_INIT | -7 | 101 |
 ///
 /// A ported `if (ret == RCL_RET_TIMEOUT)` compiled against the old comment and
-/// never matched — the "compiles and differs" shape RFC-0087 forbids, arriving
+/// never matched — the "compiles and differs" shape RFC-0089 forbids, arriving
 /// through a doc comment rather than a signature.
 ///
 /// `<nros/rcl_compat.h>` maps rcl's constant SPELLINGS onto these values. The

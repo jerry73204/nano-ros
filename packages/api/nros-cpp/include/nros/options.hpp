@@ -156,19 +156,19 @@ struct ClientOptions {
 } // namespace nros
 
 // ============================================================================
-// rclcpp::NodeOptions (RFC-0087 stage 6, step A)
+// rclcpp::NodeOptions (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // Moved here from `nros/rclcpp_compat.hpp`. This header is where the
 // rclcpp-shaped named-options structs live, so it is where the node's own
 // options object belongs.
 //
-// The TYPE survives; every OPTION on it is REFUSE-LOUD (RFC-0087 W3.f).
+// The TYPE survives; every OPTION on it is REFUSE-LOUD (RFC-0089 W3.f).
 //
 // What was here: ten setters that stored their argument in a private field
 // nothing read, and returned `*this` so the idiomatic chain compiled and
 // configured nothing. The header called them "intentionally inert today". That
-// is the second of RFC-0087's two live inversions, and it is the one a rename
+// is the second of RFC-0089's two live inversions, and it is the one a rename
 // would inherit most quietly — `NodeOptions().use_intra_process_comms(true)`
 // correlates `same` against upstream by name AND shape, so the parity
 // instrument cannot see the defect it is measuring.

@@ -6,7 +6,7 @@
 // `main`'s argv and has no ROS arguments -- and would make upstream's own tutorial
 // `main` unportable for a reason unrelated to what the program does.
 //
-// RFC-0087's rule is that configuration must never be dropped SILENTLY. Compile
+// RFC-0089's rule is that configuration must never be dropped SILENTLY. Compile
 // time is the earliest point loudness is available, not the only one; when only
 // the value carries the defect, the call is that point. So the call compiles and
 // aborts at runtime if `--ros-args` is actually present.

@@ -53,7 +53,7 @@ had a cost, and the cost is this issue rather than a reason to keep two loops.
 
 ## Why it cannot be made loud
 
-RFC-0087's rule is that a contract must never differ silently, and that a
+RFC-0089's rule is that a contract must never differ silently, and that a
 refusal fires at the earliest point the defect is knowable. Neither point is
 available here: the difference is visible only after a stall that has already
 happened, in a callback that is running normally. There is no signature to

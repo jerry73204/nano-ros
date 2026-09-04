@@ -206,12 +206,12 @@ inline Result spin(uint32_t duration_ms, int32_t poll_ms = 10) {
 #endif
 
 // ============================================================================
-// rclcpp:: — the process-level surface (RFC-0087 stage 6, step A)
+// rclcpp:: — the process-level surface (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // `rclcpp::init` / `shutdown` / `ok` / `Node` / `spin` / `spin_some` / `Rate` /
 // `spin_until_future_complete` used to live in `nros/rclcpp_compat.hpp`, a
-// separate header a ported file had to be force-included with. RFC-0087
+// separate header a ported file had to be force-included with. RFC-0089
 // §"Naming: replace, with alias as the migration step" makes the ROS 2 spelling
 // a FIRST-CLASS name declared by the API headers themselves; §"End state: no
 // compat layer survives" is what follows from it — with one spelling per
@@ -245,7 +245,7 @@ inline Result spin(uint32_t duration_ms, int32_t poll_ms = 10) {
 #define NROS_RCLCPP_MAX_PARAMS 16
 #endif
 
-#include <cstdlib>     // std::abort -- the runtime half of RFC-0087 W3.b
+#include <cstdlib>     // std::abort -- the runtime half of RFC-0089 W3.b
 #include <type_traits> // the SFINAE guards on create_service / create_client
 
 #if defined(NROS_CPP_STD)
@@ -266,7 +266,7 @@ namespace rclcpp {
 // `rclcpp::shutdown()` → `nros::shutdown()`. `rclcpp::ok()` → `nros::ok()`
 // (nros tracks the shutdown flag).
 //
-// The TWO-ARGUMENT form is REFUSE-LOUD (RFC-0087 W3.b). It used to forward to
+// The TWO-ARGUMENT form is REFUSE-LOUD (RFC-0089 W3.b). It used to forward to
 // the same `nros::init()` and discard `argv`, so `--ros-args -r
 // chatter:=/other` — the single most common thing a ported `main` passes —
 // silently became a wrong-topic bug at runtime. Honouring it is remap
@@ -306,7 +306,7 @@ constexpr bool argv_has_ros_args(int argc, char const* const* argv, int i = 0) {
 /// upstream's own tutorial `main` unportable for a reason unrelated to what the
 /// program does.
 ///
-/// So the refusal fires where the information is. RFC-0087's rule is that a
+/// So the refusal fires where the information is. RFC-0089's rule is that a
 /// contract must never silently drop configuration; it is satisfied by being
 /// LOUD, and compile time is simply the earliest point loudness is available. When
 /// only the value carries the defect, the earliest point is the call.
@@ -384,7 +384,7 @@ namespace detail {
 // before any user code runs. `rclcpp::Node`'s store is a different object, so
 // without reading the seed back a `declare_parameter("period", 0.15)` would
 // return 0.15 while launch said 0.03 — a silently dropped configuration, which
-// is exactly what RFC-0087's rule forbids compiling.
+// is exactly what RFC-0089's rule forbids compiling.
 //
 // Compiled only when the bringup declares `param_services`, which is also what
 // links `nros_cpp_get_param_*`. Where it is absent there is no executor store,
@@ -499,7 +499,7 @@ class Node : public std::enable_shared_from_this<Node> {
     // --- phase-417 W1.d — identity + clock -----------------------------------
     //
     // All four already exist on `nros::Node` (`node.hpp:217,223,249,260`);
-    // these are one-line forwarders, which is all RFC-0087 §"Who implements an
+    // these are one-line forwarders, which is all RFC-0089 §"Who implements an
     // adopted name" permits the wrapper to be. An uninitialized node answers
     // `""` / the node's own default-constructed clock, matching what
     // `nros::Node` does — this adds no behaviour of its own.
@@ -589,7 +589,7 @@ class Node : public std::enable_shared_from_this<Node> {
     // spin verb the caller drives. It used to create a POLL-mode subscription
     // and drain it from a node-local `pump()`, which only `rclcpp::spin` /
     // `spin_some` called: a file that spun `nros::spin_once()` instead got zero
-    // callbacks and no diagnostic (RFC-0087 §"There is also one mismatch the
+    // callbacks and no diagnostic (RFC-0089 §"There is also one mismatch the
     // rename makes strictly worse").
     //
     // Why not `node_.create_subscription(*s, topic, cb, qos)`: that overload is

@@ -32,7 +32,7 @@ fn main() {
   rclrs's spellings. Rust follows rclrs because the three ROS 2 client
   libraries disagree with each other (`log_info!` / `RCLCPP_INFO` /
   `RCUTILS_LOG_INFO_NAMED`) and rclrs is the one a ported Rust node is read
-  beside (RFC-0087, settled 2026-09-04).
+  beside (RFC-0089, settled 2026-09-04).
 - `nros_trace!` — kept under OUR prefix: rclrs stops at `debug`, so TRACE has
   no upstream twin and must not borrow a name that implies one.
 - `nros_debug!` / `nros_info!` / `nros_warn!` / `nros_error!` / `nros_fatal!`

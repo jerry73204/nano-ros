@@ -522,7 +522,7 @@ impl<A: RosAction> ActionServerHandle<A> {
     /// `nros_action_canceled`, rclcpp_action spells it
     /// `ServerGoalHandle::canceled`, and Rust was the only one of the three
     /// disagreeing — over a naming preference with no platform reason behind
-    /// it (RFC-0087: a rename is cheap, a surface our own languages disagree
+    /// it (RFC-0089: a rename is cheap, a surface our own languages disagree
     /// about is not).
     pub fn canceled(
         &self,

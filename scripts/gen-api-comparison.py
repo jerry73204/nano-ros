@@ -76,7 +76,7 @@ VERDICT_STATE = {
     "divergence": "reshaped",
 }
 
-# RFC-0087's four dispositions, rendered as a chip beside the state.
+# RFC-0089's four dispositions, rendered as a chip beside the state.
 #
 # The state answers "what did WE do"; the disposition answers "what does a
 # PORTING USER GET", and they are not the same question -- `rejected` covers
@@ -362,7 +362,7 @@ def collect(langs):
                     "w": rec["why"],
                     "p": rec["provides"],
                     "i": 1 if inherited else 0,
-                    # RFC-0087 disposition -- authored, optional, never inferred
+                    # RFC-0089 disposition -- authored, optional, never inferred
                     # from the verdict. "" means nobody has classified this row.
                     "d": entry.get("disposition") or "",
                     # issue 1020's two surfaces. `su` is "ported" when the
@@ -533,13 +533,13 @@ def self_test():
     blob = json.dumps({"w": "see </script> and <b>"}, ensure_ascii=False).replace("</", "<\\/")
     check("</script>" not in blob, "embedded JSON can close the script tag")
 
-    # ---- phase-417 W0.b: the RFC-0087 disposition ------------------------
+    # ---- phase-417 W0.b: the RFC-0089 disposition ------------------------
     # A SECOND axis, so it must not perturb the derived state. If it ever did,
     # an authored field would be silently deciding a computed one.
     check(state({"bucket": "theirs-only", "verdict": "declined", "provides": [],
                  "disposition": "refuse-loud"}) == "rejected",
           "the disposition changed the derived state")
-    # The four labels are RFC-0087's, and the page's JS copy must agree with the
+    # The four labels are RFC-0089's, and the page's JS copy must agree with the
     # generator's -- two spellings of one vocabulary is how a chip goes blank.
     ap = load_api_parity()
     check(set(DISPOSITION_LABEL) == set(ap.DISPOSITIONS),

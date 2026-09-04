@@ -1522,7 +1522,7 @@ pub type nros_message_deserialize_fn_t = Option<
 pub type nros_typed_subscription_callback_t =
     Option<unsafe extern "C" fn(msg: *const core::ffi::c_void, context: *mut core::ffi::c_void)>;
 
-/// phase-417 W5.a (RFC-0087 stage 5) — add a subscription that delivers a
+/// phase-417 W5.a (RFC-0089 stage 5) — add a subscription that delivers a
 /// **deserialised message** into storage the CALLER owns.
 ///
 /// The rclc-shaped registration:
@@ -1562,7 +1562,7 @@ pub type nros_typed_subscription_callback_t =
 /// spin result, and emits a rate-limited `nros_log` error naming the sample
 /// length and the return code. Dispatching anyway would hand the callback the
 /// PREVIOUS message under the impression it was the new one, which is exactly
-/// the "compile and differ" RFC-0087 forbids.
+/// the "compile and differ" RFC-0089 forbids.
 ///
 /// A message too large for the caller's storage arrives here as that same
 /// failure and never as a truncation: a bounded string whose wire length
@@ -1750,7 +1750,7 @@ pub unsafe extern "C" fn nros_executor_add_subscription_typed_sized(
 /// (`rclc_executor_add_subscription`). The name keeps the `nros_` prefix
 /// deliberately: rclc's `add_subscription` delivers a DESERIALIZED message into
 /// caller storage, so the byte path has no upstream counterpart and must not
-/// wear its name (RFC-0087's compile-or-conform rule — a plausible name over an
+/// wear its name (RFC-0089's compile-or-conform rule — a plausible name over an
 /// opposite data contract is the defect the RFC exists to prevent).
 ///
 /// `callback` may be NULL, which registers the subscription with nothing to
@@ -3065,7 +3065,7 @@ pub unsafe extern "C" fn rclc_executor_spin_one_period(
 /// `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
 /// had three answers to "stop spinning"; `cancel` is ROS 2's.
 ///
-/// # ADOPT-BOUNDED (RFC-0087)
+/// # ADOPT-BOUNDED (RFC-0089)
 ///
 /// `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
 /// returns BEFORE spinning has actually stopped;

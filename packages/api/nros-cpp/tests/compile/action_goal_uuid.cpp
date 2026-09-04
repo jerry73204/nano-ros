@@ -226,7 +226,7 @@ inline ::nros::Result polling_tier_client(::nros::Node& node) {
 //
 // A verb that came back as `void`, or that quietly took a `GoalStatus`, would
 // pass a name check and re-introduce exactly the "compiles and differs" hazard
-// RFC-0087 is written against.
+// RFC-0089 is written against.
 static_assert(
     std::is_same<decltype(std::declval<::nros::ActionServer<Fib>&>().succeed(
                      std::declval<const ::nros::GoalUUID&>(), std::declval<const Fib::Result&>())),

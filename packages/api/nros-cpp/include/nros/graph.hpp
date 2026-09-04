@@ -1,4 +1,4 @@
-// nros-cpp: graph value types (phase-417 stage 2b, RFC-0087)
+// nros-cpp: graph value types (phase-417 stage 2b, RFC-0089)
 // Freestanding C++14 — no exceptions, no RTTI, no STL, no allocation.
 //
 // The graph QUERIES live on `nros::Executor` (`executor.hpp:205-301`) because
@@ -11,7 +11,7 @@
 // RFC-0019: the Rust API is the implementation source of truth. Nothing here
 // implements graph behaviour — `TopicEndpointInfo` copies an FFI struct and
 // renames its fields to rclcpp's accessors, and the trampoline converts and
-// delegates. Both are ergonomics, which RFC-0087 §"Who implements an adopted
+// delegates. Both are ergonomics, which RFC-0089 §"Who implements an adopted
 // name" allows in the wrapper; behaviour is not.
 
 /**
@@ -63,7 +63,7 @@ enum class EndpointType : uint8_t {
 /// grant, so reporting it would be the plausible wrong answer the omission
 /// exists to avoid. The accessor is absent rather than present-and-empty: a
 /// ported file that asks for it fails to COMPILE instead of reading a QoS
-/// nobody granted (RFC-0087's rule — never compile and differ). Cyclone can
+/// nobody granted (RFC-0089's rule — never compile and differ). Cyclone can
 /// read a real grant and will need one; adding it then is additive.
 class TopicEndpointInfo {
   public:

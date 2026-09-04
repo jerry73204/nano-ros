@@ -1,4 +1,4 @@
-// POSITIVE compile probe for phase-417's structural blocker (RFC-0087
+// POSITIVE compile probe for phase-417's structural blocker (RFC-0089
 // §"There is also one mismatch the rename makes strictly worse", RFC-0019):
 // the shim `rclcpp::Node` has ONE dispatch path, the executor's.
 //

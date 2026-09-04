@@ -9,7 +9,7 @@
 //! [`crate::compile_time_ceiling`](super::severity_enabled_at_compile_time)
 //! expand to `()` — the format call is dead-code-eliminated.
 //!
-//! ## Naming (RFC-0087, settled 2026-09-04)
+//! ## Naming (RFC-0089, settled 2026-09-04)
 //!
 //! The three ROS 2 client libraries disagree with each other about how to
 //! spell a log line:
@@ -89,7 +89,7 @@ macro_rules! nros_trace {
 
 /// Emit at [`crate::Severity::Debug`].
 ///
-/// `rclrs::log_debug!`'s spelling — see the module note on RFC-0087's
+/// `rclrs::log_debug!`'s spelling — see the module note on RFC-0089's
 /// "each language follows its own upstream" rule. [`nros_debug!`] is the
 /// deprecated former name.
 #[macro_export]
@@ -103,7 +103,7 @@ macro_rules! log_debug {
 
 /// Emit at [`crate::Severity::Info`].
 ///
-/// `rclrs::log_info!`'s spelling — see the module note on RFC-0087's
+/// `rclrs::log_info!`'s spelling — see the module note on RFC-0089's
 /// "each language follows its own upstream" rule. [`nros_info!`] is the
 /// deprecated former name.
 #[macro_export]
@@ -117,7 +117,7 @@ macro_rules! log_info {
 
 /// Emit at [`crate::Severity::Warn`].
 ///
-/// `rclrs::log_warn!`'s spelling — see the module note on RFC-0087's
+/// `rclrs::log_warn!`'s spelling — see the module note on RFC-0089's
 /// "each language follows its own upstream" rule. [`nros_warn!`] is the
 /// deprecated former name.
 #[macro_export]
@@ -131,7 +131,7 @@ macro_rules! log_warn {
 
 /// Emit at [`crate::Severity::Error`].
 ///
-/// `rclrs::log_error!`'s spelling — see the module note on RFC-0087's
+/// `rclrs::log_error!`'s spelling — see the module note on RFC-0089's
 /// "each language follows its own upstream" rule. [`nros_error!`] is the
 /// deprecated former name.
 #[macro_export]
@@ -145,7 +145,7 @@ macro_rules! log_error {
 
 /// Emit at [`crate::Severity::Fatal`].
 ///
-/// `rclrs::log_fatal!`'s spelling — see the module note on RFC-0087's
+/// `rclrs::log_fatal!`'s spelling — see the module note on RFC-0089's
 /// "each language follows its own upstream" rule. [`nros_fatal!`] is the
 /// deprecated former name.
 #[macro_export]
@@ -160,7 +160,7 @@ macro_rules! log_fatal {
 // -----------------------------------------------------------------------------
 // Migration forwarders — the pre-rename `nros_*!` spellings.
 //
-// RFC-0087 "Naming: replace, with alias as the migration step": the ROS 2
+// RFC-0089 "Naming: replace, with alias as the migration step": the ROS 2
 // spelling becomes the first-class name, ours remains, both work, and the old
 // one is removed in a later deliberate batch with a changelog entry.
 //
@@ -191,7 +191,7 @@ macro_rules! log_fatal {
     feature = "deprecate-legacy-names",
     deprecated(
         since = "0.5.0",
-        note = "renamed to `log_debug!`, rclrs's spelling (RFC-0087: each language follows its \
+        note = "renamed to `log_debug!`, rclrs's spelling (RFC-0089: each language follows its \
                 own upstream). The forwarder emits an identical record; it is removed in a \
                 later batch."
     )
@@ -208,7 +208,7 @@ macro_rules! nros_debug {
     feature = "deprecate-legacy-names",
     deprecated(
         since = "0.5.0",
-        note = "renamed to `log_info!`, rclrs's spelling (RFC-0087: each language follows its \
+        note = "renamed to `log_info!`, rclrs's spelling (RFC-0089: each language follows its \
                 own upstream). The forwarder emits an identical record; it is removed in a \
                 later batch."
     )
@@ -225,7 +225,7 @@ macro_rules! nros_info {
     feature = "deprecate-legacy-names",
     deprecated(
         since = "0.5.0",
-        note = "renamed to `log_warn!`, rclrs's spelling (RFC-0087: each language follows its \
+        note = "renamed to `log_warn!`, rclrs's spelling (RFC-0089: each language follows its \
                 own upstream). The forwarder emits an identical record; it is removed in a \
                 later batch."
     )
@@ -242,7 +242,7 @@ macro_rules! nros_warn {
     feature = "deprecate-legacy-names",
     deprecated(
         since = "0.5.0",
-        note = "renamed to `log_error!`, rclrs's spelling (RFC-0087: each language follows its \
+        note = "renamed to `log_error!`, rclrs's spelling (RFC-0089: each language follows its \
                 own upstream). The forwarder emits an identical record; it is removed in a \
                 later batch."
     )
@@ -259,7 +259,7 @@ macro_rules! nros_error {
     feature = "deprecate-legacy-names",
     deprecated(
         since = "0.5.0",
-        note = "renamed to `log_fatal!`, rclrs's spelling (RFC-0087: each language follows its \
+        note = "renamed to `log_fatal!`, rclrs's spelling (RFC-0089: each language follows its \
                 own upstream). The forwarder emits an identical record; it is removed in a \
                 later batch."
     )
@@ -292,7 +292,7 @@ macro_rules! nros_fatal {
 // feature, rather than compiling into a throttle with no time base. Without a
 // clock `__timestamp_ns()` is a constant `0`, and a window measured against a
 // constant does not rate-limit — it admits every record, forever, while
-// reading at the call site exactly like a working throttle. RFC-0087: never
+// reading at the call site exactly like a working throttle. RFC-0089: never
 // compile and differ.
 //
 // WHY THIS FAMILY KEEPS THE `nros_` PREFIX WHILE THE FIVE SEVERITY MACROS TOOK
@@ -314,7 +314,7 @@ macro_rules! nros_fatal {
 //
 // A `LogParams` missing those members is not rclrs's `LogParams`; it is a new
 // divergence wearing an upstream name, which is the "compiles and differs"
-// RFC-0087 exists to forbid. There is also a live cost: in the modifier form
+// RFC-0089 exists to forbid. There is also a live cost: in the modifier form
 // whether a throttle was requested is a RUNTIME field, so the `platform-clock`
 // refusal above stops being expressible at the call site — the exact
 // silently-admits-everything failure the `compile_error!` was added to prevent.

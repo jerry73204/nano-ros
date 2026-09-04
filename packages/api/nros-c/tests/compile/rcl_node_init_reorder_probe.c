@@ -7,7 +7,7 @@
  *     rclc  rclc_node_init_default(node, name, namespace_, support)
  *     was   nros_node_init        (node, support, name, namespace_)
  *
- * RFC-0087's corrected hazard note is why the rename and the reorder landed
+ * RFC-0089's corrected hazard note is why the rename and the reorder landed
  * together, and it is why this file exists:
  *
  *     C   : warning: passing argument 2 of 'f' from incompatible pointer type

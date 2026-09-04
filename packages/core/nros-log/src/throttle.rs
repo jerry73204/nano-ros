@@ -18,7 +18,7 @@
 //! macros declare at the call site) and a caller-owned `uint64_t` (what the C
 //! macros declare, because a C call site cannot name a Rust type without a
 //! hand-mirrored struct — the drift class issue 0160 catalogues). Both call
-//! [`throttle_admits`]. RFC-0087: a second *spelling* is free, a second *code
+//! [`throttle_admits`]. RFC-0089: a second *spelling* is free, a second *code
 //! path that can produce a different answer* is not.
 //!
 //! ## Contract
