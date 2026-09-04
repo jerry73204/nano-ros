@@ -70,7 +70,7 @@ pub const MAGIC: u32 = 0x4e52_5352;
 
 /// Layout version. Bump on any field change; a reader refuses what it does not
 /// know rather than decoding a record it would misread.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// How far boot got. Monotonic, and the single most useful field: an arena
 /// failure halts during entity creation, so the stage that was NOT reached
@@ -171,6 +171,29 @@ mod enabled {
         /// non-UTF-8 name, a bad domain id, a backend that refused to open --
         /// is one indistinguishable "did not reach the executor".
         cpp_init_ret: AtomicU32,
+        /// The LAST `NodeError` that crossed the C++ FFI, as a stable code.
+        ///
+        /// Stable here means assigned by `nros-cpp`'s exhaustive mapper, not
+        /// taken from the Rust discriminant -- a discriminant shifts whenever a
+        /// variant is inserted, and a dump decoded against the wrong numbering
+        /// names the wrong error, confidently.
+        err_class: AtomicU32,
+        /// For [`Self::err_class`] == Transport, which `TransportError`.
+        ///
+        /// The C++ ABI collapses eight distinct transport variants onto the
+        /// single code -100, which is what made an island subscription failure
+        /// undiagnosable: the return code said "transport" and nothing said
+        /// which. This is the field that separates them.
+        err_transport: AtomicU32,
+        /// Address of the `Backend(&'static str)` message, or 0.
+        ///
+        /// The pointer rather than the text: the message is a static string
+        /// already in the image, so copying it would cost the record a buffer
+        /// to hold something the reader can fetch. Paired with
+        /// [`Self::err_backend_len`].
+        err_backend_ptr: AtomicU32,
+        /// Length of the message at [`Self::err_backend_ptr`], or 0.
+        err_backend_len: AtomicU32,
     }
 
     impl BootReport {
@@ -192,6 +215,10 @@ mod enabled {
                 failed_alloc_size: AtomicU32::new(0),
                 failed_alloc_shortfall: AtomicU32::new(0),
                 cpp_init_ret: AtomicU32::new(0),
+                err_class: AtomicU32::new(0),
+                err_transport: AtomicU32::new(0),
+                err_backend_ptr: AtomicU32::new(0),
+                err_backend_len: AtomicU32::new(0),
             }
         }
 
@@ -234,6 +261,10 @@ mod enabled {
         pub failed_alloc_size: u32,
         pub failed_alloc_shortfall: u32,
         pub cpp_init_ret: u32,
+        pub err_class: u32,
+        pub err_transport: u32,
+        pub err_backend_ptr: u32,
+        pub err_backend_len: u32,
     }
 
     /// Read the record.
@@ -258,6 +289,10 @@ mod enabled {
             failed_alloc_size: g(&r.failed_alloc_size),
             failed_alloc_shortfall: g(&r.failed_alloc_shortfall),
             cpp_init_ret: g(&r.cpp_init_ret),
+            err_class: g(&r.err_class),
+            err_transport: g(&r.err_transport),
+            err_backend_ptr: g(&r.err_backend_ptr),
+            err_backend_len: g(&r.err_backend_len),
         }
     }
 
@@ -365,6 +400,24 @@ mod enabled {
             .store(ret as u32, Ordering::Relaxed);
     }
 
+    /// Record an error that crossed the FFI.
+    ///
+    /// Takes CODES, not the error type: `nros-node` must not need to know how
+    /// `nros-cpp` numbers its variants, and the numbering has to be assigned by
+    /// an exhaustive match that a new variant breaks at compile time. The caller
+    /// owns both.
+    ///
+    /// LAST writer wins. An image that fails one entity and carries on would
+    /// otherwise keep the first stumble instead of the one that stopped it, and
+    /// the failure that stops setup is the one that explains the boot.
+    pub fn note_error(class: u32, transport: u32, backend_ptr: u32, backend_len: u32) {
+        let r = &NROS_BOOT_REPORT;
+        r.err_class.store(class, Ordering::Relaxed);
+        r.err_transport.store(transport, Ordering::Relaxed);
+        r.err_backend_ptr.store(backend_ptr, Ordering::Relaxed);
+        r.err_backend_len.store(backend_len, Ordering::Relaxed);
+    }
+
     /// `usize` -> `u32`, saturating.
     ///
     /// Every field is a `u32` so the record's layout does not change between a
@@ -403,24 +456,27 @@ mod disabled {
 
     #[inline(always)]
     pub fn note_cpp_init_ret(_ret: i32) {}
+
+    #[inline(always)]
+    pub fn note_error(_class: u32, _transport: u32, _ptr: u32, _len: u32) {}
 }
 
 #[cfg(all(test, nros_boot_report))]
 mod tests {
     use super::*;
 
-    /// The reader decodes sixteen u32s positionally, so the record must be
+    /// The reader decodes twenty u32s positionally, so the record must be
     /// exactly that and nothing else -- no padding, no reordering.
     ///
     /// `size_of` on the TARGET, which is the half `check-boot-report-layout.py`
     /// cannot see: that gate compares two source files, and this compares the
     /// source against what the compiler actually laid out.
     #[test]
-    fn the_record_is_sixteen_packed_u32s() {
-        assert_eq!(BootReport::struct_size(), 16 * 4);
+    fn the_record_is_twenty_packed_u32s() {
+        assert_eq!(BootReport::struct_size(), 20 * 4);
         assert_eq!(
             core::mem::size_of::<BootReport>(),
-            16 * core::mem::size_of::<u32>(),
+            20 * core::mem::size_of::<u32>(),
             "the record grew padding; the reader decodes positionally"
         );
         assert_eq!(core::mem::align_of::<BootReport>(), 4);

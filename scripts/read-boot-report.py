@@ -33,7 +33,7 @@ SYMBOL = "NROS_BOOT_REPORT"
 # "NRSR". Must match boot_report.rs MAGIC.
 MAGIC = 0x4E525352
 # Layout this script knows how to decode. Must match boot_report.rs VERSION.
-KNOWN_VERSION = 2
+KNOWN_VERSION = 3
 
 # Field order, matching `BootReport` and `Snapshot` in boot_report.rs. Every
 # field is a u32; the record is all `AtomicU32`, which is repr(transparent).
@@ -54,6 +54,10 @@ FIELDS = (
     "failed_alloc_size",
     "failed_alloc_shortfall",
     "cpp_init_ret",
+    "err_class",
+    "err_transport",
+    "err_backend_ptr",
+    "err_backend_len",
 )
 
 STAGES = {
@@ -65,6 +69,39 @@ STAGES = {
     5: "EntitiesReady (NOT YET WIRED -- registration has no single end; see issue 0900)",
     6: "FirstSpin -- registration complete and spinning",
 }
+
+
+# Assigned by `node_error_class` in packages/api/nros-cpp/src/lib.rs. Append
+# only, and kept in step by hand -- the Rust side is exhaustive, so a new
+# variant fails THERE first, which is the half that matters.
+ERR_CLASS = {
+    0: "(none)", 1: "Transport", 2: "NameTooLong", 3: "Serialization",
+    4: "Deserialization", 5: "BufferTooSmall", 6: "ActionCreationFailed",
+    7: "ServiceRequestFailed", 8: "ServiceReplyFailed", 9: "Timeout",
+    10: "NotInitialized", 11: "RequestInFlight", 12: "NoSchedContextSlot",
+    13: "InvalidSchedContextBinding", 14: "NodeTableFull", 15: "ExecutorFull",
+    16: "BackendMismatch", 17: "ShutdownCallbacksFull",
+}
+
+# Assigned by `transport_error_class` in the same file.
+ERR_TRANSPORT = {
+    0: "(none)", 1: "ConnectionFailed", 2: "Disconnected",
+    3: "PublisherCreationFailed", 4: "SubscriberCreationFailed",
+    5: "ServiceServerCreationFailed", 6: "ServiceClientCreationFailed",
+    7: "PublishFailed", 8: "ServiceRequestFailed", 9: "ServiceReplyFailed",
+    10: "SerializationError", 11: "DeserializationError", 12: "BufferTooSmall",
+    13: "MessageTooLarge", 14: "Timeout", 15: "InvalidConfig", 16: "WouldBlock",
+    17: "TooLarge", 18: "TaskStartFailed", 19: "PollFailed",
+    20: "KeepaliveFailed", 21: "JoinFailed", 22: "InvalidArgument",
+    23: "Unsupported", 24: "BadAlloc", 25: "IncompatibleQos",
+    26: "TopicNameInvalid", 27: "NodeNameNonExistent", 28: "LoanNotSupported",
+    29: "NoData", 30: "IncompatibleAbi", 31: "Backend", 32: "BackendDynamic",
+}
+
+# Pools and tables map to NROS_CPP_RET_FULL, never to the transport code, so
+# seeing any of these here rules a sizing knob IN -- and seeing a transport
+# class rules every one of them OUT.
+POOL_CLASSES = {5, 12, 14, 15, 17}
 
 
 def resolve_symbol(elf: Path) -> tuple[int, int]:
@@ -186,6 +223,32 @@ def report(rec: dict[str, int]) -> int:
             "later allocations may also have failed as a consequence."
         )
         return 1
+
+    cls = rec["err_class"]
+    if cls:
+        print()
+        print(f"LAST ERROR   {ERR_CLASS.get(cls, f'unknown class {cls}')}")
+        if cls == 1:
+            tr = rec["err_transport"]
+            print(f"  transport  {ERR_TRANSPORT.get(tr, f'unknown transport {tr}')}")
+            if rec["err_backend_ptr"]:
+                print(
+                    f"  backend message at 0x{rec['err_backend_ptr']:08x}, "
+                    f"{rec['err_backend_len']} bytes. Read it with:\n"
+                    f"    pyocd commander -t <target> --connect attach \\\n"
+                    f"      -c \"savemem 0x{rec['err_backend_ptr']:08x} "
+                    f"{rec['err_backend_len']} msg.bin\""
+                )
+        if cls in POOL_CLASSES:
+            print(
+                "  This is a POOL or TABLE exhaustion, so a sizing knob IS the\n"
+                "  cause. Raise the one the name points at."
+            )
+        else:
+            print(
+                "  NOT a pool or table exhaustion -- those map to a different\n"
+                "  code. No sizing knob explains this one."
+            )
 
     ret = rec["cpp_init_ret"]
     if ret:

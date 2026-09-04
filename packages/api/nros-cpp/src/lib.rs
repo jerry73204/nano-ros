@@ -939,8 +939,112 @@ pub(crate) fn transport_error_to_cpp_ret(err: nros_rmw::TransportError) -> nros_
 /// Phase 155.C — map `NodeError` to the closest `NROS_CPP_RET_*` code.
 /// Unknown variants stay TRANSPORT_ERROR (-100) — the legacy catch-all.
 #[cfg(feature = "rmw-cffi")]
+/// phase-412 -- stable codes for the boot self-report.
+///
+/// EXHAUSTIVE and no `_` arm, for the reason issue 0586's gate states about the
+/// ret mappers beside it: rustc must refuse a new variant until someone numbers
+/// it. A `_` arm here would silently file every future error under "unknown",
+/// which is the shape this whole record exists to remove.
+///
+/// The numbering is assigned HERE rather than taken from the Rust discriminant,
+/// because a discriminant shifts when a variant is inserted and a dump decoded
+/// against the wrong numbering names the wrong error, confidently. Append only.
+#[cfg(feature = "rmw-cffi")]
+fn node_error_class(err: &nros_node::NodeError) -> u32 {
+    use nros_node::NodeError as E;
+    match err {
+        E::Transport(_) => 1,
+        E::NameTooLong => 2,
+        E::Serialization => 3,
+        E::Deserialization => 4,
+        E::BufferTooSmall => 5,
+        E::ActionCreationFailed => 6,
+        E::ServiceRequestFailed => 7,
+        E::ServiceReplyFailed => 8,
+        E::Timeout => 9,
+        E::NotInitialized => 10,
+        E::RequestInFlight => 11,
+        E::NoSchedContextSlot => 12,
+        E::InvalidSchedContextBinding => 13,
+        E::NodeTableFull => 14,
+        E::ExecutorFull => 15,
+        E::BackendMismatch => 16,
+        E::ShutdownCallbacksFull => 17,
+    }
+}
+
+/// Which `TransportError`, for the report. Append only; see [`node_error_class`].
+///
+/// This is the field that pays for itself: the C++ ABI collapses eight distinct
+/// transport variants onto `-100`, so a board that fails to create a
+/// subscription reports "transport error" and nothing says which of the eight.
+#[cfg(feature = "rmw-cffi")]
+fn transport_error_class(err: &nros_rmw::TransportError) -> u32 {
+    use nros_rmw::TransportError as T;
+    match err {
+        T::ConnectionFailed => 1,
+        T::Disconnected => 2,
+        T::PublisherCreationFailed => 3,
+        T::SubscriberCreationFailed => 4,
+        T::ServiceServerCreationFailed => 5,
+        T::ServiceClientCreationFailed => 6,
+        T::PublishFailed => 7,
+        T::ServiceRequestFailed => 8,
+        T::ServiceReplyFailed => 9,
+        T::SerializationError => 10,
+        T::DeserializationError => 11,
+        T::BufferTooSmall => 12,
+        T::MessageTooLarge => 13,
+        T::Timeout => 14,
+        T::InvalidConfig => 15,
+        T::WouldBlock => 16,
+        T::TooLarge => 17,
+        T::TaskStartFailed => 18,
+        T::PollFailed => 19,
+        T::KeepaliveFailed => 20,
+        T::JoinFailed => 21,
+        T::InvalidArgument => 22,
+        T::Unsupported => 23,
+        T::BadAlloc => 24,
+        T::IncompatibleQos => 25,
+        T::TopicNameInvalid => 26,
+        T::NodeNameNonExistent => 27,
+        T::LoanNotSupported => 28,
+        T::NoData => 29,
+        T::IncompatibleAbi => 30,
+        T::Backend(_) => 31,
+        // Un-gated for the reason the arm below in `transport_error_to_cpp_ret`
+        // is: cargo unifies features across the graph, so the variant can exist
+        // while a `#[cfg(feature = "alloc")]` arm here is compiled out.
+        T::BackendDynamic(_) => 32,
+    }
+}
+
+/// Put the error in the boot self-report, then let the caller map it.
+///
+/// Called from the ONE funnel every FFI failure already passes through, so a
+/// path that starts returning errors tomorrow is recorded without anyone
+/// remembering to add a call.
+#[cfg(feature = "rmw-cffi")]
+fn record_node_error(err: &nros_node::NodeError) {
+    let (transport, ptr, len) = match err {
+        nros_node::NodeError::Transport(t) => {
+            let (ptr, len) = match t {
+                // The message is a static string already in the image, so the
+                // record carries where it is rather than a copy of it.
+                nros_rmw::TransportError::Backend(s) => (s.as_ptr() as u32, s.len() as u32),
+                _ => (0, 0),
+            };
+            (transport_error_class(t), ptr, len)
+        }
+        _ => (0, 0, 0),
+    };
+    nros_node::boot_report::note_error(node_error_class(err), transport, ptr, len);
+}
+
 pub(crate) fn node_error_to_cpp_ret(err: nros_node::NodeError) -> nros_cpp_ret_t {
     use nros_node::NodeError as E;
+    record_node_error(&err);
     // Issue 0436 — `-100` is documented as the catch-all for unmapped variants, so
     // a C++ caller sees "TransportError" for causes that are not transport at all.
     // That collapse is what made the PX4 bridge's init failure undiagnosable (the
