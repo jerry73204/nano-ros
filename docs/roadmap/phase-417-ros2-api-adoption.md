@@ -271,6 +271,78 @@ exists and is tested; the wrapper is a forwarder. Under RFC-0019 that is both
 the cheapest work in this phase and the work that reduces the most divergence
 per line, which is why stage 4 is not deferred behind the C-side stages.
 
+## Stage 6 step B — surveyed 2026-09-04, its own PR
+
+Step A landed: the ROS 2 spellings are first-class, `rclcpp_compat.hpp` is
+deleted, and every `rcl_compat.h` FUNCTION alias became an identity and was
+deleted with it. Step B retires the old spellings. **It is the only irreversible
+step for an out-of-tree consumer**, so it is one batch, one PR, one changelog
+entry — never opportunistic.
+
+### The size, measured rather than estimated
+
+| surface | sites | files | shape |
+| --- | ---: | ---: | --- |
+| Rust logging macros | 208 | 50 | pure rename |
+| C symbols (43 deprecated names) | 206 | 40 | pure rename, **except the one below** |
+| C++ `nros::` → `rclcpp::` | 645 | 119 | pure rename |
+| docs / book | — | 57 | prose + code blocks |
+| the forwarders themselves | 110 | 12 headers | deletion |
+
+Largest concentrations: `examples/native/{c,rust}` (27 files), the five RTOS
+example families (25), `packages/testing/nros-tests` (12).
+
+### One site is not mechanical, and it is the whole risk
+
+`nros_node_init` is the single argument REORDER in the campaign:
+
+```
+nros_node_init        (node, support, name, namespace_)     <- 42 call sites
+rclc_node_init_default(node, name, namespace_, support)
+```
+
+A sweep that renames without reordering produces code that **compiles with a
+warning and passes the wrong values** — C diagnoses an incompatible pointer
+argument as a warning even under `-Wall -Wextra`, which is the measurement that
+forced RFC-0087's "a C reorder ships with a rename beside it". Here the rename
+IS the guard: the old identifier disappears, so a missed site fails to compile
+rather than silently mis-binding.
+
+Surveyed for tractability: **all 42 are single-line, zero multi-line**, and the
+shape is uniform (`nros_node_init(&x, &y, "name", "/")`). So a regex codemod is
+honest here — but it must be a codemod that reorders, not a `sed s/old/new/`,
+and the two must not be run as separate passes.
+
+### Order, and why
+
+1. **Flip `nros-log/deprecate-legacy-names`.** The workspace sets
+   `warnings = "deny"`, so arming the attribute turns all 208 Rust sites into
+   hard errors at once. That is the point: it enumerates the work rather than
+   trusting a grep.
+2. **Migrate Rust, then C, then C++.** Each is a rename; the compiler names
+   every site.
+3. **The `node_init` codemod, alone, with its own review.** Not folded into the
+   C rename sweep — it is the one change where a mistake is silent.
+4. **Docs and book.** `just book` builds them; a stale code block is not caught
+   by any compiler.
+5. **Delete the forwarders** — 110 `NROS_DEPRECATED_MSG` declarations across 12
+   headers, plus the five Rust forwarders, plus the feature flag itself.
+6. **Changelog entry**, carrying phase-379 W7 step 4's two warnings: C cannot
+   portably deprecate a `typedef`, so renamed C TYPES disappear with no warning
+   for anyone who never rebuilt; and a defaulted trait method's alias is weaker
+   than it looks, because an out-of-tree override is silently ignored.
+
+### Acceptance
+
+* every in-tree source builds with `deprecate-legacy-names` ON and zero
+  forwarders present;
+* `examples/templates/cpp-port-minimal-publisher` still byte-identical to
+  upstream's tutorial;
+* `rcl_compat.h` holds only the `RCL_RET_*` mapping and handle typedefs — the
+  two things RFC-0087 says cannot dissolve;
+* `just ci gate` green, and the ported templates build with **every** compat
+  layer deleted.
+
 ## Correction track — the ledger says false things, and they misdirect
 
 The measurement is the campaign's instrument; a wrong row is worse than a
