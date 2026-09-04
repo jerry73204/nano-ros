@@ -90,6 +90,91 @@ that is internal logic reading a public declaration, which is the distinction
 that matters. What must stop is a HUMAN writing `features = ["max-level-info"]`
 in a manifest to choose product behaviour.
 
+## The fix method
+
+The pattern already exists and `nros-node` is the exact precedent — phase-400 W6
+migrated the `executor` tenant from build-script env reads to the ladder, and
+that crate is in the same position as this one: **it deliberately has no
+`platform-*` cargo feature** (phase-248 C2), so its build script cannot learn
+its platform from a `cfg` either.
+
+### Step 1 — a `logging` tenant
+
+`LoggingKnobs` beside `ExecutorKnobs`/`MemoryKnobs`/`ParamKnobs`/`RmwKnobs`/
+`TransportKnobs` in `platform_config.rs`, plus a `LOGGING_KNOBS` table and a
+`logging_env_key()`. The env front-end names are DERIVED from that one table
+rather than retyped — `nros-node` does exactly this with `knob_for_env`, and
+retyping them is the drift `check-knob-single-reader` exists to catch.
+
+```toml
+[knobs.logging]
+max_level       = "info"   # compile-time CEILING
+buffer_size     = 256
+early_records   = 4
+dynamic_loggers = 16
+```
+
+### Step 2 — `nros-log` gains a build script
+
+```rust
+let rungs = BuildRungs::from_build_env().map(|r| r.logging_rungs()).unwrap_or_default();
+```
+
+Sizes become generated consts in `OUT_DIR`; `max_level` becomes a
+`cargo::rustc-cfg`, because it gates macro EXPANSION rather than a value.
+
+**This step also fixes the bug that started this issue, and that is the
+strongest argument for the migration.** `BuildRungs::from_build_env()` returns
+`None` when no lane exported a pointer, and every rung is then `None`. So:
+
+* a bare `cargo test -p nros-log` — no lane, no clock rung, no
+  `has_platform_clock` cfg, and the test binary links, because it never
+  references `nros_platform_clock_ns`;
+* a real image — the lane resolved a platform that declares the capability, the
+  cfg is on, the symbol exists.
+
+A Cargo feature cannot express that distinction *at all*: features unify across
+the workspace, so "on for `nros-c`, off for `nros-log`'s own tests" is
+unsayable. That is not a tidiness argument — it is the exact failure the tier
+caught, and the ladder is the mechanism that makes it expressible.
+
+### Step 3 — the clock is a capability, not a knob
+
+`capabilities` is an open `BTreeMap<String, bool>` (`platform_config.rs:92`), so:
+
+```toml
+# the five ports that export nros_platform_clock_us
+[capabilities]
+clock = true
+```
+
+A capability is a software-stack FACT, which is what this is — the same shape as
+`ip_stack` and `serial`. `capability_check` already errors when something
+requires a capability the platform does not declare, so a board asking for
+timestamps on a clockless port gets a configure-time error instead of records
+stamped `0`.
+
+### Step 4 — retire the sixteen features
+
+As ONE batch with a changelog entry, per the retirement discipline: it is the
+irreversible step for an out-of-tree consumer naming `features =
+["max-level-info"]`. `platform-clock` may survive as an internal cfg the build
+script sets; what retires is the human-written spelling.
+
+### The open decision, resolved
+
+I filed this saying a compile-time ceiling contradicting the runtime
+`nros_logger_set_level` would be two sources of truth. **On checking upstream,
+that was wrong and they compose.** rcutils has both: `RCUTILS_LOG_MIN_SEVERITY_*`
+(`logging_macros.h:40-43`) is a compile-time floor that eliminates code, and
+`rcutils_logging_set_logger_level` (`logging.h:403`) is the runtime threshold.
+
+They are a BOUND and a VALUE, not two answers to one question: the ceiling says
+what can possibly be emitted, the runtime level says what is emitted now, and a
+runtime level below the ceiling is simply unreachable. So `max_level` is
+per-image and `set_level` stays per-logger, which is also what ROS 2 does — the
+principle the campaign already follows.
+
 ## Why this is filed rather than fixed
 
 It reaches the config ladder, five platform manifests, `nros-log`'s build, the
