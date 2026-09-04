@@ -271,6 +271,48 @@ Consequences, in the order they bite:
   seams. This is the one place where taking rcl's spelling must not mean taking
   rcl's values.
 
+## Argument ORDER follows the same decision, and is mostly not a separate task
+
+Settled 2026-09-04 with the spellings: where we and rclc/rclcpp name the same
+function, our parameters take THEIR order. A ported line has to compile
+unchanged, and an argument list is as much of the line as the name.
+
+Measured before committing to it, over the seven entry points the compat work
+touches. Only ONE is a reordering:
+
+```
+rclc_node_init_default(node, name, namespace_, support)
+nros_node_init        (node, support, name, namespace_)     <-- permutation
+```
+
+The other six differ for reasons a reorder cannot fix, and reading them is what
+makes the task tractable:
+
+| pair | difference | what closes it |
+| --- | --- | --- |
+| `publisher_init`, `client_init` | `type_support` vs `type_info` — a TYPE difference in the same position | a decision about the typesupport handle, not order |
+| `subscription_init`, `service_init` | ours carries `+2` (`callback`, `context`) | RFC-0041 binds the callback to the ENTITY at creation; changing it is a design reversal, not a rename |
+| `timer_init` | ours carries `+1` (`context`); also `timeout_ns` vs `period_ns` | same RFC-0041 question, plus a naming one |
+| `executor_add_subscription` | rclc carries `+2` (`msg`, `callback`) | W5.a's typed delivery — it converges when that lands |
+
+So argument order is **downstream of the shape decisions**, not parallel to
+them. Reordering the one true permutation is a day's work; the other six
+converge or do not depending on RFC-0041 and W5.a, and forcing an order onto
+lists of different lengths would produce a signature that matches upstream in
+neither.
+
+### The hazard, and why this one is safe
+
+Reordering parameters of the SAME type is silent: a caller that is not updated
+still compiles and passes the wrong values. `node_init` is safe because the
+argument moving is `support` (a `struct nros_support_t *`) crossing `name` and
+`namespace_` (both `const char *`) — an un-updated caller puts a struct pointer
+where a `char *` is expected and fails to compile.
+
+That is luck, not a rule. **Before any future reorder, check whether the moved
+parameter's type is distinguishable from its neighbours'; where it is not, the
+reorder needs a rename alongside it so the old spelling cannot silently bind.**
+
 ## What "mostly full compat" can honestly mean
 
 It cannot mean the whole rclcpp surface. Four upstream idioms account for most
