@@ -9,6 +9,7 @@
   },
   "c:executor_add_client_with_request_id": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclc ships a second registration entry point whose callback also receives the `rmw_request_id_t`. Ours has one registration verb: the correlation token is an `int64_t` sequence number that `nros_client_send_request` returns and `nros_service_send_response_raw` takes back (see the service stage's `cpp:Client::create_request_header`), and it belongs to the ENTITY, not to a second `add_*` overload. A registration entry point per callback shape is the `executor-owns-no-entity-storage` rule seen from the executor's side."
   },
   "c:executor_add_on_shutdown_callback": {
@@ -21,14 +22,17 @@
   },
   "c:executor_add_service_with_context": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "every nano-ros callback typedef already ends in `void *context`, and the pair is bound to the ENTITY at creation (RFC-0041/0043) rather than handed to the executor. So `nros_executor_add_service` IS rclc's with-context form -- rclc needs the variant only because its base callback has no context parameter. See `c:subscription_callback_t`."
   },
   "c:executor_add_service_with_request_id": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `c:executor_add_client_with_request_id`; the deferred-reply path is `nros_service_take_request_raw` + `nros_service_send_response_raw(sequence_number, ...)`. (CORRECTED 2026-08-27, phase-379 W5: this named two symbols that do not work. `nros_service_send_response` was renamed from `nros_service_send_reply_raw` and is now a deprecated forwarder -- see `c:service_send_response_raw` in service.json. `nros_service_take_request` was, and still is, a permanent `NROS_RET_NOT_INIT` stub; its working twin was `nros_service_try_recv_request_raw`, renamed to `nros_service_take_request_raw` by phase-379 W6 decision 1; which of `take_request` / `take_request_raw` survives is `c:service_take_request`.) CORRECTED 2026-09-04 (phase-417): the sentence above described the CURRENT deferred-reply path using the retired `try_recv` spelling."
   },
   "c:executor_add_subscription_with_context": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "see `c:executor_add_service_with_context`."
   },
   "c:executor_bind_handle_to_sched_context": {
@@ -57,6 +61,7 @@
   },
   "c:executor_get_zero_initialized_executor": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rclc's stuttering spelling -- the type name appears twice. Ours is `nros_executor_get_zero_initialized`, the method-style name on the type. See `c:get_zero_initialized_publisher`."
   },
   "c:executor_handle_invocation_t": {
@@ -87,10 +92,12 @@
   },
   "c:executor_prepare": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rclc pre-allocates its `rcl_wait_set` from the handles registered so far, so a later `spin` does not allocate. There is no wait set (rcl's wait set; the reason is stated in full at `cpp:WaitSet`.) and the arena is sized at compile time, so there is nothing to pre-allocate: static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated."
   },
   "c:executor_remove_*": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclc can drop a subscription, client, service, timer or guard condition from a spinning executor. static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated. What a user loses: retiring an entity at runtime to reclaim its slot -- a mode change has to register every entity it may ever need at boot and gate them, which is also what a memory budget that must be known before flashing wants. This is a deliberate shape, not an oversight; if it is ever wanted, slot reuse needs handle generation counters first.",
     "bucket": "theirs-only"
   },
@@ -112,10 +119,12 @@
   },
   "c:get_zero_initialized_guard_condition": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rcl's free-function zero-init spelling; ours is `nros_guard_condition_get_zero_initialized`. See `c:get_zero_initialized_publisher`."
   },
   "c:get_zero_initialized_wait_set": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "there is no wait-set type to zero-initialize. rcl's wait set; the reason is stated in full at `cpp:WaitSet`."
   },
   "c:guard_condition_callback_t": {
@@ -128,14 +137,17 @@
   },
   "c:guard_condition_get_default_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_get_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_get_rmw_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "c:guard_condition_get_zero_initialized": {
@@ -144,10 +156,12 @@
   },
   "c:guard_condition_impl_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
   "c:guard_condition_init_from_rmw": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "adopts an already-constructed `rmw_guard_condition_t`. our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`. There is no rmw-level object for a caller to hold, so there is nothing to adopt."
   },
   "c:guard_condition_is_triggered": {
@@ -160,6 +174,7 @@
   },
   "c:guard_condition_options_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a guard condition takes NO options here: `nros_guard_condition_init(guard, support)` (`nros_generated.h:4969`) has no options parameter and there is no `nros_guard_condition_options_t`, so there is nothing to default and nothing to read back. That is narrower than the `compile-time-options` signature rule this row used to cite, and it is the claim that is actually true. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:guard_condition_set_callback": {
@@ -200,6 +215,7 @@
   },
   "c:trigger_guard_condition": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), was `rename`. rcl's free-function spelling `rcl_trigger_guard_condition(rcl_guard_condition_t *)`; ours is `nros_guard_condition_trigger` (`packages/api/nros-c/include/nros/nros_generated.h:4618`). The WORD already matches -- only the ORDER differs, and that order is our C API's single convention, `nros_<entity>_<verb>`. So the old row's 'the spelling is ours to align' was never a statement about one symbol: the identical clause sits on `c:publish` and `c:send_response`, and honouring it inverts the convention across the whole C surface. The class already has a settled precedent in the other direction -- `c:get_zero_initialized_guard_condition` and `c:get_zero_initialized_publisher` are both `declined` for exactly this reason. What a user loses: rcl's verb-first spelling; a ported rcl node rewrites `rcl_trigger_guard_condition(&gc)` as `nros_guard_condition_trigger(&gc)`. Ours half: `c:guard_condition_trigger`.",
     "rename": {
       "status": "resolved",
@@ -208,10 +224,12 @@
   },
   "c:wait": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`rcl_wait` -- the blocking call at the centre of the protocol. rcl's wait set; the reason is stated in full at `cpp:WaitSet`. Ours is `nros_executor_spin_some(executor, timeout_ns)`, which drives I/O through the RMW vtable and dispatches every ready arena entry in one pass."
   },
   "c:wait_set_*": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's wait set; the reason is stated in full at `cpp:WaitSet`.",
     "bucket": "theirs-only"
   },
@@ -221,6 +239,7 @@
   },
   "cpp:AnyExecutable": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "An rclcpp internal, not user API -- it is the wait-set result type its executors pass between themselves. A user writes neither the type nor its fields. RFC-0002's executor is not built from it."
   },
   "cpp:CallbackGroup::CallbackGroup": {
@@ -229,22 +248,27 @@
   },
   "cpp:CallbackGroup::automatically_add_to_executor_with_node": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the flag that decides whether an executor picks this group up when its node is added. Nodes are created BY the executor here and are never added to one; see `cpp:Executor::add_node`."
   },
   "cpp:CallbackGroup::can_be_taken_from": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the mutual-exclusion latch a multi-threaded executor sets while one of the group's callbacks runs. rclcpp's `CallbackGroupType` is a CONCURRENCY policy -- `MutuallyExclusive` or `Reentrant` -- and it only means anything to a multi-threaded executor deciding whether two callbacks from one group may run at once. RFC-0002 puts one executor on one RTOS task with non-preemptive run-to-completion dispatch, so every group is mutually exclusive by construction and `Reentrant` is unrepresentable: there is no second thread to be reentrant from. The axis our group carries instead is a NAME that `system.toml` maps to a scheduling tier (RFC-0047, RFC-0079) -- the thing a mixed-criticality image actually needs from grouping. `automatically_add_to_executor_with_node` (rclcpp's second constructor argument) is meaningless for the same reason as `cpp:Executor::add_node`."
   },
   "cpp:CallbackGroup::collect_all_ptrs": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:CallbackGroup::find_waitable_ptrs_if": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:CallbackGroup::get_associated_with_executor_atomic": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the 'already claimed by an executor' atomic, which exists because an rclcpp group can be added to at most one executor at a time. Ours binds at registration into one executor's arena and never moves. RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:CallbackGroup::get_name": {
@@ -253,22 +277,27 @@
   },
   "cpp:CallbackGroup::get_notify_guard_condition": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp wakes a blocked `rcl_wait` when a group's membership changes, so the wait set can be rebuilt. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`. Membership is also fixed at registration here (static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated.), so there is no change to notify anyone of."
   },
   "cpp:CallbackGroup::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py. Ours is a value-typed token holding a `const char*`; there is nothing to share."
   },
   "cpp:CallbackGroup::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:CallbackGroup::make_shared`."
   },
   "cpp:CallbackGroup::trigger_notify_guard_condition": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:CallbackGroup::get_notify_guard_condition`."
   },
   "cpp:CallbackGroup::type": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:CallbackGroupType`."
   },
   "cpp:CallbackGroupType": {
@@ -281,10 +310,12 @@
   },
   "cpp:Executor::add_callback_group": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::add_node": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "an rclcpp node is standalone and is ATTACHED to an executor, which is what makes it movable between executors and spinnable by more than one. static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated. A node's entities are allocated in the arena of the executor that created it (`cpp:Executor::create_node`), so attachment is not a separate step and cannot be undone. What a user loses: handing an already-built node to a different executor."
   },
   "cpp:Executor::add_on_shutdown_callback": {
@@ -313,14 +344,17 @@
   },
   "cpp:Executor::get_all_callback_groups": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration. There is no registry to enumerate, and no allocator for the `std::vector<WeakPtr>` the enumeration returns."
   },
   "cpp:Executor::get_automatically_added_callback_groups_from_nodes": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Executor::get_all_callback_groups`; the automatic/manual distinction is the `automatically_add_to_executor_with_node` flag, declined at `cpp:CallbackGroup::automatically_add_to_executor_with_node`."
   },
   "cpp:Executor::get_manually_added_callback_groups": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Executor::get_all_callback_groups`."
   },
   "cpp:Executor::handle": {
@@ -333,6 +367,7 @@
   },
   "cpp:Executor::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py."
   },
   "cpp:Executor::node_builder": {
@@ -349,10 +384,12 @@
   },
   "cpp:Executor::remove_callback_group": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::remove_node": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:Executor::add_node`."
   },
   "cpp:Executor::remove_on_shutdown_callback": {
@@ -365,6 +402,7 @@
   },
   "cpp:Executor::set_memory_strategy": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `MemoryStrategy` swaps the allocator used for wait-set handles and for messages taken during a spin -- the seam that exists because rclcpp allocates on the dispatch path. There is no dispatch-path allocation to strategise: the arena is sized at compile time and messages are taken into caller storage. no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:Executor::shutdown": {
@@ -373,6 +411,7 @@
   },
   "cpp:Executor::spin_all": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's 'keep collecting and executing until the ready set is empty or `max_duration` expires'. Same answer as `cpp:Executor::spin_some`: `spin_once` already drains the ready set, and `spin_for` is the duration-bounded loop -- differing from `spin_all` in that it keeps waiting for new work rather than returning when work runs out."
   },
   "cpp:Executor::spin_for": {
@@ -381,10 +420,12 @@
   },
   "cpp:Executor::spin_node_once": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "spins ONE node's callbacks on a temporary executor. RFC-0002 puts one executor per RTOS task, SHARED by every node in that tier, and the arena is indexed by `HandleId`, not by node -- a node is not a unit of dispatch here. What a user loses: draining one node's queue while another node's callbacks stay pending. Also needs a throwaway executor per call, which no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py."
   },
   "cpp:Executor::spin_node_some": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:Executor::spin_node_once`."
   },
   "cpp:Executor::spin_some": {
@@ -403,18 +444,22 @@
   },
   "cpp:Executor::spin_until_future_complete": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "drives the executor until a `std::shared_future` resolves. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts it: the blocking helper is a method on the thing being waited FOR and it takes the executor (`promise.wait(&mut executor, timeout)`, `Client::call`), which is the same capability with the deadlock made unrepresentable. See `cpp:Future::wait` and the service stage's `cpp:Client::async_send_request`."
   },
   "cpp:ExecutorOptions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's executor options -- memory strategy, context, max entities, notify-waitable. Every field is either declined on its own (`set_memory_strategy`, `cpp:Context`) or compile-time here (arena size). The EXECUTOR has no options type at all -- unlike the seven ENTITY options structs the C surface ships.CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface. Ours are the arguments to `Executor::create(out, locator, domain_id, session_name)`."
   },
   "cpp:ExecutorOptions::ExecutorOptions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:ExecutorOptions`."
   },
   "cpp:GuardCondition::add_to_wait_set": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:GuardCondition::attach_std_closure": {
@@ -423,14 +468,17 @@
   },
   "cpp:GuardCondition::exchange_in_use_by_wait_set_state": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:GuardCondition::get_context": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclcpp guard condition holds the `Context` it was built from. See `cpp:Context`; nothing carries a context pointer here."
   },
   "cpp:GuardCondition::get_rcl_guard_condition": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "cpp:GuardCondition::is_valid": {
@@ -439,6 +487,7 @@
   },
   "cpp:GuardCondition::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py."
   },
   "cpp:GuardCondition::set_on_trigger_callback": {
@@ -459,14 +508,17 @@
   },
   "cpp:Node::for_each_callback_group": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "enumerates the groups a node owns. A node owns none here. RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Server::add_to_wait_set": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`. (`Server` here is the rclcpp_action server the correlator folds in; see the action stage.)"
   },
   "cpp:Server::get_number_of_ready_guard_conditions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Server::add_to_wait_set`."
   },
   "cpp:ShutdownCallback": {
@@ -487,10 +539,12 @@
   },
   "cpp:StaticWaitSet": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:ThreadSafeWaitSet": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the mutex-guarded wait-set policy, for adding entities from another thread while one spins. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`. RFC-0002 also fixes membership at registration, so there is no concurrent mutation to guard."
   },
   "cpp:TickCtx": {
@@ -499,22 +553,27 @@
   },
   "cpp:WaitResult": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "what `WaitSetTemplate::wait` hands back -- ready / timeout / empty plus the ready entities. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:WaitSet": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's wait-set protocol, and this stage is where it is answered once. An entity declares how many wait-set slots of each kind it needs, the executor assembles one `rcl_wait_set` out of every entity in every callback group, blocks in `rcl_wait`, then asks each ready entity to hand its data back (`take_data`) and to execute. RFC-0002 puts ONE executor on ONE RTOS task, shared by every node in that tier, and drives entities DIRECTLY through the RMW vtable -- `has_data` / `drive_io` / `next_deadline_ms` over a fixed arena indexed by `HandleId`, dispatched FIFO. No wait set is ever constructed, so there is nothing for an entity to describe itself to and no ready-set to hand back. What a user loses: blocking on an externally assembled set of entities, and extending the executor with a third-party object by implementing `Waitable`. The pubsub, service, timer and action stages decline the per-entity halves and point here."
   },
   "cpp:WaitSetTemplate": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the policy-parameterised template `WaitSet` / `StaticWaitSet` / `ThreadSafeWaitSet` are aliases of. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:Waitable": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the interface a third-party object implements to join an rclcpp wait set. rclcpp's wait-set protocol; the reason is stated in full at `cpp:WaitSet`."
   },
   "cpp:WeakCallbackGroupsToNodesMap": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an `std::map` of weak group pointers to the nodes they came from, so an rclcpp executor can drop a group when its node dies. no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py. RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:create_executor": {
@@ -550,6 +609,7 @@
   },
   "cpp:spin_until_future_complete": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the free form of `cpp:Executor::spin_until_future_complete`; see that row and RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`."
   },
   "rust:ActionClientReady": {
@@ -562,23 +622,27 @@
   },
   "rust:ActivityListener": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:ActivityListenerCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:BasicExecutorRuntime": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:CreateBasicExecutor": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:DeadlineAction": {
-    "verdict": "declined",
-    "why": "not an action item: `DeadlineAction` is RFC-0052's deadline-MISS reaction (ignore / warn / skip / fault) for a scheduling context, routed here because the taxonomy matches the word `Action`. rclrs has no counterpart because it has no deadline contract; the real row belongs to the exec or qos stage. Flagged for a `topics.py` fix; see this stage's report."
+    "verdict": "extension",
+    "why": "CORRECTED 2026-09-04 (phase-417 W-M2): this was verdicted `declined`, which means \"ROS 2 has it and we deliberately do not\". The row is OURS-ONLY -- rclrs has no counterpart at all -- so the verdict asserted the opposite of the bucket. `extension` is the verdict for a capability we add.\n\nnot an action item: `DeadlineAction` is RFC-0052's deadline-MISS reaction (ignore / warn / skip / fault) for a scheduling context, routed here because the taxonomy matches the word `Action`. rclrs has no counterpart because it has no deadline contract; the real row belongs to the exec or qos stage. Flagged for a `topics.py` fix; see this stage's report."
   },
   "rust:Executor::*age_table": {
     "verdict": "extension",
@@ -640,6 +704,7 @@
   },
   "rust:Executor::commands": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the handle onto rclrs's `ExecutorCommands` channel. part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:Executor::create_node": {
@@ -775,6 +840,7 @@
   },
   "rust:Executor::spin_async": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclrs drives spin_async on an async runtime (async-std/tokio). no_std targets have neither, and RFC-0002 puts one executor per RTOS task rather than a task-stealing runtime. The blocking `spin` is the whole model here."
   },
   "rust:Executor::wake*": {
@@ -789,10 +855,12 @@
   },
   "rust:ExecutorChannel": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:ExecutorCommands": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:ExecutorConfig": {
@@ -825,6 +893,7 @@
   },
   "rust:ExecutorRuntime": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:ExecutorSemantics": {
@@ -837,6 +906,7 @@
   },
   "rust:ExecutorWorkerOptions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:HandleId": {
@@ -869,6 +939,7 @@
   },
   "rust:InnerGuardConditionHandle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's owned/borrowed split inside its guard condition, so one can be built from a foreign `rcl_guard_condition_t`. our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`. Ours is always executor-owned: `Executor::register_guard_condition(closure)` allocates the flag in the arena and hands back the handle."
   },
   "rust:InvocationMode": {
@@ -877,6 +948,7 @@
   },
   "rust:PayloadTask": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:Promise::wait": {
@@ -885,14 +957,17 @@
   },
   "rust:RclPrimitive": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's dispatch trait -- `execute`, `handle`, `kind` -- implemented by each entity so the wait set can drive it generically. RFC-0002's executor drives entities through the RMW vtable and an `EntryKind` tag in the arena, which is the same job done by a C ABI rather than by a Rust trait object (which would need an allocation per entity). rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`."
   },
   "rust:RclPrimitiveHandle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:RclPrimitive`."
   },
   "rust:RclPrimitiveKind": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's discriminant for the above; ours is `nros_entry_kind_e` / `EntryKind` in the arena entry (RFC-0002 section 4.1). See `rust:RclPrimitive`."
   },
   "rust:ReadinessSnapshot": {
@@ -985,6 +1060,7 @@
   },
   "rust:SpinConditions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the internal bundle a `WaitSetRunner` spins under -- context, halt guard condition, options. part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:SpinOnceResult": {
@@ -1013,6 +1089,7 @@
   },
   "rust:SpinOptions::clone_partial": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs internal that copies a `SpinOptions` while dropping its non-`Clone` fields, so the runtime can re-enter a spin. There is no re-entrant spin to feed -- `nros_executor_spin_some` is documented not reentrant."
   },
   "rust:SpinOptions::max_callbacks": {
@@ -1021,6 +1098,7 @@
   },
   "rust:SpinOptions::until_promise_resolved": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclrs spins until a promise resolves, hiding the executor inside the wait. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts the call: `promise.wait(&mut executor, timeout)`, which cannot deadlock because the caller must hand over the executor to be driven. See the service stage's `cpp:Client::async_send_request`."
   },
   "rust:SpinPeriodPollingResult": {
@@ -1065,46 +1143,57 @@
   },
   "rust:WaitSet": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`."
   },
   "rust:WaitSetRunConditions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:WaitSetRunner`."
   },
   "rust:WaitSetRunner": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the thread that owns an rclrs wait set and pumps it. rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`. part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:Waitable": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's wrapper pairing an rcl primitive with its executor-side dispatch. rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`."
   },
   "rust:WaitableCount": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "how many slots of each kind a waitable needs -- the Rust face of `get_number_of_ready_*`. rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`."
   },
   "rust:WaitableLifecycle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the RAII token that removes a waitable from its wait set on drop. rclrs's wait-set machinery; the reason is stated in full at `cpp:WaitSet`. static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated."
   },
   "rust:WeakActivityListener": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:WorkScope": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:Worker": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:WorkerChannel": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:WorkerOptions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
   "rust:Executor::release_jitter": {

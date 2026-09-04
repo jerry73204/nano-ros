@@ -10,18 +10,22 @@
   },
   "c:get_default_domain_id": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl reads ROS_DOMAIN_ID from the environment at runtime. An embedded backend has no environment (RFC-0036, Domain ID), so the domain arrives through `nros_support_init`'s parameter over a documented ladder -- explicit argument, then hosted env, then the baked default -- with `NROS_DOMAIN_ID_INHERIT`/`NROS_DOMAIN_ID_EXPLICIT_ZERO` sentinels because plain 0 has to stay the UNSET marker (issues 0206/0227)."
   },
   "c:get_zero_initialized_context": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "there is no context type to zero-initialize. `nros_support_get_zero_initialized` is the same idiom on the type we do have."
   },
   "c:get_zero_initialized_init_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no init-options type; see `c:init_options_*`."
   },
   "c:init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`rcl_init(argc, argv, options, context)` is the layer BELOW rclc, and rclc's own examples do not call it -- they call `rclc_support_init`, which is what `nros_support_init` mirrors. Declining the lower layer is what makes the C API rclc-shaped rather than rcl-shaped."
   },
   "c:init_options_*": {
@@ -31,6 +35,7 @@
   },
   "c:shutdown": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "as `rcl_init`: the rcl-layer counterpart. `nros_support_fini` is the rclc-shaped teardown."
   },
   "c:support_get_zero_initialized": {
@@ -43,6 +48,7 @@
   },
   "c:support_init_with_options": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc's options-taking variant. Same constraint as `compile-time-options`: there is no `rcl_init_options_t` to pass."
   },
   "c:support_is_valid": {
@@ -60,6 +66,7 @@
   },
   "cpp:ContextAlreadyInitialized": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an exception type, and the freestanding builds are -fno-exceptions (RFC-0018). Re-initialising returns `ErrorCode::AlreadyExists` through `nros::Result`."
   },
   "cpp:InitOptions": {
@@ -69,10 +76,12 @@
   },
   "cpp:get_contexts": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "enumerates the process's contexts; there is exactly one and it is not a value you can hold. See `cpp:Context`."
   },
   "cpp:get_current_signal_handler_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see install_signal_handlers."
   },
   "cpp:init": {
@@ -81,10 +90,12 @@
   },
   "cpp:init_and_remove_ros_arguments": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see remove_ros_arguments."
   },
   "cpp:install_signal_handlers": {
     "verdict": "declined",
+    "disposition": "absent",
     "bucket": "theirs-only",
     "why": "no POSIX signal delivery on Zephyr, FreeRTOS or bare-metal. rclcpp installs a SIGINT handler so Ctrl-C shuts the context down; an image is stopped by its RTOS, a watchdog or a power rail."
   },
@@ -106,14 +117,17 @@
   },
   "cpp:remove_ros_arguments": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "argv filtering, and there is no argv. RFC-0045 resolves boot config from baked values and the board."
   },
   "cpp:signal_handlers_installed": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see install_signal_handlers."
   },
   "cpp:uninstall_signal_handlers": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see install_signal_handlers."
   },
   "rust:Context": {
@@ -128,6 +142,7 @@
   },
   "rust:extract_non_ros_args": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "argv filtering; see `cpp:remove_ros_arguments`."
   },
   "c:support_init_rmw": {

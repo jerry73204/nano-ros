@@ -35,6 +35,7 @@
   },
   "c:event_get_rmw_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "hands out the underlying `rmw_event_t` so a caller can bypass rcl. There is no event object here to hold one -- see `c:event_t` -- and the seam is closed anyway; see `c:node_get_rmw_handle`."
   },
   "c:event_impl_t": {
@@ -138,6 +139,7 @@
   },
   "cpp:KeepAll": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_all"
     ],
@@ -145,6 +147,7 @@
   },
   "cpp:KeepAll::KeepAll": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_all"
     ],
@@ -152,6 +155,7 @@
   },
   "cpp:KeepLast": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_last"
     ],
@@ -159,6 +163,7 @@
   },
   "cpp:KeepLast::KeepLast": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_last"
     ],
@@ -230,18 +235,22 @@
   },
   "cpp:QOSOfferedIncompatibleQoSCallbackType": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the incompatible-QoS event fires when DISCOVERY finds a remote endpoint whose offered profile does not match the requested one. We have static peers and no dynamic discovery, so there is no remote profile to compare against at runtime. The analogous failure is reported synchronously instead: a profile the LINKED backend cannot honour makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). Our `nros_rmw::EventKind` has exactly five variants -- liveliness changed/lost, requested/offered deadline missed, message lost -- and these two are the ones deliberately absent. A user loses the runtime notification that a peer showed up with an unmatchable profile; they get a build-time-fixed profile and a create-time error."
   },
   "cpp:QOSOfferedIncompatibleQoSInfo": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the incompatible-QoS event fires when DISCOVERY finds a remote endpoint whose offered profile does not match the requested one. We have static peers and no dynamic discovery, so there is no remote profile to compare against at runtime. The analogous failure is reported synchronously instead: a profile the LINKED backend cannot honour makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). Our `nros_rmw::EventKind` has exactly five variants -- liveliness changed/lost, requested/offered deadline missed, message lost -- and these two are the ones deliberately absent. A user loses the runtime notification that a peer showed up with an unmatchable profile; they get a build-time-fixed profile and a create-time error."
   },
   "cpp:QOSRequestedIncompatibleQoSCallbackType": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the incompatible-QoS event fires when DISCOVERY finds a remote endpoint whose offered profile does not match the requested one. We have static peers and no dynamic discovery, so there is no remote profile to compare against at runtime. The analogous failure is reported synchronously instead: a profile the LINKED backend cannot honour makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). Our `nros_rmw::EventKind` has exactly five variants -- liveliness changed/lost, requested/offered deadline missed, message lost -- and these two are the ones deliberately absent. A user loses the runtime notification that a peer showed up with an unmatchable profile; they get a build-time-fixed profile and a create-time error."
   },
   "cpp:QOSRequestedIncompatibleQoSInfo": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the incompatible-QoS event fires when DISCOVERY finds a remote endpoint whose offered profile does not match the requested one. We have static peers and no dynamic discovery, so there is no remote profile to compare against at runtime. The analogous failure is reported synchronously instead: a profile the LINKED backend cannot honour makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). Our `nros_rmw::EventKind` has exactly five variants -- liveliness changed/lost, requested/offered deadline missed, message lost -- and these two are the ones deliberately absent. A user loses the runtime notification that a peer showed up with an unmatchable profile; they get a build-time-fixed profile and a create-time error."
   },
   "cpp:QoS::deadline_ms": {
@@ -272,6 +281,7 @@
   },
   "cpp:QoS::get_rmw_qos_profile": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "hands out the underlying DDS-shaped `rmw_qos_profile_t` so a caller can bypass the API. Our RMW seam is the vtable in `nros/rmw_vtable.h` (RFC-0035) and is deliberately not reachable from a user type; see `c:node_get_rmw_handle`. `nros_qos_t` matches the field set, so the information is not hidden -- the rmw type is."
   },
   "cpp:QoS::history_raw": {
@@ -329,14 +339,17 @@
   },
   "cpp:QoSCheckCompatibleResult": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RxO compatibility between a publisher profile and a subscription profile. Answering it needs the REMOTE endpoint's offered QoS, which arrives through discovery; we have static peers and no dynamic discovery, so there is no second profile to compare against. What we check instead is a different question with the same name-shape: `QoSProfile::validate_against(Session::supported_qos_policies())` compares the requested profile with what the LINKED BACKEND can honour and makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). `QoSCheckCompatibleResult` additionally carries a `std::string reason`, which the freestanding build has no allocator for, and `qos_check_compatible` reports failure by throwing `QoSCheckCompatibilityException` (-fno-exceptions, RFC-0018). A user loses the \"will these two endpoints talk?\" pre-flight; they get a create-time error instead. OUR LANGUAGES DISAGREE on the replacement: `supported_qos_policies` is Rust-only, so a C or C++ caller cannot ask the backend-capability question in advance at all -- see `rust:Session::supported_qos_policies`."
   },
   "cpp:QoSCompatibility": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RxO compatibility between a publisher profile and a subscription profile. Answering it needs the REMOTE endpoint's offered QoS, which arrives through discovery; we have static peers and no dynamic discovery, so there is no second profile to compare against. What we check instead is a different question with the same name-shape: `QoSProfile::validate_against(Session::supported_qos_policies())` compares the requested profile with what the LINKED BACKEND can honour and makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). `QoSCheckCompatibleResult` additionally carries a `std::string reason`, which the freestanding build has no allocator for, and `qos_check_compatible` reports failure by throwing `QoSCheckCompatibilityException` (-fno-exceptions, RFC-0018). A user loses the \"will these two endpoints talk?\" pre-flight; they get a create-time error instead. OUR LANGUAGES DISAGREE on the replacement: `supported_qos_policies` is Rust-only, so a C or C++ caller cannot ask the backend-capability question in advance at all -- see `rust:Session::supported_qos_policies`."
   },
   "cpp:QoSInitialization": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_last",
       "nros::QoS::keep_all"
@@ -345,6 +358,7 @@
   },
   "cpp:QoSInitialization::QoSInitialization": {
     "verdict": "declined",
+    "disposition": "adopt",
     "provides": [
       "nros::QoS::keep_last",
       "nros::QoS::keep_all"
@@ -353,6 +367,7 @@
   },
   "cpp:QoSInitialization::from_rmw": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "builds the initialization tag from an `rmw_qos_profile_t`. Both halves are declined: the tag (see `cpp:QoSInitialization`) and the rmw type (see `cpp:QoS::get_rmw_qos_profile`)."
   },
   "cpp:QosCallback": {
@@ -393,10 +408,12 @@
   },
   "cpp:RosoutQoS": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "the QoS `/rosout` log publication uses (transient-local, keep-last(1000), 10 s lifespan). We publish no `/rosout` at all: `nros_log` composes a `&'static [&dyn LogSink]` and the `/rosout` sink is listed there as future work (nros-log/src/lib.rs:17, and `nros-tests/tests/logging.rs` says the macros are deferred along with it), while `rclcpp_compat.hpp`'s `NodeOptions::enable_rosout` defaults to false and is inert. A user loses `ros2 topic echo /rosout` on a nano-ros node -- logs land on the board console. The node-option spelling of the same decision is `cpp:NodeOptions::rosout_qos`, already recorded in the node stage."
   },
   "cpp:RosoutQoS::RosoutQoS": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "see `cpp:RosoutQoS`."
   },
   "cpp:SensorDataQoS": {
@@ -430,8 +447,9 @@
     "why": "a `std::function` typedef, or the struct bundling one per event, that rclcpp hands to an entity's options. QoS events. rclcpp routes every event through one `set_on_new_qos_event_callback` plus a `QOSEventHandler` waitable the executor polls; ours are named callbacks per event registered on the entity -- five in C (`nros_subscription_set_liveliness_changed_callback`, `nros_subscription_set_requested_deadline_missed_callback`, `nros_subscription_set_message_lost_callback`, `nros_publisher_set_liveliness_lost_callback`, `nros_publisher_set_offered_deadline_missed_callback`) and the same five in C++ (`Publisher::on_liveliness_lost`, `Publisher::on_offered_deadline_missed`, `Subscription::on_liveliness_changed`, `Subscription::on_requested_deadline_missed`, `Subscription::on_message_lost`). Constraint: no allocator for a per-event handler object and no wait-set to poll it from -- the callback is a fn-ptr in the entity's own static storage. The whole family was classified in the pubsub stage; see `cpp:QOSEventHandler`. A fn-ptr plus a `void *` context, not a `std::function`: no allocator for the closure's captured state. CORRECTED 2026-09-04 (phase-379 W6): this sentence used to name `Subscription::register_event_callback`, which exists in no header -- there is no one generic registrar on either entity, which is the whole point of the row, so naming one argued against itself. The real spellings are the five per-event methods above (`subscription.hpp:498-513`, `publisher.hpp:228-235`). Fixed in all NINE rows that shared this boilerplate, not just the one it was noticed on."
   },
   "cpp:SystemDefaultsQoS": {
-    "verdict": "gap",
-    "why": "Rust has `QoSProfile::system_default()`; C++ and C have no such preset. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. Note the semantics do not carry over intact: `rmw_qos_profile_system_default` means \"leave every policy for the middleware to decide\", and there is no middleware here to defer to -- the backend is linked at build time and the profile is fixed at compile time (RFC-0036). Our `system_default` is a concrete RELIABLE + VOLATILE + KEEP_LAST(1) value, and our policy enums carry no `SystemDefault` or `Unknown` discriminant on purpose."
+    "verdict": "declined",
+    "why": "CORRECTED 2026-09-04 (phase-417 W-M2): verdicted `gap` -- \"we should have it, nobody did it\" -- while the shim REFUSES it loudly (`rclcpp_compat.hpp`, `NROS_RCLCPP_REFUSE_SYSTEM_DEFAULTS_QOS`). The ledger and the shipped code disagreed, and the code is right: upstream's `rmw_qos_profile_system_default` is ALL-SENTINEL -- every field says \"let the RMW decide\" -- and issue 0829 measured that resolving to depth 1 on Cyclone and 42 on zenoh. No concrete value can be correct, and `nros::QoS` has no sentinel by design, so a value here would be a confident wrong answer rather than a missing one. That is a decline, not a gap.\n\nIt was also the THIRD live inversion stage 3 found: the shim previously returned `QoS(10)`, which is `rmw_qos_profile_DEFAULT` -- a different upstream profile altogether.\n\nRust has `QoSProfile::system_default()`; C++ and C have no such preset. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. Note the semantics do not carry over intact: `rmw_qos_profile_system_default` means \"leave every policy for the middleware to decide\", and there is no middleware here to defer to -- the backend is linked at build time and the profile is fixed at compile time (RFC-0036). Our `system_default` is a concrete RELIABLE + VOLATILE + KEEP_LAST(1) value, and our policy enums carry no `SystemDefault` or `Unknown` discriminant on purpose.",
+    "disposition": "refuse-loud"
   },
   "cpp:SystemDefaultsQoS::SystemDefaultsQoS": {
     "verdict": "gap",
@@ -455,6 +473,7 @@
   },
   "cpp:qos_check_compatible": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RxO compatibility between a publisher profile and a subscription profile. Answering it needs the REMOTE endpoint's offered QoS, which arrives through discovery; we have static peers and no dynamic discovery, so there is no second profile to compare against. What we check instead is a different question with the same name-shape: `QoSProfile::validate_against(Session::supported_qos_policies())` compares the requested profile with what the LINKED BACKEND can honour and makes the create call return `INCOMPATIBLE_QOS` (RFC-0036, no silent downgrade). `QoSCheckCompatibleResult` additionally carries a `std::string reason`, which the freestanding build has no allocator for, and `qos_check_compatible` reports failure by throwing `QoSCheckCompatibilityException` (-fno-exceptions, RFC-0018). A user loses the \"will these two endpoints talk?\" pre-flight; they get a create-time error instead. OUR LANGUAGES DISAGREE on the replacement: `supported_qos_policies` is Rust-only, so a C or C++ caller cannot ask the backend-capability question in advance at all -- see `rust:Session::supported_qos_policies`."
   },
   "cpp:qos_policy_kind_to_cstr": {
@@ -463,6 +482,7 @@
   },
   "cpp:qos_policy_name_from_kind": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "returns the policy's name as a `std::string`. No allocator, and no `<string>` in the freestanding build (see `nros-cpp` headers gating std includes on `NROS_CPP_STD`). The `const char *` sibling is the one worth having -- see `cpp:qos_policy_kind_to_cstr`."
   },
   "rust:DeadlinePolicy": {
@@ -475,46 +495,57 @@
   },
   "rust:IntoPrimitiveOptions::deadline": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::durability": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::history": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::infinite_lifespan": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::lifespan": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::liveliness": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::liveliness_automatic": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::liveliness_lease": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::liveliness_manual": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::no_deadline": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros::PublisherOptions::qos",
       "nros::SubscriptionOptions::qos"
@@ -523,10 +554,12 @@
   },
   "rust:IntoPrimitiveOptions::reliability": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::sensor_data_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros::QoSProfile::QOS_PROFILE_SENSOR_DATA",
       "nros::PublisherOptions::qos",
@@ -536,6 +569,7 @@
   },
   "rust:IntoPrimitiveOptions::system_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros::QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT",
       "nros::PublisherOptions::qos",
@@ -545,6 +579,7 @@
   },
   "rust:IntoPrimitiveOptions::topics_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros::QoSProfile::QOS_PROFILE_DEFAULT",
       "nros::PublisherOptions::qos",
@@ -658,6 +693,7 @@
   },
   "cpp:NodeOptions::rosout_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }
 }

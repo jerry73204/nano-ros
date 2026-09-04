@@ -92,14 +92,17 @@
     "why": "rcl's zero-init idiom under our naming, applied to the caller-owned `nros_wake_state_t` slot a polling entity's wake callback is registered with. Naming: see `c:publisher_get_zero_initialized` in the pubsub stage (ours is method-style `nros_<thing>_get_zero_initialized` at all 15 sites, rcl's is `rcl_get_zero_initialized_<thing>`); the slot itself: see `c:service_set_wake_callback`."
   },
   "cpp:ContentFilterOptions": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "cpp:ImplicitTypeAdapter": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:TypeAdapter`."
   },
   "cpp:SignalHandlerOptions": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclcpp's selector for WHICH signal handlers `rclcpp::init` installs. We install none: see `cpp:install_signal_handlers` in the init stage -- there is no POSIX signal delivery on Zephyr, FreeRTOS or bare-metal, and an image is stopped by its RTOS, a watchdog or a power rail."
   },
@@ -160,26 +163,32 @@
     "why": "see `cpp:TickCtx`."
   },
   "cpp:TopicStatisticsState": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "the on/off knob for rclcpp's per-subscription topic statistics, which measure message age and inter-arrival period and PUBLISH them as `statistics_msgs/MetricsMessage`. A user loses built-in latency/period telemetry. The project's answer is RFC-0052's on-target contract monitor instead (`nros::monitor`: a bounded table of specs checked in the executor, violations drained by the app) -- an image cannot afford a second publisher per subscription nor a rolling sample window per topic."
   },
   "cpp:TypeAdapter": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "rclcpp's type adaptation: publish a user's own struct on a topic whose wire type is a generated message, with a `TypeAdapter` specialisation converting between them. A user loses that and converts into the generated type by hand before publishing. Two things stop it being merely undone: the conversion needs somewhere to put the converted message and there is no allocator, and the machinery is template metaprogramming over `std::string`/`std::vector` members that the freestanding, `-fno-exceptions` C++ profile (RFC-0018) does not compile. Neither our C nor our Rust has an equivalent either."
   },
   "cpp:WaitResultKind": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the `{Ready, Timeout, Empty}` outcome of `WaitSet::wait()`. rclcpp's `Waitable` protocol; see the pubsub stage's `cpp:Waitable::take_data`. RFC-0002's executor drives entities through the RMW vtable, so there is no wait set and no wait result."
   },
   "cpp:adapt_type": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:TypeAdapter`."
   },
   "cpp:add_will_overflow": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclcpp's saturating-arithmetic predicates, whose reason to exist is guarding `Time`/`Duration` nanosecond arithmetic against overflow. Our C++ has no clock, time or duration type at all (the timer stage records that; C and Rust both do have one), so there is nothing here for them to guard -- a user loses the guards along with the arithmetic they guard. Not a platform constraint: the check compiles to `__builtin_add_overflow` anywhere."
   },
   "cpp:add_will_underflow": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:add_will_overflow`."
   },
@@ -204,6 +213,7 @@
     "why": "phase-408 / issue 0964. Asks whether a message type carries a DERIVED serialized-size bound, as opposed to the estimate `SERIALIZED_SIZE_MAX` states for every type including unbounded ones. It is the predicate the receive buffers branch on: derived -> use it, not derived -> keep today's behaviour. rclcpp has nothing to compare because with an allocator the question does not arise."
   },
   "cpp:is_type_adapter": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:TypeAdapter`."
   },
@@ -216,10 +226,12 @@
     "why": "phase-408 / issue 0964. `nros::rx_size_bound<M>::value` is the RECEIVE bound a message type derives for itself — max(XCDR1, XCDR2) from `nros_serdes::size::max_serialized_size`, the same function the Rust runtime const uses. rclcpp has no counterpart because it has an allocator: a subscription there grows its buffer, so no caller ever needs to name a capacity. Here the buffer is static and the number decides whether a sample fits or is dropped at the transport. A type with NO bound gets a poisoned template whose static_assert names the member costing it, rather than a plausible estimate."
   },
   "cpp:sub_will_overflow": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:add_will_overflow`."
   },
   "cpp:sub_will_underflow": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:add_will_overflow`."
   },
@@ -248,14 +260,17 @@
     "why": "the subscriber-side table: take-age contracts key different endpoints and need no publish counter. See `rust:MonitorSpec`."
   },
   "rust:ArrayValue": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:BaseType": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:BoundedSequenceValue": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
@@ -336,202 +351,252 @@
     "why": "the FFI discriminant the `nros::node!` trampoline `__nros_node_<pkg>_dispatch_strategy` returns. See `rust:DispatchStrategy`."
   },
   "rust:DynamicBoundedSequence": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequence::as_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequence::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut::as_mut_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut::as_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut::clear": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut::try_reset": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedSequenceMut::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedString": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedString::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedStringMut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedStringMut::try_assign": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedStringMut::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedWString": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedWString::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedWStringMut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedWStringMut::try_assign": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicBoundedWStringMut::upper_bound": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::convert_from_rmw_message": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::convert_into_rmw_message": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::get": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::get_mut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::iter": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::iter_mut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::new": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::structure": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::view": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessage::view_mut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageLibraryCache": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageLibraryCache::get_or_load": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageLibraryCache::unload": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageView": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageView::get": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageView::iter": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageView::structure": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut::get": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut::get_mut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut::iter": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut::iter_mut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicMessageViewMut::structure": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequence": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequence::as_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequenceMut": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequenceMut::as_mut_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequenceMut::as_slice": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequenceMut::clear": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSequenceMut::reset": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
@@ -568,38 +633,47 @@
     "why": "the one-call collapse of those three. See `rust:IntegrityStatus`."
   },
   "rust:IntoPrimitiveOptions": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "rclrs's fluent per-create-site options: `node.create_publisher(\"topic\".keep_last(10).reliable())` builds a `PrimitiveOptions` out of a `&str` and folds it into the entity's QoS. A user loses that spelling AT THE CREATE SITE. QoS and entity options are COMPILE-time here (RFC-0036/0045) -- an entity is declared with a `QoSProfile` const, not with an options value assembled per call -- so there is nothing for the builder to produce. The policy vocabulary itself is not lost: `QoSProfile` carries `keep_last`/`keep_all`/`reliable`/`best_effort`/`volatile`/`transient_local` under exactly these names, plus `deadline_ms`/`lifespan_ms`/`liveliness_kind`/`liveliness_lease_ms`/`avoid_ros_namespace_conventions` as fields. See `rust:QoSProfile`."
   },
   "rust:IntoPrimitiveOptions::avoid_ros_namespace_conventions": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::best_effort": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::into_primitive_options": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::keep_all": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::keep_last": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::reliable": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::transient_local": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::volatile": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
@@ -628,18 +702,22 @@
     "why": "that capacity (128 bytes), and the bound `nros_node::names::MAX_RESOLVED_NAME_LEN` is matched to. See `rust:MetadataString`."
   },
   "rust:MessageFieldInfo": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:MessageStructure": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:MessageStructure::get_field_info": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:MessageTypeName": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
@@ -680,14 +758,17 @@
     "why": "see `rust:EXECUTOR_SIZE`."
   },
   "rust:PrimitiveOptions": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the value `IntoPrimitiveOptions` produces -- a name plus an optional `QoSProfile`. See `rust:IntoPrimitiveOptions`."
   },
   "rust:PrimitiveOptions::apply_to": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "folds the built options into a `QoSProfile`. The equivalent fold exists here and is BAKED rather than per-call: `QoSProfile::apply_overrides`. See `rust:IntoPrimitiveOptions`."
   },
   "rust:PrimitiveOptions::new": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
@@ -808,6 +889,7 @@
     "why": "see `rust:SafetyValidator`."
   },
   "rust:SequenceValue": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
@@ -864,6 +946,7 @@
     "why": "see `rust:SessionSpec`."
   },
   "rust:SimpleValue": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
@@ -944,6 +1027,7 @@
     "why": "added by rclrs 0.7.0 (the surface moved from 0.5.1 when this campaign pinned the latest release). Part of its action/goal model -- see `rust:AcceptedGoal` for the typestate argument and why ours is arena-addressed."
   },
   "rust:ValueKind": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },

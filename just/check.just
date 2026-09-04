@@ -3206,7 +3206,7 @@ api-parity-ledger:
 # Verify the user API still corresponds to rclc / rclcpp / rclrs.
 [group("check")]
 api-parity:
-    @python3 scripts/api-parity.py --check
+    @python3 scripts/api-parity.py --check --require-disposition
 
 # issue 0734 — a binary links exactly ONE nano-ros Rust staticlib. A staticlib
 # bundles its whole dependency closure, so linking two duplicates it — and
