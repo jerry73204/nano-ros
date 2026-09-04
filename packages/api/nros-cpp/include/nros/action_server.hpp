@@ -53,6 +53,85 @@ nros_cpp_action_server_set_accepted_callback(void* handle, nros_cpp_accepted_cal
 
 namespace nros {
 
+/// Value type for a goal identifier — the 16 bytes ROS 2 carries as
+/// `unique_identifier_msgs/msg/UUID`.
+///
+/// Phase-417 W4.b. Every action signature here spelled the goal id
+/// `const uint8_t goal_id[16]`, which DECAYS to a pointer: it cannot be
+/// compared with `==`, cannot be returned by value, and cannot be stored in a
+/// container. `rclcpp_action::GoalUUID` is a `std::array<uint8_t, 16>` and is
+/// a map key in most real action servers, so the array-decay spelling is a
+/// drop-in BLOCKER rather than a style difference.
+///
+/// C has had `nros_goal_uuid_t` (`nros/nros_generated.h`) and Rust
+/// `nros_core::GoalId` all along; C++ was the odd one out. This is a value
+/// type over the SAME 16 bytes, not a second identity scheme: standard
+/// layout, trivially copyable, `sizeof == 16`, no allocator, no call into
+/// anything — so it reaches every target the freestanding headers do.
+///
+/// Generation is deliberately NOT here. C's `nros_goal_uuid_generate` draws
+/// randomness, which is behaviour, and RFC-0019 keeps behaviour Rust-side; the
+/// goal id a server sees is the one the FFI hands it.
+///
+/// The raw `const uint8_t[16]` overloads are kept beside every `GoalUUID` one:
+/// the FFI trampolines hand callbacks a `const uint8_t[16]`, and in-tree
+/// examples spell it that way in their own callback signatures. The
+/// converting constructor is `explicit` so a raw-array call site still selects
+/// the raw-array overload rather than silently converting.
+struct GoalUUID {
+    /// Byte count — `unique_identifier_msgs/UUID` is a fixed `uint8[16]`.
+    static const size_t SIZE = 16;
+
+    /// UUID bytes, in wire order.
+    uint8_t uuid[16];
+
+    /// The zero ("null") goal id — mirrors `nros_core::GoalId::zero()`.
+    GoalUUID() : uuid{} {}
+
+    /// Copy the 16 bytes at `src`, which must point to at least that many.
+    explicit GoalUUID(const uint8_t* src) : uuid{} {
+        for (size_t i = 0; i < SIZE; ++i) {
+            uuid[i] = src[i];
+        }
+    }
+
+    /// Pointer to the 16 bytes — what the raw-array overloads and the FFI take.
+    uint8_t* data() { return uuid; }
+    const uint8_t* data() const { return uuid; }
+
+    /// True when every byte is zero — mirrors `nros_core::GoalId::is_zero()`.
+    bool is_zero() const {
+        for (size_t i = 0; i < SIZE; ++i) {
+            if (uuid[i] != 0) return false;
+        }
+        return true;
+    }
+
+    bool operator==(const GoalUUID& other) const {
+        for (size_t i = 0; i < SIZE; ++i) {
+            if (uuid[i] != other.uuid[i]) return false;
+        }
+        return true;
+    }
+
+    bool operator!=(const GoalUUID& other) const { return !(*this == other); }
+
+    /// Lexicographic order over the 16 bytes, so `GoalUUID` is usable as a
+    /// `std::map` key — the shape `rclcpp_action::GoalUUID` gets for free by
+    /// being a `std::array`. The ordering carries no meaning beyond that.
+    bool operator<(const GoalUUID& other) const {
+        for (size_t i = 0; i < SIZE; ++i) {
+            if (uuid[i] != other.uuid[i]) return uuid[i] < other.uuid[i];
+        }
+        return false;
+    }
+};
+
+static_assert(sizeof(GoalUUID) == 16,
+              "nros::GoalUUID must be exactly the 16 bytes the FFI passes as uint8_t[16]");
+static_assert(alignof(GoalUUID) == alignof(uint8_t),
+              "nros::GoalUUID must not add alignment over its uint8_t[16]");
+
 /// Goal acceptance response returned from the user's goal callback.
 enum class GoalResponse : int32_t {
     Reject = 0,
@@ -277,6 +356,66 @@ template <typename A> class ActionServer {
         return complete_goal(goal_id, GoalStatus::Succeeded, result);
     }
 
+    /// @ref publish_feedback taking a `GoalUUID` value (phase-417 W4.b).
+    Result publish_feedback(const GoalUUID& goal_id, const FeedbackType& feedback) {
+        return publish_feedback(goal_id.data(), feedback);
+    }
+
+    /// @ref complete_goal taking a `GoalUUID` value (phase-417 W4.b).
+    Result complete_goal(const GoalUUID& goal_id, GoalStatus status, const ResultType& result) {
+        return complete_goal(goal_id.data(), status, result);
+    }
+
+    /// @ref complete_goal taking a `GoalUUID` value (phase-417 W4.b).
+    Result complete_goal(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Succeeded, result);
+    }
+
+    /// Terminate `goal_id` as SUCCEEDED — phase-417 W4.b.
+    ///
+    /// C has `nros_action_succeed` / `_abort` / `_canceled`, Rust has
+    /// `ActionServerHandle::succeed` / `abort` / `canceled`, and every
+    /// rclcpp_action server ends with `goal_handle->succeed(result)`. C++ had
+    /// only `complete_goal`, so the terminal line of a ported server was one
+    /// nobody could keep. These three are FORWARDERS onto `complete_goal`:
+    /// the goal state machine stays Rust-side (RFC-0019), and no state is
+    /// added here.
+    ///
+    /// `complete_goal` remains the general form for a status computed at
+    /// runtime.
+    Result succeed(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Succeeded, result);
+    }
+
+    /// Terminate `goal_id` as ABORTED. See @ref succeed.
+    Result abort(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Aborted, result);
+    }
+
+    /// Terminate `goal_id` as CANCELED. See @ref succeed.
+    ///
+    /// Spelled `canceled` — rclcpp_action's and C's spelling — not `cancel`.
+    /// Rust used to disagree here and was renamed to match in the same work
+    /// item.
+    Result canceled(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Canceled, result);
+    }
+
+    /// @ref succeed taking a `GoalUUID` value.
+    Result succeed(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Succeeded, result);
+    }
+
+    /// @ref abort taking a `GoalUUID` value.
+    Result abort(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Aborted, result);
+    }
+
+    /// @ref canceled taking a `GoalUUID` value.
+    Result canceled(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Canceled, result);
+    }
+
     /// Iterate over every currently live goal and invoke `f(uuid, status)`.
     ///
     /// `F` must be a stateless callable convertible to
@@ -450,9 +589,14 @@ template <typename A> class ActionServer {
     void* user_accepted_ctx_;
     TypedVisitorFn user_visitor_fn_;
     bool initialized_;
-    // Phase 87.6: action name buffer moved C++-side. 256 matches
-    // nros_node::limits::MAX_ACTION_NAME_LEN.
-    char action_name_[256] = {};
+    // Phase 87.6 put a `char action_name_[256]` here for a `get_action_name()`
+    // that was never written; phase-417 W4.b deleted it. It was populated at
+    // construction and read by nothing, and the name it copied is already held
+    // Rust-side in the runtime struct (`nros_action_server_t::action_name`), so
+    // it was 256 bytes of duplicated state per server on targets whose whole
+    // malloc arena defaults to 16 KB. If an accessor is wanted, it belongs on
+    // an FFI getter over the name the runtime already owns (RFC-0019), not on a
+    // second copy here.
 };
 
 } // namespace nros
@@ -482,14 +626,6 @@ Result Node::create_action_server(ActionServer<A>& out, const char* action_name,
     ret = nros_cpp_action_server_register(out.storage_, executor_handle_, action_name, A::TYPE_NAME,
                                           A::Goal::TYPE_HASH, sched);
     if (ret == 0) {
-        // Phase 87.6: copy action_name into the C++-owned buffer for
-        // `get_action_name()` accessor.
-        size_t name_len = 0;
-        while (action_name[name_len] != '\0' && name_len + 1 < sizeof(out.action_name_)) {
-            out.action_name_[name_len] = action_name[name_len];
-            ++name_len;
-        }
-        out.action_name_[name_len] = '\0';
         out.executor_ = executor_handle_;
         out.initialized_ = true;
     }

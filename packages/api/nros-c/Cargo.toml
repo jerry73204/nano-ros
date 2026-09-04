@@ -263,7 +263,17 @@ nros-core.workspace = true
 nros-platform = { workspace = true, default-features = false }
 # Phase 88.12 — `nros_node_get_logger` returns a `&'static nros_log::Logger`
 # resolved via the facade's intern table.
-nros-log = { workspace = true }
+# phase-417 W4.d — `platform-clock`, not a bare dependency. `nros-log`'s
+# timestamp and throttle both read the platform clock through this feature; with
+# it off, `nros_log_get_logger`-backed records carry `timestamp_ns: 0` and
+# `nros_log_throttle_admit` has no time base, so EVERY record is admitted and a
+# 200 ms window throttles nothing. It degrades loudly (one WARN naming the
+# feature) rather than silently, which is how the gap was visible at all --
+# measured: 5 of 40 records over ~1.0 s with the feature on, 40 of 40 without.
+#
+# nros-c links a platform port by construction, so the clock is present; the
+# feature is what lets `nros-log` use it.
+nros-log = { workspace = true, features = ["platform-clock"] }
 # issue 0710 — `nros_log_init_default` installs the platform-ABI sink, which
 # moved to `nros_platform_cffi::log` so that "this binary needs
 # `nros_platform_log_write`" is a dependency rather than a Cargo feature. NO

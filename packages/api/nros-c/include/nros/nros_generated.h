@@ -4810,12 +4810,50 @@ nros_ret_t nros_executor_spin_one_period(struct nros_executor_t *executor,
                                          uint64_t period_ns);
 
 /**
- * Stop a spinning executor.
+ * Ask a spinning executor to stop — `rclcpp::Executor::cancel` /
+ * `rcl`'s context shutdown, phase-417 W4.c.
+ *
+ * Renamed from `nros_executor_stop`, which survives as a deprecated
+ * `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
+ * had three answers to "stop spinning"; `cancel` is ROS 2's.
+ *
+ * # ADOPT-BOUNDED (RFC-0087)
+ *
+ * `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
+ * returns BEFORE spinning has actually stopped;
+ * [`nros_executor_is_spinning`] is the observable that tells you when it has.
+ * The boundary is one `spin_once` timeout wide (`nros_executor_set_timeout`).
+ *
+ * It does NOT tear down the session: the executor stays initialised, keeps its
+ * entities, and can be spun again. `nros_executor_fini` is the other verb.
+ *
+ * Safe to call from a signal handler or another thread.
  *
  * # Safety
  * * `executor` must be a valid pointer
  */
-NROS_PUBLIC nros_ret_t nros_executor_stop(struct nros_executor_t *executor);
+NROS_PUBLIC nros_ret_t nros_executor_cancel(struct nros_executor_t *executor);
+
+/**
+ * Is a blocking spin (`nros_executor_spin` / `_spin_period`) running on this
+ * executor right now? phase-417 W4.c — `rclcpp::Executor::is_spinning`.
+ *
+ * The C API has always MODELLED this (`NROS_EXECUTOR_STATE_SPINNING`) and
+ * never exported a way to ask, so a C caller could stop a spin but not observe
+ * that it had stopped — the second half of [`nros_executor_cancel`]'s envelope
+ * had no reader.
+ *
+ * A DIFFERENT question from "was cancel requested": between `cancel()` and the
+ * loop's next poll boundary the request is in and the spin is still running.
+ * This answers the second, which is the one a caller waits on.
+ *
+ * `false` for a null pointer — "no executor" is not spinning, and this is a
+ * predicate with no error channel.
+ *
+ * # Safety
+ * * `executor` must be null or a valid pointer
+ */
+NROS_PUBLIC bool nros_executor_is_spinning(const struct nros_executor_t *executor);
 
 /**
  * Finalize an executor.

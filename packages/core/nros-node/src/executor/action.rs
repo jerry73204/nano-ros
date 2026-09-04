@@ -484,10 +484,12 @@ impl<A: RosAction> ActionServerHandle<A> {
     /// 0796 — this used to return `()` and swallow both).
     /// Terminate `goal_id` as SUCCEEDED — phase-379 W5.
     ///
-    /// The three terminal verbs (`succeed` / `abort` / `cancel`) name the
+    /// The three terminal verbs (`succeed` / `abort` / `canceled`) name the
     /// ACTION SPEC's terminal states, which is also what rclcpp_action's
     /// `ServerGoalHandle` spells them: `succeed(result)`, `abort(result)`,
-    /// `canceled(result)`. They take the goal ID rather than hanging off a
+    /// `canceled(result)` — and, since phase-417 W4.b, what C
+    /// (`nros_action_canceled`) and C++ (`ActionServer<A>::canceled`) spell
+    /// them too. They take the goal ID rather than hanging off a
     /// handle because a goal here lives in a fixed-capacity arena and is named
     /// by its UUID — see the `divergence` row for why neither client library's
     /// ownership model is available without an allocator.
@@ -515,17 +517,45 @@ impl<A: RosAction> ActionServerHandle<A> {
 
     /// Terminate `goal_id` as CANCELED. See [`Self::succeed`].
     ///
-    /// Spelled `cancel`, not rclcpp's `canceled`: the other two are imperatives
-    /// (`succeed`, `abort`), and mixing an imperative with a past participle
-    /// inside one family reads as an accident. The SPEC state is `CANCELED`
-    /// either way.
-    pub fn cancel(
+    /// phase-417 W4.b — this was `cancel`, and the argument for that spelling
+    /// is in [`Self::cancel`]. It loses to the drop-in claim: C spells it
+    /// `nros_action_canceled`, rclcpp_action spells it
+    /// `ServerGoalHandle::canceled`, and Rust was the only one of the three
+    /// disagreeing — over a naming preference with no platform reason behind
+    /// it (RFC-0087: a rename is cheap, a surface our own languages disagree
+    /// about is not).
+    pub fn canceled(
         &self,
         executor: &mut Executor,
         goal_id: &nros_core::GoalId,
         result: A::Result,
     ) -> Result<(), NodeError> {
         self.complete_goal(executor, goal_id, nros_core::GoalStatus::Canceled, result)
+    }
+
+    /// Deprecated spelling of [`Self::canceled`] — phase-417 W4.b.
+    ///
+    /// The case for `cancel` was internal consistency: the other two verbs are
+    /// imperatives (`succeed`, `abort`), and mixing an imperative with a past
+    /// participle inside one family reads as an accident. Real, and outweighed
+    /// by C, C++ and rclcpp_action all saying `canceled`.
+    ///
+    /// A forwarder rather than a hard removal because these are INHERENT
+    /// methods: a caller updates one call site and nothing else observes the
+    /// change. (A trait-method rename gets the opposite treatment — it breaks
+    /// every implementor, so there a hard error is the honest signal.)
+    #[deprecated(
+        since = "0.1.0",
+        note = "renamed to `canceled` to match C's `nros_action_canceled` and rclcpp_action's \
+                `ServerGoalHandle::canceled` (phase-417 W4.b)"
+    )]
+    pub fn cancel(
+        &self,
+        executor: &mut Executor,
+        goal_id: &nros_core::GoalId,
+        result: A::Result,
+    ) -> Result<(), NodeError> {
+        self.canceled(executor, goal_id, result)
     }
 
     pub fn complete_goal(
@@ -1575,5 +1605,187 @@ impl ActionClientRawHandle {
     /// Get the entry index for this action client.
     pub fn entry_index(&self) -> usize {
         self.entry_index
+    }
+}
+
+// ============================================================================
+// phase-417 W4.b — the three terminal verbs
+// ============================================================================
+
+// Gated exactly like `executor::tests`: MockSession is the `ConcreteSession`
+// only when no real backend is linked, and `from_session` needs `alloc`.
+#[cfg(all(test, feature = "alloc", not(feature = "rmw-cffi")))]
+mod terminal_verb_tests {
+    use super::*;
+    use core::sync::atomic::{AtomicI8, Ordering};
+    use nros_core::{CdrReader, CdrWriter, DeserError, Deserialize, SerError, Serialize};
+    use nros_rmw::TransportError;
+
+    use crate::mock::MockSession;
+
+    /// The status the last `complete_goal_fn` call was handed. `-1` is "no
+    /// call yet", which is what makes "the verb never reached `complete_goal`"
+    /// distinguishable from "it reached it with the wrong status".
+    static LAST_STATUS: AtomicI8 = AtomicI8::new(-1);
+
+    #[derive(Default)]
+    struct Unit;
+
+    impl Serialize for Unit {
+        fn serialize(&self, _w: &mut CdrWriter) -> Result<(), SerError> {
+            Ok(())
+        }
+    }
+    impl Deserialize for Unit {
+        fn deserialize(_r: &mut CdrReader) -> Result<Self, DeserError> {
+            Ok(Self)
+        }
+    }
+    impl nros_core::RosMessage for Unit {
+        const TYPE_NAME: &'static str = "test/action/Verbs_Unit";
+        const TYPE_HASH: &'static str = "test_hash";
+    }
+
+    struct VerbAction;
+
+    impl RosAction for VerbAction {
+        type Goal = Unit;
+        type Result = Unit;
+        type Feedback = Unit;
+        type SendGoalRequest = Unit;
+        type SendGoalResponse = Unit;
+        type GetResultRequest = Unit;
+        type GetResultResponse = Unit;
+        type FeedbackMessage = Unit;
+        const ACTION_NAME: &'static str = "test/action/dds_/Verbs_";
+        const ACTION_HASH: &'static str = "test_hash";
+    }
+
+    unsafe fn record_status(
+        _data: *mut u8,
+        _goal_id: &nros_core::GoalId,
+        status: nros_core::GoalStatus,
+        _result: Unit,
+    ) -> Result<(), NodeError> {
+        LAST_STATUS.store(status as i8, Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn unused_feedback(
+        _data: *mut u8,
+        _goal_id: &nros_core::GoalId,
+        _fb: &Unit,
+    ) -> Result<(), NodeError> {
+        unreachable!("the terminal-verb test never publishes feedback")
+    }
+
+    unsafe fn unused_set_status(
+        _data: *mut u8,
+        _goal_id: &nros_core::GoalId,
+        _status: nros_core::GoalStatus,
+    ) {
+        unreachable!("the terminal-verb test never sets a non-terminal status")
+    }
+
+    unsafe fn unused_count(_data: *const u8) -> usize {
+        unreachable!("the terminal-verb test never counts active goals")
+    }
+
+    unsafe fn unused_for_each(_data: *const u8, _f: &mut dyn FnMut(&ActiveGoal<VerbAction>)) {
+        unreachable!("the terminal-verb test never iterates active goals")
+    }
+
+    unsafe fn never_processes(
+        _data: *mut u8,
+        _delta_us: u64,
+        _slot: u8,
+    ) -> Result<bool, TransportError> {
+        Ok(false)
+    }
+
+    unsafe fn drops_nothing(_data: *mut u8) {}
+
+    fn handle() -> ActionServerHandle<VerbAction> {
+        ActionServerHandle {
+            entry_index: 0,
+            publish_feedback_fn: unused_feedback,
+            complete_goal_fn: record_status,
+            set_goal_status_fn: unused_set_status,
+            active_goal_count_fn: unused_count,
+            for_each_active_goal_fn: unused_for_each,
+            _phantom: PhantomData,
+        }
+    }
+
+    fn meta() -> CallbackMeta {
+        CallbackMeta {
+            offset: 0,
+            kind: EntryKind::ActionServer,
+            try_process: never_processes,
+            has_data: always_ready,
+            pre_sample: no_pre_sample,
+            invocation: InvocationMode::OnNewData,
+            drop_fn: drops_nothing,
+        }
+    }
+
+    /// Each verb must reach `complete_goal` with the SPEC state it is named
+    /// for, and `cancel` must forward to `canceled` rather than be a second
+    /// code path (RFC-0019: the wrapper spelling may double, the behaviour may
+    /// not).
+    ///
+    /// The observation point is the handle's own `complete_goal_fn`, so a verb
+    /// that quietly did nothing fails on `-1` and a verb wired to the wrong
+    /// status fails on the discriminant — the two ways a forwarder goes wrong.
+    #[test]
+    fn terminal_verbs_carry_their_spec_state_and_cancel_forwards_to_canceled() {
+        let mut executor = Executor::from_session(MockSession::new());
+        executor.entries[0] = Some(meta());
+
+        let h = handle();
+        let goal = nros_core::GoalId::zero();
+
+        LAST_STATUS.store(-1, Ordering::SeqCst);
+        h.succeed(&mut executor, &goal, Unit).unwrap();
+        assert_eq!(
+            LAST_STATUS.load(Ordering::SeqCst),
+            nros_core::GoalStatus::Succeeded as i8,
+            "succeed() must terminate the goal as SUCCEEDED"
+        );
+
+        LAST_STATUS.store(-1, Ordering::SeqCst);
+        h.abort(&mut executor, &goal, Unit).unwrap();
+        assert_eq!(
+            LAST_STATUS.load(Ordering::SeqCst),
+            nros_core::GoalStatus::Aborted as i8,
+            "abort() must terminate the goal as ABORTED"
+        );
+
+        // The renamed verb. `canceled` is the spelling C
+        // (`nros_action_canceled`), C++ (`ActionServer<A>::canceled`) and
+        // rclcpp_action (`ServerGoalHandle::canceled`) all use.
+        LAST_STATUS.store(-1, Ordering::SeqCst);
+        h.canceled(&mut executor, &goal, Unit).unwrap();
+        assert_eq!(
+            LAST_STATUS.load(Ordering::SeqCst),
+            nros_core::GoalStatus::Canceled as i8,
+            "canceled() must terminate the goal as CANCELED"
+        );
+
+        // The deprecated alias still COMPILES (this call is the proof) and
+        // lands in the same place. `-D warnings` implies `-D deprecated` in
+        // this workspace, so the allow is what keeps the alias testable at all.
+        LAST_STATUS.store(-1, Ordering::SeqCst);
+        #[allow(deprecated)]
+        h.cancel(&mut executor, &goal, Unit).unwrap();
+        assert_eq!(
+            LAST_STATUS.load(Ordering::SeqCst),
+            nros_core::GoalStatus::Canceled as i8,
+            "the deprecated `cancel` must forward to `canceled`, not be a second path"
+        );
+
+        // The entry was hand-built, not registered; hand it back before Drop
+        // walks the arena.
+        executor.entries[0] = None;
     }
 }

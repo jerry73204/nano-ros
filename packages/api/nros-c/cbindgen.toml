@@ -91,6 +91,21 @@ exclude = [
     "nros_log_emit_fmt",
     "nros_log_init",
     "nros_log_default_logger",
+    # phase-417 W4.d — same reason, same header. `nros_log_sink_fn` also brings
+    # cbindgen's synthesised `Option_nros_log_sink_fn` (from the `Option<fn>`
+    # nullable-callback slot), which is an OPAQUE struct in the generated header
+    # and therefore not passable by value from C at all.
+    "nros_log_emit_at",
+    "nros_log_get_logger",
+    "nros_logger_get_name",
+    "nros_logger_set_level",
+    "nros_logger_get_level",
+    "nros_logger_is_enabled",
+    "nros_log_sink_fn",
+    "Option_nros_log_sink_fn",
+    "nros_log_add_sink",
+    "nros_log_throttle_admit",
+    "nros_log_timestamp_available",
     # issue-0027 (gcc 14 / riscv NuttX) — platform-PROVIDED functions
     # (posix.h / board startup.c), imported by Rust in a `cfg(not(std))`
     # `unsafe extern "C"` block. `[parse] clean` does not strip the edition-2024

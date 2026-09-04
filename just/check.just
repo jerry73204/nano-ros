@@ -4291,21 +4291,56 @@ cpp: cpp-fmt
             exit 1; \
         }; \
     done
-    echo "  - phase-417: ported-file surface COMPILES (SharedPtr aliases, string interop, graph forwarders)"
-    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+    echo "  - phase-417: ported-file surface COMPILES (aliases, string interop, graph, actions, executor)"
+    for probe in ros2_api_adoption node_graph_forwarders ros2_api_adoption_stage2 \
+                 ros2_init_argv_refusal action_goal_uuid executor_cancel; do \
+        c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+            -Itarget/nros-cpp-generated \
+            -Itarget/nros-c-generated \
+            -Ipackages/api/nros-cpp/include \
+            -Ipackages/api/nros-c/include \
+            -Ipackages/platform/nros-platform-api/include \
+            "packages/api/nros-cpp/tests/compile/$probe.cpp" || exit 1; \
+    done
+    # c++17 alone: it enables NROS_SYSTEM_PARAM_SERVICES in-file, which reaches
+    # `ComponentNode::adopt_launch_seed_`'s `if constexpr`.
+    c++ -fsyntax-only -std=c++17 -fno-exceptions -fno-rtti \
         -Itarget/nros-cpp-generated \
         -Itarget/nros-c-generated \
         -Ipackages/api/nros-cpp/include \
         -Ipackages/api/nros-c/include \
         -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-cpp/tests/compile/ros2_api_adoption.cpp
-    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
-        -Itarget/nros-cpp-generated \
-        -Itarget/nros-c-generated \
-        -Ipackages/api/nros-cpp/include \
-        -Ipackages/api/nros-c/include \
-        -Ipackages/platform/nros-platform-api/include \
-        packages/api/nros-cpp/tests/compile/node_graph_forwarders.cpp
+        packages/api/nros-cpp/tests/compile/ros2_param_launch_seed.cpp
+
+    # `nros_grep_q`, not `grep -q`: grep exits 1 for "no match" and >=2 for a
+    # tool ERROR, and a bare `grep -q ... || finding` reports the second as the
+    # first (issue 0726 — a forked grep that failed to start under a 32-way
+    # fan-out was reported as a missing anchor, a false and specific claim).
+    # shellcheck source=scripts/lib/grep-q.sh
+    source scripts/lib/grep-q.sh
+    # phase-417 stage 3 — the REFUSALS must FAIL, each with its OWN diagnostic.
+    # Exit code alone is not enough: a typo in an include path also exits
+    # non-zero and would read as "the refusal fired". So each is grepped for the
+    # marker its message carries, and `test -f` runs first because a missing
+    # file compiles to nothing and passes.
+    echo "  - phase-417: the refusals FAIL, each naming its own constraint"
+    for probe in node_options system_defaults_qos log_throttle service_callback; do \
+        f="packages/api/nros-cpp/tests/compile/ros2_refuse_${probe}_probe.cpp"; \
+        test -f "$f" || { echo "ERROR: $f is MISSING -- this check passes on absence." >&2; exit 1; }; \
+        if c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+               -Itarget/nros-cpp-generated -Itarget/nros-c-generated \
+               -Ipackages/api/nros-cpp/include -Ipackages/api/nros-c/include \
+               -Ipackages/platform/nros-platform-api/include "$f" 2>"tmp/refuse-$probe.log"; then \
+            echo "ERROR: $f COMPILED. The refusal for '$probe' is not firing." >&2; exit 1; \
+        fi; \
+        nros_grep_q "REFUSED by nano-ros" "tmp/refuse-$probe.log"; \
+        case $? in \
+            0) : ;; \
+            1) echo "ERROR: $f failed WITHOUT the refusal diagnostic -- it broke for" >&2; \
+               echo "       another reason, so this check proves nothing. See tmp/refuse-$probe.log" >&2; \
+               exit 1 ;; \
+        esac; \
+    done
 
     echo "  - declared QoS depth: the three cases COMPILE (c++17)"
     c++ -fsyntax-only -std=c++17 -fno-exceptions -fno-rtti \

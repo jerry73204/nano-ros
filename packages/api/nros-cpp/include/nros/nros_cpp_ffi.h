@@ -1006,6 +1006,62 @@ nros_cpp_ret_t nros_cpp_spin_once(void *handle, int32_t timeout_ms);
 nros_cpp_ret_t nros_cpp_spin_for(void *handle, uint32_t duration_ms, int32_t poll_ms);
 
 /**
+ * Spin until cancelled (blocking) — the loop behind `nros::Executor::spin()`.
+ *
+ * phase-417 W4.c. The C++ header used to run this loop itself, on
+ * `while (initialized_)`, which made `shutdown()` the ONLY way out — and
+ * `shutdown()` calls `nros_cpp_fini`, so stopping a spin cost the whole
+ * middleware session and a fresh discovery round on the way back. That is also
+ * RFC-0020's violation class 2 (a polling loop that spins the executor from
+ * inside the wrapper), and issue 0329 already moved the BOUNDED loop here for
+ * the same reason. This is the unbounded sibling.
+ *
+ * Exits when [`nros_cpp_executor_cancel`] is called from a signal handler or
+ * another thread, or on the first non-OK `spin_once`. Clears any pending cancel
+ * on entry — a cancel raised before this spin started is not a cancel of this
+ * spin — and reports `nros_cpp_executor_is_spinning() == true` for the
+ * duration.
+ *
+ * # Safety
+ * `handle` must be a valid handle returned by `nros_cpp_init()`.
+ */
+nros_cpp_ret_t nros_cpp_spin(void *handle, int32_t poll_ms);
+
+/**
+ * Ask a spinning executor to stop — `rclcpp::Executor::cancel`, phase-417 W4.c.
+ *
+ * # ADOPT-BOUNDED (RFC-0087)
+ *
+ * Sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it returns
+ * BEFORE spinning has actually stopped; [`nros_cpp_executor_is_spinning`] is
+ * the observable that tells you when it has. The boundary is one `poll_ms`
+ * wide.
+ *
+ * Does NOT tear down the session — that is `nros_cpp_fini`, and collapsing the
+ * two is what made a C++ mode change cost a discovery round.
+ *
+ * # Safety
+ * `handle` must be a valid handle returned by `nros_cpp_init()`.
+ */
+nros_cpp_ret_t nros_cpp_executor_cancel(void *handle);
+
+/**
+ * Is a spin loop running on this executor right now? phase-417 W4.c —
+ * `rclcpp::Executor::is_spinning`.
+ *
+ * A different question from `ok()`, which answers "is this executor
+ * INITIALISED". Between [`nros_cpp_executor_cancel`] and the loop's next poll
+ * boundary the cancel is in and the spin is still running; this is what says
+ * which.
+ *
+ * `false` for a null or unusable handle — a predicate with no error channel.
+ *
+ * # Safety
+ * `handle` must be null or a valid handle returned by `nros_cpp_init()`.
+ */
+bool nros_cpp_executor_is_spinning(void *handle);
+
+/**
  * Phase 124.F.3 — session-level connectivity probe.
  *
  * Wire-level round-trip ("is the peer / agent / router reachable?")

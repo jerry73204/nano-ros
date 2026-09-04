@@ -81,6 +81,9 @@ template <typename A> class ActionClient {
     /// Returned by `send_goal_future()`. Contains the goal UUID and
     /// whether the server accepted the goal.
     struct GoalAccept {
+        /// Kept a raw array: it is written through the FFI decoder below, and
+        /// in-tree callers pass it straight on to the raw-array overloads.
+        /// `GoalUUID(accept.goal_id)` is the one-token lift (phase-417 W4.b).
         uint8_t goal_id[16];
         bool accepted;
 
@@ -134,6 +137,12 @@ template <typename A> class ActionClient {
                                                        reinterpret_cast<uint8_t(*)[16]>(goal_id)));
     }
 
+    /// @ref send_goal writing the generated id into a `GoalUUID` value
+    /// (phase-417 W4.b) — the shape you can put in a map.
+    Result send_goal(const GoalType& goal, GoalUUID& goal_id) {
+        return send_goal(goal, goal_id.data());
+    }
+
     /// Get the result for a goal (blocking with timeout).
     ///
     /// Sends a get_result request and spins the executor until a reply
@@ -144,6 +153,12 @@ template <typename A> class ActionClient {
     /// @return Result indicating success, timeout, or failure.
     Result get_result(const uint8_t goal_id[16], ResultType& result) {
         return get_result_sized<::nros::rx_buffer_capacity<ResultType>::value>(goal_id, result);
+    }
+
+    /// @ref get_result taking a `GoalUUID` value (phase-417 W4.b).
+    Result get_result(const GoalUUID& goal_id, ResultType& result) {
+        return get_result_sized<::nros::rx_buffer_capacity<ResultType>::value>(goal_id.data(),
+                                                                               result);
     }
 
     /// @ref get_result with the receive buffer sized by the CALLER.
@@ -221,6 +236,12 @@ template <typename A> class ActionClient {
     ///         (empty) future on send failure.
     Future<ResultType> get_result_future(const uint8_t goal_id[16]) {
         return get_result_future_sized<::nros::rx_buffer_capacity<ResultType>::value>(goal_id);
+    }
+
+    /// @ref get_result_future taking a `GoalUUID` value (phase-417 W4.b).
+    Future<ResultType> get_result_future(const GoalUUID& goal_id) {
+        return get_result_future_sized<::nros::rx_buffer_capacity<ResultType>::value>(
+            goal_id.data());
     }
 
     /// @ref get_result_future with the RESULT buffer sized by the caller.
@@ -344,6 +365,12 @@ template <typename A> class ActionClient {
             storage_, buf, len, reinterpret_cast<uint8_t(*)[16]>(goal_id)));
     }
 
+    /// @ref send_goal_async writing the generated id into a `GoalUUID` value
+    /// (phase-417 W4.b).
+    Result send_goal_async(const GoalType& goal, GoalUUID& goal_id) {
+        return send_goal_async(goal, goal_id.data());
+    }
+
     /// Cancel a goal (non-blocking) — issue 0796.
     ///
     /// Sends the `action_msgs/srv/CancelGoal` request and returns; read the
@@ -363,6 +390,9 @@ template <typename A> class ActionClient {
         return Result(nros_cpp_action_client_cancel_goal(
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id)));
     }
+
+    /// @ref cancel_goal taking a `GoalUUID` value (phase-417 W4.b).
+    Result cancel_goal(const GoalUUID& goal_id) { return cancel_goal(goal_id.data()); }
 
     /// Try to read the reply to a `cancel_goal()` (non-blocking).
     ///
@@ -390,6 +420,9 @@ template <typename A> class ActionClient {
         return Result(nros_cpp_action_client_get_result_async(
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id)));
     }
+
+    /// @ref get_result_async taking a `GoalUUID` value (phase-417 W4.b).
+    Result get_result_async(const GoalUUID& goal_id) { return get_result_async(goal_id.data()); }
 
     /// Register async callbacks for goal response, feedback, and result.
     ///
@@ -467,8 +500,10 @@ template <typename A> class ActionClient {
     void* executor_; // Stashed executor handle (Phase 82) for blocking helpers
     bool initialized_;
     Stream<FeedbackType> feedback_stream_;
-    // Phase 87.6: action name buffer moved C++-side.
-    char action_name_[256] = {};
+    // Phase 87.6 put a `char action_name_[256]` here for an accessor that was
+    // never written; phase-417 W4.b deleted it. See the matching note in
+    // `action_server.hpp` — populated at construction, read by nothing, and a
+    // duplicate of a name the runtime already holds.
 };
 
 } // namespace nros
@@ -485,13 +520,6 @@ Result Node::create_action_client(ActionClient<A>& out, const char* action_name,
     nros_cpp_ret_t ret = nros_cpp_action_client_create(&handle_, action_name, A::TYPE_NAME,
                                                        A::Goal::TYPE_HASH, ffi_qos, out.storage_);
     if (ret == 0) {
-        // Phase 87.6: action_name buffer lives C++-side now.
-        size_t name_len = 0;
-        while (action_name[name_len] != '\0' && name_len + 1 < sizeof(out.action_name_)) {
-            out.action_name_[name_len] = action_name[name_len];
-            ++name_len;
-        }
-        out.action_name_[name_len] = '\0';
         out.executor_ = executor_handle_;
         out.initialized_ = true;
     }

@@ -1022,9 +1022,13 @@ impl ExecutorNodeRuntime {
     }
 
     /// Halt a running [`spin`](Self::spin). Idempotent.
+    ///
+    /// phase-417 W4.c — forwards to `Executor::cancel()`, the rclcpp spelling.
+    /// `Executor::halt` is now a deprecated forwarder onto it, so naming the old
+    /// spelling here would be this crate warning at itself.
     #[cfg(feature = "alloc")]
     pub fn halt(&self) {
-        self.executor.halt();
+        self.executor.cancel();
     }
 
     fn run_ticks(&mut self) {

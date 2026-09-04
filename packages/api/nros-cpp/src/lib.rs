@@ -2088,6 +2088,103 @@ pub unsafe extern "C" fn nros_cpp_spin_for(
     }
 }
 
+/// Spin until cancelled (blocking) — the loop behind `nros::Executor::spin()`.
+///
+/// phase-417 W4.c. The C++ header used to run this loop itself, on
+/// `while (initialized_)`, which made `shutdown()` the ONLY way out — and
+/// `shutdown()` calls `nros_cpp_fini`, so stopping a spin cost the whole
+/// middleware session and a fresh discovery round on the way back. That is also
+/// RFC-0020's violation class 2 (a polling loop that spins the executor from
+/// inside the wrapper), and issue 0329 already moved the BOUNDED loop here for
+/// the same reason. This is the unbounded sibling.
+///
+/// Exits when [`nros_cpp_executor_cancel`] is called from a signal handler or
+/// another thread, or on the first non-OK `spin_once`. Clears any pending cancel
+/// on entry — a cancel raised before this spin started is not a cancel of this
+/// spin — and reports `nros_cpp_executor_is_spinning() == true` for the
+/// duration.
+///
+/// # Safety
+/// `handle` must be a valid handle returned by `nros_cpp_init()`.
+#[cfg(feature = "rmw-cffi")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_spin(handle: *mut c_void, poll_ms: i32) -> nros_cpp_ret_t {
+    // Every `&mut CppContext` below is derived, used and dropped inside its own
+    // block: `nros_cpp_spin_once` re-derives one from the same handle, so
+    // holding one across that call would be two live `&mut` to one object.
+    {
+        let Some(ctx) = (unsafe { cpp_ctx_checked(handle) }) else {
+            return NROS_CPP_RET_INVALID_ARGUMENT;
+        };
+        ctx.executor.enter_spin_loop();
+    }
+    let mut last = NROS_CPP_RET_OK;
+    loop {
+        let cancelled = {
+            let Some(ctx) = (unsafe { cpp_ctx_checked(handle) }) else {
+                break;
+            };
+            ctx.executor.is_halted()
+        };
+        if cancelled {
+            break;
+        }
+        last = unsafe { nros_cpp_spin_once(handle, poll_ms) };
+        if last != NROS_CPP_RET_OK {
+            break;
+        }
+    }
+    if let Some(ctx) = unsafe { cpp_ctx_checked(handle) } {
+        ctx.executor.exit_spin_loop();
+    }
+    last
+}
+
+/// Ask a spinning executor to stop — `rclcpp::Executor::cancel`, phase-417 W4.c.
+///
+/// # ADOPT-BOUNDED (RFC-0087)
+///
+/// Sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it returns
+/// BEFORE spinning has actually stopped; [`nros_cpp_executor_is_spinning`] is
+/// the observable that tells you when it has. The boundary is one `poll_ms`
+/// wide.
+///
+/// Does NOT tear down the session — that is `nros_cpp_fini`, and collapsing the
+/// two is what made a C++ mode change cost a discovery round.
+///
+/// # Safety
+/// `handle` must be a valid handle returned by `nros_cpp_init()`.
+#[cfg(feature = "rmw-cffi")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_executor_cancel(handle: *mut c_void) -> nros_cpp_ret_t {
+    let Some(ctx) = (unsafe { cpp_ctx_checked(handle) }) else {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    };
+    ctx.executor.cancel();
+    NROS_CPP_RET_OK
+}
+
+/// Is a spin loop running on this executor right now? phase-417 W4.c —
+/// `rclcpp::Executor::is_spinning`.
+///
+/// A different question from `ok()`, which answers "is this executor
+/// INITIALISED". Between [`nros_cpp_executor_cancel`] and the loop's next poll
+/// boundary the cancel is in and the spin is still running; this is what says
+/// which.
+///
+/// `false` for a null or unusable handle — a predicate with no error channel.
+///
+/// # Safety
+/// `handle` must be null or a valid handle returned by `nros_cpp_init()`.
+#[cfg(feature = "rmw-cffi")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_executor_is_spinning(handle: *mut c_void) -> bool {
+    let Some(ctx) = (unsafe { cpp_ctx_checked(handle) }) else {
+        return false;
+    };
+    ctx.executor.is_spinning()
+}
+
 /// Phase 124.F.3 — session-level connectivity probe.
 ///
 /// Wire-level round-trip ("is the peer / agent / router reachable?")

@@ -83,6 +83,21 @@ template <typename A> class PollingActionServer {
             goal_id, out_goal, out_sequence_number);
     }
 
+    /// @ref try_recv_goal_request writing the id into a `GoalUUID` value
+    /// (phase-417 W4.b) — the shape you can key a `{goal -> state}` map on.
+    Result try_recv_goal_request(GoalUUID& goal_id, GoalType& out_goal,
+                                 int64_t& out_sequence_number) {
+        return try_recv_goal_request_sized<::nros::rx_buffer_capacity<GoalType>::value>(
+            goal_id.data(), out_goal, out_sequence_number);
+    }
+
+    /// @ref try_recv_goal_request_sized taking a `GoalUUID` value.
+    template <size_t Cap>
+    Result try_recv_goal_request_sized(GoalUUID& goal_id, GoalType& out_goal,
+                                       int64_t& out_sequence_number) {
+        return try_recv_goal_request_sized<Cap>(goal_id.data(), out_goal, out_sequence_number);
+    }
+
     /// @ref try_recv_goal_request with the receive buffer sized by the CALLER.
     /// See @ref Subscription::try_recv_sized (issue 0964).
     template <size_t Cap>
@@ -107,6 +122,11 @@ template <typename A> class PollingActionServer {
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id), sequence_number));
     }
 
+    /// @ref accept_goal taking a `GoalUUID` value (phase-417 W4.b).
+    Result accept_goal(const GoalUUID& goal_id, int64_t sequence_number) {
+        return accept_goal(goal_id.data(), sequence_number);
+    }
+
     /// Reject a goal received via `try_recv_goal_request`.
     Result reject_goal(int64_t sequence_number) {
         if (!initialized_) return Result(ErrorCode::NotInitialized);
@@ -124,6 +144,11 @@ template <typename A> class PollingActionServer {
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id), buf, len));
     }
 
+    /// @ref publish_feedback taking a `GoalUUID` value (phase-417 W4.b).
+    Result publish_feedback(const GoalUUID& goal_id, const FeedbackType& fb) {
+        return publish_feedback(goal_id.data(), fb);
+    }
+
     /// Mark a goal terminal with a typed result.
     Result complete_goal(const uint8_t goal_id[16], GoalStatus status, const ResultType& result) {
         if (!initialized_) return Result(ErrorCode::NotInitialized);
@@ -134,6 +159,47 @@ template <typename A> class PollingActionServer {
         return Result(nros_cpp_action_server_complete_goal_raw(
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id), static_cast<int32_t>(status),
             buf, len));
+    }
+
+    /// @ref complete_goal taking a `GoalUUID` value (phase-417 W4.b).
+    Result complete_goal(const GoalUUID& goal_id, GoalStatus status, const ResultType& result) {
+        return complete_goal(goal_id.data(), status, result);
+    }
+
+    /// Terminate `goal_id` as SUCCEEDED — phase-417 W4.b.
+    ///
+    /// The same three terminal verbs `ActionServer<A>` grew, for the same
+    /// reason: C spells them `nros_action_succeed` / `_abort` / `_canceled`,
+    /// Rust `ActionServerHandle::succeed` / `abort` / `canceled`, and
+    /// rclcpp_action `goal_handle->succeed(result)`. Forwarders onto
+    /// `complete_goal` — no state, no second code path.
+    Result succeed(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Succeeded, result);
+    }
+
+    /// Terminate `goal_id` as ABORTED. See @ref succeed.
+    Result abort(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Aborted, result);
+    }
+
+    /// Terminate `goal_id` as CANCELED. See @ref succeed.
+    Result canceled(const uint8_t goal_id[16], const ResultType& result) {
+        return complete_goal(goal_id, GoalStatus::Canceled, result);
+    }
+
+    /// @ref succeed taking a `GoalUUID` value.
+    Result succeed(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Succeeded, result);
+    }
+
+    /// @ref abort taking a `GoalUUID` value.
+    Result abort(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Aborted, result);
+    }
+
+    /// @ref canceled taking a `GoalUUID` value.
+    Result canceled(const GoalUUID& goal_id, const ResultType& result) {
+        return complete_goal(goal_id.data(), GoalStatus::Canceled, result);
     }
 
     /// Phase 122.3.c.6.d — peek a pending cancel-goal request.
@@ -151,6 +217,13 @@ template <typename A> class PollingActionServer {
         if (rc == 0) return Result(ErrorCode::TryAgain);
         out_current_status = static_cast<GoalStatus>(status_raw);
         return Result::success();
+    }
+
+    /// @ref try_recv_cancel_request writing the id into a `GoalUUID` value
+    /// (phase-417 W4.b).
+    Result try_recv_cancel_request(GoalUUID& goal_id, int64_t& out_sequence_number,
+                                   GoalStatus& out_current_status) {
+        return try_recv_cancel_request(goal_id.data(), out_sequence_number, out_current_status);
     }
 
     /// Phase 122.3.c.6.d — reply to a previously-peeked cancel
@@ -175,6 +248,18 @@ template <typename A> class PollingActionServer {
                              const uint8_t (*accepted)[16], size_t accepted_count) {
         return send_cancel_reply(sequence_number, static_cast<int8_t>(return_code), accepted,
                                  accepted_count);
+    }
+
+    /// @ref send_cancel_reply reading the accepted ids from an array of
+    /// `GoalUUID` values (phase-417 W4.b) — the array you can actually build,
+    /// now that a goal id is a value type. `GoalUUID` is standard-layout with
+    /// a single `uint8_t[16]` member and the static_asserts beside its
+    /// definition pin `sizeof`/`alignof`, so an array of them IS the
+    /// contiguous `uint8_t[N][16]` the FFI reads.
+    Result send_cancel_reply(int64_t sequence_number, CancelReturnCode return_code,
+                             const GoalUUID* accepted, size_t accepted_count) {
+        return send_cancel_reply(sequence_number, static_cast<int8_t>(return_code),
+                                 reinterpret_cast<const uint8_t(*)[16]>(accepted), accepted_count);
     }
 
     /// Phase 122.3.c.6.e — caller-owned wake-state slot. One per

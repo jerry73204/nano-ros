@@ -179,6 +179,21 @@ fn clip(s: &str, cap: usize) -> &str {
 /// among the replayed records themselves is preserved, which is the property
 /// worth having.
 pub(crate) fn drain(sinks: &'static [&'static dyn LogSink]) {
+    drain_with(&mut |record| {
+        for sink in sinks {
+            sink.log(record);
+        }
+    });
+}
+
+/// The half of [`drain`] that does not name a sink LIST.
+///
+/// phase-417 W4.d added [`crate::add_sink`], so "where a held record goes" is
+/// no longer answered by one `&'static [&dyn LogSink]`. The replay walk stayed
+/// one function and grew a callback rather than being copied next to the new
+/// registry — a second copy is a second answer to "in what order, and what
+/// happens to a slot whose writer has not published yet".
+pub(crate) fn drain_with(deliver: &mut dyn FnMut(&Record<'_>)) {
     let claimed = CLAIMED.load(Ordering::Acquire);
     let held = if claimed > DEPTH { DEPTH } else { claimed };
     for slot in SLOTS.iter().take(held) {
@@ -198,9 +213,7 @@ pub(crate) fn drain(sinks: &'static [&'static dyn LogSink]) {
             line: pending.line,
             timestamp_ns: pending.timestamp_ns,
         };
-        for sink in sinks {
-            sink.log(&record);
-        }
+        deliver(&record);
     }
     CLAIMED.store(0, Ordering::Release);
 }

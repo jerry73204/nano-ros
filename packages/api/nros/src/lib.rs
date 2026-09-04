@@ -217,9 +217,86 @@ pub mod cdr {
 
 // Re-export core types
 pub use nros_core::{
-    CdrReader, CdrWriter, Clock, ClockType, DeserError, Deserialize, Duration, Logger, MessageInfo,
+    CdrReader, CdrWriter, Clock, ClockType, DeserError, Deserialize, Duration, MessageInfo,
     PUBLISHER_GID_SIZE, RawMessageInfo, RosMessage, RosService, SerError, Serialize, Time,
 };
+
+// -----------------------------------------------------------------------------
+// Logging (phase-417 W4.d, issue 0589).
+//
+// `nros_log` was in this crate's dependency graph and reachable from NONE of
+// its surface: no `pub use`, nothing in the prelude. So from the façade the
+// shortest path to "print something" was `std::println!` — which is FATAL on
+// Zephyr `native_sim`: `zvfs_write(1, …)` dispatches to
+// `stdinout_write_vmeth`, which calls `zvfs_write(1, …)` again, and because
+// `k_mutex` is recursive it exhausts the stack instead of deadlocking. The
+// image dies with no message. A logging facade nobody can reach from the
+// umbrella is not a facade.
+//
+// `nros::Logger` IS RE-BOUND, and that is the point rather than a side effect.
+// It used to name `nros_core::logger::Logger`, which formats through the `log`
+// crate: on a target with no `log` backend installed — every embedded one —
+// the record is constructed and dropped, and it NEVER reaches
+// `nros_platform_log_write`. The type the C and C++ FFI hands out, the type
+// the `nros_*!` macros dispatch through, and the type the platform sink
+// receives is `nros_log::Logger`. One name, one meaning.
+//
+// Migration: the two types share `new` and `name` and NOTHING else — the old
+// one has inherent `.info(&str)` / `.warn(&str)` / `*_once` / `*_throttle`
+// methods, the new one is driven by the `nros_*!` macros. So every call site
+// that used the old surface FAILS TO COMPILE against the new binding rather
+// than silently changing where its records go. That is the RFC-0087 rule
+// applied to our own rename, and it is why this is a re-binding with a named
+// escape hatch instead of a quiet swap. The escape hatch is
+// [`LogCrateLogger`], deprecated on arrival.
+pub use nros_log::{
+    DEFAULT_LOGGER, LogSink, Logger, MAX_LOGGERS, Record as LogRecord, Severity, ThrottleState,
+    get_logger, get_or_create_logger, register_logger,
+};
+// The emission macros, at the crate root, because a user who has
+// `use nros::prelude::*` should not have to learn a second crate name to log a
+// line. `#[macro_export]` puts them at `nros_log`'s root; this puts them at
+// ours.
+pub use nros_log::{
+    nros_debug, nros_debug_throttle, nros_debug_throttle_at, nros_error, nros_error_throttle,
+    nros_error_throttle_at, nros_fatal, nros_fatal_throttle, nros_fatal_throttle_at, nros_info,
+    nros_info_throttle, nros_info_throttle_at, nros_trace, nros_trace_throttle,
+    nros_trace_throttle_at, nros_warn, nros_warn_throttle, nros_warn_throttle_at,
+};
+
+/// The whole logging facade — sinks, the early-record ring, the throttle
+/// primitives, `init`/`flush`/`add_sink`.
+///
+/// The root re-exports above are the surface a node author needs; this is
+/// everything, for a board or a bridge composing its own delivery.
+pub mod logging {
+    pub use nros_log::*;
+}
+
+/// The pre-phase-417 `nros::Logger`: `nros_core::logger::Logger`, which
+/// forwards to the `log` crate.
+///
+/// Deprecated on arrival. It exists so a downstream call site pinned to the old
+/// method surface has a one-word fix and a deadline, not so anyone reaches for
+/// it: on any target without a `log` backend installed — which is every
+/// embedded one — its records are formatted and dropped before reaching
+/// `nros_platform_log_write`. Move to [`Logger`] and the `nros_*!` macros.
+#[deprecated(
+    since = "0.5.0",
+    note = "`nros::Logger` now means `nros_log::Logger`, the logger that reaches the platform \
+            sink. This alias is the `log`-crate-backed type it used to mean; its records are \
+            dropped on any target with no `log` backend. Use `nros::Logger` + the `nros_info!` \
+            family."
+)]
+pub type LogCrateLogger<'a> = nros_core::Logger<'a>;
+
+/// Companion to [`LogCrateLogger`] — see its note.
+#[deprecated(
+    since = "0.5.0",
+    note = "the once-flag belongs to the deprecated `log`-crate logger; `nros_log` throttling is \
+            `nros::ThrottleState` + the `nros_*_throttle!` macros."
+)]
+pub type LogCrateOnceFlag = nros_core::OnceFlag;
 
 // Re-export heapless for generated message types and examples
 pub use nros_core::heapless;
@@ -1384,6 +1461,29 @@ pub mod prelude {
         Deserialize, Logger, MessageInfo, NodeConfig, PublisherHandle, QoSDurabilityPolicy,
         QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy, RosMessage, RosService, Serialize,
         StandaloneNode, SubscriptionHandle, TopicInfo,
+    };
+
+    // phase-417 W4.d / issue 0589 — logging, in the glob a node author already
+    // writes. `Logger` above now means `nros_log::Logger`; these are what
+    // drives it. Without them the shortest path from `use nros::prelude::*` to
+    // a printed line was `std::println!`, which kills a Zephyr `native_sim`
+    // image outright.
+    // The severity macros only. Each is a `rename` of an rclrs counterpart
+    // (`nros_info` <- `rclrs::log_info`), so a ROS 2 developer meeting one
+    // through the glob meets something their own client library also has.
+    //
+    // `Severity`, `get_logger`, `get_or_create_logger`, `register_logger` and
+    // `nros_trace` are ledger `extension`s -- rclrs has no correspondent for a
+    // free logger lookup, a registry, or a TRACE severity (it stops at debug).
+    // `check-prelude-tiers` refuses an extension in the glob, and it is right
+    // to: the prelude is what a ported node meets without asking, so a name
+    // with no upstream twin belongs behind `nros::logging::` where reaching for
+    // it is a decision. phase-379 W5's rule, applied to this phase's own work.
+    pub use crate::{
+        nros_debug, nros_debug_throttle, nros_debug_throttle_at, nros_error, nros_error_throttle,
+        nros_error_throttle_at, nros_fatal, nros_fatal_throttle, nros_fatal_throttle_at, nros_info,
+        nros_info_throttle, nros_info_throttle_at, nros_warn, nros_warn_throttle,
+        nros_warn_throttle_at,
     };
 
     // Re-export component-mode API.
