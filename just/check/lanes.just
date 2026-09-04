@@ -622,6 +622,8 @@ cpp: cpp-fmt
     # The C library headers still come from the host, which is the one thing
     # this probe does not model — a `<stdlib.h>` difference between glibc and
     # picolibc would slip through. Named here rather than papered over.
+    echo "  - capability layout invariance (sizeof must not follow a probe)"
+    bash scripts/check-cpp-capability-layout.sh
     echo "  - -nostdinc++ header parse (ThreadX shim)"
     _nostd_tu="$(mktemp -d)/nostdincxx_probe.cpp"
     _threadx_shim=packages/boards/nros-board-threadx-qemu-riscv64/cxx-compat
