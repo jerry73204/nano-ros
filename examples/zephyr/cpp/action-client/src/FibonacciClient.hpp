@@ -26,7 +26,7 @@ class FibonacciClient {
     void on_result(const uint8_t goal_id[16], int32_t status, const uint8_t* data, size_t len);
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace zephyr_cpp_action_client

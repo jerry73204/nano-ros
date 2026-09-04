@@ -49,12 +49,12 @@ void SafetyListener::on_chatter(const std_msgs::msg::Int32& msg,
     }
 }
 
-::nros::Result SafetyListener::configure(::nros::Node& node) {
+::rclcpp::Result SafetyListener::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     g_safety_listener_self = this;
 
     // Create /safe_ok publisher for reporting CRC-valid counts.
-    ::nros::Result r = node.create_publisher(pub_ok_, "/safe_ok");
+    ::rclcpp::Result r = node.create_publisher(pub_ok_, "/safe_ok");
     if (!r.ok()) return r;
 
     // Register the integrity-carrying subscription on /chatter.

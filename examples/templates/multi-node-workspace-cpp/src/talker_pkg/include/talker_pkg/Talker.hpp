@@ -13,14 +13,14 @@ namespace talker_pkg {
 /// constructs this object in static storage and calls `configure(node)`; the
 /// executor dispatches `on_tick` during `spin_once`.
 class Talker {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int count_ = 0;
 
     void on_tick(); // real body; bound via &Talker::on_tick (no callback name)
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace talker_pkg

@@ -17,14 +17,14 @@ namespace cpp_reading_talker_pkg {
 /// own `msg/Reading.msg`). `configure` creates a typed publisher on
 /// `/reading` and binds `on_tick` as a 1 Hz timer whose `sequence` ramps.
 class ReadingTalker {
-    ::nros::Publisher<::custom_msgs::msg::Reading> pub_;
+    ::rclcpp::Publisher<::custom_msgs::msg::Reading> pub_;
     ::nros::Timer timer_;
     int count_ = 0;
 
     void on_tick(); // real body; bound via &ReadingTalker::on_tick
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_reading_talker_pkg

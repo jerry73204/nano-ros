@@ -69,13 +69,13 @@ void FibServer::on_tick() {
     }
 }
 
-::nros::Result FibServer::configure(::nros::Node& node) {
+::rclcpp::Result FibServer::configure(::nros::Node& node) {
     // `::setvbuf` (C global), not `std::setvbuf` — Zephyr picolibc lacks the std:: name.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     executor_ = node.executor_handle();
     has_pending_ = false;
 
-    ::nros::Result r =
+    ::rclcpp::Result r =
         ::nros::bind_action_server_raw<FibServer, &FibServer::on_goal, &FibServer::on_cancel>(
             node, storage_.bytes, "/fibonacci", Action::TYPE_NAME, this);
     if (!r.ok()) {

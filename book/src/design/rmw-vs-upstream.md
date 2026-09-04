@@ -511,7 +511,7 @@ publishers call `assert_liveliness()` explicitly:
 pub.assert_liveliness()?;   // refresh this publisher's lease
 ```
 
-C side: `nros_publisher_assert_liveliness(&pub)`. C++ side:
+C side: `rcl_publisher_assert_liveliness(&pub)`. C++ side:
 `pub.assert_liveliness()`. No-op for `AUTOMATIC` and `NONE` kinds.
 
 ### Differences from upstream's matching

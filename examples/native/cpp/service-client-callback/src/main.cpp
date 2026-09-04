@@ -77,7 +77,7 @@ int nros_app_main(int argc, char** argv) {
 
     // Callback-style client. The arena dispatches `on_response` at
     // `spin_once`; sends are non-blocking via `async_send_request`.
-    nros::Client<example_interfaces::srv::AddTwoInts> client;
+    rclcpp::Client<example_interfaces::srv::AddTwoInts> client;
     NROS_TRY_RET(node.create_client(client, "/add_two_ints", &on_response), 1);
     printf("Callback service client created for: /add_two_ints\n");
 
@@ -92,7 +92,7 @@ int nros_app_main(int argc, char** argv) {
 
     int exit_code = 0;
 
-    nros::Result send = client.async_send_request(req);
+    rclcpp::Result send = client.async_send_request(req);
     if (!send.ok()) {
         fprintf(stderr, "Async send failed with error %d\n", send.raw());
         exit_code = 1;
@@ -111,7 +111,7 @@ int nros_app_main(int argc, char** argv) {
     }
 
     printf("\nShutting down...\n");
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return exit_code;

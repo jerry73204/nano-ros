@@ -148,7 +148,7 @@ private:
     std::chrono::steady_clock::time_point last_publish_;
     std::string hardware_id_;
     std::vector<Task> tasks_;
-    std::shared_ptr<::nros::Publisher<::diagnostic_msgs::msg::DiagnosticArray>> publisher_;
+    std::shared_ptr<::rclcpp::Publisher<::diagnostic_msgs::msg::DiagnosticArray>> publisher_;
 };
 
 }  // namespace diagnostic_updater

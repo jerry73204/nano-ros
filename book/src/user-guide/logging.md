@@ -29,7 +29,7 @@ The numeric representation is stable and used by the
 
 ```rust
 use nros_log::{Logger, Severity};
-use nros_log::{nros_info, nros_warn};
+use nros_log::{log_info, log_warn};
 
 static LOGGER: Logger = Logger::new("my_node");
 
@@ -37,8 +37,8 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_log::sinks::default());
 
-    nros_info!(&LOGGER, "started; domain = {}", 42);
-    nros_warn!(&LOGGER, "queue depth {} exceeds soft limit", 5);
+    log_info!(&LOGGER, "started; domain = {}", 42);
+    log_warn!(&LOGGER, "queue depth {} exceeds soft limit", 5);
 }
 ```
 
@@ -47,7 +47,7 @@ to the same intern'd entry when the name matches:
 
 ```rust
 let mut node = executor.create_node("my_node")?;
-nros_info!(node.logger(), "subscribed to {}", topic);
+log_info!(node.logger(), "subscribed to {}", topic);
 ```
 
 ### C
@@ -61,15 +61,15 @@ int main(void) {
     nros_support_t support = nros_support_get_zero_initialized();
     nros_support_init(&support, "tcp/127.0.0.1:7447", 0);
 
-    nros_node_t node = nros_node_get_zero_initialized();
-    nros_node_init(&node, &support, "my_node", "/");
+    nros_node_t node = rcl_get_zero_initialized_node();
+    rclc_node_init_default(&node, "my_node", "/", &support);
 
     nros_logger_t logger = nros_node_get_logger(&node);
     NROS_LOG_INFO(logger, "started; domain=%u", 42);
     NROS_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
 
-    nros_node_fini(&node);
-    nros_support_fini(&support);
+    rcl_node_fini(&node);
+    rclc_support_fini(&support);
     return 0;
 }
 ```

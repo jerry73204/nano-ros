@@ -617,7 +617,7 @@ fn report_arena_headroom(used: usize, capacity: usize) {
     // diagnostic that explains itself past the budget delivers exactly the
     // folklore it was written to replace. So: the actionable value FIRST, the
     // reasoning in this comment and issue 0900, and a test that fails on `…`.
-    nros_log::nros_info!(
+    nros_log::log_info!(
         nros_log::get_logger("nros"),
         "arena over-provisioned: set NROS_EXECUTOR_ARENA_SIZE={suggest}          (Zephyr: CONFIG_ prefix). {used}/{capacity} bytes claimed at first          spin, and the arena is INLINE ON THE TASK STACK. Later registrations          need more. issue 0900"
     );
@@ -663,7 +663,7 @@ pub(crate) fn report_arena_exhausted(want: usize, used: usize, capacity: usize) 
     if ARENA_EXHAUSTED_REPORTED.swap(true, portable_atomic::Ordering::Relaxed) {
         return;
     }
-    nros_log::nros_error!(
+    nros_log::log_error!(
         nros_log::get_logger("nros"),
         "arena exhausted: {want} more bytes needed, {used}/{capacity} in use. \
          Raise NROS_EXECUTOR_ARENA_SIZE, or NROS_EXECUTOR_ACTION_CLIENTS if \
@@ -811,7 +811,7 @@ fn report_dropped_take(err: &TransportError, buf_len: usize) {
     if n != 0 && !n.is_multiple_of(64) {
         return;
     }
-    nros_log::nros_error!(
+    nros_log::log_error!(
         nros_log::get_logger("nros"),
         "subscription take DROPPED ({err:?}); buffer is {buf_len} bytes. The \
          sample was received and ACKed, then discarded — raise the subscription \
@@ -1689,7 +1689,7 @@ fn report_typed_deserialize_failure(rc: i32, len: usize) {
     if n != 0 && !n.is_multiple_of(64) {
         return;
     }
-    nros_log::nros_error!(
+    nros_log::log_error!(
         nros_log::get_logger("nros"),
         "typed subscription DROPPED a {len}-byte sample: deserialize returned \
          {rc}. The callback was NOT invoked and the storage still holds the \

@@ -57,7 +57,7 @@ nros_client_call(&client, req, req_len, resp, cap, &resp_len);
 ```
 
 `nros_client_call` reads the stashed `executor_ptr` from the client's
-internal storage and spins it via `nros_executor_spin_some`. No
+internal storage and spins it via `rclc_executor_spin_some`. No
 signature change — the executor dependency is captured at registration
 time. Same pattern for `nros_action_send_goal` and
 `nros_action_get_result`.
@@ -75,7 +75,7 @@ no blocking overloads.
 ## Reentrancy guard
 
 `nros_executor_t` carries an `in_dispatch` flag set by
-`nros_executor_spin_some` for the duration of the dispatch loop.
+`rclc_executor_spin_some` for the duration of the dispatch loop.
 Blocking helpers check this flag and return `NROS_RET_REENTRANT` (C) or
 `ErrorCode::Reentrant` (C++) immediately if a callback re-enters.
 

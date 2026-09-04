@@ -15,9 +15,9 @@ void Talker::on_tick() {
     }
 }
 
-::nros::Result Talker::configure(::nros::Node& node) {
+::rclcpp::Result Talker::configure(::nros::Node& node) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
     // Member-fn-pointer-as-template-param → no-alloc trampoline; `this` is ctx.
     return ::nros::bind_timer<Talker, &Talker::on_tick>(node, timer_, 500, this);

@@ -39,11 +39,11 @@ void ManagedTalker::on_tick() {
     }
 }
 
-::nros::Result ManagedTalker::configure(::nros::Node& node) {
+::rclcpp::Result ManagedTalker::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     // Two-phase: bind the executor handle the component install exposes.
     bind(node.executor_handle());
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) {
         return r;
     }

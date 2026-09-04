@@ -33,7 +33,7 @@ struct FakeString {
 
 int main() {
     nros::Node node;
-    nros::Subscription<FakeString> info_sub;
+    rclcpp::Subscription<FakeString> info_sub;
     (void)node.create_subscription_with_info<FakeString>(
         info_sub, "/chatter_info",
         [](const FakeString& m, const uint8_t* attachment, size_t attachment_len) {

@@ -22,7 +22,7 @@ class Listener {
     void on_raw(const uint8_t* data, size_t len); // real body; bound by identity
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace zephyr_cpp_listener

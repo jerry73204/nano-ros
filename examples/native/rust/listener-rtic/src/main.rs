@@ -8,7 +8,7 @@
 //! This is the native equivalent of `examples/stm32f4/rust/rtic-listener/`.
 
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 use std_msgs::msg::String as StringMsg;
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
@@ -24,7 +24,7 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
-    nros_info!(&LOGGER, "nros RTIC-pattern Listener (native)");
+    log_info!(&LOGGER, "nros RTIC-pattern Listener (native)");
 
     let config = ExecutorConfig::from_env().node_name("listener");
     let mut executor = Executor::open(&config).expect("Failed to open session");
@@ -36,7 +36,7 @@ fn main() {
         .create_subscription::<StringMsg>("/chatter")
         .expect("Failed to create subscription");
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "Waiting for messages on /chatter (RTIC pattern)..."
     );
@@ -46,10 +46,10 @@ fn main() {
 
         match subscription.take() {
             Ok(Some(msg)) => {
-                nros_info!(&LOGGER, "I heard: [{}]", msg.data);
+                log_info!(&LOGGER, "I heard: [{}]", msg.data);
             }
             Ok(None) => {}
-            Err(e) => nros_error!(&LOGGER, "Receive error: {:?}", e),
+            Err(e) => log_error!(&LOGGER, "Receive error: {:?}", e),
         }
 
         std::thread::sleep(std::time::Duration::from_millis(10));

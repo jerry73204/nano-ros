@@ -74,11 +74,16 @@ comparison.
 
 If you're porting from micro-ROS to nano-ros:
 
+Several rows below are now **identity** on the C side: phase-417 took rcl/rclc's
+spellings, so `rclc_publisher_init_default` and `rclc_executor_t` are what
+nano-ros calls them too. The migration is a rename only where the shape differs.
+
 - `rcl_node_init` → `Executor::create_node` (Rust) /
-  `nros_executor_node_init` (C).
-- `rclc_executor_t` → `nros::Executor`.
-- `rclc_publisher_init_default` → `Node::create_publisher::<M>` or
-  `nros_publisher_init`.
+  `rclc_node_init_default` (C — same name as micro-ROS, but the ARGUMENTS are
+  rclc's order `(node, name, namespace, support)`).
+- `rclc_executor_t` → `nros::Executor` (Rust/C++); **unchanged** in C.
+- `rclc_publisher_init_default` → `Node::create_publisher::<M>` (Rust) or
+  the identically-spelled `rclc_publisher_init_default` (C).
 - micro-ROS's `rmw_uros_set_custom_transport` → nano-ros's custom
   transport pattern via `nros_platform_*` C ABI (see
   [Custom Transport](../porting/custom-transport.md)).

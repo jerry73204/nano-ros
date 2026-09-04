@@ -139,7 +139,7 @@ impl<'a> NodeHandle<'a> {
     ///
     /// // Inside any node-creating code:
     /// let logger = node.logger();
-    /// nros_log::nros_info!(logger, "started; domain = {}", node.domain_id());
+    /// nros_log::log_info!(logger, "started; domain = {}", node.domain_id());
     /// ```
     #[must_use]
     pub fn logger(&self) -> &'static nros_log::Logger {

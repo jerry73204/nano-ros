@@ -12,7 +12,7 @@
 #![no_main]
 
 use nros_board_mps2_an385_freertos::{Config, Mps2An385};
-use nros_log::{Logger, Severity, nros_debug, nros_error, nros_fatal, nros_info, nros_trace, nros_warn, register_logger};
+use nros_log::{Logger, Severity, log_debug, log_error, log_fatal, log_info, nros_trace, log_warn, register_logger};
 use panic_semihosting as _;
 
 // Link `nros-platform` so its FreeRTOS C symbols + `global-allocator`
@@ -38,7 +38,7 @@ extern "C" fn main() -> ! {
         // A fixture that publishes its own sink list proves the PLATFORM half
         // (`nros_platform_log_write` exists, issue 0420's question) and nothing about
         // whether this BOARD publishes one. Six boards did not, and library records —
-        // `nros_error!` raised inside a crate whose author cannot know what the board
+        // `log_error!` raised inside a crate whose author cannot know what the board
         // did — were dropped. Relying on the board is what makes this an assertion
         // about the board.
         //
@@ -49,11 +49,11 @@ extern "C" fn main() -> ! {
         logger.set_level(Severity::Trace);
 
         nros_trace!(logger, "trace payload");
-        nros_debug!(logger, "debug payload");
-        nros_info!(logger, "info payload");
-        nros_warn!(logger, "warn payload");
-        nros_error!(logger, "error payload");
-        nros_fatal!(logger, "fatal payload");
+        log_debug!(logger, "debug payload");
+        log_info!(logger, "info payload");
+        log_warn!(logger, "warn payload");
+        log_error!(logger, "error payload");
+        log_fatal!(logger, "fatal payload");
         nros_log::flush();
 
         cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_SUCCESS);

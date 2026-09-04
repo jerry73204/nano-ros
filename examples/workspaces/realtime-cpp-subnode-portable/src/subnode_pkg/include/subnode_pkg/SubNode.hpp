@@ -10,8 +10,8 @@ namespace subnode_pkg {
 /// ws-realtime-cpp-subnode's SubNode. Deployed here with "fast"/"bulk" tier names
 /// instead of "high"/"low" — no package change, tier binding from system.toml.
 class SubNode : public ::nros::ComponentNode {
-    ::nros::Publisher<std_msgs::msg::Int32> ctrl_pub_;
-    ::nros::Publisher<std_msgs::msg::Int32> telem_pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> ctrl_pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> telem_pub_;
     int ctrl_count_ = 0;
     int telem_count_ = 0;
 

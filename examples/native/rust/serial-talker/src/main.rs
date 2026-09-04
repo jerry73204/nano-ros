@@ -16,7 +16,7 @@ use std::sync::{
 };
 use std_msgs::msg::String as StringMsg;
 
-use nros_log::{Logger, nros_info, nros_warn};
+use nros_log::{Logger, log_info, log_warn};
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("serial-talker");
@@ -37,7 +37,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
-    nros_warn!(
+    log_warn!(
         &LOGGER,
         "XRCE Serial Talker: pty={}, domain={}",
         pty_path,
@@ -62,7 +62,7 @@ fn main() {
         .domain_id(domain_id)
         .node_name("xrce_serial_talker");
     let mut executor: Executor = Executor::open(&config).expect("Failed to open XRCE session");
-    nros_warn!(&LOGGER, "Session created");
+    log_warn!(&LOGGER, "Session created");
 
     // Create publisher
     let mut node = executor
@@ -71,7 +71,7 @@ fn main() {
     let publisher = node
         .create_publisher::<StringMsg>("/chatter")
         .expect("Failed to create publisher");
-    nros_warn!(&LOGGER, "Publisher created on /chatter");
+    log_warn!(&LOGGER, "Publisher created on /chatter");
 
     // Register timer callback that publishes every 500ms
     let counter = Arc::new(AtomicI32::new(0));
@@ -82,8 +82,8 @@ fn main() {
             let mut msg = StringMsg::default();
             let _ = write!(msg.data, "Hello World: {i}");
             match publisher.publish(&msg) {
-                Ok(()) => nros_info!(&LOGGER, "Publishing: '{}'", msg.data),
-                Err(e) => nros_warn!(&LOGGER, "Publish error: {:?}", e),
+                Ok(()) => log_info!(&LOGGER, "Publishing: '{}'", msg.data),
+                Err(e) => log_warn!(&LOGGER, "Publish error: {:?}", e),
             }
         })
         .expect("Failed to add timer");
@@ -95,5 +95,5 @@ fn main() {
 
     // Clean up
     let _ = executor.close();
-    nros_warn!(&LOGGER, "Talker done");
+    log_warn!(&LOGGER, "Talker done");
 }

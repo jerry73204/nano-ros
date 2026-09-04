@@ -267,7 +267,7 @@ fn acquire_session_slot() -> Result<*mut zpico_sys::zpico_session_t> {
     // SAFETY: no arguments; returns a pool slot or null.
     let handle = unsafe { zpico_session_acquire() };
     if handle.is_null() {
-        nros_log::nros_error!(
+        nros_log::log_error!(
             nros_log::get_logger("nros_rmw_zenoh"),
             "{} — this build allows ZPICO_MAX_SESSIONS={} and one is already \
              open. A non-bridge application opens exactly ONE session; two \

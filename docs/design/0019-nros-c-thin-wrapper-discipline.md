@@ -110,7 +110,7 @@ extend to L1 cleanly.
    `validate_state!` macro, etc. — these belong inside the Rust
    impl, not the C wrapper. The C wrapper trusts Rust to validate.
 
-5. **Getters delegate via opaque cast.** `nros_subscription_get_topic_name`
+5. **Getters delegate via opaque cast.** `rcl_subscription_get_topic_name`
    reads the topic name from the Rust value inside `_opaque`, doesn't
    read a C-side mirror byte array.
 
@@ -228,7 +228,7 @@ for Executor / Node).
 
 - **Rust users:** no change (Rust API is the source of truth).
 - **C users:** stop reading `sub.topic_name` / `sub.callback`
-  fields directly. Use getters (e.g. `nros_subscription_get_topic_name`).
+  fields directly. Use getters (e.g. `rcl_subscription_get_topic_name`).
   These already exist for most entities; missing ones get added.
 - **C++ users:** mostly transparent — wrappers hide the change.
   C++ consumers that reach into `.handle.field_x` need to switch

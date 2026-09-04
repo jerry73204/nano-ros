@@ -39,7 +39,7 @@ use std::time::Duration;
 
 use core::fmt::Write as _;
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 use std_msgs::msg::String as StringMsg;
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
@@ -60,14 +60,14 @@ fn main() {
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
     let target = std::env::var("NROS_CUSTOM_TCP_TARGET").unwrap_or_else(|_| {
-        nros_info!(
+        log_info!(
             &LOGGER,
             "NROS_CUSTOM_TCP_TARGET not set; defaulting to 127.0.0.1:7447"
         );
         "127.0.0.1:7447".to_string()
     });
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "nros Custom-Transport Talker — bridging to TCP {target}"
     );
@@ -81,7 +81,7 @@ fn main() {
     let ops = match nros_transport_callbacks::tcp_transport_ops(&target) {
         Ok(ops) => ops,
         Err(e) => {
-            nros_error!(&LOGGER, "TCP connect to {target} failed: {e}");
+            log_error!(&LOGGER, "TCP connect to {target} failed: {e}");
             std::process::exit(1);
         }
     };
@@ -90,7 +90,7 @@ fn main() {
     unsafe {
         nros_rmw::set_custom_transport(Some(ops)).expect("abi_version v1 ok");
     }
-    nros_info!(&LOGGER, "Custom transport vtable registered");
+    log_info!(&LOGGER, "Custom transport vtable registered");
 
     // Phase 115.L.5-custom-transport — install zenoh-pico C-vtable
     // backend before Executor::open. Order matters: the custom-
@@ -110,7 +110,7 @@ fn main() {
     let publisher = node
         .create_publisher::<StringMsg>("/chatter")
         .expect("Failed to create publisher");
-    nros_info!(&LOGGER, "Publisher created on /chatter");
+    log_info!(&LOGGER, "Publisher created on /chatter");
 
     let max_msgs: i32 = std::env::var("NROS_TALKER_COUNT")
         .ok()
@@ -121,14 +121,14 @@ fn main() {
         let mut msg = StringMsg::default();
         let _ = write!(msg.data, "Hello World: {i}");
         if let Err(e) = publisher.publish(&msg) {
-            nros_error!(&LOGGER, "Publish failed: {e:?}");
+            log_error!(&LOGGER, "Publish failed: {e:?}");
         } else {
-            nros_info!(&LOGGER, "Publishing: '{}'", msg.data);
+            log_info!(&LOGGER, "Publishing: '{}'", msg.data);
         }
         std::thread::sleep(Duration::from_millis(100));
         // Drive session I/O so writes flush.
         let _ = executor.spin_once(Duration::from_millis(10));
     }
 
-    nros_info!(&LOGGER, "Talker done — published {max_msgs} messages");
+    log_info!(&LOGGER, "Talker done — published {max_msgs} messages");
 }

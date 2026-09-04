@@ -18,9 +18,9 @@ void SafetyTalker::on_tick() {
     }
 }
 
-::nros::Result SafetyTalker::configure(::nros::Node& node) {
+::rclcpp::Result SafetyTalker::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
     return ::nros::bind_timer<SafetyTalker, &SafetyTalker::on_tick>(node, timer_, 1000, this);
 }

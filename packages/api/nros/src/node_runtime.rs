@@ -2055,7 +2055,7 @@ fn decl_err_from_node(e: nros_node::NodeError) -> NodeDeclError {
     // also means a `no_std` image gets the diagnostic, which the old
     // `cfg(feature = "std")` arm never delivered.
     if !matches!(e, nros_node::NodeError::ExecutorFull) {
-        nros_log::nros_error!(
+        nros_log::log_error!(
             nros_log::get_logger("nros"),
             "node declaration failed — NodeError::{e:?}"
         );

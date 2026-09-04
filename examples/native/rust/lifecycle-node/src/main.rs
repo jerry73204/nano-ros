@@ -36,7 +36,7 @@ use nros::{
     ExecutorConfigEnvExt as _,
     lifecycle::{LifecycleCallbacks, TransitionResult},
 };
-use nros_log::{Logger, nros_info};
+use nros_log::{Logger, log_info};
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("lifecycle-node");
@@ -50,27 +50,27 @@ struct LifecycleDemo;
 
 impl LifecycleCallbacks for LifecycleDemo {
     fn on_configure(&mut self) -> TransitionResult {
-        nros_info!(&LOGGER, "[callback] on_configure — allocating resources");
+        log_info!(&LOGGER, "[callback] on_configure — allocating resources");
         TransitionResult::Success
     }
 
     fn on_activate(&mut self) -> TransitionResult {
-        nros_info!(&LOGGER, "[callback] on_activate — starting work");
+        log_info!(&LOGGER, "[callback] on_activate — starting work");
         TransitionResult::Success
     }
 
     fn on_deactivate(&mut self) -> TransitionResult {
-        nros_info!(&LOGGER, "[callback] on_deactivate — pausing work");
+        log_info!(&LOGGER, "[callback] on_deactivate — pausing work");
         TransitionResult::Success
     }
 
     fn on_cleanup(&mut self) -> TransitionResult {
-        nros_info!(&LOGGER, "[callback] on_cleanup — releasing resources");
+        log_info!(&LOGGER, "[callback] on_cleanup — releasing resources");
         TransitionResult::Success
     }
 
     fn on_shutdown(&mut self) -> TransitionResult {
-        nros_info!(&LOGGER, "[callback] on_shutdown — finalizing");
+        log_info!(&LOGGER, "[callback] on_shutdown — finalizing");
         TransitionResult::Success
     }
 }
@@ -82,7 +82,7 @@ fn main() {
 
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
-    nros_info!(&LOGGER, "Lifecycle demo starting…");
+    log_info!(&LOGGER, "Lifecycle demo starting…");
 
     // `node` is declared before `executor` so it outlives the lifecycle
     // registration (the executor holds a context pointer to it for the run).
@@ -96,9 +96,9 @@ fn main() {
     executor
         .register_lifecycle_node(&mut node)
         .expect("Failed to register lifecycle node");
-    nros_info!(&LOGGER, "Lifecycle services registered on /lifecycle_demo");
+    log_info!(&LOGGER, "Lifecycle services registered on /lifecycle_demo");
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "Ready. Drive the lifecycle with `ros2 lifecycle set /lifecycle_demo configure`, etc."
     );

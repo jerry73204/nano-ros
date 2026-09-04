@@ -1441,7 +1441,7 @@ fn release_session_nodes(
             // `create_node`, and the session is still open.
             let ret = unsafe { destroy(&mut view) };
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "destroy_node failed with {}; the backend may still hold node state",
                     ret
@@ -2084,7 +2084,7 @@ impl CffiSession {
         // decide whether to emit.
         #[cfg(feature = "std")]
         if std::env::var_os("NROS_RMW_TRACE_OPEN").is_some() {
-            nros_log::nros_info!(
+            nros_log::log_info!(
                 nros_log::get_logger("nros_rmw_cffi"),
                 "open: locator={locator:?} mode={mode} ret={ret} backend_data={:p}",
                 view.backend_data
@@ -2137,7 +2137,7 @@ fn report_qos_downgrade(kind: &str, name: &str, requested: &NrosRmwQos, granted:
         }
     }
     if requested.reliability != granted.reliability {
-        nros_log::nros_warn!(
+        nros_log::log_warn!(
             nros_log::get_logger("nros_rmw_cffi"),
             "{kind} `{name}`: asked for reliability {} and the backend granted {}. A RELIABLE \
              reader does not match a BEST_EFFORT writer, so this is the usual reason a pair \
@@ -2147,7 +2147,7 @@ fn report_qos_downgrade(kind: &str, name: &str, requested: &NrosRmwQos, granted:
         );
     }
     if requested.durability != granted.durability {
-        nros_log::nros_warn!(
+        nros_log::log_warn!(
             nros_log::get_logger("nros_rmw_cffi"),
             "{kind} `{name}`: asked for durability {} and the backend granted {}.",
             durability(requested.durability),
@@ -2155,7 +2155,7 @@ fn report_qos_downgrade(kind: &str, name: &str, requested: &NrosRmwQos, granted:
         );
     }
     if requested.depth != granted.depth && granted.depth != 0 {
-        nros_log::nros_warn!(
+        nros_log::log_warn!(
             nros_log::get_logger("nros_rmw_cffi"),
             "{kind} `{name}`: asked for history depth {} and the backend granted {}.",
             requested.depth,
@@ -3041,7 +3041,7 @@ impl<'a> Drop for CffiSlot<'a> {
             // `'a` borrows it).
             let ret = unsafe { discard(&view, self.token) };
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "return_loaned_message_from_publisher failed with {}; the loan slot may be stranded",
                     ret
@@ -3145,7 +3145,7 @@ impl nros_rmw::SlotLending for CffiPublisher {
                 // second fault in a row and worth a line.
                 let ret = unsafe { discard(&view, out_token) };
                 if ret != NROS_RMW_RET_OK {
-                    nros_log::nros_error!(
+                    nros_log::log_error!(
                         nros_log::get_logger("nros_rmw_cffi"),
                         "discarding an undersized loan also failed with {}",
                         ret
@@ -3515,7 +3515,7 @@ impl Drop for CffiPublisher {
             // surfaces later as an allocation failure with no provenance.
             // `nros_log`, never std stdio — issue 0589.
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "destroy_publisher failed with {}; the backend may have leaked the publisher",
                     ret
@@ -3659,7 +3659,7 @@ impl<'a> Drop for CffiView<'a> {
             // this subscriber and the subscriber is still alive.
             let ret = unsafe { release(&view, self.token) };
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "return_loaned_message_from_subscription failed with {}; the sample may stay checked out",
                     ret
@@ -3970,7 +3970,7 @@ impl Drop for CffiSubscription {
             // surfaces later as an allocation failure with no provenance.
             // `nros_log`, never std stdio — issue 0589.
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "destroy_subscription failed with {}; the backend may have leaked the subscription",
                     ret
@@ -4101,7 +4101,7 @@ impl Drop for CffiService {
             // surfaces later as an allocation failure with no provenance.
             // `nros_log`, never std stdio — issue 0589.
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "destroy_service failed with {}; the backend may have leaked the service",
                     ret
@@ -4251,7 +4251,7 @@ impl Drop for CffiClient {
             // surfaces later as an allocation failure with no provenance.
             // `nros_log`, never std stdio — issue 0589.
             if ret != NROS_RMW_RET_OK {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_cffi"),
                     "destroy_client failed with {}; the backend may have leaked the client",
                     ret

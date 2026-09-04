@@ -838,7 +838,7 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
 macro_rules! cpp_diag {
     ($($arg:tt)+) => {{
         let logger: &'static nros_log::Logger = nros_log::get_logger("nros_cpp");
-        nros_log::nros_error!(logger, $($arg)+);
+        nros_log::log_error!(logger, $($arg)+);
     }};
 }
 

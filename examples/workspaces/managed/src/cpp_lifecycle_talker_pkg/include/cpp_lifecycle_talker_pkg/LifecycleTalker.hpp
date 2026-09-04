@@ -11,14 +11,14 @@ namespace cpp_lifecycle_talker_pkg {
 /// Lifecycle state machine (register + Configure→Activate) is handled by the
 /// generated entry's `__nros_entry_setup` via `nros_cpp_lifecycle_autostart`.
 class LifecycleTalker {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int32_t counter_ = 0;
 
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_lifecycle_talker_pkg

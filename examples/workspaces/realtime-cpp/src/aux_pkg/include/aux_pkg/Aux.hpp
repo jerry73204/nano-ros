@@ -14,14 +14,14 @@ namespace aux_pkg {
 /// tier is spawned BY a spawned tier (boot→mid→low), so it is the middle hop
 /// the #144 chained-spawn fix serializes.
 class Aux {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int count_ = 0;
 
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace aux_pkg

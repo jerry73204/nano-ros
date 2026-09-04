@@ -20,7 +20,7 @@
 // ----------------------------------------------------------------------------
 
 struct TalkerContext {
-    nros::Publisher<std_msgs::msg::String>* publisher;
+    rclcpp::Publisher<std_msgs::msg::String>* publisher;
     int count;
 };
 
@@ -50,7 +50,7 @@ static void timer_callback(void* context) {
     std_msgs::msg::String msg;
     msg.data = payload;
 
-    nros::Result ret = ctx->publisher->publish(msg);
+    rclcpp::Result ret = ctx->publisher->publish(msg);
     if (ret.ok()) {
         printf("Publishing: '%s'\n", msg.data.c_str());
     } else {
@@ -83,7 +83,7 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "talker"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::Publisher<std_msgs::msg::String> pub;
+    rclcpp::Publisher<std_msgs::msg::String> pub;
     NROS_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
 
     TalkerContext ctx;
@@ -100,13 +100,13 @@ int nros_app_main(int argc, char** argv) {
     printf("\nPublishing messages (Ctrl+C to exit)...\n\n");
 
     // Spin
-    while (g_running && nros::ok()) {
+    while (g_running && rclcpp::ok()) {
         nros::spin_once(100);
     }
 
     // Cleanup
     printf("\nShutting down...\n");
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return 0;

@@ -546,7 +546,7 @@ where
     // issue 0708 — publish the nros_log sink list at the boot funnel.
     //
     // The board also installs a `log`-crate logger below, and that is a
-    // DIFFERENT facade: an `nros_error!` raised inside a LIBRARY (the zenoh
+    // DIFFERENT facade: an `log_error!` raised inside a LIBRARY (the zenoh
     // session-pool diagnostic of issue 0589, for one) dispatches through
     // nros_log, which drops every record until a sink list is published.
     // Measured before the fix: the threadx-linux logging fixture with its own
@@ -835,7 +835,7 @@ where
     // issue 0708 — publish the nros_log sink list at the boot funnel.
     //
     // The board also installs a `log`-crate logger below, and that is a
-    // DIFFERENT facade: an `nros_error!` raised inside a LIBRARY (the zenoh
+    // DIFFERENT facade: an `log_error!` raised inside a LIBRARY (the zenoh
     // session-pool diagnostic of issue 0589, for one) dispatches through
     // nros_log, which drops every record until a sink list is published.
     // Measured before the fix: the threadx-linux logging fixture with its own

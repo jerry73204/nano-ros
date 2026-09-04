@@ -21,7 +21,7 @@ class ReadingListener {
     void on_reading(const ::custom_msgs::msg::Reading& msg); // typed member callback
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_reading_listener_pkg

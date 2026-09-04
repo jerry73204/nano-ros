@@ -92,12 +92,12 @@ void FibClient::on_tick() {
     }
 }
 
-::nros::Result FibClient::configure(::nros::Node& node) {
+::rclcpp::Result FibClient::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     phase_ = Idle;
     waits_ = 0;
 
-    ::nros::Result r =
+    ::rclcpp::Result r =
         ::nros::create_action_client_raw(node, client_.bytes, "/fibonacci", Action::TYPE_NAME);
     if (!r.ok()) {
         return r;
@@ -106,7 +106,7 @@ void FibClient::on_tick() {
         nros_cpp_action_client_set_callbacks(client_.bytes, &FibClient::s_goal_response,
                                              /*feedback=*/nullptr, &FibClient::s_result, this);
     if (ret != 0) {
-        return ::nros::Result(ret);
+        return ::rclcpp::Result(ret);
     }
     return ::nros::bind_timer<FibClient, &FibClient::on_tick>(node, timer_, 500, this);
 }

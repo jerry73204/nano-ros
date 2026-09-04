@@ -13,8 +13,8 @@ public surface a user application needs.
 ## Where to start
 
 - [`nros/nros.h`](../api/c/nros_8h.html) — convenience umbrella include
-- [`nros/init.h`](../api/c/init_8h.html) — `nros_support_init`, `nros_support_fini`
-- [`nros/node.h`](../api/c/node_8h.html) — `nros_node_init`, `nros_node_fini`
+- [`nros/init.h`](../api/c/init_8h.html) — `nros_support_init`, `rclc_support_fini`
+- [`nros/node.h`](../api/c/node_8h.html) — `rclc_node_init_default`, `rcl_node_fini`
 - [`nros/executor.h`](../api/c/executor_8h.html) — spin loop, executor lifecycle
 - [`nros/publisher.h`](../api/c/publisher_8h.html) / [`subscription.h`](../api/c/subscription_8h.html) — pub/sub
 - [`nros/service.h`](../api/c/service_8h.html) / [`client.h`](../api/c/client_8h.html) — services
@@ -23,12 +23,14 @@ public surface a user application needs.
 - [`nros/lifecycle.h`](../api/c/lifecycle_8h.html) — REP-2002 lifecycle states
 
 > **Two-layer API.** Every entity exposes two parallel C entry-point
-> sets: `nros_*_init` (Layer 1, caller polls) and
-> `nros_executor_register_*` (Layer 2, executor callback). Layer 1
+> sets: `rclc_*_init_default` (Layer 1, caller polls) and
+> `nros_executor_add_*` (Layer 2, executor callback). Layer 1
 > grew an `_init_polling` + `take_*_raw` / `send_*_raw` family
 > for inline-storage callers (no executor arena).
-> Layer 2 keeps the existing `nros_*_init` + executor-register
-> pair. See [Two-Layer API](../concepts/two-layer-api.md) for the
+> Layer 2 pairs the same `rclc_*_init_default` with the
+> executor-add call, which is where the callback is supplied
+> (rclc's binding site). See
+> [Two-Layer API](../concepts/two-layer-api.md) for the
 > verb discipline and per-layer trade-offs.
 
 > **Event-driven wake callbacks.** Each L1 polling entity supports
@@ -52,11 +54,11 @@ goals, requesting results, and cancelling:
   `nros_action_client_set_goal_response_callback()`,
   `nros_action_client_set_feedback_callback()`, and
   `nros_action_client_set_result_callback()`. The callbacks fire from
-  `nros_executor_spin_some()` — your spin loop is the only place
+  `rclc_executor_spin_some()` — your spin loop is the only place
   callbacks run.
 - **Blocking convenience:** `nros_action_send_goal()` and
   `nros_action_get_result()`. These call the async variant and then
-  drive `nros_executor_spin_some()` internally on a wall-clock budget
+  drive `rclc_executor_spin_some()` internally on a wall-clock budget
   until the reply lands (or 15 s / 30 s timeout). They take the
   `nros_executor_t*` explicitly because the action client stores its
   handle as an opaque slot inside the executor (registered via
@@ -71,7 +73,7 @@ during `nros_executor_register_client()` and recovers it internally —
 but it follows the same async-then-spin contract.
 
 Canonical pattern: declare the executor, register the client, then
-either call the blocking helper or drive `nros_executor_spin_some()`
+either call the blocking helper or drive `rclc_executor_spin_some()`
 yourself between async calls until your callback flags the result. See
 the example layouts in `examples/native/c/action-client/` and
 `examples/qemu-arm-freertos/c/action-client/`.

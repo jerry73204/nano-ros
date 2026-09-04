@@ -2,7 +2,7 @@
 /// @brief C service client example — **callback** variant.
 ///
 /// Mirrors the blocking `service-client` example, but receives each reply
-/// through a `nros_response_callback_t` dispatched by `nros_executor_spin_some`
+/// through a `nros_response_callback_t` dispatched by `rclc_executor_spin_some`
 /// — the dual-mode alternative to `nros_client_call`. Send is non-blocking
 /// (`nros_client_send_request_async`); the reply lands in the callback when the
 /// executor next spins (the C analogue of rclcpp `async_send_request(req, cb)`).
@@ -37,7 +37,7 @@ static struct {
 } app;
 
 // ----------------------------------------------------------------------------
-// Response callback — fired from `nros_executor_spin_some`, not a poll.
+// Response callback — fired from `rclc_executor_spin_some`, not a poll.
 // ----------------------------------------------------------------------------
 
 static void on_response(const uint8_t* response, size_t response_len, void* context) {
@@ -103,12 +103,13 @@ int nros_app_main(int argc, char** argv) {
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
     printf("Support initialized\n");
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "add_two_ints_client_cb", "/"), 1);
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
-
-    NROS_CHECK_RET(nros_client_init(&app.client, &app.node, &add_two_ints_type, "/add_two_ints"),
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "add_two_ints_client_cb", "/", &app.support),
                    1);
-    printf("Client created for service: %s\n", nros_client_get_service_name(&app.client));
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
+
+    NROS_CHECK_RET(
+        rclc_client_init_default(&app.client, &app.node, &add_two_ints_type, "/add_two_ints"), 1);
+    printf("Client created for service: %s\n", rcl_client_get_service_name(&app.client));
 
     // Clients must be registered with an executor before use.
     NROS_CHECK_RET(nros_executor_init(&app.executor, &app.support, 4), 1);
@@ -120,7 +121,7 @@ int nros_app_main(int argc, char** argv) {
 
     // Let discovery settle (the callback client has no blocking call to gate on).
     for (int i = 0; i < 20; i++) {
-        nros_executor_spin_some(&app.executor, 50ull * 1000 * 1000);
+        rclc_executor_spin_some(&app.executor, 50ull * 1000 * 1000);
     }
 
     int exit_code = 0;
@@ -146,7 +147,7 @@ int nros_app_main(int argc, char** argv) {
             // Spin until the reply callback fires (or a 5 s budget elapses).
             uint64_t waited_ms = 0;
             while (app.reply_count == 0 && waited_ms < 5000) {
-                nros_executor_spin_some(&app.executor, 50ull * 1000 * 1000);
+                rclc_executor_spin_some(&app.executor, 50ull * 1000 * 1000);
                 waited_ms += 50;
             }
 
@@ -158,10 +159,10 @@ int nros_app_main(int argc, char** argv) {
     }
 
     printf("\nShutting down...\n");
-    nros_executor_fini(&app.executor);
+    rclc_executor_fini(&app.executor);
     nros_client_fini(&app.client);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     printf("Goodbye!\n");
     return exit_code;
