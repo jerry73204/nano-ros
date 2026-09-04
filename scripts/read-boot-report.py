@@ -111,7 +111,7 @@ POOL_CLASSES = {5, 12, 14, 15, 17}
 # way and a call would be a cycle. See SubscriberAllocReport's own doc comment.
 ALLOC_SYMBOL = "NROS_SUBSCRIBER_ALLOC_REPORT"
 ALLOC_MAGIC = 0x53554241  # "SUBA"
-ALLOC_VERSION = 4
+ALLOC_VERSION = 6
 ALLOC_FIELDS = (
     "magic",
     "version",
@@ -131,6 +131,11 @@ ALLOC_FIELDS = (
     "buffer_taken",
     "zpico_exit",
     "zpico_ret",
+    "inner_step",
+    "inner_ret",
+    "heap_used",
+    "heap_peak",
+    "heap_capacity",
 )
 # Assigned by `zpico_err_class` in the zenoh shim. The variant is recorded on
 # the NEAR side of the C ABI because crossing it collapses Generic and Session
@@ -143,6 +148,24 @@ ZPICO_ERR = {
 }
 
 # Exit markers stamped by `zpico_declare_subscriber_ring` in the C shim.
+# Steps of zenoh-pico's `_z_register_subscriber`, from the nano-ros patch in
+# zenoh-pico/src/net/primitives.c.
+INNER_STEP = {
+    0: "did not run",
+    1: "keyexpr prefix declaration (_z_declared_keyexpr_declare_non_wild_prefix)",
+    2: "session sync-group notifier",
+    3: "subscriber sync-group notifier",
+    4: "subscription registration (_z_register_subscription returned NULL)",
+    5: "the Declare send (_z_send_declare)",
+    6: "success",
+    10: "entered _z_declare_subscriber; no later step stamped",
+    11: "_z_sync_group_create failed",
+    12: "_z_register_subscriber failed without stamping a step",
+    20: "_z_sync_group_create: z_malloc returned NULL (kernel heap)",
+    21: "_z_sync_group_create: _z_sync_group_state_create failed",
+    22: "_z_sync_group_create: rc_new returned NULL (kernel heap)",
+}
+
 ZPICO_EXIT = {
     0: "stamped NOTHING -- the function did not run, or ran a path with no marker",
     1: "session not open",
@@ -378,6 +401,29 @@ def report_alloc(rec: dict[str, int]) -> int:
     print(f"  small blocks taken              {rec['small_taken']}")
     print(f"  large blocks taken              {rec['large_taken']}")
     print(f"  last hint seen                  {rec['rx_hint']}")
+    hp, hc = rec["heap_peak"], rec["heap_capacity"]
+    if hc:
+        pct = f"   ({100.0 * hp / hc:.1f}% of the arena)" if hp else ""
+        print(f"  platform heap used              {rec['heap_used']}")
+        print(f"  platform heap PEAK              {hp}{pct}")
+        print(f"  platform heap capacity          {hc}   (NROS_ZEPHYR_HEAP_SIZE)")
+        if hp > hc:
+            print(
+                "  DO NOT SIZE A KNOB FROM THIS. A peak above capacity is impossible\n"
+                "  for a live figure, so the counter is not one: zpico-alloc\n"
+                "  decrements used_bytes only on the SLAB free path, never on the\n"
+                "  rlsf path, so `used` is cumulative-allocated and `peak` tracks it.\n"
+                "  Fixing it needs the block size at free -- rlsf 0.2.3 exposes\n"
+                "  allocation_usable_size only under its `unstable` feature."
+            )
+        elif hp:
+            print(
+                f"  -> size NROS_ZEPHYR_HEAP_SIZE from {hp}, not from a round number.\n"
+                "     This is the peak at the LAST subscription, so add the headroom\n"
+                "     the application's own later allocations need."
+            )
+    else:
+        print("  platform heap                   not instrumented (nros-platform/heap-stats off)")
     print()
     kl, kc = rec["keyexpr_len"], rec["keyexpr_cap"]
     print(f"  last keyexpr length             {kl} of {kc}")
@@ -396,6 +442,11 @@ def report_alloc(rec: dict[str, int]) -> int:
         print(f"  zpico declare exit              {zx} -- {ZPICO_EXIT.get(zx, 'unknown')}")
         if zx == 5:
             print(f"  z_declare_subscriber returned   {zr_s}")
+            ist = rec["inner_step"]
+            ir = rec["inner_ret"]
+            ir_s = ir - (1 << 32) if ir >= (1 << 31) else ir
+            print(f"  _z_register_subscriber step     {ist} -- {INNER_STEP.get(ist, 'unknown')}")
+            print(f"  that step returned              {ir_s}")
         elif zx == 0:
             print(
                 "  The caller saw an error it believes came from this function,\n"

@@ -368,12 +368,30 @@ pub struct SubscriberAllocReport {
     zpico_exit: AtomicU32,
     /// Raw `z_declare_subscriber` return, meaningful when the exit is 5.
     zpico_ret: AtomicU32,
+    /// Which step of zenoh-pico's `_z_register_subscriber` ran: 1 keyexpr
+    /// prefix declaration, 2 session sync-group notifier, 3 subscriber
+    /// sync-group notifier, 4 subscription registration, 5 the Declare send,
+    /// 6 success. 0 = the function did not run.
+    inner_step: AtomicU32,
+    /// What that step returned.
+    inner_ret: AtomicU32,
+    /// The platform rlsf arena: bytes out now, the most ever out at once, and
+    /// its capacity.
+    ///
+    /// phase-412 -- `NROS_ZEPHYR_HEAP_SIZE` is hand-picked, and until the
+    /// port's stats were repointed at this arena nothing could say what it
+    /// used. `heap_peak` is the figure the knob wants; `heap_used` sampled here
+    /// is whatever is live at the last subscription. 0 means the image was
+    /// built without `nros-platform/heap-stats`.
+    heap_used: AtomicU32,
+    heap_peak: AtomicU32,
+    heap_capacity: AtomicU32,
 }
 
 /// `"SUBA"` -- subscriber alloc. Written LAST by [`record_alloc_ceilings`].
 pub const SUBSCRIBER_ALLOC_MAGIC: u32 = 0x53554241;
 /// Layout version for [`SubscriberAllocReport`].
-pub const SUBSCRIBER_ALLOC_VERSION: u32 = 4;
+pub const SUBSCRIBER_ALLOC_VERSION: u32 = 6;
 
 /// The record, findable by symbol from a debugger.
 #[unsafe(no_mangle)]
@@ -397,7 +415,39 @@ pub static NROS_SUBSCRIBER_ALLOC_REPORT: SubscriberAllocReport = SubscriberAlloc
     buffer_taken: AtomicU32::new(0),
     zpico_exit: AtomicU32::new(0),
     zpico_ret: AtomicU32::new(0),
+    inner_step: AtomicU32::new(0),
+    inner_ret: AtomicU32::new(0),
+    heap_used: AtomicU32::new(0),
+    heap_peak: AtomicU32::new(0),
+    heap_capacity: AtomicU32::new(0),
 };
+
+/// Sample the platform arena into the record.
+///
+/// Zephyr only: `nros_zephyr_heap_*` are that port's symbols. They exist
+/// whenever `nros-platform/platform-zephyr` is on and return 0 without
+/// `heap-stats`, so no second guard is needed.
+#[cfg(feature = "platform-zephyr")]
+fn record_heap(r: &SubscriberAllocReport, sat: &dyn Fn(usize) -> u32) {
+    unsafe extern "C" {
+        fn nros_zephyr_heap_used() -> usize;
+        fn nros_zephyr_heap_peak() -> usize;
+        fn nros_zephyr_heap_capacity() -> usize;
+    }
+    // SAFETY: three argument-free getters over atomics in the platform crate.
+    unsafe {
+        r.heap_used
+            .store(sat(nros_zephyr_heap_used()), Ordering::Relaxed);
+        r.heap_peak
+            .store(sat(nros_zephyr_heap_peak()), Ordering::Relaxed);
+        r.heap_capacity
+            .store(sat(nros_zephyr_heap_capacity()), Ordering::Relaxed);
+    }
+}
+
+/// Every other port: this arena is not theirs to measure.
+#[cfg(not(feature = "platform-zephyr"))]
+fn record_heap(_r: &SubscriberAllocReport, _sat: &dyn Fn(usize) -> u32) {}
 
 /// Record the metadata-slot index that was refused.
 ///
@@ -453,6 +503,18 @@ pub(super) fn record_zpico_declare(exit: i32, ret: i32) {
         .is_ok()
     {
         r.zpico_ret.store(ret as u32, Ordering::Relaxed);
+        // SAFETY: plain `int` globals in the C shim, written immediately before
+        // this on the same thread, read on a path that has already failed.
+        unsafe {
+            r.inner_step.store(
+                zpico_sys::zpico_last_sub_inner_step as u32,
+                Ordering::Relaxed,
+            );
+            r.inner_ret.store(
+                zpico_sys::zpico_last_sub_inner_ret as u32,
+                Ordering::Relaxed,
+            );
+        }
     }
 }
 
@@ -504,6 +566,7 @@ fn record_alloc(hint: usize, refusal: u32) {
         sat(NEXT_BUFFER_INDEX.load(Ordering::SeqCst)),
         Ordering::Relaxed,
     );
+    record_heap(r, &sat);
     // FIRST refusal wins: the one that stopped the boot is the one that
     // explains it, and a later refusal is a consequence.
     if refusal != 0 {

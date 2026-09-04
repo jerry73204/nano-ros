@@ -99,7 +99,18 @@ platform-esp32-qemu = [
 platform-nuttx = ["dep:nros-platform-cffi"]
 platform-freertos = ["dep:nros-platform-cffi"]
 platform-threadx = ["dep:nros-platform-cffi"]
-platform-zephyr = ["dep:nros-platform-cffi", "dep:zpico-alloc"]
+# phase-412 -- `zpico-alloc/stats` is NOT optional here. It is what makes
+# `nros_platform_heap_used_bytes()`/`_peak` able to answer about the arena
+# this port actually allocates from, and NROS_ZEPHYR_HEAP_SIZE cannot be set
+# from a measurement without it -- the island's 94,208 was guessed for
+# exactly that reason.
+#
+# Not a separate feature: threading one through nros-rmw-zenoh-staticlib,
+# nros-rmw-zenoh and a second cmake feature-set site delivered it to 1 of 3
+# cargo invocations, and the one that links the arena was not among them.
+# That is the delivery-failure class this phase exists to remove, so the
+# counters are simply always on for this port. Two atomics per alloc.
+platform-zephyr = ["dep:nros-platform-cffi", "dep:zpico-alloc", "zpico-alloc/stats"]
 # phase-337 W7.b — `platform-orin-spe` (a back-compat alias for
 # `platform-freertos` since 121.10) and `platform-esp32s3` are gone with their
 # boards. A Cortex-R5F FreeRTOS-FSP consumer selects `platform-freertos`
@@ -144,16 +155,6 @@ global-allocator = []
 alloc = ["nros-platform-api/alloc"]
 alloc-stats = []
 
-# phase-412 -- opt-in stats for the ZEPHYR ARENA (`zephyr_heap`), which is what
-# `z_malloc` and `__rust_alloc` actually draw from since phase-391 W3 moved the
-# funnel off Zephyr's kernel heap. Distinct from `alloc-stats` above, which
-# counts only what the Rust `#[global_allocator]` sees.
-#
-# Needed because `nros_platform_heap_used_bytes()` -- documented as the unified
-# C+Rust figure -- answered from `_system_heap`, the heap the application
-# stopped using. Without this the only number that could size
-# NROS_ZEPHYR_HEAP_SIZE measured a different arena.
-heap-stats = ["zpico-alloc/stats"]
 
 # Phase 97.1.cs — opt-in `critical_section::Impl` registered against
 # the active platform's interrupt-disable primitive. DDS's
