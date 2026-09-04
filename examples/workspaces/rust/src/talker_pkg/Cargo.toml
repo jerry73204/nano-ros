@@ -34,7 +34,7 @@ nros = { path = "../../../../../packages/api/nros", default-features = false, fe
     "alloc",
     "rmw-cffi", "macros"] }
 std_msgs = { path = "../../generated/std_msgs", default-features = false }
-# Track D (A5) — a node logs via `nros_info!`; the posix board registers the default
+# Track D (A5) — a node logs via `log_info!`; the posix board registers the default
 # sink at boot (phase-264 W3), so the line reaches the native entry's stdout.
 # phase-338 W7 — user source logs through the `log` facade; the board
 # bridges it. `nros_log` stays the platform/ABI layer beneath.

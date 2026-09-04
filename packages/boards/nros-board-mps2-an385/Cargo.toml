@@ -80,7 +80,7 @@ mps2-an385-pac = { path = "../mps2-an385-pac", optional = true }
 # linked backend self-registers via the macro's `__register_linked_rmw()`.
 nros = { path = "../../api/nros", default-features = false, features = ["alloc", "rmw-cffi", "macros"], optional = true }
 # Phase 244.D1 — agnostic logging dispatcher installed by `BoardEntry::boot`
-# so declarative nodes can `nros_info!` without a per-example boot closure.
+# so declarative nodes can `log_info!` without a per-example boot closure.
 # issue 0708 — NOT optional. `mod node` is ungated, so its `run_bare` boot
 # funnel exists in every feature configuration, and a funnel that cannot
 # publish the sink list is the defect this issue is about. The two features

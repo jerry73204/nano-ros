@@ -32,7 +32,7 @@ zephyr-edf = []
 nros-platform = { path = "../../platform/nros-platform", default-features = false }
 nros = { path = "../../api/nros", default-features = false, features = ["alloc", "rmw-cffi", "macros"], optional = true }
 # run_tiers wires the nros_log dispatcher to the platform console at boot
-# (mirrors nros-board-linux); without it a Node pkg's `nros_info!` on a
+# (mirrors nros-board-linux); without it a Node pkg's `log_info!` on a
 # Zephyr multi-tier entry produced no output at all.
 nros-log = { path = "../../core/nros-log", default-features = false, optional = true }
 # issue 0710 — the platform-ABI log sink moved to `nros_platform_cffi::log`,
