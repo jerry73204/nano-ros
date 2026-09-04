@@ -368,13 +368,6 @@ pub struct SubscriberAllocReport {
     zpico_exit: AtomicU32,
     /// Raw `z_declare_subscriber` return, meaningful when the exit is 5.
     zpico_ret: AtomicU32,
-    /// Which step of zenoh-pico's `_z_register_subscriber` ran: 1 keyexpr
-    /// prefix declaration, 2 session sync-group notifier, 3 subscriber
-    /// sync-group notifier, 4 subscription registration, 5 the Declare send,
-    /// 6 success. 0 = the function did not run.
-    inner_step: AtomicU32,
-    /// What that step returned.
-    inner_ret: AtomicU32,
     /// The platform rlsf arena: bytes out now, the most ever out at once, and
     /// its capacity.
     ///
@@ -391,7 +384,7 @@ pub struct SubscriberAllocReport {
 /// `"SUBA"` -- subscriber alloc. Written LAST by [`record_alloc_ceilings`].
 pub const SUBSCRIBER_ALLOC_MAGIC: u32 = 0x53554241;
 /// Layout version for [`SubscriberAllocReport`].
-pub const SUBSCRIBER_ALLOC_VERSION: u32 = 6;
+pub const SUBSCRIBER_ALLOC_VERSION: u32 = 7;
 
 /// The record, findable by symbol from a debugger.
 #[unsafe(no_mangle)]
@@ -415,8 +408,6 @@ pub static NROS_SUBSCRIBER_ALLOC_REPORT: SubscriberAllocReport = SubscriberAlloc
     buffer_taken: AtomicU32::new(0),
     zpico_exit: AtomicU32::new(0),
     zpico_ret: AtomicU32::new(0),
-    inner_step: AtomicU32::new(0),
-    inner_ret: AtomicU32::new(0),
     heap_used: AtomicU32::new(0),
     heap_peak: AtomicU32::new(0),
     heap_capacity: AtomicU32::new(0),
@@ -503,18 +494,6 @@ pub(super) fn record_zpico_declare(exit: i32, ret: i32) {
         .is_ok()
     {
         r.zpico_ret.store(ret as u32, Ordering::Relaxed);
-        // SAFETY: plain `int` globals in the C shim, written immediately before
-        // this on the same thread, read on a path that has already failed.
-        unsafe {
-            r.inner_step.store(
-                zpico_sys::zpico_last_sub_inner_step as u32,
-                Ordering::Relaxed,
-            );
-            r.inner_ret.store(
-                zpico_sys::zpico_last_sub_inner_ret as u32,
-                Ordering::Relaxed,
-            );
-        }
     }
 }
 
