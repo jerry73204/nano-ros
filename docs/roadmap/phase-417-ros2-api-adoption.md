@@ -323,12 +323,33 @@ and the two must not be run as separate passes.
   **including the `nros_node_init` reorder in the same pass**. Rename and
   reorder must not be separate passes: the rename is what makes a missed
   reorder fail to compile.
-* **W-B3 [cpp]** — `nros::` → `rclcpp::` across 645 sites / 119 files.
+* **W-B3 [cpp]** — **LANDED, and the survey was wrong.** Not 645 pure renames:
+  measured 697 code occurrences over 120 files, of which only **288 (41 %) are
+  pure renames**. 409 stay `nros::`, and the reason is the campaign's own rule
+  rather than effort:
+  * `nros::Node` — **109 sites, 103 files**. `rclcpp::Node` is a DISTINCT CLASS,
+    not an alias: `make_shared` + shared_ptr-returning `create_publisher<M>`
+    against ours' out-ref `create_node(node, …)`. It is also hosted-only, so it
+    does not exist on the freestanding targets most of those files build for.
+  * `nros::init` (13) — `rclcpp::init()` returns **void**; every call site
+    consumes our `Result`. Renaming drops the error check.
+  * `nros::Timer` (28), `nros::spin_once` (32) — no counterpart with that
+    contract.
+  * ~200 more with no `rclcpp::` counterpart at all: the `bind_*` family,
+    `create_node`, `Seq`/`HeapString`, `GoalResponse`/`CancelResponse`/
+    `GoalStatus`, the whole lifecycle set (there is no `rclcpp_lifecycle`
+    namespace in our headers).
+
+* **W-B5 [retire] — PRECONDITION, added after W-B3 measured it.** The C
+  forwarders (43 names) and the five Rust logging forwarders CAN go: every one
+  has a live replacement. The C++ `nros::` spellings for `Node`, `init`,
+  `Timer`, `spin_once`, lifecycle and the action-response enums **cannot** —
+  deleting them removes a capability rather than a spelling. Retiring those
+  waits on the node-type merge that `nros.hpp`'s own comment defers to "a later
+  step".
 * **W-B4 [docs]** — 57 files in `book/` and `docs/` naming an old spelling in
   prose or a code block. No compiler checks these.
-* **W-B5 [retire]** — delete the 110 `NROS_DEPRECATED_MSG` forwarders across 12
-  headers, the five Rust forwarders, and the feature flag. Last, and only after
-  W-B1..4 are green.
+
 * **W-B6 [changelog]** — one entry, carrying phase-379 W7 step 4's two
   warnings.
 
