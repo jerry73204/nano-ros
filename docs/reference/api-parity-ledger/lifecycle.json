@@ -45,14 +45,17 @@
   },
   "c:lifecycle_change_state_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_com_interface_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's bundle of the three lifecycle services PLUS the `~/transition_event` publisher, held inside the state machine. Ours is not a type: the services are registered on the executor (`nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`.) and the publisher does not exist -- that half is a gap, recorded on `c:lifecycle_change_state`."
   },
   "c:lifecycle_execute_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "runs the callback for a transition id WITHOUT performing the transition. Ours has no way to do that on purpose: `nros_lifecycle_change_state` invokes the callback and applies the result as one step, so a state machine cannot observe a callback that ran against a transition that did not happen. A user loses the ability to fire a hook by hand."
   },
   "c:lifecycle_fini": {
@@ -61,10 +64,12 @@
   },
   "c:lifecycle_get_available_states_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_get_default_state_machine_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the LIFECYCLE STATE MACHINE takes no options: `nros_lifecycle_init(sm)` (`nros_generated.h:5035`) has no options parameter and there is no `nros_lifecycle_state_machine_options_t`, so there is nothing to default. See `c:lifecycle_state_machine_options_t` for what rcl's carries and where each half went. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:lifecycle_get_current_state": {
@@ -73,14 +78,17 @@
   },
   "c:lifecycle_get_state_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_get_transition_by_id": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "searches rcl's runtime transition map for a `rcl_lifecycle_transition_t*`. Our transitions are a closed compile-time enum, so the lookup is a cast (`LifecycleTransition::from_u8`); there is no map to search and no heap object to hand back. See `c:lifecycle_transition_t`. OUR LANGUAGES DISAGREE: Rust exposes that conversion publicly as `LifecycleTransition::from_u8` / `from_shorthand`, C and C++ expose neither."
   },
   "c:lifecycle_get_transition_by_label": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `c:lifecycle_get_transition_by_id` and `c:lifecycle_trigger_transition_by_label`."
   },
   "c:lifecycle_get_zero_initialized": {
@@ -89,14 +97,17 @@
   },
   "c:lifecycle_get_zero_initialized_state": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl ships a zero-initializer per heap-built lifecycle object. We have one such object and one zero-initializer, `nros_lifecycle_get_zero_initialized`; see `c:lifecycle_state_t` for why the other two do not exist as types."
   },
   "c:lifecycle_get_zero_initialized_state_machine": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rcl ships a zero-initializer per heap-built lifecycle object. We have one such object and one zero-initializer, `nros_lifecycle_get_zero_initialized`; see `c:lifecycle_state_t` for why the other two do not exist as types."
   },
   "c:lifecycle_get_zero_initialized_transition": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl ships a zero-initializer per heap-built lifecycle object. We have one such object and one zero-initializer, `nros_lifecycle_get_zero_initialized`; see `c:lifecycle_state_t` for why the other two do not exist as types."
   },
   "c:lifecycle_init": {
@@ -105,22 +116,27 @@
   },
   "c:lifecycle_init_change_state_server": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_init_default_state_machine": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's 'build the standard REP-2002 transition map at runtime' constructor. Our transition map is the compile-time `nros_core::lifecycle` table (`can_transition`/`apply_transition`), the same table for every image, so there is nothing to build. Constraint: no allocator; rcl's version mallocs the state and transition arrays."
   },
   "c:lifecycle_init_get_available_states_server": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_init_get_state_server": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_node_fini": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc's teardown for the wrapper struct, taking an allocator. We have one handle and one teardown, `nros_lifecycle_fini`; see `c:lifecycle_state_machine_fini`."
   },
   "c:lifecycle_node_t": {
@@ -129,6 +145,7 @@
   },
   "c:lifecycle_register_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclc's generic form, keyed on a goal STATE id into the 100-slot map. We ship the six named entry points instead (`nros_lifecycle_register_on_*`), which is also what rclcpp does; a generic slot-index form would only re-open the unbounded map (`c:lifecycle_callback_map_t`)."
   },
   "c:lifecycle_register_on_activate": {
@@ -157,30 +174,37 @@
   },
   "c:lifecycle_service_context_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the context struct rclc's per-server init needs. One registration call needs no per-server context; see `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_state_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the init/fini pair for an rcl heap-built state or transition object. rcl models a state and a transition as heap objects carrying a malloc'd label string, built and torn down through init/fini pairs. Ours are `uint8_t` constants over the closed REP-2002 set (`NROS_LIFECYCLE_STATE_*` / `NROS_LIFECYCLE_TRANSITION_*`) with static labels, so there is nothing to construct or free. Constraint: no allocator -- `nros_platform_alloc` is the tree's only allocation route, and a label per state would put the state machine on the heap for no information gain."
   },
   "c:lifecycle_state_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the init/fini pair for an rcl heap-built state or transition object. rcl models a state and a transition as heap objects carrying a malloc'd label string, built and torn down through init/fini pairs. Ours are `uint8_t` constants over the closed REP-2002 set (`NROS_LIFECYCLE_STATE_*` / `NROS_LIFECYCLE_TRANSITION_*`) with static labels, so there is nothing to construct or free. Constraint: no allocator -- `nros_platform_alloc` is the tree's only allocation route, and a label per state would put the state machine on the heap for no information gain."
   },
   "c:lifecycle_state_machine_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `c:lifecycle_state_machine_init`; ours is `nros_lifecycle_fini(sm)`, which does not ask for the node back (`handle-owns-node`) or for an allocator (`no-allocator`)."
   },
   "c:lifecycle_state_machine_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's lower-layer constructor: `(state_machine, node, six typesupports, options)`. `nros_lifecycle_init(sm)` is this function -- the typesupports come from the compile-time type registry rather than the caller, and `nros_lifecycle_init(sm)` takes no options parameter at all -- see `c:lifecycle_state_machine_options_t` for rcl's two fields and where each went (CORRECTED 2026-09-04, phase-417: this deferred to the `compile-time-options` rule, whose \"no runtime options struct\" is false of the seven entity options structs the C surface ships; the state machine's absence is its own, narrower fact). rcl's `node` argument has no counterpart on ours: rcl's state machine owns the REP-2002 communication interface and so needs the node to build it, while ours is a pure state machine and the services live on the executor (`c:executor_register_lifecycle_services`). Issue 0792 removed the vestigial `node` parameter, and with it the rclc-shaped `nros_make_node_a_lifecycle_node` alias -- see that row."
   },
   "c:lifecycle_state_machine_is_initialized": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`nros_lifecycle_state_machine_t` carries a public `initialized` flag, and every entry point returns `NROS_RET_NOT_INIT` / `NROS_RET_BAD_SEQUENCE` rather than relying on the caller to ask first. A user loses the free-function spelling, not the information."
   },
   "c:lifecycle_state_machine_options_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's options carry an allocator and `enable_com_interface`. The allocator is the `no-allocator` rule; the com-interface switch is a separate explicit call here -- `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`."
   },
   "c:lifecycle_state_t": {
@@ -189,10 +213,12 @@
   },
   "c:lifecycle_transition_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the init/fini pair for an rcl heap-built state or transition object. rcl models a state and a transition as heap objects carrying a malloc'd label string, built and torn down through init/fini pairs. Ours are `uint8_t` constants over the closed REP-2002 set (`NROS_LIFECYCLE_STATE_*` / `NROS_LIFECYCLE_TRANSITION_*`) with static labels, so there is nothing to construct or free. Constraint: no allocator -- `nros_platform_alloc` is the tree's only allocation route, and a label per state would put the state machine on the heap for no information gain."
   },
   "c:lifecycle_transition_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the init/fini pair for an rcl heap-built state or transition object. rcl models a state and a transition as heap objects carrying a malloc'd label string, built and torn down through init/fini pairs. Ours are `uint8_t` constants over the closed REP-2002 set (`NROS_LIFECYCLE_STATE_*` / `NROS_LIFECYCLE_TRANSITION_*`) with static labels, so there is nothing to construct or free. Constraint: no allocator -- `nros_platform_alloc` is the tree's only allocation route, and a label per state would put the state machine on the heap for no information gain."
   },
   "c:lifecycle_transition_map_t": {
@@ -205,14 +231,17 @@
   },
   "c:lifecycle_trigger_transition_by_id": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's spelling of `nros_lifecycle_change_state(sm, transition_id)`; see that row for the `publish_update` parameter it also takes."
   },
   "c:lifecycle_trigger_transition_by_label": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "label-keyed transition lookup. The label mapping does exist here -- `from_msg_transition_label` in `nros-node/src/lifecycle_services.rs` resolves the label a `ChangeState` request carries, including the generic `\"shutdown\"` -- but only inside the service layer, where a label actually arrives on the wire. A C caller has `NROS_LIFECYCLE_TRANSITION_*` constants and needs no string compare."
   },
   "c:make_node_a_lifecycle_node": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros_lifecycle_init",
       "nros_executor_register_lifecycle_services"
@@ -221,6 +250,7 @@
   },
   "c:print_state_machine": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl_lifecycle's debug dump of the transition map to stdout. A freestanding image has no stdout to dump to (and Rust `println!` is fatal on Zephyr native_sim, issue 0589), and the table is the same compile-time table in every image. The same information is reachable over `~/get_transition_graph`, which we do serve."
   },
   "cpp:CallbackReturn": {
@@ -257,10 +287,12 @@
   },
   "cpp:LifecycleNode::get_available_states": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp returns `std::vector<State>` / `std::vector<Transition>` -- a heap container of heap-labelled objects, which is `no-shared-ptr` and no-allocator twice over. The information is not lost: we serve it on `~/get_available_states`, `~/get_available_transitions` and `~/get_transition_graph`, which is what `ros2 lifecycle list` reads. What a user loses is the IN-PROCESS enumeration -- a node cannot ask itself what it may do next without a round trip. Consistent across all three of our languages: neither Rust's `LifecyclePollingNode` nor the C API has an accessor either."
   },
   "cpp:LifecycleNode::get_available_transitions": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:LifecycleNode::get_available_states`."
   },
   "cpp:LifecycleNode::get_clock": {
@@ -281,34 +313,42 @@
   },
   "cpp:LifecycleNode::get_node_base_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_clock_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_logging_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_options` and the `compile-time-options` rule."
   },
   "cpp:LifecycleNode::get_node_time_source_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_timers_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_topics_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_node_waitables_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an interface bundle."
   },
   "cpp:LifecycleNode::get_transition_graph": {
@@ -317,10 +357,12 @@
   },
   "cpp:LifecycleNode::make_shared": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see the node stage's `cpp:Node::make_shared`. No allocator; `no-shared-ptr` in signature_rules.py."
   },
   "cpp:LifecycleNode::make_unique": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:LifecycleNode::make_shared`."
   },
   "cpp:LifecycleNode::now": {
@@ -400,6 +442,7 @@
   },
   "cpp:Transition::goal_state": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "not an action item: this is `rclcpp_lifecycle::Transition::goal_state()`, the TARGET state of a lifecycle transition. It is routed here because the taxonomy decides a MEMBER by its name and `goal_` belongs to action. The real reason we lack it belongs to the lifecycle stage -- our `LifecycleTransition` is the enum itself, not an object carrying start and goal states. Flagged for a `topics.py` fix; see this stage's report."
   },
   "cpp:Transition::start_state": {
@@ -408,10 +451,12 @@
   },
   "cpp:create_default_publisher_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`rclcpp_lifecycle`'s helper for building the options a lifecycle publisher is created with. There is no lifecycle-publisher options type here and no C++ factory to build one -- `nros::Node::create_publisher<M>(out, topic, qos)` takes the QoS directly.CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface. The behaviour those options carry is the `cpp:LifecyclePublisher` gap, not the struct."
   },
   "cpp:create_default_subscription_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:create_default_publisher_options`."
   },
   "rust:Executor::lifecycle_state_machine": {

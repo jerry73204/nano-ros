@@ -4,10 +4,12 @@
     "a row means. Do NOT copy it back here; issue 1095 is what that cost."
   ],
   "c:get_disable_loaned_message": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "reads the `ROS_DISABLE_LOANED_MESSAGES` environment variable. No runtime environment on a device, and loaned messages are a zero-copy path selected at build time here (RFC-0010/0038)."
   },
   "c:get_zero_initialized_node": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "rcl's free-function spelling of the above; ours is `nros_node_get_zero_initialized`, a method-style name on the type. The idiom is kept, the spelling follows our own convention."
   },
@@ -24,18 +26,22 @@
     "why": "the guard condition rcl fires when the ROS graph changes. `nros/rmw_vtable.h` carries this exact slot, shaped like `set_wake_callback`, precisely so a backend CAN trigger it -- no backend fills it yet. An earlier verdict here said `nothing would ever trigger it`, which is narrower than the truth: nothing triggers it TODAY. NOT impossible -- unimplemented. `nros/rmw_vtable.h` has carried the whole graph family as optional slots since phase-376 W4 (get_node_names, the four *_by_node forms, get_{topic,service}_names_and_types, get_{publishers,subscriptions}_info_by_topic, count_{publishers,subscribers}, node_get_graph_guard_condition), every one is `None` in the cffi backend, and no runtime wrapper or user entry point exists. Both real backends already run the machinery: the zenoh shim declares AND queries `@ros2_lv` liveliness tokens (`Ros2Liveliness::*_keyexpr`, wildcard GETs in shim/session.rs) -- the same mechanism rmw_zenoh_cpp builds its graph cache from -- and nros-rmw-cyclonedds publishes `ros_discovery_info` so `ros2 node list` can see us. We are VISIBLE in the graph and cannot READ it; only the reading half is missing. Phase 379 W3."
   },
   "c:node_get_logger_name": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rcl derives a logger name from the node so rcutils logging can be filtered per node. `nros_log` takes an explicit logger name at the call site (`nros_log::get_logger(\"<crate>\")`), so there is no derived name to fetch."
   },
   "c:node_get_options": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `c:node_options_*`."
   },
   "c:node_get_rcl_instance_id": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "identifies which `rcl_init` epoch a node belongs to, so a stale handle from a previous init is detectable. There is one init per image."
   },
   "c:node_get_rmw_handle": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "hands out the underlying `rmw_node_t` so a caller can bypass rcl. Our RMW seam is the vtable in `nros/rmw_vtable.h` (RFC-0035) and is not reachable through a node handle; reaching past the API is how an image ends up depending on which backend it linked."
   },
@@ -48,10 +54,12 @@
     "why": "rcl's `rcl_get_zero_initialized_node()` idiom on our type. Counted as an extension for the same reason as `c:support_get_zero_initialized`: rclc, the C reference, ships no equivalent for its own handles."
   },
   "c:node_impl_t": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rcl's pimpl. `nros_node_t` carries its state inline because there is no allocator to put it behind a pointer; same shape as `nros_support_t` in the init stage."
   },
   "c:node_init_default": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "rcl's convenience wrapper for `rcl_node_init` with default options. Ours takes no options at all, so `nros_node_init` already IS the default form."
   },
@@ -60,6 +68,7 @@
     "why": "`nros_node_init` plus the fields a device actually varies per node -- the RMW selection and the scheduling context (RFC-0047). rcl would express these through `rcl_node_options_t`; ours is `nros_node_options_t`, passed by pointer to THIS entry point (`nros_generated.h:5297`), so the shape is rcl's -- an options struct on a second constructor. CORRECTED 2026-09-04 (phase-417): the row used to say \"with no options struct\", which its own signature refutes. What differs from rcl is the options LIFECYCLE, not the type: ours is plain inline storage with no pointer fields, returned BY VALUE from `nros_node_get_default_options()` and owned by the caller, so there is no `copy`/`fini` pair."
   },
   "c:node_init_with_options": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "rcl's second node constructor. The CAPABILITY is present under another name: `nros_node_init_ex(node, support, name, const struct nros_node_options_t *)` (`nros_generated.h:5297`) is exactly this function -- see `c:node_init_ex`. Note node is the odd one out in our own C surface, where the other four entities do spell it `*_init_with_options` (`nros_publisher_init_with_options`, `nros_subscription_init_with_options`, `nros_service_init_with_options`, `nros_client_init_with_options`). CORRECTED 2026-09-04 (phase-417): this row said \"there is no options struct to pass\", which is false -- `nros_node_options_t` ships and correlates `same`. The verdict is left at `declined` pending a decision on whether `nros_node_init_ex` should move to the family spelling; on the evidence it looks like a `rename`."
   },
@@ -68,6 +77,7 @@
     "why": "rcl reports whether a node handle is usable. We have `nros_node_state_t` (uninitialised/initialised/finalised) and no predicate that reads it -- `nros_support_is_valid` exists for the support object and the node has no counterpart. Nothing prevents one. Phase 379 W3."
   },
   "c:node_is_valid_except_context": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rcl's variant for checking a node whose context has already been finalised -- a teardown-ordering hazard that exists because rcl's node points at a separately-owned context. Our node reaches its support object through the handle it was created with, so the split state is not reachable."
   },
@@ -133,6 +143,7 @@
     "why": "the static factory that replaces `std::make_shared<Node>(...)`: it writes into caller-owned storage and returns a status. rclcpp needs no equivalent because its constructor can throw and its factory can allocate."
   },
   "cpp:Node::create_sub_node": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "a lightweight node sharing its parent's context with an extra namespace prefix, used to group entities under one node. It needs a second node object per sub-namespace and an allocator for it; a namespace is set once at declaration here."
   },
@@ -141,6 +152,7 @@
     "why": "the opaque pointer the C API and the generated entry point pass around. It is the C++/C seam, not something a ported node calls; rclcpp's analogue would be `get_rcl_node_handle`, which we decline (see `c:node_get_rmw_handle`)."
   },
   "cpp:Node::get_effective_namespace": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Node::create_sub_node` -- with no sub-nodes, the effective namespace IS `get_namespace()`."
   },
@@ -150,22 +162,27 @@
   },
   "cpp:Node::get_node_base_interface": {
     "bucket": "theirs-only",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclcpp splits a node into ~10 `node_interfaces::Node*Interface` slices so a component can be handed the part it needs. The split exists to make rclcpp_components and rclcpp_action composable without passing a whole node; our components are declared, not constructed with an injected node (RFC-0044), so there is nothing to inject a slice of."
   },
   "cpp:Node::get_node_options": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "see `cpp:NodeOptions`."
   },
   "cpp:Node::get_node_topics_interface": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Node::get_node_base_interface`."
   },
   "cpp:Node::get_node_waitables_interface": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Node::get_node_base_interface`."
   },
   "cpp:Node::get_sub_namespace": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Node::create_sub_node`."
   },
@@ -174,10 +191,12 @@
     "why": "rclcpp has no node validity predicate because a `Node` that exists was constructed successfully or threw. With -fno-exceptions the object exists either way, so it has to be askable."
   },
   "cpp:Node::make_shared": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "rclcpp's `SharedPtr` factory macro. No allocator; see `no-shared-ptr` in signature_rules.py."
   },
   "cpp:Node::make_unique": {
+    "disposition": "adopt",
     "verdict": "declined",
     "why": "see `cpp:Node::make_shared`."
   },
@@ -215,6 +234,7 @@
     "why": "as `create_node`, but naming the executor explicitly -- required when an image runs several executors, one per RTOS priority tier (RFC-0002). rclcpp's node is not bound to an executor at construction, so it has no counterpart."
   },
   "cpp:extend_name_with_sub_namespace": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the free function behind `create_sub_node`."
   },
@@ -280,6 +300,7 @@
   },
   "rust:IntoNodeOptions": {
     "bucket": "theirs-only",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the trait letting rclrs accept `&str` or a full options struct wherever a node is created. Our `NodeOptions` is one concrete type taken by value; the ergonomic overload needs a blanket impl that buys nothing when there is one caller shape."
   },
@@ -298,10 +319,12 @@
     "why": "the Rust API is a DECLARATIVE COMPONENT MODEL, not rclrs's handle model (RFC-0043/0044). A user implements `Node`/`ExecutableNode` for a type, declares entities in `register`, and receives callbacks; rclrs holds an `Arc<Node>` and calls methods on it. The constraint is static entity storage plus an executor that owns dispatch: with no allocator the entity set has to be known at declaration time, and with one executor per RTOS task the callback cannot be a closure the node keeps. `examples/native/rust/talker/src/lib.rs` is the shape. Note the name collision this creates: `nros::Node` is the TRAIT, while rclrs's `Node` is the handle. The handle-equivalent here is `NodeCtx`, which the facade does not export at all -- issue 0784."
   },
   "rust:Node::commands": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs's handle for spawning work onto the executor from inside a callback (`ExecutorCommands`). It exists to support async tasks and workers, which need a runtime and an allocator; RFC-0002 gives one executor per RTOS task and no way to spawn into it."
   },
   "rust:Node::create_worker": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs's worker owns a payload and serialises callbacks that touch it, so several entities can share mutable state without a mutex. Our equivalent of the sharing problem is the component's `State`, which `on_callback` already receives by `&mut` -- one owner, one task, decided at declaration rather than spawned. See `rust:Node::commands`."
   },
@@ -495,14 +518,17 @@
     "why": "phase-417 stage 0 — a member of the compat shim's own `rclcpp::Node`, visible since issue 1020 admitted that header. Ours-only by construction: it is the shim's machinery (`pump` drives the shim's callbacks, `nros_node` reaches the wrapped node, `parameters` is the escape hatch to the node-owned store), not a name rclcpp declares."
   },
   "cpp:NodeOptions::allocator": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   },
   "cpp:NodeOptions::context": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   },
   "cpp:NodeOptions::get_rcl_node_options": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }

@@ -5,6 +5,7 @@
   ],
   "c:add_parameter": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros_parameter_declare_bool",
       "nros_parameter_declare_integer",
@@ -36,10 +37,12 @@
   },
   "c:bool_array_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a parsed `bool[]` sequence, heap-allocated by the YAML parser. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:byte_array_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a parsed `byte[]` sequence, heap-allocated by the YAML parser. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:delete_parameter": {
@@ -48,6 +51,7 @@
   },
   "c:double_array_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a parsed `double[]` sequence, heap-allocated by the YAML parser. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:executor_add_parameter_server": {
@@ -75,10 +79,12 @@
   },
   "c:int64_array_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "a parsed `int64[]` sequence, heap-allocated by the YAML parser. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:node_params_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "one node's slice of a parsed parameter file. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:param_array_t": {
@@ -226,6 +232,7 @@
   },
   "c:parameter_get_int": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc spells it `rclc_parameter_get_int`; ours is `nros_parameter_get_integer`. See `c:parameter_server_t` for the `param`/`parameter` split. Ours also spells the 64-bit integer `integer` where rclc says `int`, matching `rcl_interfaces` and our own `ParameterType::Integer`. RE-VERDICTED 2026-08-27 (phase-379 W5), was `rename`. The `param` -> `parameter` half of this row LANDED: ours is `nros_parameter_get_integer` now. What is left is the only thing this row can still be about, and it is a difference we KEEP: rclc abbreviates the 64-bit integer to `int`, and we spell it `integer` because that is what `rcl_interfaces` calls the type and what our own `ParameterType::Integer`, `nros_parameter_type_t::NROS_PARAMETER_INTEGER` and the C++/Rust surfaces call it. Renaming ours to `int` would make the C surface disagree with our other two languages and with the message definitions, to match one abbreviation. So there is no destination left for this row to carry, which -- exactly as for `c:add_parameter` -- makes it a DECLINE rather than a rename. What a user loses: nothing but the spelling; `rclc_parameter_get_int(s, \"x\", &v)` is `nros_parameter_get_integer(s, \"x\", &v)`. Ours: `c:parameter_get_integer`.",
     "rename": {
       "status": "resolved",
@@ -259,6 +266,7 @@
   },
   "c:parameter_set_int": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the setter half; see `c:parameter_get_int`. RE-VERDICTED 2026-08-27 (phase-379 W5), was `rename`. The `param` -> `parameter` half of this row LANDED: ours is `nros_parameter_set_integer` now. What is left is the only thing this row can still be about, and it is a difference we KEEP: rclc abbreviates the 64-bit integer to `int`, and we spell it `integer` because that is what `rcl_interfaces` calls the type and what our own `ParameterType::Integer`, `nros_parameter_type_t::NROS_PARAMETER_INTEGER` and the C++/Rust surfaces call it. Renaming ours to `int` would make the C surface disagree with our other two languages and with the message definitions, to match one abbreviation. So there is no destination left for this row to carry, which -- exactly as for `c:add_parameter` -- makes it a DECLINE rather than a rename. What a user loses: nothing but the spelling; `rclc_parameter_set_int(s, \"x\", &v)` is `nros_parameter_set_integer(s, \"x\", &v)`. Ours: `c:parameter_set_integer`.",
     "rename": {
       "status": "resolved",
@@ -275,6 +283,7 @@
   },
   "c:params_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the whole parsed parameter tree: node names plus per-node parameter lists. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "c:set_parameter_read_only": {
@@ -283,10 +292,12 @@
   },
   "c:variant_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the tagged union a parsed YAML scalar or sequence lands in. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "cpp:AsyncParametersClient": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the CLIENT side of the parameter services -- a service client speaking `rcl_interfaces/srv/*` on someone else's behalf. Ours registers the SERVER side (`nros_executor_register_parameter_services`) and ships no client: a device sets its own parameters from baked config (RFC-0045) and is the thing a desktop tool queries, not the thing that queries. See the param stage for the server half."
   },
   "cpp:ComponentNode::declare_parameter": {
@@ -328,6 +339,7 @@
   },
   "cpp:Node::get_node_parameters_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `node_interfaces::Node*Interface` slices exist so a component can be handed the part it needs; our components are declared, not constructed with an injected node (RFC-0044)."
   },
   "cpp:Node::get_parameter": {
@@ -376,6 +388,7 @@
   },
   "cpp:Parameter": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros::ParameterServer::get_parameter",
       "nros::ParameterServer::set_parameter"
@@ -384,22 +397,27 @@
   },
   "cpp:ParameterCallbackHandle": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the owning handle `ParameterEventHandler::add_parameter_callback` returns; dropping it unregisters. the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventCallbackHandle": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the whole-event form of `cpp:ParameterCallbackHandle`. the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventHandler": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventsQoS::ParameterEventsQoS": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "the QoS preset for `/parameter_events`. We define the profile (`QOS_PROFILE_PARAMETER_EVENTS`, reachable from Rust as `QoSProfile::parameter_events_default`) and publish nothing on the topic. the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterMap": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`std::unordered_map<std::string, std::vector<Parameter>>` -- what `parameter_map_from_yaml_file` produces. Needs an allocator and `cpp:Parameter`. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "cpp:ParameterServer": {
@@ -416,10 +434,12 @@
   },
   "cpp:ParameterTypeException": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "thrown when a `Parameter` is read as the wrong type. nros-cpp is built `-fno-exceptions` (RFC-0018); every failure here is an `nros::Result` carrying an `nros_ret_t`, and a type mismatch is `NROS_RET_INVALID_ARGUMENT`."
   },
   "cpp:ParameterValue": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the value half of `cpp:Parameter`, with the same allocator problem: `get<std::string>()` and `to_value_msg()` both hand back owned storage. Rust's `ParameterValue` is the no-allocator equivalent (heapless `String`/`Vec`, accessors that return borrows); C++ has no counterpart."
   },
   "cpp:ParametersQoS::ParametersQoS": {
@@ -432,26 +452,32 @@
   },
   "cpp:SyncParametersClient": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "the CLIENT side of the parameter services -- a service client speaking `rcl_interfaces/srv/*` on someone else's behalf. Ours registers the SERVER side (`nros_executor_register_parameter_services`) and ships no client: a device sets its own parameters from baked config (RFC-0045) and is the thing a desktop tool queries, not the thing that queries. See the param stage for the server half. The sync form additionally blocks on its own spin, which RFC-0021 forbids."
   },
   "cpp:_to_json_dict_entry": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's JSON formatter for a parameter value, used by `Parameter::value_to_string`. It builds a `std::string` per entry; with no allocator there is nothing to build it in, and an image has no consumer for JSON. See `cpp:Parameter`."
   },
   "cpp:parameter_map_from": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "converts an `rcl_params_t` into a `cpp:ParameterMap`. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "cpp:parameter_map_from_yaml_file": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reads a params file off disk. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "cpp:parameter_value_from": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "converts one `rcl_variant_t` into a `cpp:ParameterValue`. `rcl_yaml_param_parser` exists to parse a `--params-file` off a FILESYSTEM at node start and hand rcl a tree of overrides. A device image has no filesystem and no YAML parser; parameter defaults are baked into the image at build time (RFC-0045) and changed afterwards over `~/set_parameters`. What a user loses is `--params-file` and everything that reads one."
   },
   "rust:AvailableValues": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the input to rclrs's initial-value discriminator: the set of candidate values a declaration may choose from (override, prior value, default). rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "rust:DeclarationError": {
@@ -496,6 +522,7 @@
   },
   "rust:OptionalParameter::unset": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rclrs spells clearing an optional parameter `unset()`; ours is `set(None)`, which stores `ParameterValue::NotSet` -- the same operation, one word shorter to implement and one call longer to read. What a user loses is only the spelling."
   },
   "rust:Parameter": {
@@ -508,18 +535,22 @@
   },
   "rust:ParameterBuilder::default_from_iter": {
     "verdict": "declined",
+    "disposition": "adopt-bounded",
     "why": "builds an array default from any `IntoIterator<Item = T>`. Ours takes the value directly, and an array value is a `heapless::Vec` bounded by `MAX_ARRAY_LEN`; collecting an unbounded iterator into a fixed capacity has to fail somewhere, which is what `ParameterVariant::try_to_parameter_value` reports (issue 0323). No allocator."
   },
   "rust:ParameterBuilder::default_string_array": {
     "verdict": "declined",
+    "disposition": "adopt-bounded",
     "why": "the `&[&str]` convenience for the same thing; see `rust:ParameterBuilder::default_from_iter`. A string array here is `Vec<String<MAX_STRING_VALUE_LEN>, MAX_ARRAY_LEN>` -- two compile-time bounds, not a borrowed slice of unbounded strs."
   },
   "rust:ParameterBuilder::discard_mismatching_prior_value": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "handles re-declaring a parameter whose existing value has the wrong type. Ours cannot reach that state: `ParameterServer::declare` refuses a duplicate name outright and returns `false`. rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "rust:ParameterBuilder::discriminate": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "supplies a custom choice function in place of `rust:default_initial_value_discriminator`. rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "rust:ParameterBuilder::float_range": {
@@ -528,6 +559,7 @@
   },
   "rust:ParameterBuilder::ignore_override": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "declares that a command-line or params-file override must NOT win. rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "rust:ParameterBuilder::integer_range": {
@@ -556,6 +588,7 @@
   },
   "rust:ParameterKind": {
     "verdict": "declined",
+    "disposition": "absent",
     "provides": [
       "nros::ParameterType",
       "nros::ParameterDescriptor::with_dynamic_typing"
@@ -607,6 +640,7 @@
   },
   "rust:ParameterValueError": {
     "verdict": "declined",
+    "disposition": "absent",
     "provides": [
       "nros::ParameterError"
     ],
@@ -623,6 +657,7 @@
   },
   "rust:ParameterVariant::kind": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), was `rename`. rclrs names the trait method that reports a variant's type `kind()`, returning `ParameterKind`; ours is `parameter_type()`, returning `ParameterType` (both are associated fns with no receiver -- ours at `packages/core/nros-params/src/types.rs:426`). The rename justified itself entirely by pointing at `rust:ParameterKind` -- whose verdict is `declined`, because ours is the better name of the two: it is what `rcl_interfaces/msg/ParameterType`, rclcpp and our own C (`nros_parameter_type_t`) all call it. The stated reason therefore resolves AGAINST the rename. Renaming the method alone would buy no rclrs parity either -- a `kind()` that returns a `ParameterType` still does not match rclrs's `kind() -> ParameterKind` -- while costing the one consistency we do have, that the accessor is named for the type it returns. What a user loses: the `kind()` spelling. Ours half: `rust:ParameterVariant::parameter_type`.",
     "rename": {
       "status": "resolved",
@@ -668,6 +703,7 @@
   },
   "rust:default_initial_value_discriminator": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the default choice function over `rust:AvailableValues`. rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "c:parameter_get_type": {
@@ -723,14 +759,17 @@
   },
   "cpp:NodeOptions::append_parameter_override": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   },
   "cpp:NodeOptions::parameter_event_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   },
   "cpp:NodeOptions::parameter_overrides": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }
 }

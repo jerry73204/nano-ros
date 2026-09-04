@@ -9,10 +9,12 @@
   },
   "c:client_get_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reads back the options a client was created with. `nros_client_options_t` ships and `nros_client_init_with_options` takes it; what is missing is the READBACK -- no `*_get_options` exists anywhere in our C surface, for any entity. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:client_get_rmw_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "c:client_get_zero_initialized": {
@@ -21,6 +23,7 @@
   },
   "c:client_impl_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
   "c:client_init_best_effort": {
@@ -29,6 +32,7 @@
   },
   "c:client_init_default": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclc's default-QoS wrapper; `nros_client_init` IS the default form. See `c:publisher_init_default`."
   },
   "c:client_init_polling": {
@@ -123,10 +127,12 @@
   },
   "c:get_zero_initialized_client": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rcl's free-function spelling; see `c:get_zero_initialized_publisher`."
   },
   "c:get_zero_initialized_service": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `c:get_zero_initialized_client`."
   },
   "c:response_callback_t": {
@@ -160,10 +166,12 @@
   },
   "c:service_get_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reads back the options a service was created with. `nros_service_options_t` ships and `nros_service_init_with_options` takes it; what is missing is the READBACK -- no `*_get_options` exists anywhere in our C surface, for any entity. CORRECTED 2026-09-04 (phase-417): this row said there is no runtime options struct. Seven ship and the correlator buckets all fourteen items `same` -- `nros_{node,publisher,subscription,service,client,action_client,action_server}_options_t` (`packages/api/nros-c/include/nros/nros_generated.h:1461,1729,2011,2474,2537,2556,2592`) plus a `*_get_default_options` for each, and `nros_node_options_t::domain_id_override` is a RUNTIME per-node domain. What is genuinely absent is the LIFECYCLE around one: no `*_options_copy`, no `*_options_fini`, and no `*_get_options` readback anywhere in the C surface."
   },
   "c:service_get_rmw_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "c:service_get_zero_initialized": {
@@ -172,6 +180,7 @@
   },
   "c:service_impl_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
   "c:service_init_best_effort": {
@@ -180,6 +189,7 @@
   },
   "c:service_init_default": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `c:client_init_default`."
   },
   "c:service_init_polling": {
@@ -258,6 +268,7 @@
   },
   "c:take_request": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "RE-VERDICTED 2026-09-03 (phase-379 W6 decision 1), rename -> declined. The inconsistency this row recorded is gone: C said TAKE for a service request and TRY_RECV for a subscription, C++ said `try_recv_request` for both. All three languages now say `take_request`, and the subscription side says `take`. What is left against `rcl_take_request` is rcl's free-function spelling versus our module-prefixed `nros_service_take_request{,_raw}` -- `c:get_zero_initialized_publisher`'s precedent, which argues for keeping ours. See `c:take`."
   },
   "c:take_request_with_info": {
@@ -266,6 +277,7 @@
   },
   "c:take_response": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "provides": [
       "nros_client_take_response",
       "nros_client_take_response_raw"
@@ -278,10 +290,12 @@
   },
   "cpp:CallbackGroup::find_client_ptrs_if": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:CallbackGroup::find_service_ptrs_if": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::Client<S>": {
@@ -290,26 +304,32 @@
   },
   "cpp:Client::Client<ServiceT>": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's templated constructor taking a `NodeBaseInterface*`; see `cpp:Client::Client<S>` for the shape and the node stage for why there is no interface slice."
   },
   "cpp:Client::ClientBase": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's type-erased base constructor; see the pubsub stage's `cpp:Publisher::PublisherBase`."
   },
   "cpp:Client::add_to_wait_set": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::async_cancel_all_goals": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "an rclcpp_action client method the correlator folds onto `Client`; see the action stage."
   },
   "cpp:Client::async_get_result": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:Client::async_cancel_all_goals`."
   },
   "cpp:Client::async_send_goal": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:Client::async_cancel_all_goals`."
   },
   "cpp:Client::async_send_request": {
@@ -344,42 +364,52 @@
   },
   "cpp:Client::clear_on_ready_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set for an entity to describe itself to. Executor plumbing; see the pubsub stage's identical rows."
   },
   "cpp:Client::create_request_header": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "allocates the `rmw_request_id_t` that correlates a reply with its request. Ours is an `int64_t` sequence number returned by `send_request` and passed back to `send_response` -- see `rust:RequestId`."
   },
   "cpp:Client::create_response": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "allocates the response the executor takes into; ours takes into caller storage. See `cpp:Subscription::create_message`."
   },
   "cpp:Client::exchange_in_use_by_wait_set_state": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::execute": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::get_client_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "cpp:Client::get_number_of_ready_clients": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::get_number_of_ready_guard_conditions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::get_number_of_ready_services": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::get_number_of_ready_timers": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::get_service_name": {
@@ -392,10 +422,12 @@
   },
   "cpp:Client::handle_response": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch after a take; see the pubsub stage's `cpp:Subscription::handle_message`."
   },
   "cpp:Client::is_ready": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Client::is_valid": {
@@ -404,10 +436,12 @@
   },
   "cpp:Client::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Client::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Client::prune_pending_requests": {
@@ -444,6 +478,7 @@
   },
   "cpp:Client::set_on_ready_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set for an entity to describe itself to. Executor plumbing; see the pubsub stage's identical rows."
   },
   "cpp:Client::take_response": {
@@ -457,6 +492,7 @@
   },
   "cpp:Client::take_type_erased_response": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. The blocker asked which suffix ours should carry (`_raw` vs `_serialized` vs `type_erased`); the question was moot, because there is no ours-side method here to suffix.\n`ClientBase::take_type_erased_response(void * response_out, rmw_request_id_t & request_header_out)` erases over a DESERIALIZED response STRUCT -- it is the function the typed `Client::take_response` forwards to (`client.hpp:515`). Our C++ client has no such entry point: the reply comes back concretely typed through `Future<ResponseType>` from `Client::async_send_request`. Our only erasure is BYTES (`nros_cpp_service_client_take_response` at `nros_cpp_ffi.h:1651`, `nros_client_take_response_raw`; both were named here by their pre-W6 spellings until 2026-09-04, phase-417), and those correlate with the SERIALIZED/RAW rows, not with this one -- so pointing this row at a `_raw` form was the same mis-pairing that `cpp:Subscription::take_type_erased` had.\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence.",
     "rename": {
       "category": "B",
@@ -470,14 +506,17 @@
   },
   "cpp:LifecycleNode::create_client": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see the lifecycle stage; a lifecycle node creates entities the same way an ordinary one does here."
   },
   "cpp:LifecycleNode::create_service": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "see `cpp:LifecycleNode::create_client`."
   },
   "cpp:LifecycleNode::get_node_services_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface`."
   },
   "cpp:LifecycleNode::register_services": {
@@ -486,6 +525,7 @@
   },
   "cpp:Node::get_node_services_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface`."
   },
   "cpp:NodeOptions::start_parameter_services": {
@@ -498,10 +538,12 @@
   },
   "cpp:ParameterService::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:ParameterService::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:QoS::services": {
@@ -510,10 +552,12 @@
   },
   "cpp:Server::get_number_of_ready_clients": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Server::get_number_of_ready_services": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Service::Service<S>": {
@@ -522,10 +566,12 @@
   },
   "cpp:Service::Service<ServiceT>": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Client::Client<ServiceT>`."
   },
   "cpp:Service::ServiceBase": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Client::ClientBase`."
   },
   "cpp:Service::clear_on_new_request_callback": {
@@ -534,18 +580,22 @@
   },
   "cpp:Service::create_request": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Client::create_response`."
   },
   "cpp:Service::create_request_header": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Client::create_request_header`."
   },
   "cpp:Service::exchange_in_use_by_wait_set_state": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Service::get_service_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW seam is the vtable (RFC-0035), not an entity accessor. See `c:node_get_rmw_handle`."
   },
   "cpp:Service::get_service_name": {
@@ -558,6 +608,7 @@
   },
   "cpp:Service::handle_request": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Client::handle_response`."
   },
   "cpp:Service::is_valid": {
@@ -566,10 +617,12 @@
   },
   "cpp:Service::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Service::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Service::send_reply": {
@@ -604,6 +657,7 @@
   },
   "cpp:Service::take_type_erased_request": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "RE-VERDICTED 2026-08-26 (phase-379 W5), rename -> declined. Same evidence as `cpp:Client::take_type_erased_response`.\n`ServiceBase::take_type_erased_request(void * request_out, rmw_request_id_t & request_id_out)` erases over a DESERIALIZED request STRUCT -- the function the typed `Service::take_request` forwards to (`service.hpp:452`). Ours is `Service<S>::take_request(RequestType& req, int64_t& seq_id)`, a template on the concrete type, and it already belongs to `cpp:Service::take_request`. The byte form underneath (`nros_cpp_service_server_take_request_raw`, `nros_cpp_ffi.h:1553`) is FFI, not a user-facing C++ method, and belongs to the SERIALIZED/RAW rows. Note ours carries a bare `int64_t seq_id` where rclcpp carries `rmw_request_id_t`; that difference is its own row (`rust:RequestId` / `rust:rmw_request_id_t`, verdict divergence).\nNot a gap: a runtime type-erased take needs rosidl typesupport resolved at runtime and a heap-allocated message struct to take into -- exactly what `cpp:Subscription::create_message` declines for the no-allocator reason. Kept consistent with `cpp:Subscription::take_type_erased` (pubsub), decided the same day on the same evidence. (CORRECTED 2026-09-04, phase-417: the prose named `Service<S>::try_recv_request` and `nros_cpp_service_server_try_recv_raw` in the present tense; both were retired by phase-379 W6 decision 1.)",
     "rename": {
       "category": "B",
@@ -625,26 +679,32 @@
   },
   "cpp:WaitSetTemplate::add_client": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:WaitSetTemplate::add_service": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:WaitSetTemplate::remove_client": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:WaitSetTemplate::remove_service": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Waitable::get_number_of_ready_clients": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:Waitable::get_number_of_ready_services": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol -- the executor asks each entity how many wait-set slots it needs, then takes the ready data back out. RFC-0002's executor drives entities directly through the RMW vtable, so there is no wait set. See the pubsub stage's identical rows."
   },
   "cpp:bind_service": {
@@ -681,6 +741,7 @@
   },
   "rust:AnyClientOutputSender": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:ClientOutput`."
   },
   "rust:CancellationClient": {
@@ -713,14 +774,17 @@
   },
   "rust:Client::call_then": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport."
   },
   "rust:Client::call_then_async": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport."
   },
   "rust:Client::notify_on_service_ready": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport. The event form is `ClientTrait::poll_server_discovery`."
   },
   "rust:Client::service_is_ready": {
@@ -737,6 +801,7 @@
   },
   "rust:ClientAsyncCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport."
   },
   "rust:ClientCallback": {
@@ -757,10 +822,12 @@
   },
   "rust:ClientOutput": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport. rclrs's channel for delivering a reply to whichever of its three call shapes was used."
   },
   "rust:ClientOutput::create_channel": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:ClientOutput`."
   },
   "rust:ClientTrait": {
@@ -769,6 +836,7 @@
   },
   "rust:ClientTrait::is_server_ready": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "DELETED 2026-09-03 (phase-379 W6 decision 2) -- this was the collapse WITHOUT the exception channel that makes it safe upstream. Its trait default was `true` and only zenoh overrode it, so every cffi-backed image (cyclonedds, XRCE, uORB) answered \"ready\" without asking: `wait_for_service` returned `Ok(true)` immediately, never waiting. Issue 1008. the ours-only half of `rust:Client::service_is_ready`."
   },
   "rust:ClientTrait::poll_server_discovery": {
@@ -881,22 +949,27 @@
   },
   "rust:IntoAsyncServiceCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. The async form additionally needs a runtime."
   },
   "rust:IntoNodeServiceCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows."
   },
   "rust:IntoPrimitiveOptions::services_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclrs's builder shorthand for applying the services QoS preset to any entity options. Ours is a named constructor on `QoSProfile`; the trait needs a blanket impl that buys nothing with one caller shape."
   },
   "rust:IntoWorkerServiceCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. See the node stage's `rust:Node::create_worker`."
   },
   "rust:Node::create_async_service": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. needs a future and a runtime to await it; RFC-0021 makes every blocking helper take the executor and drive it."
   },
   "rust:Node::create_client": {
@@ -993,6 +1066,7 @@
   },
   "rust:Service::set_async_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. needs a future and a runtime to await it; RFC-0021 makes every blocking helper take the executor and drive it."
   },
   "rust:Service::set_callback": {
@@ -1001,6 +1075,7 @@
   },
   "rust:Service::set_worker_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker`."
   },
   "rust:ServiceClient": {
@@ -1117,14 +1192,17 @@
   },
   "rust:Worker::create_service": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker`."
   },
   "rust:WorkerService": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker`."
   },
   "rust:WorkerServiceCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker`."
   },
   "rust:rmw_request_id_t": {
@@ -1142,6 +1220,7 @@
   },
   "cpp:NodeOptions::enable_logger_service": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }
 }

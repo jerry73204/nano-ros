@@ -543,6 +543,77 @@ a refusal is per-CONCEPT, not per-symbol — the sixteen inert `NodeOptions`
 setters share one message. That is the whole loudness pass at about 120 lines,
 which is why it can gate the rename without gating the schedule.
 
+## A refusal is a DECLARATION, so refusing improves the numbers
+
+This is the stage-0 finding one level deeper, and it is worse.
+
+REFUSE-LOUD is implemented as a `= delete` or a `static_assert` inside a
+template. Both are DECLARATIONS. The extractor sees a declaration, so the symbol
+appears on OUR side and the row moves off `theirs-only`:
+
+```
+cpp:NodeOptions::enable_logger_service   declined   ours-only
+```
+
+That row is `ours-only` because we refused it. Before the refusal it was a name
+only rclcpp had; after, it is a name we "have". **The more of the surface we
+refuse, the better the correlation looks**, and nothing in the bucket says why.
+
+So a correlation count cannot distinguish:
+
+* *we have this* — `adopt`;
+* *we declared it in order to refuse it* — `refuse-loud`.
+
+**Consequence, and it is a rule about how this campaign may report itself:** a
+headline compatibility number must EXCLUDE `refuse-loud` rows. Counting them as
+coverage counts refusals as features, which is the same error as counting
+`ParametersQoS` as `same` while it differs hundredfold — arrived at from the
+opposite direction.
+
+It also settles what `disposition` is for. It is not commentary on a verdict; it
+is the only field that separates a name we serve from a name we declared in
+order to say no. The correlator cannot recover that, because at the level of
+names and shapes there is nothing to recover.
+
+## Dispositions apply to every upstream item, not only `declined` ones
+
+The four values were measured over all 717 uncovered rclcpp items (117 / 123 /
+69 / 408). `--require-disposition` gates only `declined` rows, and two
+independent passes over 515 of them returned **zero `adopt-bounded`** — 0 of 307
+and 0 of 208.
+
+That is structural, not an omission. `adopt-bounded` means *we have this name,
+with a weaker but non-inverting envelope*; `declined` means *we do not have the
+contract*. The two cannot both hold, so on a declined row the disposition is a
+three-way choice.
+
+`adopt` and `adopt-bounded` live where the RFC's own examples live — `gap` and
+`divergence` rows. `create_wall_timer`'s quantised period is a divergence, not a
+decline. So:
+
+* on `declined` rows the vocabulary is `adopt` (a verdict bug — the row should
+  not be `declined`), `refuse-loud`, or `absent`;
+* the gate's scope is narrower than the taxonomy's, deliberately, because
+  declines are where a porting user is most likely to be surprised — but a
+  reader must not take the zero for a missing population.
+
+## `absent` is a FREQUENCY test, not an internals test
+
+The first wording said `absent` is "correct for rclcpp internals a user program
+never names". Both classification passes reported applying a different test, and
+the different test is the right one: **would a real ported program name this?**
+
+Two large `absent` populations are not internals by any reading — rcl/rclc
+struct-lifecycle plumbing that is public but has nothing to act on
+(`*_impl_t`, `*_options_fini`, `get_zero_initialized_*_options`), and whole
+rclrs subsystems (the async executor machine, Workers, dynamic messages) that a
+user CAN name but almost never does.
+
+A corollary both passes derived independently, worth stating: **a member reached
+only through a refused type is `absent`, because the refusal already fired at
+the type.** Diagnosing it twice teaches nothing and puts a message where no call
+site exists.
+
 ## Prerequisite: the measurement must include the shim
 
 The C++ parity lane reads three translation units and filters to namespace

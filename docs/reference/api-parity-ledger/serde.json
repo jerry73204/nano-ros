@@ -88,6 +88,7 @@
   },
   "c:serialized_message_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "`rcl_serialized_message_t` is `rcutils_uint8_array_t`: a GROWABLE byte buffer carrying its own `rcutils_allocator_t`, which `rcl_take_serialized_message` reallocates to fit the incoming sample. Two constraints kill it at once -- no allocator (`c:allocator_t` in the types stage) and no growth on a fixed receive arena -- so ours is a `(ptr, len)` pair the caller already owns, passed to `nros_publish_raw` / `nros_subscription_take_serialized`. What a user loses is the auto-sizing take: they must size the buffer, and an oversized sample is an error rather than a realloc. Same decision recorded for the C++ face at `cpp:SerializedMessage`, and the WORD is the SERIALIZED -> RAW rename tracked at `c:publish_serialized_message` (the receive half landed with phase-379 W6 decision 1). CORRECTED 2026-09-04 (phase-417): this row named two symbols that do not exist -- `nros_publisher_publish_raw` (the C entry point is `nros_publish_raw`) and `nros_subscription_try_recv_raw` (retired to `nros_subscription_take_serialized`)."
   },
   "rust:CDR_BE_HEADER": {
