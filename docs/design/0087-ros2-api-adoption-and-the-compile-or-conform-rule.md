@@ -242,6 +242,35 @@ no error. Today the two types have different NAMES, which is the only thing
 making that visible. That is a structural prerequisite for step 2, not a
 loudness item — see phase-417.
 
+## Settled: C takes rcl's spellings (2026-09-04)
+
+The question the disposition pass could not answer, because it is a decision and
+not a reading: does the C API keep `nros_publisher_get_zero_initialized`
+(module-first, our convention) or take `rcl_get_zero_initialized_publisher`
+(rcl's free-function shape)?
+
+**It takes rcl's.** The goal is drop-in replacement, and a ported file's line is
+rcl's line. That resolves a real split — the same class landed `adopt` in four
+ledger shards and `refuse-loud` in one, which was never agent disagreement but
+an unmade decision surfacing five times.
+
+Consequences, in the order they bite:
+
+* **Every row declined on SPELLING alone flips to `adopt`.** Those declines
+  argued from our naming convention, and RFC-0036 already forbids recording a
+  preference as a divergence. They were the largest coherent group in the C
+  ledger with no platform content.
+* **New C entry points land under `nros_` and reach the user as `rcl_`.** The
+  alias comes from `<nros/rcl_compat.h>`, not from renaming as we go: a
+  half-renamed C surface is worse than either end state, and RFC-0087's
+  migration is alias-then-replace precisely so the two steps are separable.
+* **`nros_ret_t` is the sharpest case and is NOT a rename.** Its doc claims
+  compatibility with `rcl_ret_t` and only `OK` agrees — ours are −1/−2/−3/−7,
+  rcl's are 1/2/11/101. The compat header MAPS the constants; renumbering ours
+  would silently flip the meaning of every stored return code across three FFI
+  seams. This is the one place where taking rcl's spelling must not mean taking
+  rcl's values.
+
 ## What "mostly full compat" can honestly mean
 
 It cannot mean the whole rclcpp surface. Four upstream idioms account for most
