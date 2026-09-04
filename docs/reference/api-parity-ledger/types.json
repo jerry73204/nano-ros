@@ -5,6 +5,7 @@
   ],
   "c:allocator_t": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rcl passes an `rcl_allocator_t` by value through most of its API so a caller can supply its own. nano-ros has ONE allocator, `nros_platform_alloc`, enforced by check-no-direct-kernel-alloc, so the type would only ever hold the same value. This is the `no-allocator` signature rule (signature_rules.py) one level up: the rule removes the parameter, this removes the type it would carry."
   },
   "c:endpoint_info_t": {
@@ -13,10 +14,12 @@
   },
   "c:error_state_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl keeps a thread-local error state with a formatted message, file and line, read back with rcl_get_error_string(). nano-ros returns `nros_ret_t` and nothing else -- there is no nros_error_string() and no per-thread error slot. What a C user loses is real and should be said plainly: a code, never a message. The constraint is thread-local storage plus a formatted-string buffer per thread, on targets where a task stack is measured in kilobytes."
   },
   "c:error_string_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the 1024-byte formatted buffer rcl_get_error_string() returns BY VALUE. Same decision as error_state_t; listed separately because it is the half a caller actually touches."
   },
   "c:integrity_status_t": {
@@ -93,6 +96,7 @@
   },
   "rust:DynamicMessageError": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:Promise": {
@@ -105,10 +109,12 @@
   },
   "rust:RclErrorMsg": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the owned String rclrs copies out of rcl's thread-local error state. Same decision as the C `error_string_t`, and the same constraint: no per-thread formatted-message buffer. A `no_std` build has no String either."
   },
   "rust:RclReturnCode": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the `rcl_ret_t` numeric mirror rclrs's error carries. Was a `gap` here, on the reading that we had the type (nros-core/src/error.rs) and merely failed to export it. Issue 0783 settled it the other way and DELETED it, because exporting it would have shipped a type a user can name and never receive: nothing in the tree produced an `RclReturnCode`, its only appearance was as the `code` field of `NanoRosError` (see `rust:RclrsError`), and its numeric space is not ours -- our codes are `NROS_RET_*`, 0 and -1..-16, an independent negative space defined in nros-c/src/error.rs and reached only across the C/C++ ABI. The Rust user API matches a flat enum and carries no numeric code at any layer, which is the divergence `rust:RclrsError` records. Constraint: `no_std` (a code table is not the cost -- the absent thread-local error state it indexes into is)."
   },
   "rust:RclrsError": {
@@ -117,14 +123,17 @@
   },
   "rust:RclrsErrorFilter": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an iterator adapter over `Result` that swallows take-failed and timeout as non-errors. It exists because rclrs's take path reports an empty queue as an error; ours reports emptiness as `Ok(false)` (issue 0757's audit), so there is nothing to filter."
   },
   "rust:TakeFailedAsNone": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs/src/error.rs, not its action model -- this row previously said `part of its action/goal model, see rust:AcceptedGoal`, which was a mis-file: the trait turns a take that failed into `Ok(None)`. It exists because rclrs's take path reports an empty queue as an ERROR; ours reports emptiness as `Ok(false)` / `None` (issue 0757's audit), so there is nothing to convert back. Same decision and same reason as `rust:RclrsErrorFilter`. We DID carry a copy -- phase-16 cloned both traits into nros-core/src/error.rs against `NanoRosError` -- and issue 0783 deleted it with the error type it was written for: no fallible call in the user API ever returned that error, so the adapter had no `Result` to adapt."
   },
   "rust:TakeFailedAsNone::take_failed_as_none": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the trait's only method; see `rust:TakeFailedAsNone`. Ours reports an empty take as `Ok(false)` / `None` directly, so there is no take-failed error to convert."
   }
 }

@@ -5,14 +5,17 @@
   ],
   "c:clock_add_jump_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_change_e": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `c:clock_change_t`."
   },
   "c:clock_change_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it. Describes which KIND of change occurred (ROS time activated, deactivated, stepped)."
   },
   "c:clock_get_now_ns": {
@@ -43,6 +46,7 @@
   },
   "c:clock_remove_jump_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_state_t": {
@@ -51,6 +55,7 @@
   },
   "c:clock_type_e": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's enum-tag spelling alongside `rcl_clock_type_t`; C tags are not part of the API a caller writes and ours emits only the typedef."
   },
   "c:clock_valid": {
@@ -98,18 +103,22 @@
   },
   "c:get_zero_initialized_timer": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rcl's free-function spelling; see `c:get_zero_initialized_publisher`."
   },
   "c:jump_callback_info_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:jump_callback_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:jump_threshold_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:platform_clock_ns": {
@@ -126,30 +135,37 @@
   },
   "c:ros_clock_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:ros_clock_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:sleep_ms": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. rclc's `rclc_sleep_ms` is the same shape. Our platform sleep (`nros_platform_sleep_us`) exists for the BOARD layer, not for application code."
   },
   "c:steady_clock_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:steady_clock_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:system_clock_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:system_clock_init": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl builds a clock per kind through a named init pair (`rcl_steady_clock_init`, `rcl_system_clock_init`, `rcl_ros_clock_init`) as well as a generic `rcl_clock_init` taking a `rcl_clock_type_t`. Ours is the generic form only -- `nros_clock_init(clock, type)` -- because a per-kind entry point buys nothing when the kinds are an enum, and the allocator argument they also carry does not exist."
   },
   "c:time_add": {
@@ -166,6 +182,7 @@
   },
   "c:time_jump_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:time_point_t": {
@@ -190,14 +207,17 @@
   },
   "c:timer_call": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "c:timer_clock": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reads back the clock a timer was created against. Ours are created on the executor's clock and cannot be created on another, so the accessor would return a constant."
   },
   "c:timer_exchange_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "swaps a timer's callback at runtime. The callback is bound to the ENTITY at creation (RFC-0041) so the executor's static dispatch table cannot be rewritten while it is being walked."
   },
   "c:timer_exchange_period": {
@@ -206,14 +226,17 @@
   },
   "c:timer_get_allocator": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "one global allocator; see the `no-allocator` rule."
   },
   "c:timer_get_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reads back the callback pointer. Ours is bound at creation and not swappable; see `c:timer_exchange_callback`."
   },
   "c:timer_get_guard_condition": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the guard condition rcl fires to wake a wait set when a timer is reset. RFC-0002's executor recomputes its next deadline directly (`next_deadline_ms`); there is no wait set to interrupt."
   },
   "c:timer_get_next_call_time": {
@@ -234,10 +257,12 @@
   },
   "c:timer_impl_t": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
   "c:timer_init_default": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "rclc's default wrapper; `nros_timer_init` IS the default form. See `c:publisher_init_default`."
   },
   "c:timer_is_canceled": {
@@ -258,18 +283,22 @@
   },
   "cpp:CallbackGroup::find_timer_ptrs_if": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:Clock::create_jump_callback": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:Clock::get_clock_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW/platform seam is not reachable from a handle; see `c:node_get_rmw_handle`."
   },
   "cpp:Clock::get_clock_mutex": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp exposes the clock's mutex so a caller can hold it across a read and a jump callback. Ours has no jump callbacks and the platform clock read is atomic; handing out a lock is how a priority inversion enters an RTOS image."
   },
   "cpp:Clock::is_valid": {
@@ -278,22 +307,27 @@
   },
   "cpp:Clock::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Clock::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Clock::sleep_for": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::sleep_until": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::wait_until_started": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp blocks the calling thread until the first `/clock` message arrives. RFC-0021 forbids a blocking helper that does not drive the executor -- a wait that spins nothing stops the transport for as long as the simulator takes to publish, and on a single-threaded executor that is forever. The predicate it waits on IS available (`Clock::started`, issue 0789): a node polls it from a timer, or simply publishes once time is non-zero."
   },
   "cpp:ClockQoS::ClockQoS": {
@@ -310,10 +344,12 @@
   },
   "cpp:Context::interrupt_all_sleep_for": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Context::sleep_for": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Duration::from_nanoseconds": {
@@ -322,10 +358,12 @@
   },
   "cpp:Duration::from_rmw_time": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "converts from `rmw_time_t`. Our RMW seam does not surface DDS time types to the user API; see `c:node_get_rmw_handle`."
   },
   "cpp:Duration::to_chrono": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "converts to a `std::chrono::duration`. `<chrono>` is not available in the freestanding builds; `TimerDuration` in Rust and `uint64_t` milliseconds in C are the units the API uses."
   },
   "cpp:Duration::to_msg": {
@@ -334,38 +372,47 @@
   },
   "cpp:Duration::to_rmw_time": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Duration::from_rmw_time`."
   },
   "cpp:GenericRate": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::GenericRate<Clock>": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::is_steady": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::period": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::reset": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericRate::sleep": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:GenericTimer": {
@@ -378,42 +425,52 @@
   },
   "cpp:GenericTimer::call": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "cpp:GenericTimer::execute_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "cpp:GenericTimer::execute_callback_delegate": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "cpp:GenericTimer::is_steady": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "asks whether the timer's clock is monotonic, because rclcpp timers can be built on ROS time. Ours run on the platform clock, which is monotonic by the RFC-0073 contract."
   },
   "cpp:GenericTimer::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:GenericTimer::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:JumpHandler": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:JumpHandler::JumpHandler": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:JumpHandler::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:JumpHandler::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:Node::create_timer": {
@@ -444,46 +501,57 @@
   },
   "cpp:Node::get_node_clock_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface`."
   },
   "cpp:Node::get_node_time_source_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface`."
   },
   "cpp:Node::get_node_timers_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::get_node_base_interface`."
   },
   "cpp:NodeOptions::clock_qos": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "a node option; see the node stage's `cpp:NodeOptions`."
   },
   "cpp:NodeOptions::use_clock_thread": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp spawns a dedicated thread to service the `/clock` subscription so simulated time advances even while callbacks run. RFC-0002 gives one executor per RTOS task and does not spawn; ROS time would advance on the executor that subscribes to it."
   },
   "cpp:Rate": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Rate::is_steady": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Rate::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Rate::reset": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Rate::sleep": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Server::get_number_of_ready_timers": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:Time::to_msg": {
@@ -496,6 +564,7 @@
   },
   "cpp:Timer::TimerBase": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's type-erased base constructor; see the pubsub stage's `cpp:Publisher::PublisherBase`."
   },
   "cpp:Timer::attach_std_closure": {
@@ -504,18 +573,22 @@
   },
   "cpp:Timer::call": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "cpp:Timer::exchange_in_use_by_wait_set_state": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:Timer::execute_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's internal dispatch entry point; a user writes neither side. See the pubsub stage."
   },
   "cpp:Timer::get_timer_handle": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "our RMW/platform seam is not reachable from an entity; see `c:node_get_rmw_handle`."
   },
   "cpp:Timer::is_ready": {
@@ -524,6 +597,7 @@
   },
   "cpp:Timer::is_steady": {
     "verdict": "declined",
+    "disposition": "adopt",
     "why": "see `cpp:GenericTimer::is_steady`."
   },
   "cpp:Timer::is_valid": {
@@ -532,6 +606,7 @@
   },
   "cpp:Timer::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:Timer::time_until_trigger": {
@@ -548,18 +623,22 @@
   },
   "cpp:WaitSetTemplate::add_timer": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:WaitSetTemplate::remove_timer": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:Waitable::get_number_of_ready_timers": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's `Waitable` protocol; see the pubsub stage's identical rows."
   },
   "cpp:WallRate": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:WallTimer": {
@@ -572,10 +651,12 @@
   },
   "cpp:WallTimer::make_shared": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:WallTimer::make_unique": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "no allocator, so no refcounted factory; see the `no-shared-ptr` rule."
   },
   "cpp:bind_timer": {
@@ -606,6 +687,7 @@
   },
   "cpp:sleep_for": {
     "verdict": "declined",
+    "disposition": "refuse-loud",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "rust:AnyTimerCallback": {
@@ -766,74 +848,92 @@
   },
   "rust:IntoNodeTimerOneshotCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoNodeTimerOneshotCallback::into_node_timer_oneshot_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoNodeTimerRepeatingCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoNodeTimerRepeatingCallback::into_node_timer_repeating_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoPrimitiveOptions::deadline_duration": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's builder shorthand for applying a QoS duration to any entity options; see the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoPrimitiveOptions::lifespan_duration": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:IntoPrimitiveOptions::deadline_duration`."
   },
   "rust:IntoPrimitiveOptions::liveliness_lease_duration": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:IntoPrimitiveOptions::deadline_duration`."
   },
   "rust:IntoTimerOptions": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoTimerOptions::clock": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoTimerOptions::into_timer_options": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoTimerOptions::node_time": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoTimerOptions::steady_time": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoTimerOptions::system_time": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs conversion trait, so `create_*` can accept a bare name, a QoS, or a full options struct and normalise them. Ours take one concrete options type; the blanket impls buy nothing with a single caller shape. Same decision as the service stage's `rust:IntoPrimitiveOptions::services_qos`."
   },
   "rust:IntoWorkerTimerOneshotCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoWorkerTimerOneshotCallback::into_worker_timer_oneshot_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker` -- a worker needs a runtime and an allocator."
   },
   "rust:IntoWorkerTimerRepeatingCallback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "an rclrs callback-conversion trait -- it normalises a plain, worker or oneshot/repeating closure. Ours binds a NAMED callback at declaration (RFC-0043), so there is one shape and nothing to convert. See the pubsub stage's `rust:IntoNodeSubscriptionCallback`."
   },
   "rust:IntoWorkerTimerRepeatingCallback::into_worker_timer_repeating_callback": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker` -- a worker needs a runtime and an allocator."
   },
   "rust:LogParams::get_throttle_clock": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclrs's throttled logging reads a clock to decide whether enough time has passed. See the log stage -- our throttle macros degrade to plain logs (RFC-0036)."
   },
   "rust:Node::create_timer_inert": {
@@ -1109,10 +1209,12 @@
   },
   "rust:ToLogParams::throttle_clock": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `rust:LogParams::get_throttle_clock`."
   },
   "rust:WorkerTimer": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see the node stage's `rust:Node::create_worker` -- a worker needs a runtime and an allocator."
   },
   "rust:now": {

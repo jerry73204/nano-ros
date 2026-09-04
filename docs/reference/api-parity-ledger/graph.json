@@ -137,26 +137,32 @@
     "why": "see `c:wait_for_publishers`."
   },
   "cpp:Event": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "`rclcpp::Event` is not a QoS event: it is `rclcpp/event.hpp`'s set/check flag, handed out by `Node::get_graph_event()` and waited on with `wait_for_graph_change()` -- a graph-change notification. It lands in this stage only because `topics.py` maps the `event` header stem to qos, which is right for `rcl/event.h` and wrong for this file. Declined for the graph stage's reason: static peers, no dynamic discovery, so there is no graph change to be notified of."
   },
   "cpp:Event::Event": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclcpp's graph `Event` is a `shared_ptr`-held mutex+flag that a background graph LISTENER THREAD sets and `wait_for_graph_change` blocks on. Three constraints each rule the shape out: no allocator for the shared object (`make_shared` -- the same reason pubsub declines every `make_shared` factory), no background transport thread to run the listener (RFC-0002 puts one executor on one RTOS task and `rmw_vtable.h` says in its own words that no graph slot may block on the wire), and no blocking wait outside the executor (RFC-0021: a blocking helper takes the executor, as `nros_client_wait_for_service` does). Our shape for \"the graph changed\" is an EDGE: the `node_get_graph_guard_condition` slot, deliberately `set_wake_callback`-shaped rather than a waitable, carrying no payload because delivering WHAT changed means buffering it. That slot is NULL in every backend, so nothing fires today. What a user loses: no way to be told that a node or an endpoint appeared or went away -- only `nros_client_wait_for_service` / `Client::service_is_ready` answers that, and only for one service at a time. (CORRECTED 2026-09-04, phase-417: this cited `server_available`, which in C++ is now only a `[[deprecated]]` forwarder -- phase-379 W6 decision 2 settled the name as `service_is_ready`. C still exports both, which is what `c:client_server_available` records.) NOTE this contradicts the node stage's `c:node_get_graph_guard_condition`, which declines on \"nothing would ever trigger it here\"; the slot exists precisely so a backend CAN trigger it."
   },
   "cpp:Event::check": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Event::Event`."
   },
   "cpp:Event::check_and_clear": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Event::Event`."
   },
   "cpp:Event::make_shared": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Event::Event`; a `shared_ptr` factory needs an allocator."
   },
   "cpp:Event::set": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `cpp:Event::Event`."
   },
@@ -205,10 +211,12 @@
     "why": "LANDED 2026-09-04 (phase-417 stage 2b): `nros::Node` and `nros::LifecycleNode` now forward this to the executor that owns them (`node.hpp`, `lifecycle.hpp`), over FFI that already shipped on `nros::Executor` (`executor.hpp:205-301`). It was verdicted `gap` -- not implemented -- when the capability was present one type over and only the forwarder was missing.\n\nIt stays a divergence on SHAPE. rclcpp returns owned heap containers (`std::vector<std::string>`, `std::map<std::string, std::vector<std::string>>`); the graph has no bound a caller can know, so a caller-sized buffer is an unanswerable question and an owned container needs an allocator. Ours streams through a visitor, which costs one entry of peak RAM.\n\nADOPT-BOUNDED envelope (RFC-0087), stated in the header: the call reports what has been DISCOVERED and never blocks, so an empty result means \"nobody seen yet\", not \"nobody exists\"; a backend with no graph returns `Unsupported`, which is a different answer from empty and must not be collapsed into zero."
   },
   "cpp:LifecycleNode::get_graph_event": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "hands out the `Event` the next call to `wait_for_graph_change` blocks on. rclcpp's graph `Event` is a `shared_ptr`-held mutex+flag that a background graph LISTENER THREAD sets and `wait_for_graph_change` blocks on. Three constraints each rule the shape out: no allocator for the shared object (`make_shared` -- the same reason pubsub declines every `make_shared` factory), no background transport thread to run the listener (RFC-0002 puts one executor on one RTOS task and `rmw_vtable.h` says in its own words that no graph slot may block on the wire), and no blocking wait outside the executor (RFC-0021: a blocking helper takes the executor, as `nros_client_wait_for_service` does). Our shape for \"the graph changed\" is an EDGE: the `node_get_graph_guard_condition` slot, deliberately `set_wake_callback`-shaped rather than a waitable, carrying no payload because delivering WHAT changed means buffering it. That slot is NULL in every backend, so nothing fires today. What a user loses: no way to be told that a node or an endpoint appeared or went away -- only `nros_client_wait_for_service` / `Client::service_is_ready` answers that, and only for one service at a time. (CORRECTED 2026-09-04, phase-417: this cited `server_available`, which in C++ is now only a `[[deprecated]]` forwarder -- phase-379 W6 decision 2 settled the name as `service_is_ready`. C still exports both, which is what `c:client_server_available` records.) NOTE this contradicts the node stage's `c:node_get_graph_guard_condition`, which declines on \"nothing would ever trigger it here\"; the slot exists precisely so a backend CAN trigger it."
   },
   "cpp:LifecycleNode::get_node_graph_interface": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `Node*Interface` slices exist so a component can be handed the part it needs, and our components are declared rather than constructed with an injected node (RFC-0044). The graph slice would additionally be a slice of nothing: see `c:get_node_names`."
   },
@@ -229,12 +237,14 @@
     "why": "LANDED 2026-09-04 (phase-417 stage 2b): `nros::Node` and `nros::LifecycleNode` now forward this to the executor that owns them (`node.hpp`, `lifecycle.hpp`), over FFI that already shipped on `nros::Executor` (`executor.hpp:205-301`). It was verdicted `gap` -- not implemented -- when the capability was present one type over and only the forwarder was missing.\n\nIt stays a divergence on SHAPE. rclcpp returns owned heap containers (`std::vector<std::string>`, `std::map<std::string, std::vector<std::string>>`); the graph has no bound a caller can know, so a caller-sized buffer is an unanswerable question and an owned container needs an allocator. Ours streams through a visitor, which costs one entry of peak RAM.\n\nADOPT-BOUNDED envelope (RFC-0087), stated in the header: the call reports what has been DISCOVERED and never blocks, so an empty result means \"nobody seen yet\", not \"nobody exists\"; a backend with no graph returns `Unsupported`, which is a different answer from empty and must not be collapsed into zero."
   },
   "cpp:LifecycleNode::wait_for_graph_change": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "blocks the calling thread until the graph changes or the timeout expires. rclcpp's graph `Event` is a `shared_ptr`-held mutex+flag that a background graph LISTENER THREAD sets and `wait_for_graph_change` blocks on. Three constraints each rule the shape out: no allocator for the shared object (`make_shared` -- the same reason pubsub declines every `make_shared` factory), no background transport thread to run the listener (RFC-0002 puts one executor on one RTOS task and `rmw_vtable.h` says in its own words that no graph slot may block on the wire), and no blocking wait outside the executor (RFC-0021: a blocking helper takes the executor, as `nros_client_wait_for_service` does). Our shape for \"the graph changed\" is an EDGE: the `node_get_graph_guard_condition` slot, deliberately `set_wake_callback`-shaped rather than a waitable, carrying no payload because delivering WHAT changed means buffering it. That slot is NULL in every backend, so nothing fires today. What a user loses: no way to be told that a node or an endpoint appeared or went away -- only `nros_client_wait_for_service` / `Client::service_is_ready` answers that, and only for one service at a time. (CORRECTED 2026-09-04, phase-417: this cited `server_available`, which in C++ is now only a `[[deprecated]]` forwarder -- phase-379 W6 decision 2 settled the name as `service_is_ready`. C still exports both, which is what `c:client_server_available` records.) NOTE this contradicts the node stage's `c:node_get_graph_guard_condition`, which declines on \"nothing would ever trigger it here\"; the slot exists precisely so a backend CAN trigger it."
   },
   "cpp:NetworkFlowEndpoint": {
-    "verdict": "declined",
     "bucket": "theirs-only",
+    "disposition": "absent",
+    "verdict": "declined",
     "why": "see the pubsub stage's `cpp:Publisher::get_network_flow_endpoints`: the actual transport 5-tuple (protocol, address, port, DSCP, flow label) an endpoint is using, declined there with the endpoint-discovery reason."
   },
   "cpp:Node::count_publishers": {
@@ -246,10 +256,12 @@
     "why": "LANDED 2026-09-04 (phase-417 stage 2b): `nros::Node` and `nros::LifecycleNode` now forward this to the executor that owns them (`node.hpp`, `lifecycle.hpp`), over FFI that already shipped on `nros::Executor` (`executor.hpp:205-301`). It was verdicted `gap` -- not implemented -- when the capability was present one type over and only the forwarder was missing.\n\nIt stays a divergence on SHAPE. rclcpp returns owned heap containers (`std::vector<std::string>`, `std::map<std::string, std::vector<std::string>>`); the graph has no bound a caller can know, so a caller-sized buffer is an unanswerable question and an owned container needs an allocator. Ours streams through a visitor, which costs one entry of peak RAM.\n\nADOPT-BOUNDED envelope (RFC-0087), stated in the header: the call reports what has been DISCOVERED and never blocks, so an empty result means \"nobody seen yet\", not \"nobody exists\"; a backend with no graph returns `Unsupported`, which is a different answer from empty and must not be collapsed into zero."
   },
   "cpp:Node::get_graph_event": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "hands out the `Event` the next call to `wait_for_graph_change` blocks on. rclcpp's graph `Event` is a `shared_ptr`-held mutex+flag that a background graph LISTENER THREAD sets and `wait_for_graph_change` blocks on. Three constraints each rule the shape out: no allocator for the shared object (`make_shared` -- the same reason pubsub declines every `make_shared` factory), no background transport thread to run the listener (RFC-0002 puts one executor on one RTOS task and `rmw_vtable.h` says in its own words that no graph slot may block on the wire), and no blocking wait outside the executor (RFC-0021: a blocking helper takes the executor, as `nros_client_wait_for_service` does). Our shape for \"the graph changed\" is an EDGE: the `node_get_graph_guard_condition` slot, deliberately `set_wake_callback`-shaped rather than a waitable, carrying no payload because delivering WHAT changed means buffering it. That slot is NULL in every backend, so nothing fires today. What a user loses: no way to be told that a node or an endpoint appeared or went away -- only `nros_client_wait_for_service` / `Client::service_is_ready` answers that, and only for one service at a time. (CORRECTED 2026-09-04, phase-417: this cited `server_available`, which in C++ is now only a `[[deprecated]]` forwarder -- phase-379 W6 decision 2 settled the name as `service_is_ready`. C still exports both, which is what `c:client_server_available` records.) NOTE this contradicts the node stage's `c:node_get_graph_guard_condition`, which declines on \"nothing would ever trigger it here\"; the slot exists precisely so a backend CAN trigger it."
   },
   "cpp:Node::get_node_graph_interface": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see the node stage's `cpp:Node::get_node_base_interface` -- rclcpp's ~10 `Node*Interface` slices exist so a component can be handed the part it needs, and our components are declared rather than constructed with an injected node (RFC-0044). The graph slice would additionally be a slice of nothing: see `c:get_node_names`."
   },
@@ -270,10 +282,12 @@
     "why": "LANDED 2026-09-04 (phase-417 stage 2b): `nros::Node` and `nros::LifecycleNode` now forward this to the executor that owns them (`node.hpp`, `lifecycle.hpp`), over FFI that already shipped on `nros::Executor` (`executor.hpp:205-301`). It was verdicted `gap` -- not implemented -- when the capability was present one type over and only the forwarder was missing.\n\nIt stays a divergence on SHAPE. rclcpp returns owned heap containers (`std::vector<std::string>`, `std::map<std::string, std::vector<std::string>>`); the graph has no bound a caller can know, so a caller-sized buffer is an unanswerable question and an owned container needs an allocator. Ours streams through a visitor, which costs one entry of peak RAM.\n\nADOPT-BOUNDED envelope (RFC-0087), stated in the header: the call reports what has been DISCOVERED and never blocks, so an empty result means \"nobody seen yet\", not \"nobody exists\"; a backend with no graph returns `Unsupported`, which is a different answer from empty and must not be collapsed into zero."
   },
   "cpp:Node::wait_for_graph_change": {
+    "disposition": "refuse-loud",
     "verdict": "declined",
     "why": "blocks the calling thread until the graph changes or the timeout expires. rclcpp's graph `Event` is a `shared_ptr`-held mutex+flag that a background graph LISTENER THREAD sets and `wait_for_graph_change` blocks on. Three constraints each rule the shape out: no allocator for the shared object (`make_shared` -- the same reason pubsub declines every `make_shared` factory), no background transport thread to run the listener (RFC-0002 puts one executor on one RTOS task and `rmw_vtable.h` says in its own words that no graph slot may block on the wire), and no blocking wait outside the executor (RFC-0021: a blocking helper takes the executor, as `nros_client_wait_for_service` does). Our shape for \"the graph changed\" is an EDGE: the `node_get_graph_guard_condition` slot, deliberately `set_wake_callback`-shaped rather than a waitable, carrying no payload because delivering WHAT changed means buffering it. That slot is NULL in every backend, so nothing fires today. What a user loses: no way to be told that a node or an endpoint appeared or went away -- only `nros_client_wait_for_service` / `Client::service_is_ready` answers that, and only for one service at a time. (CORRECTED 2026-09-04, phase-417: this cited `server_available`, which in C++ is now only a `[[deprecated]]` forwarder -- phase-379 W6 decision 2 settled the name as `service_is_ready`. C still exports both, which is what `c:client_server_available` records.) NOTE this contradicts the node stage's `c:node_get_graph_guard_condition`, which declines on \"nothing would ever trigger it here\"; the slot exists precisely so a backend CAN trigger it."
   },
   "cpp:operator<<": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the `std::ostream` inserter for `NetworkFlowEndpoint` (rclcpp's `network_flow_endpoint.hpp`, which is why this row is in the graph stage). Declined twice over: see the pubsub stage's `cpp:Publisher::get_network_flow_endpoints`: the actual transport 5-tuple (protocol, address, port, DSCP, flow label) an endpoint is using, declined there with the endpoint-discovery reason. And iostreams are not available -- RFC-0018 builds the C++ API `-fno-exceptions` against a freestanding/minimal libcpp with no `<ostream>`, which is the same constraint that makes `<string>` conditional on `NROS_CPP_STD`."
   },
@@ -354,10 +368,12 @@
     "why": "see `c:get_topic_names_and_types`."
   },
   "rust:Node::notify_on_graph_change": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "resolves a `Promise` when a caller-supplied condition over the graph becomes true. Two independent reasons, and the first is already recorded: service.json declines `rust:Client::notify_on_service_ready` because it needs a future and a runtime to await it, where RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`) -- that is what makes a timeout reliable on a single-threaded transport. The second is that the graph-change edge it subscribes to does not fire: see `cpp:Event::Event`."
   },
   "rust:Node::notify_on_graph_change_with_period": {
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:Node::notify_on_graph_change`; the period only sets how often the condition is re-checked."
   },

@@ -5,6 +5,7 @@
   ],
   "c:get_zero_initialized_log_levels": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's zero-init idiom for a type we do not have; see `c:log_levels_*`. Same shape as `c:get_zero_initialized_init_options` in the init stage."
   },
   "c:log_default_logger": {
@@ -50,10 +51,12 @@
   },
   "c:logging_fini": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl tears the logging system down at shutdown. `nros_log` has no teardown by construction: `init` publishes the sink list into an `AtomicPtr` read lock-free on every dispatch and deliberately LEAKS the previous pointer, because a lock-free reader means nothing can prove when the old list stopped being read (`packages/core/nros-log/src/lib.rs`). What a user loses: no way to uninstall sinks. `nros_log::flush()` is the only lifecycle verb, and it is Rust-only -- `<nros/log.h>` declares no `nros_log_flush`, which is a small C gap of its own even though rcl has no `rcl_logging_flush` to name it here."
   },
   "c:logging_multiple_output_handler": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rcl's built-in handler that fans one record out to console + file + `/rosout`. Fan-out is our DEFAULT shape rather than a special handler -- `nros_log::init` takes a SLICE and `dispatch_to_sinks` walks all of it -- so there is no `multiple` variant to have. What a user loses is the destinations, not the fan-out: we ship no file sink (see `cpp:get_logging_directory`) and no `/rosout` sink (see `c:logging_rosout_enabled`), so the shipped list is one `PlatformSink` plus the optional `LogCrateSink`."
   },
   "c:logging_output_handler_t": {
@@ -90,6 +93,7 @@
   },
   "cpp:Node::get_node_logging_interface": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "see `cpp:Node::get_node_base_interface` in the node stage -- rclcpp's ~10-way `node_interfaces::Node*Interface` split exists so a component can be handed the slice it needs, and our components are declared rather than constructed with an injected node (RFC-0044), so there is nothing to inject a slice of."
   },
   "cpp:get_logger": {
@@ -98,10 +102,12 @@
   },
   "cpp:get_logging_directory": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "reports where rcl's file sink writes, resolved from `ROS_LOG_DIR` / `ROS_HOME` / `HOME` at runtime. Two constraints, both already decided elsewhere: no runtime environment on an embedded target (the same one that moved the domain ID to `nros_support_init`'s parameter, RFC-0036), and no file sink to have a directory -- delivery is `PlatformSink` -> `nros_platform_log_write`, which each `nros-platform-<rtos>` implements as that RTOS's console. What a user loses: on-target log files and the env vars that place them."
   },
   "cpp:get_node_logger": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "rclcpp's free function taking a raw `rcl_node_t*`, for code holding the handle but not the `rclcpp::Node`. Our member form `Node::get_logger()` matches rclcpp's and correlates as `same`; we expose no raw node handle to build a free form on top of (`Node::ffi_handle` is the C seam, not user API -- see the node stage)."
   },
   "rust:LogOccurrence": {
@@ -186,6 +192,7 @@
   },
   "rust:ToLogParams": {
     "verdict": "declined",
+    "disposition": "absent",
     "why": "the blanket-impl trait letting rclrs write `log!(node, ...)`, `log!(\"name\", ...)` or `log!(&logger, ...)` and chain `.once()` / `.throttle(d)` / `.only_if(b)` / `.severity(s)` on any of them. Same call as `rust:IntoNodeOptions` in the node stage: an ergonomic overload trait over what is one concrete caller shape here -- our macros and methods take a `&Logger`. What a user loses: the fluent modifier chain, and passing a node or a bare `&str` where a logger is expected. The modifiers themselves survive as method names -- see `rust:Logger::*_once`, `rust:Logger::*_skip_first`, `rust:Logger::*_throttle` -- and `only_if` survives as an `if`."
   },
   "rust:log": {
