@@ -88,7 +88,7 @@
   },
   "cpp:FutureReturnCode": {
     "verdict": "gap",
-    "why": "rclcpp's spin_until_future_complete returns {SUCCESS, INTERRUPTED, TIMEOUT}. We can express two: `ErrorCode::Ok` and `ErrorCode::Timeout` (result.hpp). There is no INTERRUPTED -- rclcpp means `the context was shut down while waiting`, and a ported caller that distinguishes shutdown from timeout cannot do so here. Not a divergence: nothing about no_std prevents a third code, nobody has added one. Phase 379 W3."
+    "why": "rclcpp's spin_until_future_complete returns {SUCCESS, INTERRUPTED, TIMEOUT}. We can express two: `ErrorCode::Ok` and `ErrorCode::Timeout` (result.hpp). There is no INTERRUPTED -- rclcpp means `the context was shut down while waiting`, and a ported caller that distinguishes shutdown from timeout cannot do so here. Not a divergence: nothing about no_std prevents a third code, nobody has added one. Phase 379 W3. COLLAPSE CHECK 2026-09-04 (phase-417): SHIPPED. `rclcpp_compat.hpp` declares `enum class FutureReturnCode { SUCCESS, TIMEOUT, INTERRUPTED }` and `spin_until_future_complete` returns it (issue 0339), so INTERRUPTED -- the case this row said we could not express -- now exists and the standard `== rclcpp::FutureReturnCode::SUCCESS` idiom compiles. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::ErrorCode` (result.hpp) still carries only `Ok` and `Timeout`, so a NATIVE caller still cannot distinguish shutdown from timeout."
   },
   "cpp:Result": {
     "verdict": "divergence",

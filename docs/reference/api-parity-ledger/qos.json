@@ -135,7 +135,7 @@
   },
   "cpp:ClockQoS": {
     "verdict": "gap",
-    "why": "the clock preset (best-effort, keep-last(1)). OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. Note the timer stage's `cpp:ClockQoS::ClockQoS` records only the type-per-preset SHAPE and reads as though we had the preset under another name; we do not."
+    "why": "the clock preset (best-effort, keep-last(1)). OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. Note the timer stage's `cpp:ClockQoS::ClockQoS` records only the type-per-preset SHAPE and reads as though we had the preset under another name; we do not. COLLAPSE CHECK 2026-09-04 (phase-417): `rclcpp::ClockQoS` now EXISTS -- a `constexpr` class transcribed from upstream (BEST_EFFORT, KEEP_LAST(1)) in `rclcpp_compat.hpp`, phase-417 W3.f, disposition ADOPT -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still has no clock preset under any name, so the \"unspellable from C and C++\" half of this row is unchanged."
   },
   "cpp:KeepAll": {
     "verdict": "declined",
@@ -143,7 +143,7 @@
     "provides": [
       "nros::QoS::keep_all"
     ],
-    "why": "a tag type whose only job is to feed rclcpp's `QoS(const QoSInitialization &, ...)` constructor with a history kind and depth. Ours sets the same two values with `QoS(int depth)` and the chainable `keep_last(n)` / `keep_all()` that rclcpp also has -- both already reconcile (`QoS::keep_last` is systematic, `QoS::keep_all` matches). So the values are reachable and only the construction SPELLING is gone: `rclcpp::QoS(rclcpp::KeepLast(10))` has to be ported to `nros::QoS(10)` or `nros::QoS().keep_last(10)`. Declined rather than added because a tag type per history kind exists to make an overload set resolve, and one constructor plus two setters resolves it with no types at all."
+    "why": "a tag type whose only job is to feed rclcpp's `QoS(const QoSInitialization &, ...)` constructor with a history kind and depth. Ours sets the same two values with `QoS(int depth)` and the chainable `keep_last(n)` / `keep_all()` that rclcpp also has -- both already reconcile (`QoS::keep_last` is systematic, `QoS::keep_all` matches). So the values are reachable and only the construction SPELLING is gone: `rclcpp::QoS(rclcpp::KeepLast(10))` has to be ported to `nros::QoS(10)` or `nros::QoS().keep_last(10)`. Declined rather than added because a tag type per history kind exists to make an overload set resolve, and one constructor plus two setters resolves it with no types at all. COLLAPSE CHECK 2026-09-04 (phase-417): this decline described the pre-shim state. phase-417 W3.f ships `rclcpp::KeepAll()` (and `KeepLast(depth)`) in `rclcpp_compat.hpp`, so `rclcpp::QoS(rclcpp::KeepAll())` ports unedited and this correlates `same` on the PORTED surface. ADOPT-BOUNDED, not ADOPT: ours returns a whole `QoS` where upstream returns a `QoSInitialization`, so using it to seed another preset (`SensorDataQoS(KeepAll())`) has no equivalent -- write `nros::QoS().best_effort().keep_all()`. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`."
   },
   "cpp:KeepAll::KeepAll": {
     "verdict": "declined",
@@ -175,11 +175,11 @@
   },
   "cpp:ParameterEventsQoS": {
     "verdict": "gap",
-    "why": "the parameter-events preset (reliable, volatile, keep-all); Rust has it as `QoSProfile::parameter_events_default()`. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3."
+    "why": "the parameter-events preset (reliable, volatile, keep-all); Rust has it as `QoSProfile::parameter_events_default()`. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. COLLAPSE CHECK 2026-09-04 (phase-417): `rclcpp::ParameterEventsQoS` now ships in `rclcpp_compat.hpp` (phase-417 W3.f, ADOPT, RELIABLE + KEEP_LAST(1000)), so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still has no parameter-events preset."
   },
   "cpp:ParametersQoS": {
     "verdict": "gap",
-    "why": "the parameters preset (reliable, transient-local, keep-last(1000)); Rust has it as `QoSProfile::parameters_default()`. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3."
+    "why": "the parameters preset (reliable, transient-local, keep-last(1000)); Rust has it as `QoSProfile::parameters_default()`. OUR LANGUAGES DISAGREE: our C++ ships exactly THREE QoS presets -- `QoS::default_profile()`, `QoS::sensor_data()`, `QoS::services()` (qos.hpp) -- and C ships the same three as constants (`NROS_QOS_DEFAULT`, `NROS_QOS_SENSOR_DATA`, `NROS_QOS_SERVICES`), while Rust's `QoSProfile` ships twelve: topics, sensor_data, services, parameters, parameter_events, clock, action_status, system, px4, plus the BEST_EFFORT/RELIABLE consts. So the profiles our OWN Rust parameter, clock and action code publishes on are unspellable from C and C++, and a ported node has to open a DDS reference and retype the numbers. Not a divergence -- nothing about a device stops a `constexpr QoS` named constructor from existing; the presets are just values. Phase 379 W3. COLLAPSE CHECK 2026-09-04 (phase-417): `rclcpp::ParametersQoS` now ships in `rclcpp_compat.hpp` (phase-417 W3.f, ADOPT) at the CORRECTED depth -- KEEP_LAST(**1000**), not the `QoS(10)` it used to return, which was one of RFC-0087's two live inversions -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still has no parameters preset."
   },
   "cpp:PublisherEventCallbacks": {
     "verdict": "divergence",
@@ -409,33 +409,33 @@
   "cpp:RosoutQoS": {
     "verdict": "declined",
     "disposition": "adopt",
-    "why": "the QoS `/rosout` log publication uses (transient-local, keep-last(1000), 10 s lifespan). We publish no `/rosout` at all: `nros_log` composes a `&'static [&dyn LogSink]` and the `/rosout` sink is listed there as future work (nros-log/src/lib.rs:17, and `nros-tests/tests/logging.rs` says the macros are deferred along with it), while `rclcpp_compat.hpp`'s `NodeOptions::enable_rosout` defaults to false and is inert. A user loses `ros2 topic echo /rosout` on a nano-ros node -- logs land on the board console. The node-option spelling of the same decision is `cpp:NodeOptions::rosout_qos`, already recorded in the node stage."
+    "why": "the QoS `/rosout` log publication uses (transient-local, keep-last(1000), 10 s lifespan). We publish no `/rosout` at all: `nros_log` composes a `&'static [&dyn LogSink]` and the `/rosout` sink is listed there as future work (nros-log/src/lib.rs:17, and `nros-tests/tests/logging.rs` says the macros are deferred along with it), while `rclcpp_compat.hpp`'s `NodeOptions::enable_rosout` defaults to false and is inert. A user loses `ros2 topic echo /rosout` on a nano-ros node -- logs land on the board console. The node-option spelling of the same decision is `cpp:NodeOptions::rosout_qos`, already recorded in the node stage. COLLAPSE CHECK 2026-09-04 (phase-417): `rclcpp::RosoutQoS` now ships in `rclcpp_compat.hpp` (phase-417 W3.f), with its four policies transcribed exactly, so this correlates `same` on the PORTED surface. THE DECLINE RECORDED HERE IS ABOUT THE TOPIC AND IT STANDS: nano-ros publishes no `/rosout`, so the name is a profile you can apply to a topic of your own rather than one the runtime is already using -- ADOPT-BOUNDED on exactly that point. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`."
   },
   "cpp:RosoutQoS::RosoutQoS": {
     "verdict": "declined",
     "disposition": "adopt",
-    "why": "see `cpp:RosoutQoS`."
+    "why": "see `cpp:RosoutQoS`. COLLAPSE CHECK 2026-09-04 (phase-417): the preset now ships as a type on the ported surface (phase-417 W3.f); the `/rosout` decline is unchanged. See `cpp:RosoutQoS`."
   },
   "cpp:SensorDataQoS": {
     "verdict": "divergence",
     "provides": [
       "nros::QoS::sensor_data"
     ],
-    "why": "ours is the named constructor `QoS::sensor_data()`. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`."
+    "why": "ours is the named constructor `QoS::sensor_data()`. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`. COLLAPSE CHECK 2026-09-04 (phase-417): the \"a type per preset costs a class each with no allocator to justify it\" argument NO LONGER HOLDS. phase-417 W3.f ships `SensorDataQoS`, `ServicesQoS`, `ParametersQoS`, `ParameterEventsQoS`, `RosoutQoS` and `ClockQoS` as `constexpr` classes deriving from `QoS` in `rclcpp_compat.hpp`, transcribed field-for-field from `rmw/qos_profiles.h`, with no allocator involved -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still spells the presets as named constructors (`qos.hpp:328-334`) and ships only three of them."
   },
   "cpp:SensorDataQoS::SensorDataQoS": {
     "verdict": "divergence",
     "provides": [
       "nros::QoS::sensor_data"
     ],
-    "why": "ours is the named constructor `QoS::sensor_data()`. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`."
+    "why": "ours is the named constructor `QoS::sensor_data()`. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`. COLLAPSE CHECK 2026-09-04 (phase-417): the \"a type per preset costs a class each with no allocator to justify it\" argument NO LONGER HOLDS. phase-417 W3.f ships `SensorDataQoS`, `ServicesQoS`, `ParametersQoS`, `ParameterEventsQoS`, `RosoutQoS` and `ClockQoS` as `constexpr` classes deriving from `QoS` in `rclcpp_compat.hpp`, transcribed field-for-field from `rmw/qos_profiles.h`, with no allocator involved -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still spells the presets as named constructors (`qos.hpp:328-334`) and ships only three of them."
   },
   "cpp:ServicesQoS": {
     "verdict": "divergence",
     "provides": [
       "nros::QoS::services"
     ],
-    "why": "ours is the named constructor `QoS::services()`, classified in the service stage. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`."
+    "why": "ours is the named constructor `QoS::services()`, classified in the service stage. rclcpp gives each QoS preset its own TYPE so a preset can be passed where a `QoS` is expected and still be named; ours are named constructors on one `QoS`. See the service stage's `cpp:ServicesQoS::ServicesQoS`. COLLAPSE CHECK 2026-09-04 (phase-417): the \"a type per preset costs a class each with no allocator to justify it\" argument NO LONGER HOLDS. phase-417 W3.f ships `SensorDataQoS`, `ServicesQoS`, `ParametersQoS`, `ParameterEventsQoS`, `RosoutQoS` and `ClockQoS` as `constexpr` classes deriving from `QoS` in `rclcpp_compat.hpp`, transcribed field-for-field from `rmw/qos_profiles.h`, with no allocator involved -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still spells the presets as named constructors (`qos.hpp:328-334`) and ships only three of them."
   },
   "cpp:SubscriptionEventCallbacks": {
     "verdict": "divergence",
@@ -452,8 +452,9 @@
     "disposition": "refuse-loud"
   },
   "cpp:SystemDefaultsQoS::SystemDefaultsQoS": {
-    "verdict": "gap",
-    "why": "see `cpp:SystemDefaultsQoS`."
+    "verdict": "declined",
+    "why": "see `cpp:SystemDefaultsQoS`. CORRECTED 2026-09-04 (phase-417): verdicted `gap` -- \"ROS 2 has it, we should too, nobody has done it\" -- about the CONSTRUCTOR of a class that REFUSES LOUDLY (`rclcpp_compat.hpp`, a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_SYSTEM_DEFAULTS_QOS`). It correlates `same` because the name and the shape exist on purpose; instantiating it is a compile error. A pointer row that does not carry its target's verdict reads as a work item, which is the one thing this ledger exists to prevent.",
+    "disposition": "refuse-loud"
   },
   "cpp:UnsupportedEventTypeException": {
     "verdict": "divergence",

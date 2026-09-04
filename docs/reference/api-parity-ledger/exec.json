@@ -111,11 +111,11 @@
   },
   "c:executor_state_t": {
     "verdict": "extension",
-    "why": "an explicit executor lifecycle (uninitialised / initialised / spinning / shutdown) so a double-init or a use-after-fini is a returned code rather than undefined behaviour on a device that cannot report a crash. See `c:support_state_t`. Note the SPINNING state is the only place in the tree that models `rclcpp::Executor::is_spinning` -- and it is not exported; see `cpp:Executor::is_spinning`."
+    "why": "an explicit executor lifecycle (uninitialised / initialised / spinning / shutdown) so a double-init or a use-after-fini is a returned code rather than undefined behaviour on a device that cannot report a crash. See `c:support_state_t`. Note the SPINNING state models `rclcpp::Executor::is_spinning` and C still exports no reader for it. C++ grew `Executor::is_spinning` in phase-417 W4.c and Rust answers the inverse question as `Executor::is_halted`, so C is now the only one of the three that cannot be asked."
   },
   "c:executor_stop": {
     "verdict": "extension",
-    "why": "stop a spinning executor WITHOUT finalizing it -- flips `nros_executor_state_t` back from SPINNING to INITIALIZED so `nros_executor_spin`'s loop exits and the session stays open for a later spin. rclc's `rclc_executor_spin` has no way out at all. The scenario is a mode change on an RTOS task (safe-state, OTA staging) where tearing the middleware down and re-opening it costs a full discovery round. OUR LANGUAGES DISAGREE: this capability is spelled three ways and one language does not have it: C `nros_executor_stop`, Rust `Executor::halt` / `is_halted` / `halt_flag`, rclcpp `Executor::cancel` -- and C++ has NOTHING, because `Executor::spin` there exits only on `shutdown()`, which calls `nros_cpp_fini` and destroys the session. See `cpp:Executor::cancel`."
+    "why": "stop a spinning executor WITHOUT finalizing it -- flips `nros_executor_state_t` back from SPINNING to INITIALIZED so `nros_executor_spin`'s loop exits and the session stays open for a later spin. rclc's `rclc_executor_spin` has no way out at all. The scenario is a mode change on an RTOS task (safe-state, OTA staging) where tearing the middleware down and re-opening it costs a full discovery round. OUR LANGUAGES DISAGREE: this capability is spelled three ways and one language does not have it: C `nros_executor_stop`, Rust `Executor::halt` / `is_halted` / `halt_flag`, rclcpp `Executor::cancel`. C++ had NOTHING until phase-417 W4.c -- `Executor::spin` exited only on `shutdown()`, which calls `nros_cpp_fini` and destroys the session -- and now has `nros::Executor::cancel` (`executor.hpp`), so all three languages carry the capability under three spellings."
   },
   "c:get_zero_initialized_guard_condition": {
     "verdict": "declined",
@@ -326,10 +326,6 @@
     "verdict": "divergence",
     "why": "The ORDER is the feature: pre-shutdown callbacks run while the session is still open and every entity still works -- which is how a device publishes a final state, answers a last request, parks an actuator or releases a bus -- and on-shutdown callbacks run after the close. This is rclcpp's `Context::add_pre_shutdown_callback` on the object we have instead of a `Context`. The platform constraint is no allocator: rclcpp's registration takes a `std::function<void()>` (a heap allocation per callback) and hands back a handle owning a `std::shared_ptr` to it. Ours is a fixed-capacity static table of `(extern \"C\" fn, void* context)` sized by `NROS_EXECUTOR_MAX_SHUTDOWN_CBS` (default 2, small on issue 0460's precedent that a per-entity static slot is a cost every image pays), and the handle is the SLOT INDEX with its phase packed in so it cannot remove the other phase's callback. rclcpp hangs these on `Context`; we have none (see `c:context_*` / `cpp:Context` in init.json), and the executor is what `shutdown` / `close` / `fini` is called on, so it owns the tables. Issue 0790."
   },
-  "cpp:Executor::cancel": {
-    "verdict": "gap",
-    "why": "rclcpp's 'stop spinning, keep everything alive', typically from a signal handler. C++ cannot do it: `Executor::spin` loops while `initialized_` is true and only `shutdown()` clears that, and `shutdown()` calls `nros_cpp_fini` -- so the only way to leave a C++ `spin()` is to destroy the middleware session. OUR LANGUAGES DISAGREE: C has `nros_executor_stop` (SPINNING -> INITIALIZED, session intact) and Rust has `Executor::halt` / `halt_flag` (an atomic a signal handler or another thread sets, plus a wake so a blocked `drive_io` falls through). Nothing about no_std stops C++ from having the same flag; nobody has done it. Phase 379 W3."
-  },
   "cpp:Executor::create": {
     "verdict": "divergence",
     "why": "no allocator: `Executor` is constructed into CALLER storage -- `nros::Executor exec; Executor::create(exec, locator, domain_id)` -- with the session held in an `alignas(8) uint8_t storage_[NROS_CPP_EXECUTOR_STORAGE_SIZE]` inline array sized by the build. rclcpp's executors are constructed normally and shared by `SharedPtr`. Same shape as the pubsub stage's `cpp:Publisher::Publisher<M>`. the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`."
@@ -361,10 +357,6 @@
     "verdict": "divergence",
     "why": "hands back the raw inline storage pointer so the generated C entry points and the C-shaped FFI (`nros_cpp_*`) can reach the same executor a C++ user holds. It exists because the storage IS the object -- there is no pimpl and no allocator to hide one in. rclcpp needs no equivalent because a `SharedPtr` is already the shared identity. See `cpp:Node::executor_handle`."
   },
-  "cpp:Executor::is_spinning": {
-    "verdict": "gap",
-    "why": "rclcpp reports whether a spin is in progress. OUR LANGUAGES DISAGREE: C models the state (`nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING`, which `nros_executor_stop` reads) but exports no accessor for it; Rust answers the inverse question, `Executor::is_halted`; C++ has neither -- `Executor::ok()` means 'initialised'. Three surfaces, three different answers to one question, and the C++ one is missing. Phase 379 W3."
-  },
   "cpp:Executor::make_shared": {
     "verdict": "declined",
     "disposition": "absent",
@@ -376,7 +368,7 @@
   },
   "cpp:Executor::ok": {
     "verdict": "divergence",
-    "why": "rclcpp's counterpart is the free `rclcpp::ok(context)`; ours is a method because the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`. Note it answers 'is this executor initialised?', NOT 'is it spinning?' -- see `cpp:Executor::is_spinning`."
+    "why": "rclcpp's counterpart is the free `rclcpp::ok(context)`; ours is a method because the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`. Note it answers 'is this executor initialised?', NOT 'is it spinning?' -- that is the second question, and `Executor::is_spinning` has answered it since phase-417 W4.c."
   },
   "cpp:Executor::ping": {
     "verdict": "extension",
@@ -407,7 +399,7 @@
   },
   "cpp:Executor::shutdown": {
     "verdict": "divergence",
-    "why": "the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`. rclcpp's teardown is context-scoped (`rclcpp::shutdown()`), and its executors have `cancel` for the stop-spinning half; ours folds both into the executor because it owns the session. The cost of the fold is `cpp:Executor::cancel`."
+    "why": "the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`. rclcpp's teardown is context-scoped (`rclcpp::shutdown()`), and its executors have `cancel` for the stop-spinning half; ours folds both into the executor because it owns the session. The stop-spinning half now exists here too -- `Executor::cancel`, phase-417 W4.c -- and leaves the session intact: after it the executor is still `ok()`, still owns its entities, and can be spun again with no rediscovery. `shutdown()` remains the one that tears the session down."
   },
   "cpp:Executor::spin_all": {
     "verdict": "declined",
@@ -738,12 +730,12 @@
   },
   "rust:Executor::halt*": {
     "verdict": "extension",
-    "why": "request the spin loop to stop and hand out the shared halt flag for a signal handler or another task. rclrs's counterpart is `ExecutorCommands::halt_spinning`, reached through the async command channel this stage declines (see `rust:Executor::commands`); ours is an `AtomicBool` plus a wake, so it works from an ISR with no allocation. OUR LANGUAGES DISAGREE: C spells it `nros_executor_stop`, Rust `halt`, and C++ cannot do it at all -- see `cpp:Executor::cancel`.",
+    "why": "request the spin loop to stop and hand out the shared halt flag for a signal handler or another task. rclrs's counterpart is `ExecutorCommands::halt_spinning`, reached through the async command channel this stage declines (see `rust:Executor::commands`); ours is an `AtomicBool` plus a wake, so it works from an ISR with no allocation. OUR LANGUAGES DISAGREE: C spells it `nros_executor_stop`, Rust `halt`, and C++ `Executor::cancel` (phase-417 W4.c -- before that C++ could not do it at all). Three spellings, one capability, no language missing it.",
     "bucket": "ours-only"
   },
   "rust:Executor::is_halted": {
     "verdict": "extension",
-    "why": "reads the flag `rust:Executor::halt*` sets -- the only 'is this executor still supposed to be spinning?' predicate in any of our three languages, and it is phrased inversely to rclcpp's. See `cpp:Executor::is_spinning`.",
+    "why": "reads the flag `rust:Executor::halt*` sets -- phrased inversely to rclcpp's `is_spinning`, which C++ grew in phase-417 W4.c; C models the state (`nros_executor_state_t`) without exporting a reader, so this and the C++ method are the two ways to ask.",
     "bucket": "ours-only"
   },
   "rust:Executor::node*": {

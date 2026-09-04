@@ -169,7 +169,7 @@
   "cpp:Node::get_node_options": {
     "disposition": "adopt",
     "verdict": "declined",
-    "why": "see `cpp:NodeOptions`."
+    "why": "see `cpp:NodeOptions`. COLLAPSE CHECK 2026-09-04 (phase-417): CORRECTED: this is SHIPPED, not declined. phase-417 W3.f keeps `get_node_options()` on the shim's `rclcpp::Node` deliberately -- handing back the (empty) options object states nothing false -- so it correlates `same` on the PORTED surface. What IS refused is every OPTION on the object it returns; see `cpp:NodeOptions`, which is now REFUSE-LOUD rather than inert. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::Node` has no options object."
   },
   "cpp:Node::get_node_topics_interface": {
     "disposition": "absent",
@@ -223,7 +223,7 @@
   "cpp:NodeOptions": {
     "bucket": "theirs-only",
     "verdict": "divergence",
-    "why": "the C++ face of `rcl_node_options_t`; see `c:node_options_*`. `use_intra_process_comms` and `enable_topic_statistics` are runtime toggles for paths that are compile-time here, and `allocator` has nothing to configure."
+    "why": "the C++ face of `rcl_node_options_t`; see `c:node_options_*`. `use_intra_process_comms` and `enable_topic_statistics` are runtime toggles for paths that are compile-time here, and `allocator` has nothing to configure. COLLAPSE CHECK 2026-09-04 (phase-417): the shipped shape moved and this row anchors ten inherited member rows, so: the TYPE now exists in `rclcpp_compat.hpp` (the default constructor and `Node(name, options)` are load-bearing for a composable node and claim nothing), and every option SETTER AND GETTER on it is REFUSE-LOUD -- a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_NODE_OPTIONS`. That is why the family correlates `same`: the names exist by design so the diagnostic can name the constraint and the nano-ros alternative. Before phase-417 W3.f they were ten setters that STORED their argument and returned `*this`, so the idiomatic chain compiled and configured nothing -- one of RFC-0087's two live inversions, and the one a parity instrument cannot see."
   },
   "cpp:create_node": {
     "verdict": "extension",

@@ -16,8 +16,12 @@
 //   - `node->create_subscription<M>(topic, qos, callback)` → returns
 //     `rclcpp::Subscription<M>::SharedPtr` (callback signature
 //     `void(const M&)` or `void(std::shared_ptr<M>)`).
-//   - `rclcpp::spin(node)` / `rclcpp::spin_some(node)` (`spin_some` ≈ a single
-//     `nros::Executor::spin_once`; `spin` loops until `rclcpp::shutdown()`).
+//   - `rclcpp::spin(node)` / `rclcpp::spin_some(node)` — forwarders onto
+//     `nros::spin()` / `nros::spin_once(0)`. Every entity a shim `Node` creates
+//     is registered on the executor, so `nros::spin_once()`, `nros::spin()`, an
+//     `nros::Executor` driven directly and `rclcpp::Rate::sleep()` all dispatch
+//     the same callbacks (phase-417 — there used to be a second, node-local
+//     dispatch path and mixing the two silently did nothing).
 //   - `rclcpp::QoS(depth)` and the named profiles `SensorDataQoS` /
 //     `ServicesQoS` / `ParametersQoS` / `ParameterEventsQoS` / `RosoutQoS` /
 //     `ClockQoS`, each transcribed field-by-field from upstream.
@@ -62,6 +66,12 @@
 
 #include "nros/nros.hpp"
 #include "nros/node.hpp"
+// phase-417 — the two arena-registration entry points this shim's `Node` uses
+// so it has no dispatch of its own: `nros::create_subscription_raw` and
+// `nros::Timer` / `nros::Node::create_timer`. Reachable transitively through
+// `nros.hpp`, named here because they are load-bearing.
+#include "nros/component.hpp"
+#include "nros/timer.hpp"
 #include "nros/publisher.hpp"
 #include "nros/subscription.hpp"
 #include "nros/service.hpp"
@@ -682,24 +692,53 @@ inline bool ok() {
 // rclcpp users write `auto n = std::make_shared<rclcpp::Node>("name");` and
 // then `n->create_publisher<M>(topic, qos)` returning a shared_ptr. nros's
 // Node is created via an `Executor` and exposes out-ref `create_*` member
-// functions. Wrap that to match the rclcpp call shape. A `Node` shim owns its
-// own `nros::Executor` (the typical single-node-per-process pattern). When
-// shared across nodes is needed, the caller can construct multiple Nodes —
-// each currently gets its own Executor (matches the single-node default).
+// functions. Wrap that to match the rclcpp call shape.
 //
-// Threading: `rclcpp::spin(node)` borrows the node's executor for the calling
-// thread (same as `nros::Executor::spin`). Callbacks fire on whatever thread
-// services `spin*`, mirroring the rclcpp default.
+// A shim `Node` does NOT own an executor. It opens its `nros::Node` on the
+// GLOBAL one `rclcpp::init()` created (issue 0465 — one session per image), and
+// since phase-417 every entity it creates — publisher, subscription, wall
+// timer, service, client — is registered THERE. So this class holds no dispatch
+// state and runs no loop: it is a call-shape adapter over `nros::Node`, which
+// is all RFC-0019 permits a wrapper to be, and it is the property that lets the
+// stage-6 rename merge the two node types safely.
+//
+// Threading: callbacks fire on whatever thread services a spin verb, mirroring
+// the rclcpp default. An `nros::Node` cannot move between executors (RFC-0002,
+// one executor per RTOS task), which is why the executor is decided at
+// construction and never afterwards.
 
 // --- Timer surface ----------------------------------------------------------
 //
 // rclcpp users typically store a `rclcpp::TimerBase::SharedPtr` and only care
-// that it stays alive as long as the timer should fire. The actual dispatch
-// happens through `Node::create_wall_timer(period, callback)`. Implementation:
-// the compat tracks `WallTimer`s on the Node and fires them from `Node::pump()`
-// — same polling model as the subscription pump. Sufficient for typical ROS 2
-// periodic callbacks; the wall-clock granularity is whatever `rclcpp::spin*`'s
-// caller drives.
+// that it stays alive as long as the timer should fire. The dispatch happens
+// through `Node::create_wall_timer(period, callback)`.
+//
+// phase-417 — ONE DISPATCH PATH. `create_wall_timer` registers an EXECUTOR
+// timer via `nros::Node::create_timer` (`node.hpp:718`), so the period
+// arithmetic, the missed-deadline policy and the clock are the executor's,
+// Rust-side. Until this landed, `WallTimer` carried its own
+// `std::chrono::steady_clock` deadline and a `Node::pump()` fired it from
+// `rclcpp::spin` / `spin_some` ONLY — a ported file driving `nros::spin_once()`
+// or an `nros::Executor` got zero callbacks and no diagnostic, and no
+// diagnostic could be written for it because both spin spellings are
+// legitimate and which one is wrong depends on the node object the file holds.
+// Scheduling in the wrapper is RFC-0019/RFC-0020 violation class 2; this is the
+// structural fix RFC-0087 makes a prerequisite for the stage-6 rename.
+//
+// ADOPT-BOUNDED, and both halves of the envelope come with the executor:
+//
+//   * PERIOD RESOLUTION IS ONE MILLISECOND. `nros_cpp_timer_create` takes a
+//     `uint64_t period_ms`, so `create_wall_timer(500us, …)` truncates to 0 and
+//     fires every spin. Activations land on spin boundaries either way, so the
+//     achievable cadence was already the spin period — the truncation only
+//     makes the floor explicit.
+//   * MISSED DEADLINES CATCH UP, where rcl's DROP. `TimerState::fire` keeps the
+//     overshoot (`elapsed_ms -= period_ms`, `nros-node/src/timer.rs:298`), so
+//     after a stall the callback runs once per `spin_once` until the backlog is
+//     drained and the mean cadence is preserved. `rcl_timer_call` instead skips
+//     whole missed periods and re-phases onto the grid, firing once. This
+//     header used to copy rcl. Closing the gap means a missed-deadline POLICY
+//     on the executor's timer — Rust-side work, not a loop re-added here.
 class TimerBase {
   public:
     /// phase-417 W1.a — `rclcpp::TimerBase::SharedPtr timer_;` is how upstream
@@ -715,12 +754,63 @@ class TimerBase {
 };
 
 namespace detail {
+
+/// An executor-registered timer plus the heap cell holding the user's callable.
+///
+/// TYPE ERASURE IS THE ONLY THING THIS ADDS. The executor's callback slot is
+/// `nros_cpp_timer_callback_t` — `void(*)(void* ctx)` — and a ported rclcpp
+/// timer callback is a capturing lambda or a `std::bind` result, which cannot
+/// convert to a function pointer. `trampoline` recovers the cell from `ctx` and
+/// calls it. That is a spelling, not a second code path (RFC-0087 §"Who
+/// implements an adopted name"); no schedule, no clock read, no ordering.
+///
+/// LIFETIME: the arena stores `this` as the dispatch context and nothing
+/// unregisters it, so the cell has to outlive the registration. `Node::timers_`
+/// holds a `shared_ptr` for the node's lifetime, and the MEMBER ORDER below is
+/// load-bearing — members destruct in reverse declaration order, so `timer`
+/// goes first and `~nros::Timer` cancels the arena slot (`timer.hpp:70`) before
+/// `callback` is destroyed. Declared the other way round, a tick landing
+/// between the two destructions would run a destroyed `std::function`.
 class WallTimer : public TimerBase {
   public:
-    std::chrono::steady_clock::duration period{};
-    std::chrono::steady_clock::time_point next_fire{};
-    std::function<void()> callback;
+    static void trampoline(void* ctx) {
+        auto* self = static_cast<WallTimer*>(ctx);
+        if (self != nullptr && self->callback) {
+            self->callback();
+        }
+    }
+
+    std::function<void()> callback; // destroyed LAST
+    ::nros::Timer timer;            // destroyed FIRST — cancels the arena slot
 };
+
+/// A shim subscription's type-erased callable, and the raw trampoline the
+/// executor arena dispatches into.
+///
+/// Same split as `WallTimer`: the arena's callback slot carries `(bytes, len,
+/// ctx)`, the wrapper supplies the `ctx` and the `M::ffi_deserialize` call the
+/// generated header already provides, and the executor owns the subscriber and
+/// decides when the callback runs. This mirrors `nros::bind_subscription`
+/// (`component.hpp:107`) with a heap cell in place of its member-pointer
+/// template parameter — a ported rclcpp callback captures, so there is no
+/// member pointer to template on.
+template <typename M> struct SubscriptionCallback {
+    static void trampoline(const uint8_t* data, size_t len, void* ctx) {
+        auto* self = static_cast<SubscriptionCallback*>(ctx);
+        if (self == nullptr || !self->fn) return;
+        M msg;
+        if (M::ffi_deserialize(data, len, &msg) != 0) return;
+        self->fn(msg);
+    }
+
+    std::function<void(const M&)> fn;
+    /// The object `create_subscription` hands back. The executor owns the real
+    /// subscriber, so this is the ported source's `rclcpp::Subscription<M>::
+    /// SharedPtr member_;` keep-alive and nothing more — see the note on
+    /// `Node::create_subscription`.
+    ::nros::Subscription<M> handle;
+};
+
 } // namespace detail
 
 class Node : public std::enable_shared_from_this<Node> {
@@ -839,28 +929,75 @@ class Node : public std::enable_shared_from_this<Node> {
     // create_subscription<M>(topic, qos, callback)
     //
     // Accepts ANY callable (capturing lambda, std::function, member-fn bind,
-    // plain fn ptr) — nros's native callback-subscription overload is SFINAE-
-    // restricted to `void(*)(const M&)` plain fn ptrs (no capture). Wrap a
-    // polling Subscription + a pump callback the node's spin loop invokes per
-    // sweep (`Node::pump()`, called by `rclcpp::spin`/`spin_some`). The
-    // callable is heap-stored (shared_ptr) so its lifetime matches the
-    // subscription; cleanup is automatic when the subscription drops out of
-    // scope. (Native callback-arena path is a future optimization — direct
-    // FFI hook with std::function as user_data — when per-spin polling
-    // overhead matters; for the source-compat target this is fine.)
+    // plain fn ptr).
+    //
+    // phase-417 — ONE DISPATCH PATH. This ARENA-REGISTERS the subscription
+    // through `nros::create_subscription_raw` (`component.hpp:23`), the same
+    // `nros_cpp_subscription_register` call the native callback-style
+    // `Node::create_subscription` makes, so the executor owns the subscriber
+    // and dispatches the callback during `spin_once` — whichever spin verb the
+    // caller drives. It used to create a POLL-mode subscription and drain it
+    // from `Node::pump()`, which only `rclcpp::spin` / `spin_some` called: a
+    // file that spun `nros::spin_once()` instead got zero callbacks and no
+    // diagnostic (RFC-0087 §"There is also one mismatch the rename makes
+    // strictly worse").
+    //
+    // Why not `node_.create_subscription(*s, topic, cb, qos)`: that overload is
+    // SFINAE-restricted to `void(*)(const M&)` — a plain function pointer with
+    // NO context slot — and every ported rclcpp callback captures. The typed
+    // ctx-carrying delivery exists one layer down (`Subscription<M>::
+    // user_fn_ctx_` + `user_ctx_`, and the `message_trampoline` branch that
+    // reads them, `subscription.hpp:563`) but NO `create_*` sets those fields,
+    // so the raw register with a type-erased ctx is the reachable shape. See
+    // the phase report: a `create_subscription` overload taking
+    // `(void(*)(const M&, void*), void* ctx)` would let this call
+    // `nros::Node` instead, and is C++-side work.
+    //
+    // The receive-buffer hint is `rx_buffer_capacity<M>` — the same number the
+    // poll path's `take()` stacks — and NOT the strict `rx_size_bound<M>`,
+    // whose unbounded-type arm is a deliberate compile error (issue 0964). A
+    // ported file must not stop compiling because its message has an unbounded
+    // string.
+    //
+    // ONE THING THIS LOSES, stated rather than left silent:
+    // `create_subscription_raw` hardcodes an EMPTY type hash (it takes no such
+    // parameter), which `normalize_type_hash` turns into
+    // `"TypeHashNotSupported"`. The poll-mode create this replaced passed
+    // `M::TYPE_HASH`. It does not affect DELIVERY — a subscriber's data
+    // keyexpr puts `*` in the hash slot (`keyexpr.rs:51`), and on the default
+    // Humble edition the publisher's is the literal `TypeHashNotSupported`
+    // anyway (`keyexpr.rs:30`) — but under `ros-iron` / `ros-jazzy` the
+    // subscription's LIVELINESS token now advertises the placeholder instead of
+    // the real hash, so `ros2 topic info --verbose` reads differently. The fix
+    // is a `type_hash` parameter on `create_subscription_raw`, defaulted to
+    // `""` so no existing caller moves; it is C++-header work in
+    // `component.hpp` and is recorded with the phase rather than worked around
+    // by calling the FFI from here.
+    //
+    // OWNERSHIP: the arena stores the cell's address as its dispatch context
+    // and there is no unregister, so the cell must outlive the registration.
+    // `owned_entities_` holds it for the node's lifetime — the same rule the
+    // callback-style `create_service` below states — and the returned
+    // `shared_ptr` is a co-owner via the aliasing constructor, so dropping it
+    // is safe.
+    //
+    // WHAT THE RETURNED POINTER IS: a keep-alive, which is all upstream source
+    // does with it (`rclcpp::Subscription<M>::SharedPtr sub_;`). The executor
+    // owns the real subscriber, so `sub->take(msg)` on it answers
+    // `NotInitialized` — the sample went to your callback. That IS a change
+    // from the pre-phase-417 shim, where the returned object was additionally a
+    // poll-mode subscription; no in-tree caller took from it, and the two
+    // cannot both exist over one topic registration.
     template <typename M, typename Cb>
     std::shared_ptr<::nros::Subscription<M>> create_subscription(const std::string& topic,
                                                                  const ::nros::QoS& qos, Cb cb) {
-        auto s = std::make_shared<::nros::Subscription<M>>();
-        (void)node_.create_subscription(*s, topic.c_str(), qos);
-        auto cb_fn = std::make_shared<std::function<void(const M&)>>(std::move(cb));
-        pump_callbacks_.push_back([s, cb_fn]() {
-            M msg;
-            while (s->take(msg).ok()) {
-                (*cb_fn)(msg);
-            }
-        });
-        return s;
+        auto cell = std::make_shared<detail::SubscriptionCallback<M>>();
+        cell->fn = std::move(cb);
+        (void)::nros::create_subscription_raw(
+            node_, topic.c_str(), M::TYPE_NAME, &detail::SubscriptionCallback<M>::trampoline,
+            cell.get(), qos, ::nros::rx_buffer_capacity<M>::value);
+        owned_entities_.push_back(cell);
+        return std::shared_ptr<::nros::Subscription<M>>(cell, &cell->handle);
     }
 
     template <typename M, typename Cb>
@@ -869,14 +1006,26 @@ class Node : public std::enable_shared_from_this<Node> {
         return create_subscription<M>(topic, QoS(static_cast<::size_t>(depth)), std::move(cb));
     }
 
-    // create_wall_timer(period, callback) — fires `callback()` every `period`,
-    // driven by `Node::pump()` (i.e. each `rclcpp::spin_some` / `spin` sweep).
+    /// `create_wall_timer(period, callback)` — fires `callback()` every
+    /// `period`, dispatched by the EXECUTOR during `spin_once`, i.e. under
+    /// whichever spin verb the caller drives: `rclcpp::spin`, `spin_some`,
+    /// `nros::spin_once`, `nros::spin`, `rclcpp::Rate::sleep`, or an
+    /// `nros::Executor` driven directly.
+    ///
+    /// The `std::chrono::duration` → milliseconds conversion is the only work
+    /// this function does beyond delegating; that is ergonomics and permitted,
+    /// the schedule is not. See the envelope on `TimerBase` for the two things
+    /// it costs (millisecond resolution, and catch-up rather than rcl's
+    /// drop-the-backlog on a missed deadline).
     template <typename Rep, typename Period, typename Cb>
     std::shared_ptr<TimerBase> create_wall_timer(std::chrono::duration<Rep, Period> period, Cb cb) {
         auto t = std::make_shared<detail::WallTimer>();
-        t->period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
-        t->next_fire = std::chrono::steady_clock::now() + t->period;
         t->callback = std::move(cb);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(period).count();
+        (void)node_.create_timer(t->timer, ms > 0 ? static_cast<uint64_t>(ms) : uint64_t(0),
+                                 &detail::WallTimer::trampoline, t.get());
+        // The arena holds `t.get()`; the node keeps the cell alive, and
+        // `~nros::Timer` cancels the slot when it finally drops.
         timers_.push_back(t);
         return std::static_pointer_cast<TimerBase>(t);
     }
@@ -989,7 +1138,9 @@ class Node : public std::enable_shared_from_this<Node> {
     //     signature (upstream requires a callback), so it claims nothing.
     //   * CALLBACK-STYLE `create_service<S>(name, callback, qos)` — upstream's
     //     shape, with nano-ros's handler signature. The callback runs during
-    //     `spin_once`, not from `Node::pump()`.
+    //     `spin_once`, on the executor arena — as every other shim-node entity
+    //     now does (phase-417). Services were already the correct shape here;
+    //     timers and subscriptions were the two that were not.
     //
     // A callback of upstream's `shared_ptr<Request>, shared_ptr<Response>`
     // shape is REFUSE-LOUD rather than "no matching function": that signature
@@ -1070,66 +1221,65 @@ class Node : public std::enable_shared_from_this<Node> {
         return std::shared_ptr<::nros::Client<S>>();
     }
 
-    // Pump all polling subscriptions + due wall-timers. Called by
-    // rclcpp::spin / spin_some before invoking the underlying nros
-    // executor's spin_once.
-    void pump() {
-        const auto now = std::chrono::steady_clock::now();
-        for (auto& t : timers_) {
-            if (!t || !t->callback) continue;
-            if (now >= t->next_fire) {
-                t->next_fire += t->period;
-                // If we've fallen badly behind, snap to "now" to avoid burst
-                // firing — matches rclcpp's WallTimer behaviour.
-                if (now > t->next_fire) {
-                    t->next_fire = now + t->period;
-                }
-                t->callback();
-            }
-        }
-        for (auto& f : pump_callbacks_) {
-            if (f) f();
-        }
-    }
+    // phase-417 — `pump()` IS GONE. It ran this node's wall timers and drained
+    // its polling subscriptions, and only `rclcpp::spin` / `spin_some` called
+    // it, so a shim node driven by any other spin verb dispatched nothing.
+    // Every entity a shim `Node` creates is now registered on the executor
+    // arena, so there is nothing left for a node-local sweep to do and mixing
+    // spin spellings is harmless. Do not reintroduce one: a second dispatch
+    // path here is the RFC-0019 violation the whole item was about, and it
+    // cannot be made visible by a diagnostic.
 
   private:
     ::nros::Node node_;
     NodeOptions node_options_;
     bool initialized_ = false;
-    // Heap-stored polling pumps for create_subscription callbacks (one per
-    // sub). Captured by std::function so any callable shape (capturing lambda,
-    // member-fn bind, std::function) works.
-    std::vector<std::function<void()>> pump_callbacks_;
-    // Wall-timers driven from `pump()` — see `create_wall_timer`.
+    // Wall-timer cells. The executor arena dispatches them and holds each
+    // cell's address as its callback context, so the node keeps them alive —
+    // see `detail::WallTimer` for the destruction-order rule.
     std::vector<std::shared_ptr<detail::WallTimer>> timers_;
     // Node-local parameter store — see `declare_parameter` above.
     ::nros::ParameterServer<NROS_RCLCPP_MAX_PARAMS> params_;
-    // Co-ownership of arena-registered services/clients. The executor arena
-    // holds a raw `&entity` as its dispatch context, so the entity must outlive
-    // the node even if the caller drops the `shared_ptr` we handed back.
+    // Co-ownership of arena-registered services / clients / subscription
+    // callback cells. The executor arena holds a raw pointer as its dispatch
+    // context, so the entity must outlive the node even if the caller drops the
+    // `shared_ptr` we handed back.
     std::vector<std::shared_ptr<void>> owned_entities_;
 };
 
 // --- spin / spin_some --------------------------------------------------------
 //
-// `rclcpp::spin(node)` loops the node's executor until shutdown.
-// `rclcpp::spin_some(node)` makes one progress sweep (≈ a 0-timeout spin_once).
+// phase-417 — FORWARDERS, and nothing else. `rclcpp::spin(node)` is
+// `nros::spin()` (block until `ok()` goes false, `nros.hpp:164`) and
+// `rclcpp::spin_some(node)` is one 0-timeout `nros::spin_once`. Both used to
+// call `node->pump()` first, which was the ONLY thing that ran a shim node's
+// timers and subscriptions; now those live on the executor, so these two
+// dispatch nothing of their own and a file that reaches for `nros::spin_once()`
+// or drives an `nros::Executor` gets exactly the same callbacks. That
+// equivalence is the structural prerequisite for the stage-6 rename: after it
+// both node types share a name, and a mismatch would be invisible.
+//
+// One behaviour change for an existing caller: `nros::spin()` RETURNS on the
+// first failing `spin_once`, where this loop used to discard the result and
+// keep going. A dead session now ends the spin instead of looking alive
+// forever, which is what `nros::spin()` and `Executor::spin` already promise.
+//
+// The `node` argument is still checked, and still otherwise unused: there is
+// one session per image (issue 0465), so every shim `Node` is on the global
+// executor these verbs drive. Upstream takes the node for the same reason and
+// spins the executor it belongs to.
 
 inline void spin(const Node::SharedPtr& node) {
     if (!node || !node->initialized()) {
         return;
     }
-    while (::nros::ok()) {
-        node->pump(); // polling subscription dispatch (capturing-lambda path)
-        (void)::nros::spin_once(10);
-    }
+    (void)::nros::spin();
 }
 
 inline void spin_some(const Node::SharedPtr& node) {
     if (!node || !node->initialized()) {
         return;
     }
-    node->pump();
     (void)::nros::spin_once(0);
 }
 
@@ -1156,9 +1306,11 @@ inline void spin_some(const Node::SharedPtr& node) {
 //     `while (ok()) { work(); rate.sleep(); }` loop usually WANTS (it is why
 //     that loop needs a second thread upstream), but it is not the same
 //     contract, and a callback that races your loop body is the way it shows.
-//     Note `Node::pump()` is NOT driven here — a `create_subscription`
-//     callback registered through this shim's polling path needs
-//     `rclcpp::spin_some(node)`, not `rate.sleep()`.
+//     Since phase-417 that includes a shim `Node`'s OWN timers and
+//     subscriptions: they are executor entities now, so `rate.sleep()` runs
+//     them. The carve-out this bullet used to carry — "a `create_subscription`
+//     callback needs `rclcpp::spin_some(node)`, not `rate.sleep()`" — was
+//     exactly the two-dispatch-path defect, and it is gone.
 //   * `Rate` and `WallRate` are the SAME clock. Upstream's `Rate` measures ROS
 //     time and `WallRate` steady time; both here read the monotonic
 //     `nros_cpp_time_ns()`, so a `Rate` does not slow down under a sim clock.
@@ -1201,7 +1353,9 @@ class Rate {
         const uint64_t now_ns = nros_cpp_time_ns();
         if (now_ns >= next_tick_ns_) {
             // Overran. Re-anchor on now rather than firing a burst to catch up
-            // — the same choice `Node::pump()` makes for wall timers.
+            // — upstream's `Rate` contract, and the choice `Node::pump()` used
+            // to make for wall timers before they became executor timers (which
+            // catch up instead; see the envelope on `TimerBase`).
             next_tick_ns_ = now_ns + static_cast<uint64_t>(period_ns_);
             return false;
         }
