@@ -1227,5 +1227,13 @@
   "rust:Executor::is_spinning": {
     "verdict": "extension",
     "why": "phase-417 W4.c — `cancel`/`is_spinning` under rclcpp's own names, replacing a three-way disagreement: C had `nros_executor_stop` mutating a C-side state enum, C++ could not stop a spin without `shutdown()` tearing down the session, and Rust's `halt`/`is_halted` were `alloc`-GATED, so a core-only image could not stop its own executor at all. One flag, in Rust; C and C++ forward. ADOPT-BOUNDED (RFC-0087): `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it returns before spinning has stopped -- `is_spinning` is the observable that says when it has. `is_halted` (cancel REQUESTED) and `is_spinning` (a loop is RUNNING) stay distinct; all four combinations are reachable."
+  },
+  "rust:Executor::release_jitter": {
+    "verdict": "extension",
+    "why": "phase-417 W-M2 note: ledgered here because `--require-disposition` armed the api-parity gate and this landed on main in parallel (`55324cc33 feat(sched): measure release jitter`).\n\nRFC-0052's real-time observability: `(max_release_jitter_us, late_wakes, total_wakes)` for a `spin_period` loop. rclcpp has no counterpart because it does not own the release -- a periodic rclcpp node is a wall timer on a general-purpose executor, and the lateness a scheduler introduces is not a quantity rclcpp is in a position to measure. Ours is, because one executor owns one RTOS task (RFC-0002) and the period is the task's own.\n\nThe RATIO is the point, not the maximum alone: one late wake in ten thousand is a glitch, ten thousand in ten thousand means the period cannot be met -- two different failures that a single max cannot tell apart. Zero on a clockless build, where `spin_period` refuses to run at all (issue 0709), so there is nothing to have measured."
+  },
+  "rust:Executor::clear_release_jitter_stats": {
+    "verdict": "extension",
+    "why": "phase-417 W-M2 note: see `rust:Executor::release_jitter`. The reset half -- a measurement window is only meaningful if a caller can start one, and without this the counters are since-boot forever. rclcpp has no counterpart for the same reason it has none for the reading."
   }
 }
