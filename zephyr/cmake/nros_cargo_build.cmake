@@ -424,6 +424,51 @@ function(nros_resolve_knobs)
     _nros_resolve_derivable_knob(NROS_MAX_QUERYABLES
         "${CONFIG_NROS_MAX_QUERYABLES}" NROS_DERIVED_MAX_QUERYABLES
         "entity inventory" "${CMAKE_BINARY_DIR}/nros/entity_inventory.cmake")
+    # phase-412 -- the POSIX mutex pool bounds the subscriber count, and nothing
+    # said so until an island image spent days failing at the eleventh
+    # subscription.
+    #
+    # zenoh-pico's Zephyr port creates one pthread mutex per subscriber sync
+    # group (`_z_declare_subscriber` -> `_z_sync_group_create` ->
+    # `_z_sync_group_state_create` -> `pthread_mutex_init`), and Zephyr's POSIX
+    # mutex pool is STATIC. Past it, pthread_mutex_init fails, and the failure
+    # reaches the application as an opaque -100 "transport error" naming
+    # nothing, on a board whose console is not wired.
+    #
+    # DELIBERATELY NOT DERIVED. The remaining consumers are zenoh-pico's own
+    # (session mutexes, liveliness subscribers, fifo/ring channels, the
+    # scheduler, cancellation tokens), so a derivation would encode that crate's
+    # internal structure into this build and break silently whenever upstream
+    # adds a sync group. A floor with a measured constant is honest about being
+    # a bound rather than a model.
+    #
+    # MEASURED on mr-canhubk344, 2026-09-04: 10 subscribers boot at 32, 11 fail
+    # at 32 and boot at 64. One mutex per subscriber, so the fixed overhead is
+    # 22. The +4 is headroom for a subscriber added without re-measuring.
+    if(CONFIG_NROS_RMW_ZENOH AND DEFINED NROS_RESOLVED_NROS_RMW_SUBSCRIBER_SLOTS
+       AND NOT "${NROS_RESOLVED_NROS_RMW_SUBSCRIBER_SLOTS}" STREQUAL "")
+        set(_nros_zpico_mutex_overhead 22)
+        math(EXPR _nros_mutex_floor
+             "${NROS_RESOLVED_NROS_RMW_SUBSCRIBER_SLOTS} + ${_nros_zpico_mutex_overhead} + 4")
+        if(DEFINED CONFIG_MAX_PTHREAD_MUTEX_COUNT
+           AND CONFIG_MAX_PTHREAD_MUTEX_COUNT LESS _nros_mutex_floor)
+            message(FATAL_ERROR
+                "CONFIG_MAX_PTHREAD_MUTEX_COUNT=${CONFIG_MAX_PTHREAD_MUTEX_COUNT} is too "
+                "small for ${NROS_RESOLVED_NROS_RMW_SUBSCRIBER_SLOTS} subscribers.\n"
+                "\n"
+                "  need at least ${_nros_mutex_floor}"
+                " = ${NROS_RESOLVED_NROS_RMW_SUBSCRIBER_SLOTS} subscribers"
+                " + ${_nros_zpico_mutex_overhead} zenoh-pico fixed + 4 headroom\n"
+                "\n"
+                "zenoh-pico takes one pthread mutex per subscriber sync group and "
+                "Zephyr's POSIX mutex pool is static. Past it pthread_mutex_init "
+                "fails, and by the time that crosses the C ABI it is an opaque "
+                "-100 transport error that names nothing.\n"
+                "\n"
+                "Set CONFIG_MAX_PTHREAD_MUTEX_COUNT=${_nros_mutex_floor} or higher.")
+        endif()
+    endif()
+
     # phase-412 W2 -- one node per declared component. The one under-count is a
     # bridge, whose two nodes are runtime strings declared nowhere; that path
     # now names this knob when the table fills, which is what makes deriving it
