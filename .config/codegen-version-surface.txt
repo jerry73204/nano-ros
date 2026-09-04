@@ -1,7 +1,7 @@
 # phase-429 W3 — the version-surface stamp for `NROS_CODEGEN_VERSION`.
 #
 # EVIDENCE, NOT THE TOKEN. Nothing compiles this file, nothing compares these
-# hashes at run time, and no user of nano-ros ever sees one. RFC-0089 D1 keeps
+# hashes at run time, and no user of nano-ros ever sees one. RFC-0090 D1 keeps
 # the compatibility token an authored integer precisely so a reader can order
 # two of them; this file exists only so that an authored integer cannot drift
 # away from what it claims to describe.
@@ -12,12 +12,12 @@
 #
 # Regenerate after a DELIBERATE surface move (bump the constant first):
 #     python3 scripts/check-codegen-version-surface.py --write-baseline
-version 1
+version 2
 2415963024c63037 cpp|fn|component.hpp|bind_subscription_sized
 4e2616f1497bc854 cpp|struct|fixed_sequence.hpp|FixedSequence
-efa12c6f08547166 cpp|struct|fixed_string.hpp|FixedString
+05b2ecfd67796b30 cpp|struct|fixed_string.hpp|FixedString
 c2bd21803d713aa0 cpp|struct|heap_sequence.hpp|HeapSequence
-f8736d3d1123a4d6 cpp|struct|heap_string.hpp|HeapString
+4ce650fb152a9df1 cpp|struct|heap_string.hpp|HeapString
 5feab3fc0e37c2db cpp|struct|size_bound.hpp|size_bound_dependent_false
 c3a4962bef9b0e39 cpp|struct|span.hpp|LeSpan
 3ac972908fe3dcf7 cpp|struct|span.hpp|Span
@@ -52,6 +52,7 @@ a91f1c4466f597cb c|fn|cdr.h|nros_cdr_write_bool
 2964ed5adc08f31d c|fn|cdr.h|nros_cdr_write_u32
 8460cb2ce1b9fa02 c|fn|cdr.h|nros_cdr_write_u64
 71b87a12f9b2731d c|fn|cdr.h|nros_cdr_write_u8
+9293cd53097f9689 c|fn|client.h|nros_client_take_response
 97ef03f55dc6ed4d c|fn|component.h|nros_cpp_publish_raw
 27d97d2f6f4d17a9 c|fn|nros_generated.h|nros_cdr_begin_dheader
 953680f7c86afbb7 c|fn|nros_generated.h|nros_cdr_begin_dheader_read
@@ -83,20 +84,59 @@ b1cdeda5fc19682c c|fn|nros_generated.h|nros_cdr_write_i8
 1a82913aa5898aa5 c|fn|nros_generated.h|nros_cdr_write_u32
 a0ee677dbcf470a8 c|fn|nros_generated.h|nros_cdr_write_u64
 bf05a018a3258b10 c|fn|nros_generated.h|nros_cdr_write_u8
+214bf6fadf7c5147 c|fn|nros_generated.h|nros_client_call
+f27982a8a9c6d7da c|fn|nros_generated.h|nros_client_send_request_async
+4e5d36e86c12e9f0 c|fn|nros_generated.h|nros_client_set_response_callback
+894b258dd99eacd5 c|fn|nros_generated.h|nros_client_take_response
+d1a9e1443091cc94 c|fn|nros_generated.h|nros_executor_add_subscription_typed_sized
 1f102178d10eee73 c|fn|nros_generated.h|nros_publish_raw
+afa4a8b1a5fb961c c|fn|nros_generated.h|nros_service_init_with_qos
+72e1976772373bd4 c|fn|nros_generated.h|nros_service_typed_report_error
+1c45b063fe7a0dfe c|fn|service.h|nros_service_init_with_qos
+a081f22d8e3003b2 c|macro|node_pkg.h|NROS_RET_INVALID_ARGUMENT
+020c5acaef5b4c4b c|macro|node_pkg.h|NROS_RET_OK
+4ee984a1b028ac91 c|macro|nros_generated.h|NROS_RET_ERROR
+a081f22d8e3003b2 c|macro|nros_generated.h|NROS_RET_INVALID_ARGUMENT
+020c5acaef5b4c4b c|macro|nros_generated.h|NROS_RET_OK
+1500321c44c771fa c|macro|nros_generated.h|NROS_SERVICE_TYPED_ERR_NO_CALLBACK
+a65740740068f3ad c|macro|nros_generated.h|NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE
+0207758d7ffdeb94 c|macro|nros_generated.h|NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE
+7dcec807b5a21546 c|macro|nros_generated.h|NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE
+589e38d350b772e9 c|macro|nros_generated.h|NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE
+2c1e447af986fc17 c|macro|nros_generated.h|NROS_SERVICE_TYPED_OK
 37f6161a4d260013 c|macro|serialization_format.h|NROS_ASSERT_MESSAGE_FORMAT
 fa4c73b6db0355d0 c|macro|serialization_format.h|NROS_SERIALIZATION_FORMAT_ID_CDR
-235604dbaa7be397 c|type|action.h|nros_ret_t
-e977f098960638a3 c|type|client.h|nros_ret_t
+bc923ef328adf152 c|type|action.h|NROS_RET_ERROR
+cfef7d29144ab0a8 c|type|client.h|nros_client_t
+eb505e6db29ff69c c|type|client.h|nros_node_t
+7df76fca6a61f794 c|type|client.h|nros_service_type_t
+67f02fb44a5bd5c7 c|type|clock.h|nros_ret_t
+b7a7be2a2622aef9 c|type|executor.h|nros_ret_t
+30d27f90db350072 c|type|guard_condition.h|nros_ret_t
+4cdfd02b1c4121ab c|type|node.h|nros_node_t
 1db72978bc81873b c|type|node_pkg.h|nros_ret_t
 fe679f526273ea16 c|type|nros_generated.h|nros_action_type_t
+91aa9ce03f3a5a10 c|type|nros_generated.h|nros_client_t
 d0b697c977eccb8a c|type|nros_generated.h|nros_message_type_t
+10f39d823654ff4f c|type|nros_generated.h|nros_node_t
 99ff00c3dcc2f18e c|type|nros_generated.h|nros_publisher_t
 b80dc9d3520b55aa c|type|nros_generated.h|nros_ret_t
+c7463b578932e2d9 c|type|nros_generated.h|nros_service_t
 41874b5b997bbd8b c|type|nros_generated.h|nros_service_type_t
 ad0d65b3ec68f44e c|type|parameter.h|nros_ret_t
+6512688013c999a1 c|type|publisher.h|nros_message_type_t
+9fd50658902a5484 c|type|rcl_compat.h|nros_client_t
+968490017b04f0de c|type|rcl_compat.h|nros_node_t
+c84567578384362e c|type|rcl_compat.h|nros_publisher_t
+4e8d241d8fcc94d3 c|type|rcl_compat.h|nros_ret_t
+043e22b458ff1e47 c|type|rcl_compat.h|nros_service_t
 38d790f4151b248f c|type|serialization_format.h|NROS_ASSERT_MESSAGE_FORMAT
-19a6cdf85df5162b c|type|service.h|nros_ret_t
+f21cf467b9908440 c|type|service.h|NROS_RET_INVALID_ARGUMENT
+cb494e5a72149e78 c|type|service.h|nros_node_t
+567f8a41865b5b25 c|type|service.h|nros_service_init_with_qos
+e86f195aef0c5d84 c|type|subscription.h|nros_message_type_t
+b6e4c5dfe4693155 c|type|timer.h|NROS_RET_INVALID_ARGUMENT
+1f775767147abdec c|type|timer.h|nros_ret_t
 5bb13590faea8e7f c|type|view.h|nros_le_slice_view_
 54616a685e37b195 c|type|view.h|nros_view_bytes_t
 88d59d0ac993b29b c|type|view.h|nros_view_str_t

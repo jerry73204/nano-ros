@@ -983,7 +983,7 @@ parity CLAIM and the parity MEASUREMENT disagree.
 * **[#1020](../issues/1020-parity-cpp-lane-cannot-see-the-compat-shim.md)** — the
   C++ parity lane measures the NATIVE API against rclcpp and cannot see the
   compat shim, so the number it reports is about the wrong surface.
-* **[#1012](../issues/1012-ledger-prose-cites-renamed-symbols.md)** — 15 ledger
+* **[#1012](../issues/archived/1012-ledger-prose-cites-renamed-symbols.md)** — 15 ledger
   rows describe symbols a rename retired. The ledger is the artifact this phase
   reasons from, so prose that names dead symbols is a measurement error, not a
   typo.

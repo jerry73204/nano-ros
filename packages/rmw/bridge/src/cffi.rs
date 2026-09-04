@@ -300,7 +300,7 @@ pub unsafe extern "C" fn nros_pubsub_bridge_create(
     let inner = match PubSubBridge::new(sub, pubr, origin_static) {
         Ok(b) => b,
         Err(e) => {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_bridge"),
                 "nros_pubsub_bridge_create: {}",
                 e

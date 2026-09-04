@@ -358,7 +358,7 @@ impl ZenohSession {
         // dropped is indistinguishable from one that took effect, so the next
         // person debugs the transport rather than the input.
         if config.properties.len() > MAX_SESSION_PROPERTIES {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_zenoh"),
                 "session config: {} properties supplied, this build carries at most {} \
                  (raise MAX_SESSION_PROPERTIES in nros-rmw-zenoh's shim; it is a stack \
@@ -373,7 +373,7 @@ impl ZenohSession {
             let key_bytes = key.as_bytes();
             let val_bytes = value.as_bytes();
             if key_bytes.len() >= CONFIG_PROPERTY_SIZE || val_bytes.len() >= CONFIG_PROPERTY_SIZE {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("nros_rmw_zenoh"),
                     "session config: property '{}' does not fit this build's {}-byte \
                      key/value buffer",
@@ -425,7 +425,7 @@ impl ZenohSession {
                         || key_bytes.len() >= CONFIG_PROPERTY_SIZE
                         || val_bytes.len() >= CONFIG_PROPERTY_SIZE
                     {
-                        nros_log::nros_error!(
+                        nros_log::log_error!(
                             nros_log::get_logger("nros_rmw_zenoh"),
                             "session config: {} could not be applied — {} properties already \
                              set (max {}) or the value exceeds {} bytes",
