@@ -4358,7 +4358,7 @@ cpp: cpp-fmt
     echo "  - phase-417: ported-file surface COMPILES (aliases, string interop, graph, actions, executor)"
     for probe in ros2_api_adoption node_graph_forwarders ros2_api_adoption_stage2 ros2_one_dispatch_path \
                  ros2_init_argv_refusal action_goal_uuid executor_cancel; do \
-        c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+        c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti -DNROS_CPP_STD \
             -Itarget/nros-cpp-generated \
             -Itarget/nros-c-generated \
             -Ipackages/api/nros-cpp/include \

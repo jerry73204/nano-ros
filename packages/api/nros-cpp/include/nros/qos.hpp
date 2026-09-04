@@ -22,7 +22,17 @@
 // `NROS_RCLCPP_REFUSE_*` diagnostics, used by `SystemDefaultsQoS` below.
 // `log.hpp` includes nothing of ours, so this adds no cycle.
 #include "nros/log.hpp"
-#include <type_traits> // rclcpp::detail::is_qos_arg
+// `<type_traits>` is GATED, and this is issue 0112's class one step further
+// than step A caught it. Zephyr's minimal libcpp ships exactly THREE headers --
+// `cstddef`, `cstdint`, `new` (`zephyr/lib/cpp/minimal/include/`) -- so an
+// UNGATED include here made `#include <nros/nros.hpp>` fail to compile on every
+// Zephyr C++ image. Step A verified against a SYNTHESISED minimal libcpp that
+// happened to provide `<type_traits>`, so the lane stayed green.
+//
+// `is_qos_arg` exists only to disambiguate `rclcpp::Node`'s create_service
+// overloads, and that node type is itself hosted-only, so nothing freestanding
+// can reach the predicate.
+// This header includes NOTHING, deliberately -- see `is_qos_arg` below.
 
 // FFI struct definition — mirrors `nros_cpp_qos_t` in
 // nros_cpp_ffi.h. Phase 118.D: guarded by `NROS_CPP_FFI_H`. If
@@ -500,8 +510,55 @@ namespace detail {
 /// good poll-style call fails with the shared_ptr-callback diagnostic — a
 /// refusal firing on something it does not describe, which is worse than no
 /// refusal. Caught by the positive probe on its first compile.
-template <typename F>
-struct is_qos_arg : ::std::is_base_of<::nros::QoS, typename ::std::decay<F>::type> {};
+/// Written WITHOUT `<type_traits>`, and the two failures that forced it are
+/// different failures:
+///
+/// * On the Zephyr arm-none-eabi toolchain `__has_include(<type_traits>)` is
+///   TRUE and the header is INCOMPLETE -- `enable_if` and `is_convertible` are
+///   there, `is_base_of` and `decay` are not. `__has_include` answers "does the
+///   header exist", which is the wrong question for a header a freestanding
+///   toolchain ships hollowed out. (Issue 0112's class; step A verified against
+///   a SYNTHESISED minimal libcpp that happened to be more complete than the
+///   real one, so the lane stayed green.)
+/// * Gating the include on `NROS_CPP_STD` instead fixed Zephyr and broke the
+///   freestanding-syntax lane, because the two predicates do not partition the
+///   lanes the way the names suggest. The `rclcpp::` block in `nros.hpp` is
+///   NOT behind `NROS_CPP_STD` -- step A declared it unconditionally, and it
+///   hands out `std::shared_ptr` and `std::string` -- so the freestanding lane
+///   compiles `rclcpp::Node` against a SYNTHESISED minimal libcpp while
+///   defining no opt-in at all. There the header exists and the macro does not;
+///   on Zephyr the macro is available and the header is hollow. Neither
+///   predicate is true in both lanes.
+///
+/// So the predicate depends on neither: a derived-to-base pointer conversion
+/// under overload resolution answers `is_base_of` with nothing but the core
+/// language, and the partial specialisations answer `decay` for every form a
+/// by-value template parameter can take.
+template <typename F> struct qos_arg_strip {
+    typedef F type;
+};
+template <typename F> struct qos_arg_strip<F&> {
+    typedef F type;
+};
+template <typename F> struct qos_arg_strip<const F&> {
+    typedef F type;
+};
+template <typename F> struct qos_arg_strip<const F> {
+    typedef F type;
+};
+
+template <typename F> class is_qos_arg {
+    typedef char yes_t[1];
+    typedef char no_t[2];
+    // Declared, never defined: both calls live in `sizeof`, which does not
+    // evaluate its operand.
+    static yes_t& probe(const ::nros::QoS*);
+    static no_t& probe(...);
+    static typename qos_arg_strip<F>::type* arg();
+
+  public:
+    static const bool value = sizeof(probe(arg())) == sizeof(yes_t);
+};
 
 } // namespace detail
 

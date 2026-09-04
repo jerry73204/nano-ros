@@ -572,6 +572,15 @@ target_link_libraries({pkg_sym}_{node_name}_component
     fs::write(dir.join("CMakeLists.txt"), cmake)?;
 
     let class_hpp = format!(
+        // phase-417 W-B3 -- the C++ template STAYS on `::nros::` spellings, and the
+        // attempt to migrate it is worth recording because three of the four names do
+        // not exist. `rclcpp::Publisher<M>` is a real alias; `rclcpp::Result` and
+        // `rclcpp::Timer` are not declared anywhere, and `rclcpp::Node` is a DISTINCT
+        // hosted class whose `create_publisher<M>(name)` returns a `shared_ptr` where
+        // the body below passes an out-ref. So the migrated template compiled in no
+        // configuration -- and the scaffold test greps the emitted TEXT rather than
+        // building it, so it reported the rename as a success. Migrating this template
+        // waits on the same node-type merge W-B5 waits on.
         r#"#pragma once
 
 #include <nros/component.hpp>
@@ -1073,7 +1082,7 @@ use nros::{{
     Callback, CallbackCtx, DispatchStrategy, ExecutableNode, Node, NodeContext, NodeResult,
     TickCtx, TimerDuration,
 }};
-use nros_log::{{Logger, nros_error, nros_info}};
+use nros_log::{{Logger, log_error, log_info}};
 use std_msgs::msg::String as StringMsg;
 
 static LOGGER: Logger = Logger::new("{name}");
@@ -1106,8 +1115,8 @@ impl ExecutableNode for Talker {{
             let mut msg = StringMsg::default();
             let _ = write!(msg.data, "Hello World: {{}}", *state);
             match ctx.publish_to_topic::<StringMsg, 64>("/chatter", &msg) {{
-                Ok(()) => nros_info!(&LOGGER, "Publishing: '{{}}'", msg.data),
-                Err(e) => nros_error!(&LOGGER, "Publish failed: {{:?}}", e),
+                Ok(()) => log_info!(&LOGGER, "Publishing: '{{}}'", msg.data),
+                Err(e) => log_error!(&LOGGER, "Publish failed: {{:?}}", e),
             }}
         }}
     }}
@@ -1226,16 +1235,16 @@ int main(int argc, char** argv) {{
     }}
 
     nros_node_t node = rcl_get_zero_initialized_node();
-    if (nros_node_init(&node, &support, "{name}", "/") != NROS_RET_OK) {{
-        fprintf(stderr, "nros_node_init failed\n");
+    if (rclc_node_init_default(&node, "{name}", "/", &support) != NROS_RET_OK) {{
+        fprintf(stderr, "rclc_node_init_default failed\n");
         return 1;
     }}
 
     nros_publisher_t pub = rcl_get_zero_initialized_publisher();
-    if (nros_publisher_init(&pub, &node,
-                            std_msgs_msg_int32_get_type_support(),
-                            "/chatter") != NROS_RET_OK) {{
-        fprintf(stderr, "nros_publisher_init failed\n");
+    if (rclc_publisher_init_default(&pub, &node,
+                                    std_msgs_msg_int32_get_type_support(),
+                                    "/chatter") != NROS_RET_OK) {{
+        fprintf(stderr, "rclc_publisher_init_default failed\n");
         return 1;
     }}
 
@@ -1246,8 +1255,8 @@ int main(int argc, char** argv) {{
     printf("{name}: published 0 on /chatter\n");
 
     nros_publisher_fini(&pub);
-    nros_node_fini(&node);
-    nros_support_fini(&support);
+    rcl_node_fini(&node);
+    rclc_support_fini(&support);
     return 0;
 }}
 "#,
