@@ -2492,8 +2492,10 @@ fn test_spin_blocking_halt() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    // Pre-set halt flag → exits immediately
-    executor.halt();
+    // Pre-set cancel flag → exits immediately. `cancel()`, not the deprecated
+    // `halt()`: phase-417 W4.c renamed it to rclcpp's word, and `-D warnings`
+    // makes the old spelling a hard error rather than a warning.
+    executor.cancel();
     assert!(executor.is_halted());
 
     // spin_blocking resets halt then checks it — so we need a thread
@@ -2685,7 +2687,7 @@ fn test_halt_raises_wake_flag() {
     let wake = executor.wake_handle();
     assert!(!wake.load(portable_atomic::Ordering::SeqCst));
 
-    executor.halt();
+    executor.cancel();
     assert!(executor.is_halted());
     assert!(
         wake.load(portable_atomic::Ordering::SeqCst),
