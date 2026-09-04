@@ -208,25 +208,50 @@ one out in 15.
   `_get_type_name`/`_get_type_hash` today, so every C service in the tree is
   raw bytes with hand-written CDR.
 
-## The structural blocker the rename cannot paper over
+## The structural blocker — RESOLVED by phase-417 itself (corrected 2026-09-05)
 
-**Two spin worlds, and no compile signal.** The shim `rclcpp::Node` dispatches
-subscription callbacks and wall timers from its own `pump()`, driven only by
-`rclcpp::spin(node)` / `rclcpp::spin_some(node)`
-(`rclcpp_compat.hpp:428-451,454-470`). A ported file that instead calls
-`nros::spin_once()`, `nros::spin()`, or drives an `nros::Executor` directly —
-all of which are in the umbrella, all of which a mixed file plausibly reaches —
-gets **zero callbacks and no diagnostic**.
+**This section described a blocker that no longer exists, and nothing scheduled
+the node-type merge because the two documents gating it still described the
+pre-fix world.** Recording what it said, and what removed it.
 
-Today the two node types have different names, which is the only thing making
-this visible at all. **After the rename they would have the same name**, so the
-rename makes it strictly worse. No message can be written for it: both spellings
-are legitimate, and which one is wrong depends on which node object the file
-holds.
+It said: the shim `rclcpp::Node` dispatched subscription callbacks and wall
+timers from its own `pump()`, driven only by `rclcpp::spin(node)` /
+`spin_some(node)` (citing `rclcpp_compat.hpp:428-451,454-470`). A ported file
+that instead called `nros::spin_once()`, `nros::spin()`, or drove an
+`nros::Executor` got **zero callbacks and no diagnostic** — and after a rename
+the two node types would share a name, making it strictly worse.
 
-This is why the rename is gated on more than the loudness pass. The fix is
-structural — one node stack, the shim `Node` re-parented onto the arena-driven
-one rather than pumping its own — and it belongs before stage 6, not in it.
+**That file and that method are gone.** `rclcpp_compat.hpp` was deleted in stage
+6 step A; `pump()` was deleted by the one-dispatch-path pass. `nros.hpp:939-948`
+says so in its own words — *"`pump()` IS GONE… there is nothing left for a
+node-local sweep to do and mixing spin spellings is harmless"* — and
+`nros.hpp:622-631` records the change at the call site: every entity a
+`rclcpp::Node` creates is now arena-registered through
+`nros::create_subscription_raw`, the same call the native path makes, so the
+executor dispatches it whichever spin verb the caller drives.
+
+So the precondition the merge was waiting on has been satisfied. What remains is
+not a blocker but two open questions, and they are different in kind:
+
+* **The instrument.** `just check cpp`'s "freestanding syntax" probe was host
+  `c++ -ffreestanding` against the host's COMPLETE libstdc++, so it could not
+  fail on anything a merge risks. A `-nostdinc++` lane against the real
+  ThreadX and Zephyr shims is now in `check-cpp`, and it found a live red on
+  its first run (`::std::abort` unexported by the ThreadX `cstdlib`, breaking
+  every ThreadX C++ image since `rclcpp::init` entered the umbrella header).
+* **`sizeof(nros::Node)`.** A merged node whose layout depends on a
+  preprocessor capability probe is an ODR hazard, and those probes have now
+  been measured wrong three separate times. That is a risk decision, not a
+  reading — see the RFC.
+
+Two further claims this section rested on were also measured and are false.
+`rclcpp::Node` is **not hosted-only**: it is declared on bare-metal NuttX
+armv7a and riscv32, and the real partition is `-nostdinc++` versus not, which
+only Zephyr and ThreadX-RISCV64 fall on. And five of W-B5's six C++ items —
+`spin_once`, `Timer`, the lifecycle set, `GoalResponse`/`CancelResponse` — have
+**zero upstream occurrences**, so they are ours-only names for capabilities ROS
+2 does not have: retireable never, not later, and never contingent on this
+merge. Only `nros::Node` ever was.
 
 ## Stage 6 — the rename, in two steps
 
