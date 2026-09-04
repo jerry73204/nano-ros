@@ -191,7 +191,7 @@ pre{
   padding-left:9px;border-left:2px solid var(--line2);
 }
 .surf code{font-family:var(--mono);font-size:11px}
-/* RFC-0087 disposition — what a PORTING USER gets. `refuse-loud` is the one
+/* RFC-0089 disposition — what a PORTING USER gets. `refuse-loud` is the one
    that has to catch the eye: it is the only value that promises a compile
    error, which is the difference between an hour and a week. */
 .disp{
