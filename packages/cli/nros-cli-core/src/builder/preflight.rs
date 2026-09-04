@@ -178,19 +178,45 @@ fn rust_component_installed(component: &str) -> bool {
 /// a nix shell), this reports installed and lets the build speak for itself.
 /// Preflight exists to give a better message than the compiler, never to refuse
 /// a build the compiler would have accepted.
+/// The installed-target list, probed ONCE per process.
+///
+/// `None` means the probe could not answer -- no `rustup` on PATH, or it
+/// failed. Both callers then report the target as installed, because inventing
+/// a missing target is the worse error.
+///
+/// Probed once because the two failure modes are INDISTINGUISHABLE at the call
+/// site and only one of them is stable. "no rustup here" gives the same `Err`
+/// as a spawn that failed under load, and under an 80-way parallel build the
+/// second happens intermittently -- so two calls in one process could disagree,
+/// and `check()` would report a target as present that a caller had just
+/// measured as absent. Caching does not make the probe more accurate; it makes
+/// the process SELF-CONSISTENT, which is what a caller comparing two answers
+/// actually needs. Issue 0726's class.
+fn installed_rust_targets() -> &'static Option<Vec<String>> {
+    static CACHE: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let out = std::process::Command::new("rustup")
+            .args(["target", "list", "--installed"])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .collect(),
+        )
+    })
+}
+
 fn rust_target_installed(target: &str) -> bool {
-    let Ok(out) = std::process::Command::new("rustup")
-        .args(["target", "list", "--installed"])
-        .output()
-    else {
-        return true;
-    };
-    if !out.status.success() {
-        return true;
+    match installed_rust_targets() {
+        // Cannot answer -- see above.
+        None => true,
+        Some(list) => list.iter().any(|l| l == target),
     }
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .any(|l| l.trim() == target)
 }
 
 /// Render the problems as the message stage 3 fails with.
