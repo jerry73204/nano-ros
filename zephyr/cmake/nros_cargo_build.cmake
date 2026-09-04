@@ -745,17 +745,6 @@ function(nros_set_cargo_env_from_kconfig)
         set(ENV{${_knob}} "${NROS_RESOLVED_${_knob}}")
     endforeach()
 
-    # phase-412 -- the boot self-report. A BOOL, so it is exported directly
-    # rather than through the resolve ladder above: that machinery exists to
-    # carry a tri-state (env > Kconfig > derived, with -1 and 0 as sentinels for
-    # "derive it"), and a bool has no derive state to represent. Passing it
-    # through would mean inventing a third meaning for a sentinel, which is the
-    # shape that has already produced three double-resolution defects in this
-    # file.
-    if(CONFIG_NROS_BOOT_REPORT)
-        set(ENV{NROS_BOOT_REPORT} "1")
-    endif()
-
     if(CONFIG_NROS_RMW_ZENOH)
         # zpico-sys build.rs needs the nros-platform-cffi header dir. In-tree dev
         # gets it from .env/direnv; set it from the known module path so a
@@ -1175,6 +1164,23 @@ function(nros_cargo_build)
     foreach(_knob IN LISTS NROS_RESOLVED_KNOBS)
         list(APPEND _nros_knob_env "${_knob}=${NROS_RESOLVED_${_knob}}")
     endforeach()
+
+    # phase-412 -- the boot self-report. A BOOL, so it does not go through the
+    # resolve ladder: that machinery carries a tri-state (env > Kconfig >
+    # derived, with -1 and 0 as sentinels for "derive it") and a bool has no
+    # derive state to represent. Putting one through would mean inventing a
+    # third meaning for a sentinel, which is the shape that has already produced
+    # three double-resolution defects in this file.
+    #
+    # But it rides THIS list, not `set(ENV{})`, for the reason the comment below
+    # gives: the cargo that reads it is spawned by a custom target at BUILD
+    # time, so a configure-time environment never reaches it. Written the wrong
+    # way first, and the image linked without the record while every cmake
+    # variable said it was on -- the delivery-failure class phase-412 W4 exists
+    # for, arriving in the work that was meant to instrument it.
+    if(CONFIG_NROS_BOOT_REPORT)
+        list(APPEND _nros_knob_env "NROS_BOOT_REPORT=1")
+    endif()
 
     # phase-351 W5 — the board FACTS + SITE config ride the same command, for
     # the same reason the knobs do: Zephyr's cargo is spawned by this custom
