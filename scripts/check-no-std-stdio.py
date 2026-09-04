@@ -36,7 +36,7 @@ and build-script calls and teach people to add exemptions.
 
 ## What to write instead
 
-`nros_log` — `nros_error!` / `nros_warn!` / `nros_info!` / `nros_trace!` through
+`nros_log` — `log_error!` / `log_warn!` / `log_info!` / `nros_trace!` through
 `nros_log::get_logger("<crate>")`. It reaches the console when a sink is wired
 and is dropped when one is not; never fatal either way. Core and RMW crates
 carry no `platform-*` feature to gate on (ARCHITECTURE §2), so the sink has to
@@ -438,7 +438,7 @@ def main():
         "\n"
         "  Write `nros_log` instead:\n"
         "\n"
-        "      nros_log::nros_error!(nros_log::get_logger(\"<crate>\"), \"…\");\n"
+        "      nros_log::log_error!(nros_log::get_logger(\"<crate>\"), \"…\");\n"
         "\n"
         "  It reaches the console when a sink is wired, is dropped when one is not,\n"
         "  and is never fatal. It also reaches no_std targets, which the\n"

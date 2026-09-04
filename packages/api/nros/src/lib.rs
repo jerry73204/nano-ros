@@ -281,14 +281,6 @@ pub use nros_log::{
     nros_fatal_throttle_at, nros_info_throttle, nros_info_throttle_at, nros_trace,
     nros_trace_throttle, nros_trace_throttle_at, nros_warn_throttle, nros_warn_throttle_at,
 };
-// The pre-rename spellings, forwarded so an unmigrated call site keeps working
-// and gets a deadline rather than a break. RFC-0089's "alias as the migration
-// step"; removal is a later batch with a changelog entry. `#[allow(deprecated)]`
-// on the re-export itself: the warning belongs at the USER's call site, not on
-// this line.
-#[allow(deprecated)]
-pub use nros_log::{nros_debug, nros_error, nros_fatal, nros_info, nros_warn};
-
 /// The whole logging facade — sinks, the early-record ring, the throttle
 /// primitives, `init`/`flush`/`add_sink`.
 ///
@@ -1516,12 +1508,6 @@ pub mod prelude {
         nros_fatal_throttle_at, nros_info_throttle, nros_info_throttle_at, nros_warn_throttle,
         nros_warn_throttle_at,
     };
-    // The deprecated pre-rename spellings, so `use nros::prelude::*` keeps
-    // compiling in an unmigrated node -- with a warning that names the new one.
-    // They leave the glob with the removal batch.
-    #[allow(deprecated)]
-    pub use crate::{nros_debug, nros_error, nros_fatal, nros_info, nros_warn};
-
     // Re-export component-mode API.
     #[cfg(feature = "rmw-cffi")]
     pub use crate::NodeExecutorRuntime;
