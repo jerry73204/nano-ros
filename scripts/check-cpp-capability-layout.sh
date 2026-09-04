@@ -67,6 +67,58 @@ size_of() { # $1 = type, rest = extra flags
         grep -oE 'ShowSize<[0-9]+' | head -1 | sed 's/ShowSize<//'
 }
 
+# NEGATIVE CONTROL, on the normal path.
+#
+# The measurement can only be trusted if it is known to FAIL when a layout does
+# follow a probe. That is not hypothetical here: forcing a macro that is already
+# on in the baseline is a no-op, so a version of this gate could look green and
+# detect nothing. This synthesises the divergence in a standalone TU -- no nros
+# headers, no include path -- and asserts both directions.
+selftest() {
+    local tu="${TU%/*}/selftest.cpp" a b c d
+    cat > "$tu" <<'EOF'
+struct Conditional {
+    void* always;
+#ifdef NROS_SELFTEST_CAP
+    double gated_member;
+#endif
+};
+struct Invariant {
+    void* always;
+#ifdef NROS_SELFTEST_CAP
+    void gated_method();
+#endif
+};
+template <int N> struct ShowSize;
+#ifdef NROS_SELFTEST_PICK_INVARIANT
+ShowSize<static_cast<int>(sizeof(Invariant))> probe;
+#else
+ShowSize<static_cast<int>(sizeof(Conditional))> probe;
+#endif
+EOF
+    _st() { c++ -fsyntax-only -std=c++17 "$@" "$tu" 2>&1 | grep -oE 'ShowSize<[0-9]+' | head -1 | sed 's/ShowSize<//'; }
+    a="$(_st)"; b="$(_st -DNROS_SELFTEST_CAP=1)"
+    c="$(_st -DNROS_SELFTEST_PICK_INVARIANT=1)"
+    d="$(_st -DNROS_SELFTEST_PICK_INVARIANT=1 -DNROS_SELFTEST_CAP=1)"
+    if [ -z "$a" ] || [ -z "$b" ] || [ -z "$c" ] || [ -z "$d" ]; then
+        echo "check-cpp-capability-layout --selftest: the size probe produced no number" >&2
+        exit 1
+    fi
+    if [ "$a" = "$b" ]; then
+        echo "check-cpp-capability-layout --selftest: a CONDITIONAL MEMBER did not change sizeof ($a vs $b)" >&2
+        echo "  The measurement cannot see the defect it exists to catch." >&2
+        exit 1
+    fi
+    if [ "$c" != "$d" ]; then
+        echo "check-cpp-capability-layout --selftest: a gated METHOD changed sizeof ($c vs $d)" >&2
+        echo "  The gate would fail on the shape it is supposed to permit." >&2
+        exit 1
+    fi
+    echo "check-cpp-capability-layout --selftest: 2 case(s) OK (member diverges, method does not)"
+}
+
+selftest
+
 fail=0
 for ty in "${TYPES[@]}"; do
     base="$(size_of "$ty")"
