@@ -1232,5 +1232,13 @@
   "cpp:Rate::period": {
     "verdict": "divergence",
     "why": "phase-417 W2.d — `rclcpp::Rate`/`WallRate` as a FORWARDER onto `nros::spin(remaining_ms, poll_ms)`, which DRIVES the executor. The obvious C++ class with its own sleep loop is RFC-0020 violation class 2 and what RFC-0021 forbids; same capability, only one admissible shape. ADOPT-BOUNDED: your callbacks RUN during the sleep, which they do not under a single-threaded rclcpp executor."
+  },
+  "rust:Executor::timer_elapsed_us": {
+    "verdict": "divergence",
+    "why": "phase-417 W5.c — a read of the arena's own timer accounting, exposed so the C accessors forward rather than recompute. rclrs puts the equivalents on `Timer`; RFC-0002's arena owns timer state here, so there is no owning `Timer` object to hang them on and they sit on the executor. Returns `Option` deliberately: \"not a timer handle\" is a different answer from `0`/`false`, which is issue 1008's shape."
+  },
+  "rust:Executor::timer_is_ready": {
+    "verdict": "divergence",
+    "why": "phase-417 W5.c — a read of the arena's own timer accounting, exposed so the C accessors forward rather than recompute. rclrs puts the equivalents on `Timer`; RFC-0002's arena owns timer state here, so there is no owning `Timer` object to hang them on and they sit on the executor. Returns `Option` deliberately: \"not a timer handle\" is a different answer from `0`/`false`, which is issue 1008's shape."
   }
 }

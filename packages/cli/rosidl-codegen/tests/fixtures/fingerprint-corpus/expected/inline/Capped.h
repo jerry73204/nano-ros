@@ -187,6 +187,65 @@ static inline nros_ret_t fingerprint_corpus_msg_capped_publish(struct nros_publi
 #define fingerprint_corpus_msg_capped_subscribe(node, topic, cb, ctx, out_handle) \
     NROS_UNBOUNDED__fingerprint_corpus_msg_capped__field_label
 
+
+/// phase-417 W5.a — the TYPED delivery glue: the callback receives a
+/// deserialised Capped, not CDR bytes.
+///
+/// `fingerprint_corpus_msg_capped_deserialize` already writes into caller-owned storage and
+/// returns 0/-1 — the executor's typed path needs exactly that, with the type
+/// erased. This is a real function with the erased signature rather than a cast
+/// of `fingerprint_corpus_msg_capped_deserialize`: calling through a function pointer of a
+/// different type is undefined even where it happens to work, and a
+/// control-flow-integrity build traps on it.
+static inline int32_t fingerprint_corpus_msg_capped_deserialize_erased(void* msg, const uint8_t* buffer,
+                                                           size_t buffer_size) {
+    return fingerprint_corpus_msg_capped_deserialize((fingerprint_corpus_msg_capped*)msg, buffer, buffer_size);
+}
+
+/// rclc-shaped typed registration for Capped.
+///
+///     rclc_executor_add_subscription_with_context(&exec, &sub, &msg, &cb, &ctx, ON_NEW_DATA);
+///     fingerprint_corpus_msg_capped_executor_add_subscription(&exec, &sub, &msg, &cb, &ctx,
+///                                                 NROS_EXECUTOR_ON_NEW_DATA);
+///
+/// Six arguments, rclc's order. The deserialiser and the receive-buffer hint are
+/// derived from the ONE type token, so they cannot disagree with each other or
+/// with the type — the same argument `fingerprint_corpus_msg_capped_subscribe` above makes
+/// for the raw path.
+///
+/// `cb` is an `nros_typed_subscription_callback_t`:
+/// `void (*)(const void* msg, void* context)`, rclc's
+/// `rclc_subscription_callback_with_context_t`. Cast `msg` to
+/// `const fingerprint_corpus_msg_capped*` and read FIELDS; there is no CDR in a ported
+/// callback body. `ctx` is passed straight through — it is NOT the context
+/// given to `nros_subscription_init`, which belongs to the raw registration.
+///
+/// If the sample cannot be decoded into `msg` — including a string or sequence
+/// longer than the bound this type declares — the callback is NOT invoked, the
+/// sample is dropped, and the spin reports a subscription error. It never sees a
+/// truncated message.
+///
+/// A MACRO for the reason `fingerprint_corpus_msg_capped_subscribe` is one: it expands at
+/// the CALL SITE, where <nros/executor.h> is already included, so this header
+/// keeps its single include of <nros/types.h> and names nothing from the
+/// executor ABI until the macro is actually used.
+#define fingerprint_corpus_msg_capped_executor_add_subscription_sized(executor, subscription, msg, cb, ctx, \
+                                                          invocation, rx_bytes) \
+    nros_executor_add_subscription_typed_sized( \
+        (executor), (subscription), (msg), fingerprint_corpus_msg_capped_deserialize_erased, (cb), (ctx), \
+        (invocation), (uint32_t)(rx_bytes))
+
+/* issue 0896 layer 5 -- this type has NO receive bound
+   (unbounded members: label (string), samples (sequence<T>), tags (sequence<T>)), so there is no number the six-argument form could
+   pass, exactly as for `fingerprint_corpus_msg_capped_subscribe` above. POISONED so the
+   diagnostic names the type and the member that costs it the bound. Either
+   remove the cause -- see the reason block above -- or call
+   `fingerprint_corpus_msg_capped_executor_add_subscription_sized` with a byte count you
+   chose (0 = the image default). */
+#define fingerprint_corpus_msg_capped_executor_add_subscription(executor, subscription, msg, cb, ctx, \
+                                                    invocation) \
+    NROS_UNBOUNDED__fingerprint_corpus_msg_capped__field_label
+
 #ifdef __cplusplus
 }
 #endif

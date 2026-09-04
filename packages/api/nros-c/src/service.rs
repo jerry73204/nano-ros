@@ -756,25 +756,129 @@ pub unsafe extern "C" fn nros_service_send_response_raw(
     }
 }
 
-/// Take a service request (non-blocking).
+// ============================================================================
+// Typed service / client path — the reporting half (phase-417 W5.e)
+// ============================================================================
+//
+// The generated `<Srv>_service_handle_request` / `<Srv>_client_handle_response`
+// trampolines in `packs/c/service.h.jinja` are `static inline` glue over the
+// per-type `_deserialize` / `_serialize` the same pack emits. Everything a
+// trampoline needs is in `<nros/types.h>` EXCEPT one thing: a way to be LOUD.
+//
+// RFC-0087 requires a deserialise failure or an oversized payload to be loud
+// rather than a silent truncation, and the executor's own dispatch cannot
+// supply that — `srv_raw_try_process`
+// (`nros-node/src/executor/arena.rs:2559`) reads the callback's `false` as
+// "send nothing" and returns `Ok(true)`, so a refusal is indistinguishable
+// from a reply that has not arrived yet. The peer eventually times out with
+// no statement of why.
+//
+// So the diagnostic lands HERE, in Rust, for the reason RFC-0087 §"Who
+// implements an adopted name" gives: the logger is Rust's, and a second
+// formatting path in a generated header would be a second implementation.
+// Pulling `<nros/log.h>` into every generated service header is not an option
+// either — it includes `<stdio.h>`, and these headers are freestanding.
+//
+// The generated glue therefore calls ONE exported symbol with an error code
+// and the type's own name, and this function turns that into an `ERROR`
+// record on the same sink chain every other C log record uses.
+
+/// Typed glue succeeded.
+pub const NROS_SERVICE_TYPED_OK: i32 = 0;
+/// `<Req>_deserialize` rejected the request bytes — the request was malformed,
+/// truncated, or encoded by a peer whose schema disagrees. No reply is sent.
+pub const NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE: i32 = -1;
+/// `<Resp>_serialize` did not fit the executor's reply buffer. No reply is
+/// sent — a truncated CDR payload is a wrong answer, not a partial one.
+pub const NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE: i32 = -2;
+/// `<Req>_serialize` did not fit the scratch buffer the caller supplied to
+/// `<Srv>_client_send_request`. Nothing is sent.
+pub const NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE: i32 = -3;
+/// `<Resp>_deserialize` rejected the reply bytes. The response struct is left
+/// zero-initialised rather than half-filled.
+pub const NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE: i32 = -4;
+/// The handler struct reached the trampoline with no user callback installed —
+/// `<Srv>_service_handler_init` was skipped or the struct was re-zeroed.
+pub const NROS_SERVICE_TYPED_ERR_NO_CALLBACK: i32 = -5;
+
+/// Append as much of `s` as fits, silently stopping at the end of `buf`.
 ///
-/// Currently not supported — service servers are callback-only through
-/// the executor. Use `nros_executor_add_service()` with a callback instead.
+/// Truncating a DIAGNOSTIC is not the truncation RFC-0087 forbids: the
+/// payload is refused either way, and this only bounds how much of the type
+/// name the message can carry.
+fn append_bytes(buf: &mut [u8], n: &mut usize, s: &[u8]) {
+    let room = buf.len().saturating_sub(*n);
+    let take = if s.len() < room { s.len() } else { room };
+    buf[*n..*n + take].copy_from_slice(&s[..take]);
+    *n += take;
+}
+
+/// Borrow a NUL-terminated C string as bytes, bounded so a missing NUL cannot
+/// walk off the end.
 ///
-/// # Returns
-/// * `NROS_RET_NOT_INIT` always (manual poll not supported)
+/// # Safety
+/// `ptr` is NULL or points to at least one readable byte, NUL-terminated
+/// within `max` bytes or not at all.
+unsafe fn bounded_cstr(ptr: *const c_char, max: usize) -> &'static [u8] {
+    if ptr.is_null() {
+        return b"<unknown>";
+    }
+    let mut len = 0usize;
+    while len < max && *ptr.add(len) != 0 {
+        len += 1;
+    }
+    core::slice::from_raw_parts(ptr, len)
+}
+
+/// Report a typed service/client glue failure as an `ERROR` log record.
+///
+/// Called by the generated `static inline` trampolines. `error` is one of the
+/// `NROS_SERVICE_TYPED_ERR_*` codes above; `type_name` is the service type's
+/// own `<Srv>_get_type_name()`, so the record names the type without the
+/// generated header having to duplicate any string.
+///
+/// Deliberately returns nothing and cannot fail: it is the loudness path, and
+/// a loudness path that itself has an error channel just moves the silence.
+///
+/// # Safety
+/// `type_name` is NULL or a NUL-terminated string readable for its length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_service_take_request(
-    service: *mut nros_service_t,
-    _request_data: *mut u8,
-    _request_capacity: usize,
-    _request_len: *mut usize,
-    _sequence_number: *mut i64,
-) -> nros_ret_t {
-    validate_not_null!(service);
-    // Service server handles live in the executor arena — manual poll
-    // is not supported. Use executor callbacks instead.
-    NROS_RET_NOT_INIT
+pub unsafe extern "C" fn nros_service_typed_report_error(error: i32, type_name: *const c_char) {
+    let reason: &[u8] = match error {
+        NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE => {
+            b"request CDR did not decode; no reply sent" as &[u8]
+        }
+        NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE => {
+            b"response did not fit the reply buffer; no reply sent" as &[u8]
+        }
+        NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE => {
+            b"request did not fit the caller's scratch buffer; nothing sent" as &[u8]
+        }
+        NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE => {
+            b"response CDR did not decode; response left zeroed" as &[u8]
+        }
+        NROS_SERVICE_TYPED_ERR_NO_CALLBACK => {
+            b"no typed callback installed on the handler" as &[u8]
+        }
+        _ => b"unknown typed service failure" as &[u8],
+    };
+
+    let mut buf = [0u8; 256];
+    let mut n = 0usize;
+    append_bytes(&mut buf, &mut n, b"typed service glue refused a payload: ");
+    append_bytes(&mut buf, &mut n, reason);
+    append_bytes(&mut buf, &mut n, b" (type=");
+    append_bytes(&mut buf, &mut n, bounded_cstr(type_name, 128));
+    append_bytes(&mut buf, &mut n, b")");
+
+    crate::log::nros_log_emit_at(
+        crate::log::nros_log_default_logger(),
+        crate::log::nros_log_severity_t::NROS_LOG_SEVERITY_ERROR,
+        buf.as_ptr() as *const c_char,
+        n,
+        c"<nros-c typed service>".as_ptr(),
+        0,
+    );
 }
 
 /// Get the service name.

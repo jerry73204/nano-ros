@@ -20,15 +20,17 @@ use super::{
         BufferStrategy, CallbackMeta, EntryKind, GuardConditionEntry, ServiceClientCallbackEntry,
         ServiceClientRawArenaEntry, ServiceClientSendHeader, SrvEntry, SrvRawEntry,
         SubBufferedEntry, SubBufferedRawCEntry, SubBufferedRawEntry, SubBufferedRawInfoCEntry,
-        SubBufferedRawInfoEntry, SubBufferedViewEntry, SubInfoEntry, SubInplaceEntry,
-        TimerClockSource, TimerEntry, TimerHeader, TimerOverrunPolicy, TraceName, always_ready,
+        SubBufferedRawInfoEntry, SubBufferedTypedCEntry, SubBufferedViewEntry, SubInfoEntry,
+        SubInplaceEntry, TimerClockSource, TimerEntry, TimerHeader, TimerOverrunPolicy, TraceName,
+        always_ready,
         buffered_region_size, drop_entry, guard_has_data, guard_try_process, no_pre_sample,
         service_client_callback_try_process, service_client_raw_try_process, srv_has_data,
         srv_raw_has_data, srv_raw_try_process, srv_try_process, sub_buffered_has_data,
         sub_buffered_raw_c_has_data, sub_buffered_raw_c_try_process, sub_buffered_raw_has_data,
         sub_buffered_raw_info_c_has_data, sub_buffered_raw_info_c_try_process,
         sub_buffered_raw_info_has_data, sub_buffered_raw_info_try_process,
-        sub_buffered_raw_try_process, sub_buffered_try_process, sub_buffered_view_has_data,
+        sub_buffered_raw_try_process, sub_buffered_try_process, sub_buffered_typed_c_has_data,
+        sub_buffered_typed_c_try_process, sub_buffered_view_has_data,
         sub_buffered_view_try_process, sub_info_has_data, sub_info_pre_sample,
         sub_info_try_process, sub_inplace_has_data, sub_inplace_try_process, timer_try_process,
     },
@@ -37,9 +39,9 @@ use super::{
     triple_buffer::TripleBuffer,
     types::{
         ExecutorSemantics, GuardCondition, HandleId, InvocationMode, NodeError,
-        RawResponseCallback, RawServiceCallback, RawSubscriptionCallback,
+        RawMessageDeserializeFn, RawResponseCallback, RawServiceCallback, RawSubscriptionCallback,
         RawSubscriptionInfoCallback, ReadinessSnapshot, SpinOnceResult, SpinPeriodPollingResult,
-        Trigger,
+        Trigger, TypedSubscriptionCallback,
     },
 };
 
@@ -5311,6 +5313,135 @@ impl<'s> Executor<'s> {
         Ok(HandleId(slot))
     }
 
+    /// phase-417 W5.a (RFC-0087 stage 5) — the TYPED C-FFI subscription core:
+    /// the same registration as [`Self::add_arena_subscription_c_callback`],
+    /// plus caller-owned message storage and the erased deserialiser for its
+    /// type, so the callback receives a DESERIALISED message instead of CDR
+    /// bytes.
+    ///
+    /// This is the Rust half of rclc's
+    /// `rclc_executor_add_subscription(executor, subscription, msg, callback,
+    /// invocation)`. rclc has no allocator on that path either — it makes the
+    /// CALLER own the storage, which is exactly what `msg` is here. The C
+    /// ledger recorded our byte-oriented delivery as forced by "no allocator";
+    /// the compared surface operates under the same constraint, so the reason
+    /// was false and the divergence was avoidable (issue 1022 / W-C3).
+    ///
+    /// The raw path is untouched and stays: a byte-oriented subscriber is a
+    /// legitimate thing to want, and this is additive.
+    ///
+    /// # Contract on failure
+    /// If `deserialize` returns non-zero the callback is **not** invoked, the
+    /// sample is dropped, `try_process` reports
+    /// `TransportError::DeserializationError` (so it lands in
+    /// `SpinOnceResult::subscription_errors`), and a rate-limited `nros_log`
+    /// error names the length and the return code. A message that does not fit
+    /// the caller's storage arrives here as exactly that failure: both the
+    /// bounded-string and bounded-sequence decoders refuse rather than
+    /// truncate, so there is no silent short read.
+    ///
+    /// # Safety
+    /// `msg` must point to storage of the type `deserialize` writes, valid for
+    /// as long as the subscription is registered. Nothing here drops it.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn add_arena_subscription_c_typed_callback<const RX_BUF: usize>(
+        &mut self,
+        node_id: Option<super::node_record::NodeId>,
+        topic_name: &str,
+        type_name: &str,
+        type_hash: &str,
+        qos: QoSProfile,
+        msg: core::ptr::NonNull<core::ffi::c_void>,
+        deserialize: RawMessageDeserializeFn,
+        callback: TypedSubscriptionCallback,
+        context: *mut core::ffi::c_void,
+        group: Option<&str>,
+        // Same meaning as on the raw path: bytes the caller expects to receive,
+        // 0 = no opinion. A typed caller normally HAS an answer — the generated
+        // `<Msg>_RX_MAX_SERIALIZED_SIZE` — which is why the C entry point takes
+        // it rather than defaulting.
+        rx_buffer_hint: usize,
+    ) -> Result<HandleId, NodeError> {
+        let slot = self.next_entry_slot()?;
+        let (node_name, ns, session_idx) = match node_id {
+            Some(id) => {
+                let r = self
+                    .nodes
+                    .get(id.index())
+                    .ok_or(NodeError::InvalidSchedContextBinding)?;
+                (r.name.clone(), r.namespace.clone(), r.session_idx)
+            }
+            None => (self.node_name.clone(), self.namespace.clone(), 0u8),
+        };
+        let mut topic = TopicInfo::new(topic_name, type_name, type_hash)
+            .with_domain(self.domain_id)
+            .with_namespace(&ns);
+        if !node_name.is_empty() {
+            topic = topic.with_node_name(&node_name);
+        }
+        if rx_buffer_hint != 0 {
+            topic = topic.with_rx_buffer_hint(rx_buffer_hint);
+        }
+        let handle = {
+            let session = self
+                .session_at_mut(session_idx)
+                .ok_or(NodeError::BackendMismatch)?;
+            session
+                .create_subscription(&topic, qos)
+                .map_err(NodeError::Transport)?
+        };
+
+        // phase-403 W3/W5, unchanged: the hint sizes the arena slot, and 0
+        // means "this caller stated nothing", never "this type is zero bytes".
+        let rx_bytes = if rx_buffer_hint != 0 {
+            rx_buffer_hint
+        } else {
+            RX_BUF
+        };
+
+        let (_slot_count, trailing_bytes) = buffered_region_size(qos.depth, rx_bytes);
+
+        let (entry_offset, trailing_offset) =
+            self.arena_alloc_with_trailing::<SubBufferedTypedCEntry>(trailing_bytes)?;
+
+        let buf_ptr = unsafe { (self.arena.as_mut_ptr() as *mut u8).add(trailing_offset) };
+
+        let buffer = if qos.depth <= 1 {
+            BufferStrategy::Triple(unsafe { TripleBuffer::init(buf_ptr, rx_bytes) })
+        } else {
+            BufferStrategy::Ring(unsafe { SpscRing::init(buf_ptr, rx_bytes, qos.depth as usize) })
+        };
+
+        unsafe {
+            let arena_ptr = self.arena.as_mut_ptr() as *mut u8;
+            let entry_ptr = arena_ptr.add(entry_offset) as *mut SubBufferedTypedCEntry;
+            core::ptr::write(
+                entry_ptr,
+                SubBufferedTypedCEntry {
+                    handle,
+                    buffer,
+                    msg: msg.as_ptr(),
+                    deserialize,
+                    callback,
+                    context,
+                },
+            );
+        }
+
+        let meta = CallbackMeta {
+            offset: entry_offset,
+            kind: EntryKind::Subscription,
+            try_process: sub_buffered_typed_c_try_process,
+            has_data: sub_buffered_typed_c_has_data,
+            pre_sample: no_pre_sample,
+            invocation: InvocationMode::OnNewData,
+            drop_fn: drop_entry::<SubBufferedTypedCEntry>,
+        };
+        self.emplace_entry(slot, meta, TraceName::Text(topic_name));
+        self.apply_node_default_sched(slot, node_id, group);
+        Ok(HandleId(slot))
+    }
+
     /// Phase 189.M3.4 — register a raw C-fn-ptr subscription whose callback
     /// also receives the sample's wire **attachment**
     /// ([`RawSubscriptionInfoCallback`]: `(data, len, attachment, att_len,
@@ -6081,6 +6212,57 @@ impl<'s> Executor<'s> {
         let arena_ptr = self.arena.as_ptr() as *const u8;
         let header = unsafe { &*(arena_ptr.add(meta.offset) as *const TimerHeader) };
         Some(header.overruns)
+    }
+
+    /// Microseconds accumulated since this timer last fired, or `None` if the
+    /// handle is not a valid timer.
+    ///
+    /// This is `TimerHeader::elapsed_us` — the SAME counter
+    /// `arena::timer_try_process` compares against the period and rewinds on
+    /// every activation, so it is the executor's own answer rather than a
+    /// second one derived from a clock. `None` is not "zero elapsed": a caller
+    /// that cannot tell them apart reports a timer that has just fired and a
+    /// handle that is not a timer identically.
+    ///
+    /// phase-417 W5.c — added because the state was already here and nothing
+    /// exposed it, which is why `c:timer_get_time_since_last_call` and
+    /// `c:timer_is_ready` were both filed as gaps. The C forwarders
+    /// (`nros_timer_get_time_since_last_call`, `nros_timer_is_ready`) read
+    /// this; RFC-0019 puts the answer in Rust and only the spelling in the
+    /// wrapper.
+    pub fn timer_elapsed_us(&self, id: HandleId) -> Option<u64> {
+        let meta = self
+            .entries
+            .get(id.0)
+            .and_then(|e| e.as_ref())
+            .filter(|m| matches!(m.kind, EntryKind::Timer))?;
+        let arena_ptr = self.arena.as_ptr() as *const u8;
+        // SAFETY: same layout invariant as `timer_period_us`.
+        let header = unsafe { &*(arena_ptr.add(meta.offset) as *const TimerHeader) };
+        Some(header.elapsed_us)
+    }
+
+    /// Would this timer fire on the next dispatch pass? `None` if the handle
+    /// is not a valid timer.
+    ///
+    /// The predicate is `arena::timer_try_process`'s own guard, in the same
+    /// order: a cancelled timer is never ready, a one-shot that already fired
+    /// is never ready again, and otherwise readiness is `elapsed >= period`.
+    /// Keeping the two in one shape is the point — a readiness answer that
+    /// disagrees with the dispatcher is worse than no answer at all.
+    pub fn timer_is_ready(&self, id: HandleId) -> Option<bool> {
+        let meta = self
+            .entries
+            .get(id.0)
+            .and_then(|e| e.as_ref())
+            .filter(|m| matches!(m.kind, EntryKind::Timer))?;
+        let arena_ptr = self.arena.as_ptr() as *const u8;
+        // SAFETY: same layout invariant as `timer_period_us`.
+        let header = unsafe { &*(arena_ptr.add(meta.offset) as *const TimerHeader) };
+        if header.cancelled || (header.oneshot && header.fired) {
+            return Some(false);
+        }
+        Some(header.elapsed_us >= header.period_us)
     }
 
     // ========================================================================
