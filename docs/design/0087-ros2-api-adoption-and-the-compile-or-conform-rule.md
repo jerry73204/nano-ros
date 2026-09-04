@@ -271,6 +271,69 @@ Consequences, in the order they bite:
   seams. This is the one place where taking rcl's spelling must not mean taking
   rcl's values.
 
+## End state: no compat layer survives
+
+Confirmed 2026-09-04. The compat headers are SCAFFOLDING with a demolition
+date, not a permanent surface:
+
+* `rclcpp_compat.hpp` and `<nros/rcl_compat.h>` exist only to bridge two
+  spellings of one thing. When there is one spelling they have nothing to
+  bridge, so they do not have to be argued away — **they dissolve by
+  construction**, which is the property that keeps them from rotting into
+  permanent debt.
+* `cmake/compat/` likewise: it shadows `<rclcpp/rclcpp.hpp>` and stubs
+  `find_package(rclcpp)` because our headers live elsewhere under other names.
+
+The acceptance test for the end state is therefore sharp and mechanical: **the
+ported templates must build with every compat layer deleted.** Not "still
+compile with the shim present" — deleted.
+
+### The one thing that does NOT dissolve, and why that is fine
+
+`rcl_compat.h` does two jobs, and only one is a spelling. The other is the
+`RCL_RET_*` value mapping, and RFC-0087 forbids renumbering ours to match rcl's
+— that would silently flip the meaning of every stored return code across three
+FFI seams.
+
+So `RCL_RET_TIMEOUT` does not go away; it becomes the NAME of our constant, with
+our value. A ported `if (ret == RCL_RET_TIMEOUT)` is correct. A program that
+hardcodes `if (ret == 2)` is not, and never was. That is a defensible line: we
+adopt rcl's vocabulary, not its numbering, and the vocabulary is what source
+compatibility is made of.
+
+## Taking rclc's argument ORDER forces a decision on RFC-0041
+
+Measured over the seven entry points: only one is a pure permutation
+(`node_init`). Three more — `subscription_init`, `service_init`, `timer_init` —
+differ because **ours carry `callback` and `context` that rclc's do not**:
+
+```
+rclc_subscription_init_default(sub, node, type_support, topic_name)         [4]
+nros_subscription_init        (sub, node, type_info, topic_name, cb, ctx)   [6]
+```
+
+That is RFC-0041 (Stable): the callback binds to the ENTITY at creation, where
+rclc binds it at `rclc_executor_add_subscription`. So "sort the arguments to
+match" is not reachable by reordering — those two arguments have to go
+somewhere else, or stay.
+
+**The decision, which is a design reversal and not a rename:**
+
+1. **Adopt rclc's split** — `*_init` takes no callback; the callback and its
+   storage arrive at executor-add. That is what W5.a's
+   `nros_executor_add_subscription_typed` already does for the typed path, so
+   the shape exists and is proven; what remains is making it the ONLY shape and
+   reversing RFC-0041 for the three entity types.
+2. **Keep RFC-0041** — the three signatures stay 6-argument and are documented
+   divergences forever. Source compatibility for those three calls is
+   unreachable, and `rcl_compat.h` cannot be deleted for them.
+
+(1) is the only choice consistent with "no compat layer survives", so choosing
+the end state chooses it. Worth saying plainly: **RFC-0041 becomes the last
+blocker for deleting the C compat header**, and it is Stable, so reversing it is
+an RFC amendment with its own acceptance — not something a rename sweep can do
+on the way past.
+
 ## Argument ORDER follows the same decision, and is mostly not a separate task
 
 Settled 2026-09-04 with the spellings: where we and rclc/rclcpp name the same
