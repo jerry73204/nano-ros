@@ -144,6 +144,17 @@ global-allocator = []
 alloc = ["nros-platform-api/alloc"]
 alloc-stats = []
 
+# phase-412 -- opt-in stats for the ZEPHYR ARENA (`zephyr_heap`), which is what
+# `z_malloc` and `__rust_alloc` actually draw from since phase-391 W3 moved the
+# funnel off Zephyr's kernel heap. Distinct from `alloc-stats` above, which
+# counts only what the Rust `#[global_allocator]` sees.
+#
+# Needed because `nros_platform_heap_used_bytes()` -- documented as the unified
+# C+Rust figure -- answered from `_system_heap`, the heap the application
+# stopped using. Without this the only number that could size
+# NROS_ZEPHYR_HEAP_SIZE measured a different arena.
+heap-stats = ["zpico-alloc/stats"]
+
 # Phase 97.1.cs — opt-in `critical_section::Impl` registered against
 # the active platform's interrupt-disable primitive. DDS's
 # oneshot channels reference `_critical_section_1_0_acquire` /

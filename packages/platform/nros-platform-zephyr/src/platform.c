@@ -233,33 +233,44 @@ void nros_platform_dealloc(void *ptr) {
     k_spin_unlock(&nros_heap_lock, key);
 }
 
-/* ---- Heap stats (phase-230 Z5 / RFC-0034 D7) ----
+/* ---- Heap stats (phase-230 Z5 / RFC-0034 D7, corrected phase-412) ----
  *
- * The true unified heap total on Zephyr: `k_malloc` (and thus
- * `nros_platform_alloc`, which backs zenoh-pico's `z_malloc`) AND
- * zephyr-lang-rust's `#[global_allocator]` (`malloc`) both draw from the
- * kernel system heap `_system_heap`. Querying its runtime stats gives the
- * exact C+Rust figure without owning the Rust allocator (D7 Mode B).
- * Requires CONFIG_SYS_HEAP_RUNTIME_STATS + a non-zero CONFIG_HEAP_MEM_POOL_SIZE
- * (which is what defines `_system_heap`); returns 0 ("unknown") otherwise. */
-#if defined(CONFIG_SYS_HEAP_RUNTIME_STATS) && (CONFIG_HEAP_MEM_POOL_SIZE > 0)
-extern struct k_heap _system_heap;
+ * These report the arena the application ACTUALLY allocates from: the rlsf
+ * heap in nros-platform's `zephyr_heap`, which `nros_platform_alloc` above
+ * calls into and which therefore backs both zenoh-pico's `z_malloc` and
+ * `__rust_alloc`. Its size is CONFIG_NROS_ZEPHYR_HEAP_SIZE.
+ *
+ * They used to answer from Zephyr's kernel heap `_system_heap`, sized by
+ * CONFIG_HEAP_MEM_POOL_SIZE. That was right when phase-230 wrote it and wrong
+ * from phase-391 W3 onward, which moved the funnel off the kernel heap --
+ * `zephyr/Kconfig` says so under NROS_ZEPHYR_HEAP_SIZE ("CONFIG_HEAP_MEM_POOL_SIZE
+ * does NOT govern application allocation any more; this does"), while this file
+ * kept measuring the heap that no longer governs anything.
+ *
+ * The cost of that was not a wrong number, it was NO number: the one figure
+ * that could size NROS_ZEPHYR_HEAP_SIZE reported a different arena, so the knob
+ * could only ever be guessed. The island carries 94,208 bytes chosen that way.
+ *
+ * `peak`, not `used`, is what the knob wants -- `used` sampled at an arbitrary
+ * instant reports whatever happened to be live at the moment of the read.
+ * Requires nros-platform's `heap-stats` feature; returns 0 ("unknown")
+ * otherwise, which is the convention this file already used. */
+extern size_t nros_zephyr_heap_capacity(void);
+extern size_t nros_zephyr_heap_used(void);
+extern size_t nros_zephyr_heap_peak(void);
 
-size_t nros_platform_heap_used_bytes(void) {
-    struct sys_memory_stats st;
-    if (sys_heap_runtime_stats_get(&_system_heap.heap, &st) != 0) return 0u;
-    return (size_t) st.allocated_bytes;
-}
+size_t nros_platform_heap_used_bytes(void) { return nros_zephyr_heap_used(); }
 
-size_t nros_platform_heap_total_bytes(void) {
-    struct sys_memory_stats st;
-    if (sys_heap_runtime_stats_get(&_system_heap.heap, &st) != 0) return 0u;
-    return (size_t) (st.allocated_bytes + st.free_bytes);
-}
-#else
-size_t nros_platform_heap_used_bytes(void) { return 0u; }
-size_t nros_platform_heap_total_bytes(void) { return 0u; }
-#endif
+size_t nros_platform_heap_total_bytes(void) { return nros_zephyr_heap_capacity(); }
+
+/* High-water mark, for sizing CONFIG_NROS_ZEPHYR_HEAP_SIZE from a measurement
+ * rather than from a round number.
+ *
+ * NOT added to `nros/platform.h`: that header is the cross-port ABI, and every
+ * other port would need a stub plus a regenerated cffi binding to carry a
+ * figure only this port can produce. `nros_zephyr_heap_peak()` is reachable
+ * directly by anything Zephyr-side that wants it. */
+size_t nros_zephyr_platform_heap_peak_bytes(void) { return nros_zephyr_heap_peak(); }
 
 /* ---- Sleep ---- */
 
