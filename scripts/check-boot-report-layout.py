@@ -31,6 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RUST = REPO / "packages/core/nros-node/src/boot_report.rs"
+ALLOC_RUST = REPO / "packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs"
 PY = REPO / "scripts/read-boot-report.py"
 
 
@@ -55,10 +56,10 @@ def rust_struct_fields(text: str, name: str, ty: str) -> list[str]:
     return fields
 
 
-def py_fields(text: str) -> list[str]:
-    m = re.search(r"\nFIELDS = \(\n(.*?)\n\)\n", text, re.S)
+def py_fields(text: str, name: str = "FIELDS") -> list[str]:
+    m = re.search(rf"\n{name} = \(\n(.*?)\n\)\n", text, re.S)
     if not m:
-        raise SystemExit(f"{PY}: no `FIELDS` tuple found")
+        raise SystemExit(f"{PY}: no `{name}` tuple found")
     return re.findall(r'"([a-z_][a-z0-9_]*)"', m.group(1))
 
 
@@ -70,7 +71,7 @@ def const_u32(text: str, name: str) -> int:
 
 
 def py_const(text: str, name: str) -> int:
-    m = re.search(rf"\n{name} = (0x[0-9a-fA-F]+|\d+)\n", text)
+    m = re.search(rf"\n{name} = (0x[0-9a-fA-F]+|\d+)[ \t]*(?:#[^\n]*)?\n", text)
     if not m:
         raise SystemExit(f"{PY}: no `{name}` found")
     return int(m.group(1), 0)
@@ -125,10 +126,29 @@ def main() -> int:
         if r != p:
             rc |= fail(f"{name}: boot_report.rs has {r:#x}, read-boot-report.py has {p:#x}")
 
+    # The SECOND record. Same positional decode, same drift, same gate -- it
+    # lives in another crate only because nros-node depends on that crate and
+    # the call would otherwise be a cycle, which changes nothing about how
+    # wrongly a reordered field decodes.
+    alloc_rust = ALLOC_RUST.read_text()
+    alloc_record = rust_struct_fields(alloc_rust, "SubscriberAllocReport", "AtomicU32")
+    alloc_script = py_fields(py, "ALLOC_FIELDS")
+    if not alloc_record:
+        rc |= fail("parsed zero fields out of `SubscriberAllocReport` -- blind")
+    rc |= diff("alloc record vs decoder", alloc_record, alloc_script,
+               "SubscriberAllocReport", "read-boot-report.py")
+    for name, py_name in (("SUBSCRIBER_ALLOC_MAGIC", "ALLOC_MAGIC"),
+                          ("SUBSCRIBER_ALLOC_VERSION", "ALLOC_VERSION")):
+        r = const_u32(alloc_rust, name)
+        p = py_const(py, py_name)
+        if r != p:
+            rc |= fail(f"{name}: subscriber.rs has {r:#x}, decoder has {p:#x}")
+
     if rc == 0:
         print(
-            f"check-boot-report-layout: OK ({len(record)} fields, "
-            f"{len(record) * 4} bytes, agreed by BootReport, Snapshot and the decoder)"
+            f"check-boot-report-layout: OK (BootReport {len(record)} fields / "
+            f"{len(record) * 4} bytes; SubscriberAllocReport {len(alloc_record)} fields / "
+            f"{len(alloc_record) * 4} bytes; all agreed with the decoder)"
         )
     return rc
 

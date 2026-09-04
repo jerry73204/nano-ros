@@ -104,7 +104,37 @@ ERR_TRANSPORT = {
 POOL_CLASSES = {5, 12, 14, 15, 17}
 
 
-def resolve_symbol(elf: Path) -> tuple[int, int]:
+# --- the subscriber payload-class record (packages/rmw/zenoh/nros-rmw-zenoh) --
+#
+# A SECOND symbol, because the crate that owns these facts cannot call into the
+# boot report: nros-node depends on nros-rmw-zenoh, so the edge runs the other
+# way and a call would be a cycle. See SubscriberAllocReport's own doc comment.
+ALLOC_SYMBOL = "NROS_SUBSCRIBER_ALLOC_REPORT"
+ALLOC_MAGIC = 0x53554241  # "SUBA"
+ALLOC_VERSION = 1
+ALLOC_FIELDS = (
+    "magic",
+    "version",
+    "struct_size",
+    "refusal",
+    "rx_hint",
+    "largest_payload_class",
+    "small_class_ceiling",
+    "max_large_subscribers",
+    "subscriber_large_size",
+    "subscriber_buffer_size",
+    "small_taken",
+    "large_taken",
+)
+ALLOC_REFUSAL = {
+    0: "none -- every subscription got a payload block",
+    1: "the hint is above EVERY class, so it has nowhere legal to go",
+    2: "the LARGE class is full (MAX_LARGE_SUBSCRIBERS)",
+    3: "the SMALL class is full (ZPICO_MAX_SUBSCRIBERS)",
+}
+
+
+def resolve_symbol(elf: Path, symbol: str = SYMBOL) -> tuple[int, int]:
     """Address and size of the record, from the ELF's symbol table.
 
     `nm` rather than a parser, because every toolchain that produced one of
@@ -126,26 +156,26 @@ def resolve_symbol(elf: Path) -> tuple[int, int]:
         for line in out.stdout.splitlines():
             parts = line.split()
             # "<addr> <size> <type> <name>" -- the size column is why -S.
-            if len(parts) == 4 and parts[3] == SYMBOL:
+            if len(parts) == 4 and parts[3] == symbol:
                 return int(parts[0], 16), int(parts[1], 16)
         # The tool worked and the symbol is not there. Say so rather than
         # trying the next tool and blaming its absence.
         raise SystemExit(
-            f"{elf}: no `{SYMBOL}` symbol.\n"
+            f"{elf}: no `{symbol}` symbol.\n"
             "The image was built WITHOUT the boot report. Rebuild with\n"
             "  NROS_BOOT_REPORT=1        (Zephyr: CONFIG_NROS_BOOT_REPORT=y)"
         )
     raise SystemExit("no usable `nm` found (tried nm, arm-zephyr-eabi-nm, llvm-nm)")
 
 
-def decode(blob: bytes) -> dict[str, int]:
-    want = len(FIELDS) * 4
+def decode(blob: bytes, fields: tuple[str, ...] = FIELDS) -> dict[str, int]:
+    want = len(fields) * 4
     if len(blob) < want:
         raise SystemExit(
             f"dump is {len(blob)} bytes, need at least {want} for one record"
         )
-    values = struct.unpack_from(f"<{len(FIELDS)}I", blob, 0)
-    return dict(zip(FIELDS, values, strict=True))
+    values = struct.unpack_from(f"<{len(fields)}I", blob, 0)
+    return dict(zip(fields, values, strict=True))
 
 
 def report(rec: dict[str, int]) -> int:
@@ -287,12 +317,76 @@ def report(rec: dict[str, int]) -> int:
     return 0
 
 
+def report_alloc(rec: dict[str, int]) -> int:
+    """Print the subscriber payload-class record."""
+    if rec["magic"] != ALLOC_MAGIC:
+        print(
+            f"NO ALLOC RECORD: magic is 0x{rec['magic']:08x}, expected "
+            f"0x{ALLOC_MAGIC:08x}.\n"
+            "alloc_payload_block was never called, so no subscription got as far\n"
+            "as asking for a payload block.",
+            file=sys.stderr,
+        )
+        return 2
+    if rec["version"] != ALLOC_VERSION:
+        print(f"alloc record version {rec['version']}, this script decodes "
+              f"{ALLOC_VERSION}.", file=sys.stderr)
+        return 2
+
+    print("payload classes, as compiled:")
+    print(f"  SUBSCRIBER_BUFFER_SIZE (small)  {rec['subscriber_buffer_size']}")
+    print(f"  SMALL_CLASS_CEILING             {rec['small_class_ceiling']}")
+    print(f"  SUBSCRIBER_LARGE_SIZE           {rec['subscriber_large_size']}")
+    print(f"  MAX_LARGE_SUBSCRIBERS           {rec['max_large_subscribers']}")
+    print(f"  LARGEST_PAYLOAD_CLASS           {rec['largest_payload_class']}")
+    if rec["max_large_subscribers"] == 0:
+        print(
+            "  NOTE: no large slots, so the large class does not exist and the\n"
+            "  ceiling is the small block. Any hint above it is refused."
+        )
+    print()
+    print("measured on the board:")
+    print(f"  small blocks taken              {rec['small_taken']}")
+    print(f"  large blocks taken              {rec['large_taken']}")
+    print(f"  last hint seen                  {rec['rx_hint']}")
+    print()
+    r = rec["refusal"]
+    print(f"refusal    {r}  {ALLOC_REFUSAL.get(r, 'unknown')}")
+    if r == 0:
+        return 0
+    print()
+    if r == 1:
+        print(
+            f"  A subscription asked for {rec['rx_hint']} bytes and the largest class\n"
+            f"  is {rec['largest_payload_class']}. Raise NROS_SUBSCRIBER_LARGE_SIZE and give the\n"
+            "  image large slots (NROS_MAX_LARGE_SUBSCRIBERS), or lower the type's bound."
+        )
+    elif r == 2:
+        print(
+            f"  {rec['large_taken']} large blocks were taken and MAX_LARGE_SUBSCRIBERS is\n"
+            f"  {rec['max_large_subscribers']}. Raise NROS_MAX_LARGE_SUBSCRIBERS."
+        )
+    else:
+        print(
+            f"  {rec['small_taken']} small blocks were taken. Compare that against the number\n"
+            "  of subscriptions the image DECLARES: if it is higher, something\n"
+            "  other than the application is taking blocks, and the derivation\n"
+            "  from the entity inventory is short by that many."
+        )
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Decode the nano-ros boot self-report out of a target memory dump."
     )
     ap.add_argument("elf", type=Path, help="the image the board is running")
     ap.add_argument("dump", type=Path, nargs="?", help="memory dumped from the target")
+    ap.add_argument(
+        "--alloc",
+        action="store_true",
+        help="decode the subscriber payload-class record instead of the boot report",
+    )
     ap.add_argument(
         "--addr-only",
         action="store_true",
@@ -303,7 +397,8 @@ def main() -> int:
     if not args.elf.is_file():
         raise SystemExit(f"{args.elf}: not a file")
 
-    addr, size = resolve_symbol(args.elf)
+    sym = ALLOC_SYMBOL if args.alloc else SYMBOL
+    addr, size = resolve_symbol(args.elf, sym)
     if args.addr_only:
         print(f"0x{addr:08x} {size}")
         return 0
@@ -313,7 +408,10 @@ def main() -> int:
     if not args.dump.is_file():
         raise SystemExit(f"{args.dump}: not a file")
 
-    return report(decode(args.dump.read_bytes()))
+    blob = args.dump.read_bytes()
+    if args.alloc:
+        return report_alloc(decode(blob, ALLOC_FIELDS))
+    return report(decode(blob))
 
 
 if __name__ == "__main__":

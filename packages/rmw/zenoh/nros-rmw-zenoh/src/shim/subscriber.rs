@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 
 use atomic_waker::AtomicWaker;
-use portable_atomic::{AtomicUsize, Ordering};
+use portable_atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use nros_rmw::{Subscription, TransportError};
 
@@ -276,9 +276,128 @@ pub fn required_rx_bytes(rx_buffer_hint: usize) -> Option<usize> {
         return Some(SUBSCRIBER_BUFFER_SIZE);
     }
     if rx_buffer_hint > LARGEST_PAYLOAD_CLASS {
+        record_alloc(rx_buffer_hint, 1);
         return None;
     }
     Some(rx_buffer_hint)
+}
+
+/// phase-412 -- a RAM record of what the payload-class allocator decided.
+///
+/// # Why this is its own record and not a field of `boot_report`
+///
+/// `nros-node` owns the boot report, and `nros-node` DEPENDS on this crate --
+/// the edge runs the other way, so calling into it from here would be a cycle.
+/// The alternative, plumbing the refusal up through `TransportError`, cannot
+/// carry the numbers either: the variant that surfaces is
+/// `SubscriberCreationFailed`, which is one variant for three distinct exits.
+///
+/// So the crate that HAS the facts keeps them, and the reader takes two
+/// symbols instead of one. That is the honest shape here.
+///
+/// # What it answers
+///
+/// `alloc_payload_block` refuses on three conditions and the caller cannot tell
+/// them apart. On the mr-canhubk344 island the refusal cost a subscription and
+/// stopped boot, and reasoning from the source narrowed it to "one of three"
+/// twice without settling it -- the ceilings are compile-time and readable from
+/// the build, but WHICH exit fired and WITH WHAT HINT are runtime facts that
+/// nothing recorded.
+///
+/// Written unconditionally: it is 48 bytes of `.bss` and a few relaxed stores
+/// on a path that runs once per subscription at registration. Unlike the boot
+/// report this is not opt-in, because a refusal here is always a build
+/// misconfiguration worth explaining and there is no spin-path cost to weigh
+/// against it.
+#[repr(C)]
+pub struct SubscriberAllocReport {
+    magic: AtomicU32,
+    version: AtomicU32,
+    struct_size: AtomicU32,
+    /// 0 = no refusal, 1 = hint above every class, 2 = large class full,
+    /// 3 = small class full. The three exits of `alloc_payload_block`.
+    refusal: AtomicU32,
+    /// The hint that was refused, or the last one accepted.
+    rx_hint: AtomicU32,
+    /// Compile-time ceilings, so a dump says what the image was built with
+    /// rather than what the reader assumes it was built with.
+    largest_payload_class: AtomicU32,
+    small_class_ceiling: AtomicU32,
+    max_large_subscribers: AtomicU32,
+    subscriber_large_size: AtomicU32,
+    subscriber_buffer_size: AtomicU32,
+    /// How many blocks each class has handed out. The small counter reaching
+    /// `ZPICO_MAX_SUBSCRIBERS` is exit 3, and its value ABOVE the number of
+    /// subscriptions the image declares is the tell that something other than
+    /// the application is taking blocks.
+    small_taken: AtomicU32,
+    large_taken: AtomicU32,
+}
+
+/// `"SUBA"` -- subscriber alloc. Written LAST by [`record_alloc_ceilings`].
+pub const SUBSCRIBER_ALLOC_MAGIC: u32 = 0x53554241;
+/// Layout version for [`SubscriberAllocReport`].
+pub const SUBSCRIBER_ALLOC_VERSION: u32 = 1;
+
+/// The record, findable by symbol from a debugger.
+#[unsafe(no_mangle)]
+#[used]
+pub static NROS_SUBSCRIBER_ALLOC_REPORT: SubscriberAllocReport = SubscriberAllocReport {
+    magic: AtomicU32::new(0),
+    version: AtomicU32::new(0),
+    struct_size: AtomicU32::new(0),
+    refusal: AtomicU32::new(0),
+    rx_hint: AtomicU32::new(0),
+    largest_payload_class: AtomicU32::new(0),
+    small_class_ceiling: AtomicU32::new(0),
+    max_large_subscribers: AtomicU32::new(0),
+    subscriber_large_size: AtomicU32::new(0),
+    subscriber_buffer_size: AtomicU32::new(0),
+    small_taken: AtomicU32::new(0),
+    large_taken: AtomicU32::new(0),
+};
+
+/// Stamp the compile-time ceilings and the running counters.
+///
+/// Called on EVERY `alloc_payload_block`, success or refusal, so a healthy
+/// image still reports what its classes are -- the ceilings are half the
+/// answer even when nothing refused, and an image that never fails is exactly
+/// the one nobody would think to dump.
+fn record_alloc(hint: usize, refusal: u32) {
+    let r = &NROS_SUBSCRIBER_ALLOC_REPORT;
+    let sat = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+    r.version.store(SUBSCRIBER_ALLOC_VERSION, Ordering::Relaxed);
+    r.struct_size.store(
+        core::mem::size_of::<SubscriberAllocReport>() as u32,
+        Ordering::Relaxed,
+    );
+    r.rx_hint.store(sat(hint), Ordering::Relaxed);
+    r.largest_payload_class
+        .store(sat(LARGEST_PAYLOAD_CLASS), Ordering::Relaxed);
+    r.small_class_ceiling
+        .store(sat(SMALL_CLASS_CEILING), Ordering::Relaxed);
+    r.max_large_subscribers
+        .store(sat(MAX_LARGE_SUBSCRIBERS), Ordering::Relaxed);
+    r.subscriber_large_size
+        .store(sat(SUBSCRIBER_LARGE_SIZE), Ordering::Relaxed);
+    r.subscriber_buffer_size
+        .store(sat(SUBSCRIBER_BUFFER_SIZE), Ordering::Relaxed);
+    r.small_taken.store(
+        sat(NEXT_SMALL_PAYLOAD.load(Ordering::SeqCst)),
+        Ordering::Relaxed,
+    );
+    r.large_taken.store(
+        sat(NEXT_LARGE_PAYLOAD.load(Ordering::SeqCst)),
+        Ordering::Relaxed,
+    );
+    // FIRST refusal wins: the one that stopped the boot is the one that
+    // explains it, and a later refusal is a consequence.
+    if refusal != 0 {
+        let _ = r
+            .refusal
+            .compare_exchange(0, refusal, Ordering::Relaxed, Ordering::Relaxed);
+    }
+    r.magic.store(SUBSCRIBER_ALLOC_MAGIC, Ordering::Relaxed);
 }
 
 pub(super) static NEXT_SMALL_PAYLOAD: AtomicUsize = AtomicUsize::new(0);
@@ -332,25 +451,30 @@ pub(super) fn alloc_payload_block(rx_buffer_hint: usize) -> Option<(*mut u8, usi
     // large class does not exist, so a hint past the small block has nowhere
     // legal to go and is refused rather than silently under-served.
     if rx_buffer_hint > LARGEST_PAYLOAD_CLASS {
+        record_alloc(rx_buffer_hint, 1);
         return None;
     }
     if rx_buffer_hint > SMALL_CLASS_CEILING {
         let idx = NEXT_LARGE_PAYLOAD.fetch_add(1, Ordering::SeqCst);
         if idx >= MAX_LARGE_SUBSCRIBERS {
             NEXT_LARGE_PAYLOAD.fetch_sub(1, Ordering::SeqCst);
+            record_alloc(rx_buffer_hint, 2);
             return None;
         }
         // Safety: idx is in-bounds; LARGE_PAYLOADS is a static with a stable address.
         let base = unsafe { (&raw mut LARGE_PAYLOADS[idx]) as *mut u8 };
+        record_alloc(rx_buffer_hint, 0);
         Some((base, SUBSCRIBER_LARGE_SIZE))
     } else {
         let idx = NEXT_SMALL_PAYLOAD.fetch_add(1, Ordering::SeqCst);
         if idx >= ZPICO_MAX_SUBSCRIBERS {
             NEXT_SMALL_PAYLOAD.fetch_sub(1, Ordering::SeqCst);
+            record_alloc(rx_buffer_hint, 3);
             return None;
         }
         // Safety: idx is in-bounds; SMALL_PAYLOADS is a static with a stable address.
         let base = unsafe { (&raw mut SMALL_PAYLOADS[idx]) as *mut u8 };
+        record_alloc(rx_buffer_hint, 0);
         Some((base, SUBSCRIBER_BUFFER_SIZE))
     }
 }
