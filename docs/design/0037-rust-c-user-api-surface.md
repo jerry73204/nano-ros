@@ -69,7 +69,7 @@ timeout)`.
 ~120 functions (cbindgen → `nros_generated.h` + hand-written
 `visibility.h`/`platform.h`/`types.h`). Where rclc/rcl has a counterpart the
 entry point carries **rclc's own name**, in rclc's argument order and arity
-(RFC-0087, settled 2026-09-04); everything with no counterpart keeps the
+(RFC-0089, settled 2026-09-04); everything with no counterpart keeps the
 `nros_` prefix:
 
 - init: `nros_executor_init`, `rclc_node_init_default`, `nros_support_init`.

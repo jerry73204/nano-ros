@@ -62,7 +62,7 @@ RUST_PATH = re.compile(r"^nros(::[A-Za-z_][A-Za-z0-9_]*!?)+(\(\))?$")
 # phase-417 stage 6 — `rcl_*` / `rclc_*` too, not only `nros_*`.
 #
 # The book now teaches rcl/rclc spellings, because the C API took them
-# (RFC-0087). Before this, every `rcl_get_zero_initialized_node` a doc author
+# (RFC-0089). Before this, every `rcl_get_zero_initialized_node` a doc author
 # typed was INVISIBLE to this gate: it validated `nros_*` only, so a typo in the
 # new vocabulary shipped green while the old vocabulary was checked. W-B4
 # grep-verified its 22 new identifiers by hand for exactly that reason.
