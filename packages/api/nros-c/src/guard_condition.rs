@@ -119,7 +119,7 @@ impl nros_guard_condition_t {
 
 /// Get a zero-initialized guard condition.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_guard_condition_get_zero_initialized() -> nros_guard_condition_t {
+pub extern "C" fn rcl_get_zero_initialized_guard_condition() -> nros_guard_condition_t {
     nros_guard_condition_t::default()
 }
 
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn nros_guard_condition_set_callback(
 /// executor, it triggers via the executor's guard handle (atomic flag in
 /// the arena). Otherwise falls back to the local triggered flag.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_guard_condition_trigger(
+pub unsafe extern "C" fn rcl_trigger_guard_condition(
     guard: *mut nros_guard_condition_t,
 ) -> nros_ret_t {
     validate_not_null!(guard);
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn nros_guard_condition_is_valid(
 
 /// Finalize a guard condition.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_guard_condition_fini(
+pub unsafe extern "C" fn rcl_guard_condition_fini(
     guard: *mut nros_guard_condition_t,
 ) -> nros_ret_t {
     validate_not_null!(guard);
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_guard_condition_default() {
-        let guard = nros_guard_condition_get_zero_initialized();
+        let guard = rcl_get_zero_initialized_guard_condition();
         assert_eq!(
             guard.state,
             nros_guard_condition_state_t::NROS_GUARD_CONDITION_STATE_UNINITIALIZED
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn test_guard_condition_init_null_support() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             let ret = nros_guard_condition_init(&mut guard, ptr::null());
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
@@ -324,8 +324,8 @@ mod tests {
     #[test]
     fn test_guard_condition_trigger_not_init() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
-            let ret = nros_guard_condition_trigger(&mut guard);
+            let mut guard = rcl_get_zero_initialized_guard_condition();
+            let ret = rcl_trigger_guard_condition(&mut guard);
             assert_eq!(ret, NROS_RET_NOT_INIT);
         }
     }
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn test_guard_condition_trigger_null() {
         unsafe {
-            let ret = nros_guard_condition_trigger(ptr::null_mut());
+            let ret = rcl_trigger_guard_condition(ptr::null_mut());
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_guard_condition_is_triggered_not_init() {
         unsafe {
-            let guard = nros_guard_condition_get_zero_initialized();
+            let guard = rcl_get_zero_initialized_guard_condition();
             let result = nros_guard_condition_is_triggered(&guard);
             assert!(!result);
         }
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_guard_condition_is_valid_not_init() {
         unsafe {
-            let guard = nros_guard_condition_get_zero_initialized();
+            let guard = rcl_get_zero_initialized_guard_condition();
             let result = nros_guard_condition_is_valid(&guard);
             assert!(!result);
         }
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_guard_condition_fini_null() {
         unsafe {
-            let ret = nros_guard_condition_fini(ptr::null_mut());
+            let ret = rcl_guard_condition_fini(ptr::null_mut());
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
@@ -391,8 +391,8 @@ mod tests {
     #[test]
     fn test_guard_condition_fini_not_init() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
-            let ret = nros_guard_condition_fini(&mut guard);
+            let mut guard = rcl_get_zero_initialized_guard_condition();
+            let ret = rcl_guard_condition_fini(&mut guard);
             assert_eq!(ret, NROS_RET_NOT_INIT);
         }
     }
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_guard_condition_set_callback_not_init() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             let ret = nros_guard_condition_set_callback(&mut guard, None, ptr::null_mut());
             assert_eq!(ret, NROS_RET_NOT_INIT);
         }
@@ -419,14 +419,14 @@ mod tests {
     fn test_guard_condition_trigger_and_clear() {
         unsafe {
             // Manually set up an initialized guard condition (bypassing support check)
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             guard.state = nros_guard_condition_state_t::NROS_GUARD_CONDITION_STATE_INITIALIZED;
 
             // Initially not triggered
             assert!(!nros_guard_condition_is_triggered(&guard));
 
             // Trigger it
-            let ret = nros_guard_condition_trigger(&mut guard);
+            let ret = rcl_trigger_guard_condition(&mut guard);
             assert_eq!(ret, NROS_RET_OK);
             assert!(nros_guard_condition_is_triggered(&guard));
 
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn test_guard_condition_is_valid_initialized() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             guard.state = nros_guard_condition_state_t::NROS_GUARD_CONDITION_STATE_INITIALIZED;
 
             let result = nros_guard_condition_is_valid(&guard);
@@ -451,11 +451,11 @@ mod tests {
     #[test]
     fn test_guard_condition_fini_initialized() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             guard.state = nros_guard_condition_state_t::NROS_GUARD_CONDITION_STATE_INITIALIZED;
             guard.triggered = true;
 
-            let ret = nros_guard_condition_fini(&mut guard);
+            let ret = rcl_guard_condition_fini(&mut guard);
             assert_eq!(ret, NROS_RET_OK);
             assert_eq!(
                 guard.state,
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn test_guard_condition_set_callback_initialized() {
         unsafe {
-            let mut guard = nros_guard_condition_get_zero_initialized();
+            let mut guard = rcl_get_zero_initialized_guard_condition();
             guard.state = nros_guard_condition_state_t::NROS_GUARD_CONDITION_STATE_INITIALIZED;
 
             let context_value: i32 = 42;

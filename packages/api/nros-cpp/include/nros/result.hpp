@@ -231,4 +231,21 @@ template <typename T> class Expected {
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
+// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// makes the ROS 2 spelling a first-class name declared by the API header that
+// owns the concept, at which point a shim has nothing left to bridge.
+
+// `rclcpp::Result` is NOT an upstream rclcpp name — it is a convenience the
+// compat header carried, kept here because step A must not lose anything. It
+// names `nros::Result` exactly; RFC-0018 forbids exceptions, so there is no
+// upstream error type to adopt in its place.
+namespace rclcpp {
+using ::nros::Result;
+} // namespace rclcpp
+
 #endif // NROS_CPP_RESULT_HPP

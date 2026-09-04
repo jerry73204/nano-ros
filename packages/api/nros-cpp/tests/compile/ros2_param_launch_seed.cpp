@@ -21,13 +21,14 @@
 // this is the standard that branch really sees.
 //
 // (The two helpers are the same dispatch written twice — `component_node.hpp`
-// in C++17, `rclcpp_compat.hpp` in C++14 because the compat header is parsed at
-// C++14. There should be ONE, in a header both reach; that is phase-417 W2.a /
-// issue 0793 and it means editing `component_node.hpp`.)
+// in C++17, `rclcpp::detail::adopt_executor_param_seed` in `nros.hpp` in C++14,
+// because that half must parse at C++14. There should be ONE, in a header both
+// reach; that is phase-417 W2.a / issue 0793 and it means editing
+// `component_node.hpp`.)
 
 #define NROS_SYSTEM_PARAM_SERVICES 1
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <string>
 

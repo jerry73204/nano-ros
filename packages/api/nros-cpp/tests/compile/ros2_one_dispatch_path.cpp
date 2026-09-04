@@ -41,10 +41,11 @@
 //   compiles.
 //
 // Compiled HOSTED (no -ffreestanding), like its `ros2_api_adoption*` siblings:
-// `rclcpp_compat.hpp` pulls <memory>/<string>/<functional> unconditionally and
-// hands out `std::shared_ptr` in public signatures.
+// `rclcpp::Node` hands out `std::shared_ptr` in public signatures, so it is
+// declared only where <memory>/<string>/<vector>/<functional> are. Reached
+// through `<nros/nros.hpp>` since phase-417 stage 6 step A.
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <chrono>
 #include <cstddef>

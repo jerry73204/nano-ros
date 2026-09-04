@@ -14,7 +14,7 @@
 // The predicate that decides is `constexpr`, which is what makes the decision
 // checkable HERE rather than in a process that would have to die to be observed.
 // An abort inlined into `init` is a check nothing ever runs.
-#include "nros/rclcpp_compat.hpp"
+#include "nros/nros.hpp"
 
 using rclcpp::detail::argv_has_ros_args;
 

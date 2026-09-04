@@ -332,7 +332,7 @@ unsafe fn get_internal(server: *const nros_action_server_t) -> &'static ActionSe
 /// safe; the C API never lets callers invoke through it directly.
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
-pub extern "C" fn nros_action_server_get_zero_initialized() -> nros_action_server_t {
+pub extern "C" fn rcl_action_get_zero_initialized_server() -> nros_action_server_t {
     nros_action_server_t::default()
 }
 
@@ -451,7 +451,7 @@ pub struct nros_action_server_options_t {
 
 /// Get a zero-initialised [`nros_action_server_options_t`] (`sched_context = 0`).
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_action_server_get_default_options() -> nros_action_server_options_t {
+pub extern "C" fn rcl_action_server_get_default_options() -> nros_action_server_options_t {
     nros_action_server_options_t::default()
 }
 
@@ -938,7 +938,7 @@ pub unsafe extern "C" fn nros_action_server_init_polling(
     #[cfg(feature = "rmw-cffi")]
     {
         // Phase 156 Sub-bug D — multi-Session dispatch (see
-        // `nros_publisher_init`).
+        // `rclc_publisher_init_default`).
         let (session, domain_id) = match crate::node::resolve_session_and_domain(node_ref) {
             Some(t) => t,
             None => return NROS_RET_NOT_INIT,
@@ -1564,7 +1564,7 @@ mod verification {
     fn action_server_init_null_ptrs() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let node = crate::node::nros_node_get_zero_initialized();
+        let node = crate::node::rcl_get_zero_initialized_node();
 
         // NULL server
         assert_eq!(
@@ -1584,7 +1584,7 @@ mod verification {
         );
 
         // NULL node
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe {
                 nros_action_server_init(
@@ -1602,7 +1602,7 @@ mod verification {
         );
 
         // NULL action_name
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe {
                 nros_action_server_init(
@@ -1620,7 +1620,7 @@ mod verification {
         );
 
         // NULL type_info
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe {
                 nros_action_server_init(
@@ -1643,9 +1643,9 @@ mod verification {
     fn action_server_init_none_goal_callback() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let node = crate::node::nros_node_get_zero_initialized();
+        let node = crate::node::rcl_get_zero_initialized_node();
 
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe {
                 nros_action_server_init(
@@ -1668,9 +1668,9 @@ mod verification {
     fn action_server_init_uninit_node() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let node = crate::node::nros_node_get_zero_initialized();
+        let node = crate::node::rcl_get_zero_initialized_node();
 
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe {
                 nros_action_server_init(
@@ -1691,7 +1691,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     fn action_server_zero_initialized_state() {
-        let srv = nros_action_server_get_zero_initialized();
+        let srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             srv.state,
             nros_action_server_state_t::NROS_ACTION_SERVER_STATE_UNINITIALIZED,
@@ -1712,7 +1712,7 @@ mod verification {
         );
 
         // UNINITIALIZED → NOT_INIT
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe { nros_action_server_fini(&mut srv) },
             NROS_RET_NOT_INIT,
@@ -1724,10 +1724,10 @@ mod verification {
     fn action_server_double_init_rejected() {
         let action_name = b"/fibonacci\0";
         let type_info = dummy_action_type();
-        let mut node = crate::node::nros_node_get_zero_initialized();
+        let mut node = crate::node::rcl_get_zero_initialized_node();
         node.state = crate::node::nros_node_state_t::NROS_NODE_STATE_INITIALIZED;
 
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         let ret = unsafe {
             nros_action_server_init(
                 &mut srv,
@@ -1772,7 +1772,7 @@ mod verification {
         );
 
         // NULL out-param.
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe { nros_action_server_get_active_goal_count(&mut srv, ptr::null_mut()) },
             NROS_RET_INVALID_ARGUMENT,
@@ -1801,7 +1801,7 @@ mod verification {
         );
 
         // NULL goal
-        let mut srv = nros_action_server_get_zero_initialized();
+        let mut srv = rcl_action_get_zero_initialized_server();
         assert_eq!(
             unsafe { nros_action_publish_feedback(&mut srv, ptr::null(), feedback.as_ptr(), 8) },
             NROS_RET_INVALID_ARGUMENT,

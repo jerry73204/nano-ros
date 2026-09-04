@@ -42,8 +42,8 @@ fn records_raised_before_init_reach_the_sinks_installed_later() {
 
     // BEFORE any `init`. Historically dropped (pre-0708), then delivered to a
     // sink dispatch guessed (0710); now held.
-    nros_log::nros_info!(&EARLY_LOGGER, "raised before init");
-    nros_log::nros_warn!(&EARLY_LOGGER, "also before init");
+    nros_log::log_info!(&EARLY_LOGGER, "raised before init");
+    nros_log::log_warn!(&EARLY_LOGGER, "also before init");
 
     assert!(
         CAPTURE.lines.lock().unwrap().is_empty(),
@@ -68,7 +68,7 @@ fn records_raised_before_init_reach_the_sinks_installed_later() {
     drop(lines);
 
     // And the ring is spent: a later record goes straight through, once.
-    nros_log::nros_info!(&EARLY_LOGGER, "after init");
+    nros_log::log_info!(&EARLY_LOGGER, "after init");
     let lines = CAPTURE.lines.lock().unwrap_or_else(|e| e.into_inner());
     assert_eq!(
         lines.iter().filter(|l| l.ends_with("|after init")).count(),

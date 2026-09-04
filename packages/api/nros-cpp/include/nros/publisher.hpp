@@ -364,4 +364,26 @@ inline Expected<Publisher<M>> create_publisher(Node& node, const char* topic,
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
+// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// makes the ROS 2 spelling a first-class name declared by the API header that
+// owns the concept, at which point a shim has nothing left to bridge.
+
+// `rclcpp::Publisher<M>::SharedPtr` — rclcpp users index types this way, and
+// they can: the nested `SharedPtr` / `ConstSharedPtr` / `UniquePtr` aliases
+// live on `nros::Publisher<M>` itself (phase-417 W1.a), so the alias template
+// carries them through with no wrapper type in between.
+//
+// `detail::SharedPtrTrait` was written for this job in phase 209 and never
+// wired up. It was DELETED rather than adopted: a trait cannot make
+// `T::SharedPtr` resolve (that spelling has to be a member of `T`), so it could
+// never have done the job it was named for.
+namespace rclcpp {
+template <typename M> using Publisher = ::nros::Publisher<M>;
+} // namespace rclcpp
+
 #endif // NROS_CPP_PUBLISHER_HPP

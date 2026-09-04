@@ -80,6 +80,20 @@ buffer-size-256  = []
 buffer-size-512  = []
 buffer-size-1024 = []
 
+# phase-417 — ARMS the `#[deprecated]` on the pre-rename `nros_debug!` ..
+# `nros_fatal!` forwarders. Off by default, and the reason is structural rather
+# than timid: this workspace sets `warnings = "deny"` (root `Cargo.toml`
+# `[workspace.lints.rust]`), so an always-armed deprecation is not a migration
+# STEP -- it is a hard compile error in every crate that has not moved yet, i.e.
+# the flag day RFC-0087's two-step alias exists to avoid. Measured at the rename:
+# 9 errors in `nros-rmw-cffi` alone stopped the workspace build.
+#
+# So the attribute is authored, reviewed and inert, and the migration batch is
+# `--features deprecate-legacy-names` -> fix what it names -> delete the
+# forwarders. Turning it on before the call sites move breaks the build; that is
+# the point of it being a switch.
+deprecate-legacy-names = []
+
 # Optional `log` crate bridge (Phase 88.10). Lets ecosystem crates
 # that target `log::info!` etc. feed through the same dispatcher.
 log-compat = ["dep:log"]

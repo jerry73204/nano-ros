@@ -103,7 +103,7 @@ fn get_steady_time_ns() -> u64 {
 /// What a `NROS_CLOCK_ROS_TIME` clock reads (issue 0789).
 ///
 /// The ROS time override when one is active — a simulator's or a bag player's
-/// `/clock`, installed through `nros_set_ros_time_override` — and otherwise the
+/// `/clock`, installed through `rcl_set_ros_time_override` — and otherwise the
 /// system clock, which is what `NROS_CLOCK_ROS_TIME` has always read here and
 /// what rcl's ROS-time clock falls back to when the override is disabled.
 ///
@@ -246,7 +246,7 @@ pub unsafe extern "C" fn nros_clock_get_type(clock: *const nros_clock_t) -> nros
 
 /// Finalize a clock.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_clock_fini(clock: *mut nros_clock_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_clock_fini(clock: *mut nros_clock_t) -> nros_ret_t {
     if clock.is_null() {
         return NROS_RET_INVALID_ARGUMENT;
     }
@@ -283,9 +283,9 @@ pub unsafe extern "C" fn nros_clock_fini(clock: *mut nros_clock_t) -> nros_ret_t
 // had since the clock shipped and a second one in C is exactly the split issue
 // 0789 is about. Consequences, both documented at their entry points:
 //
-//   * `nros_set_ros_time_override` also ENABLES. There is no representable
+//   * `rcl_set_ros_time_override` also ENABLES. There is no representable
 //     state where a value is stored but inert.
-//   * `nros_set_ros_time_override` REJECTS a negative time, which is the
+//   * `rcl_set_ros_time_override` REJECTS a negative time, which is the
 //     sentinel's cost. ROS time is nanoseconds since the epoch, so it is
 //     non-negative for any clock a simulator or a bag publishes.
 //
@@ -318,10 +318,10 @@ unsafe fn ros_time_clock_ok(clock: *const nros_clock_t) -> nros_ret_t {
 ///
 /// Mirrors `rcl_enable_ros_time_override`. If no override is active yet the
 /// clock starts at time 0 — the state rcl reports as "not started"
-/// (`nros_clock_time_started`), i.e. enabled but waiting for the first
+/// (`rcl_clock_time_started`), i.e. enabled but waiting for the first
 /// `/clock` sample. An already-active override keeps its value.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_enable_ros_time_override(clock: *const nros_clock_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_enable_ros_time_override(clock: *const nros_clock_t) -> nros_ret_t {
     let ret = ros_time_clock_ok(clock);
     if ret != NROS_RET_OK {
         return ret;
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn nros_enable_ros_time_override(clock: *const nros_clock_
 /// one piece of state there is nowhere for an inert value to live, so
 /// re-enabling starts from 0 again.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_disable_ros_time_override(clock: *const nros_clock_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_disable_ros_time_override(clock: *const nros_clock_t) -> nros_ret_t {
     let ret = ros_time_clock_ok(clock);
     if ret != NROS_RET_OK {
         return ret;
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn nros_disable_ros_time_override(clock: *const nros_clock
 /// Mirrors `rcl_is_enabled_ros_time_override`. Writes `is_enabled` only on
 /// `NROS_RET_OK`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_is_enabled_ros_time_override(
+pub unsafe extern "C" fn rcl_is_enabled_ros_time_override(
     clock: *const nros_clock_t,
     is_enabled: *mut bool,
 ) -> nros_ret_t {
@@ -379,7 +379,7 @@ pub unsafe extern "C" fn nros_is_enabled_ros_time_override(
 /// NEGATIVE `nanoseconds` is `NROS_RET_INVALID_ARGUMENT` because a negative
 /// value is the "no override" sentinel.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_set_ros_time_override(
+pub unsafe extern "C" fn rcl_set_ros_time_override(
     clock: *const nros_clock_t,
     nanoseconds: i64,
 ) -> nros_ret_t {
@@ -430,10 +430,10 @@ pub unsafe extern "C" fn nros_get_ros_time_override(
 /// Mirrors `rcl_clock_time_started`, including its implementation: read the
 /// clock and report whether the value is non-zero. For a ROS-time clock that is
 /// the "enabled, but no `/clock` sample has arrived" state — the one
-/// `nros_enable_ros_time_override` leaves behind — and for a system or steady
+/// `rcl_enable_ros_time_override` leaves behind — and for a system or steady
 /// clock it is true as soon as the clock is valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_clock_time_started(clock: *const nros_clock_t) -> bool {
+pub unsafe extern "C" fn rcl_clock_time_started(clock: *const nros_clock_t) -> bool {
     let mut nanoseconds: i64 = 0;
     if nros_clock_get_now_ns(clock, &mut nanoseconds) != NROS_RET_OK {
         return false;
@@ -786,11 +786,11 @@ mod tests {
 
             // Start from a known state — another crate in the image may have
             // installed one.
-            assert_eq!(nros_disable_ros_time_override(&ros), NROS_RET_OK);
+            assert_eq!(rcl_disable_ros_time_override(&ros), NROS_RET_OK);
 
             let mut enabled = true;
             assert_eq!(
-                nros_is_enabled_ros_time_override(&ros, &mut enabled),
+                rcl_is_enabled_ros_time_override(&ros, &mut enabled),
                 NROS_RET_OK
             );
             assert!(!enabled);
@@ -805,26 +805,26 @@ mod tests {
             // With no override the ROS clock reads the wall, as it always has.
             assert_eq!(nros_clock_get_now_ns(&ros, &mut nanoseconds), NROS_RET_OK);
             assert!(nanoseconds > 0);
-            assert!(nros_clock_time_started(&ros));
+            assert!(rcl_clock_time_started(&ros));
 
             // Enabled but no `/clock` sample yet: time 0, and NOT started —
             // the state `rcl_clock_time_started` exists to report.
-            assert_eq!(nros_enable_ros_time_override(&ros), NROS_RET_OK);
+            assert_eq!(rcl_enable_ros_time_override(&ros), NROS_RET_OK);
             assert_eq!(
-                nros_is_enabled_ros_time_override(&ros, &mut enabled),
+                rcl_is_enabled_ros_time_override(&ros, &mut enabled),
                 NROS_RET_OK
             );
             assert!(enabled);
             assert_eq!(nros_clock_get_now_ns(&ros, &mut nanoseconds), NROS_RET_OK);
             assert_eq!(nanoseconds, 0);
-            assert!(!nros_clock_time_started(&ros));
+            assert!(!rcl_clock_time_started(&ros));
 
             // A `/clock` sample arrives.
             let simulated = 1_234_500_000_000i64;
-            assert_eq!(nros_set_ros_time_override(&ros, simulated), NROS_RET_OK);
+            assert_eq!(rcl_set_ros_time_override(&ros, simulated), NROS_RET_OK);
             assert_eq!(nros_clock_get_now_ns(&ros, &mut nanoseconds), NROS_RET_OK);
             assert_eq!(nanoseconds, simulated);
-            assert!(nros_clock_time_started(&ros));
+            assert!(rcl_clock_time_started(&ros));
 
             let mut read_back: i64 = 0;
             assert_eq!(
@@ -850,7 +850,7 @@ mod tests {
             // A negative override is the "no override" sentinel, so it is
             // refused rather than silently clearing the clock.
             assert_eq!(
-                nros_set_ros_time_override(&ros, -1),
+                rcl_set_ros_time_override(&ros, -1),
                 NROS_RET_INVALID_ARGUMENT
             );
             assert_eq!(
@@ -861,9 +861,9 @@ mod tests {
 
             // A system clock is not something `/clock` can drive, and the
             // system clock keeps reading the wall while ROS time is held.
-            assert_eq!(nros_enable_ros_time_override(&system), NROS_RET_NOT_ALLOWED);
+            assert_eq!(rcl_enable_ros_time_override(&system), NROS_RET_NOT_ALLOWED);
             assert_eq!(
-                nros_is_enabled_ros_time_override(&system, &mut enabled),
+                rcl_is_enabled_ros_time_override(&system, &mut enabled),
                 NROS_RET_NOT_ALLOWED
             );
             assert_eq!(
@@ -874,21 +874,21 @@ mod tests {
 
             // Null clock, null out-parameter, and an uninitialised clock.
             assert_eq!(
-                nros_enable_ros_time_override(core::ptr::null()),
+                rcl_enable_ros_time_override(core::ptr::null()),
                 NROS_RET_INVALID_ARGUMENT
             );
             assert_eq!(
-                nros_is_enabled_ros_time_override(&ros, core::ptr::null_mut()),
+                rcl_is_enabled_ros_time_override(&ros, core::ptr::null_mut()),
                 NROS_RET_INVALID_ARGUMENT
             );
             let fresh = nros_clock_get_zero_initialized();
-            assert_eq!(nros_enable_ros_time_override(&fresh), NROS_RET_NOT_INIT);
-            assert!(!nros_clock_time_started(&fresh));
+            assert_eq!(rcl_enable_ros_time_override(&fresh), NROS_RET_NOT_INIT);
+            assert!(!rcl_clock_time_started(&fresh));
 
             // Released: the ROS clock reads the wall again.
-            assert_eq!(nros_disable_ros_time_override(&ros), NROS_RET_OK);
+            assert_eq!(rcl_disable_ros_time_override(&ros), NROS_RET_OK);
             assert_eq!(
-                nros_is_enabled_ros_time_override(&ros, &mut enabled),
+                rcl_is_enabled_ros_time_override(&ros, &mut enabled),
                 NROS_RET_OK
             );
             assert!(!enabled);

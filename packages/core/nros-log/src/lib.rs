@@ -21,14 +21,14 @@
 //!
 //! ```ignore
 //! use nros_log::{Logger, Severity};
-//! use nros_log::{nros_info, nros_warn};
+//! use nros_log::{log_info, log_warn};
 //!
 //! static LOGGER: Logger = Logger::new("my_node");
 //!
 //! fn main() {
 //!     nros_log::register_logger(&LOGGER);
 //!     nros_log::init(nros_log::sinks::default());
-//!     nros_info!(&LOGGER, "started; domain = {}", 42);
+//!     log_info!(&LOGGER, "started; domain = {}", 42);
 //! }
 //! ```
 
@@ -468,7 +468,7 @@ pub fn init(sinks: &'static [&'static dyn LogSink]) {
         // a silent hole exactly where the boot story is (`nros-log` cannot know
         // what those records said, but it does know how many there were).
         let logger = Logger::new("nros_log");
-        crate::nros_warn!(
+        crate::log_warn!(
             &logger,
             "{lost} record(s) raised before `init` did not fit the early ring \
              (see `nros_log::early`; raise `early-records-<N>`)"

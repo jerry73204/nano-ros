@@ -30,13 +30,21 @@ int main(void) {
      * c:node_get_fully_qualified_name, c:node_resolve_name) --------------- */
 
     /* `bool`, not `nros_ret_t`: rcl's `rcl_node_is_valid` is a predicate, and
-     * a predicate over a handle we hold cannot fail to answer. */
-    bool (*p_is_valid)(const struct nros_node_t*) = nros_node_is_valid;
+     * a predicate over a handle we hold cannot fail to answer. phase-417
+     * stage 6 gave it rcl's NAME too — the old `nros_node_is_valid` is a
+     * deprecated forwarder in `<nros/node.h>`. */
+    bool (*p_is_valid)(const struct nros_node_t*) = rcl_node_is_valid;
 
     /* Out-param + status, NOT a bare `uint32_t` return. 0 is a legal ROS
      * domain, so a bare return would have to spend it on "cannot answer" —
      * which is the defect issue 1008 was. If someone "simplifies" this to a
      * value return, this line stops compiling. */
+    /* NOT renamed to `rcl_node_get_domain_id`: upstream writes a `size_t *`
+     * and ours writes a `uint32_t *`. In C that mismatch is a WARNING, so a
+     * ported `size_t id; rcl_node_get_domain_id(&node, &id);` would compile
+     * and leave half of `id` uninitialised — the out-parameter type is
+     * authored at the CALL SITE, which is what separates this from the
+     * typesupport handle RFC-0087 settled we keep. */
     nros_ret_t (*p_domain)(const struct nros_node_t*, uint32_t*) = nros_node_get_domain_id;
 
     /* Caller-owned buffer, not rcl's `const char *` return: we have no
@@ -55,8 +63,8 @@ int main(void) {
     /* --- timer accessors (ledger: c:timer_is_canceled, c:timer_is_ready,
      * c:timer_get_time_since_last_call) ----------------------------------- */
 
-    nros_ret_t (*p_canceled)(const struct nros_timer_t*, bool*) = nros_timer_is_canceled;
-    nros_ret_t (*p_ready)(const struct nros_timer_t*, bool*) = nros_timer_is_ready;
+    nros_ret_t (*p_canceled)(const struct nros_timer_t*, bool*) = rcl_timer_is_canceled;
+    nros_ret_t (*p_ready)(const struct nros_timer_t*, bool*) = rcl_timer_is_ready;
     nros_ret_t (*p_since)(const struct nros_timer_t*, uint64_t*) =
         nros_timer_get_time_since_last_call;
 

@@ -3395,9 +3395,15 @@ fn typed_c_subscription_refused_decode_is_loud_and_undelivered() {
         result.any_errors(),
         "the spin result must report the failure"
     );
-    assert_eq!(
-        super::arena::typed_deserialize_failures(),
-        failures_before + 1,
+    // `>=`, not `==`. The counter is a PROCESS-GLOBAL atomic and cargo runs this
+    // binary's tests on parallel threads, so between `failures_before` and here
+    // any other test driving a typed subscription can bump it. Exact equality
+    // asserts "no other test failed a decode", which is not this test's
+    // business and is not something it can observe; the property under test is
+    // that THIS refusal was counted. Exactness made it fail in `check::build`'s
+    // parallel lane while passing solo.
+    assert!(
+        super::arena::typed_deserialize_failures() >= failures_before + 1,
         "the refusal must also be counted for the rate-limited nros_log report"
     );
     assert_eq!(

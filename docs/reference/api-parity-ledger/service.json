@@ -1226,5 +1226,9 @@
   "c:service_typed_report_error": {
     "verdict": "extension",
     "why": "phase-417 W5.e — the loud half of typed service delivery. A handler returning `false` makes the executor send nothing (`arena.rs:2559`), which the peer cannot distinguish from a reply that has not arrived -- it just times out. So the refusal has to say so, and the diagnostic lives in Rust because the logger is Rust's: a second formatter in a generated header would be a second implementation (RFC-0019). rclc has no counterpart because its service callback returns void and cannot refuse at all."
+  },
+  "c:executor_add_service_raw": {
+    "verdict": "divergence",
+    "why": "phase-417 stage 6 — the callback moved OFF `*_init` and onto registration, so `rclc_{subscription,service}_init_default` now matches rclc's four-argument shape and the callback arrives here, exactly as rclc supplies it at `rclc_executor_add_subscription`.\n\nIt keeps the `nros_` prefix DELIBERATELY, and that is the whole content of this row. rclc's same-named calls deliver a DESERIALISED message into caller-owned storage; these deliver CDR BYTES. Taking rclc's spelling for a byte-oriented entry point would be a name whose contract differs -- the `PollingSubscription::take()` failure, which had rclcpp's name, rclcpp's signature and the opposite contract, and cost a spinning loop with no compile error.\n\nThe faithful rclc-shaped entry point exists beside it and DOES take the name: `nros_executor_add_subscription_typed` (W5.a), reached per-message as `<Msg>_executor_add_subscription(exec, sub, &msg, cb, ctx, invocation)` -- rclc's six arguments in rclc's order. So the two shapes are distinguished by NAME rather than by a reader noticing which one deserialises, which is what RFC-0087 asks for."
   }
 }

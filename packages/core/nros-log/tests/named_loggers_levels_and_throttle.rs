@@ -145,9 +145,9 @@ fn a_per_logger_level_filters_delivery_and_does_not_leak_to_other_loggers() {
         "setting a level on a created logger must not move the catch-all's"
     );
 
-    nros_log::nros_info!(quiet, "filtered by level");
-    nros_log::nros_warn!(quiet, "admitted by level");
-    nros_log::nros_debug!(loud, "admitted on the loud logger");
+    nros_log::log_info!(quiet, "filtered by level");
+    nros_log::log_warn!(quiet, "admitted by level");
+    nros_log::log_debug!(loud, "admitted on the loud logger");
 
     let quiet_lines = drain_for("w4d_quiet");
     assert_eq!(
@@ -168,7 +168,7 @@ fn a_per_logger_level_filters_delivery_and_does_not_leak_to_other_loggers() {
 
     // Raise the threshold back and the previously-admitted severity stops.
     quiet.set_level(Severity::Error);
-    nros_log::nros_warn!(quiet, "now filtered");
+    nros_log::log_warn!(quiet, "now filtered");
     assert!(
         drain_for("w4d_quiet").is_empty(),
         "set_level must take effect for records raised after it"
@@ -266,7 +266,7 @@ fn a_record_carries_the_line_it_was_raised_on() {
 
     let logger = nros_log::get_or_create_logger("w4d_site").expect("arena has room");
     let expected = line!() + 1;
-    nros_log::nros_error!(logger, "with a call site");
+    nros_log::log_error!(logger, "with a call site");
 
     let lines = drain_for("w4d_site");
     assert_eq!(lines.len(), 1);

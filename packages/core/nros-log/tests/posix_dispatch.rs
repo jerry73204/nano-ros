@@ -32,11 +32,11 @@ fn platform_sink_round_trips_through_posix_c_impl() {
     // Each macro should complete without panicking; the C impl
     // writes the rendered line to stderr.
     nros_log::nros_trace!(&TEST_LOGGER, "trace payload {} / {}", 1, "two");
-    nros_log::nros_debug!(&TEST_LOGGER, "debug payload");
-    nros_log::nros_info!(&TEST_LOGGER, "info  payload — {}", "string");
-    nros_log::nros_warn!(&TEST_LOGGER, "warn  payload");
-    nros_log::nros_error!(&TEST_LOGGER, "error payload");
-    nros_log::nros_fatal!(&TEST_LOGGER, "fatal payload");
+    nros_log::log_debug!(&TEST_LOGGER, "debug payload");
+    nros_log::log_info!(&TEST_LOGGER, "info  payload — {}", "string");
+    nros_log::log_warn!(&TEST_LOGGER, "warn  payload");
+    nros_log::log_error!(&TEST_LOGGER, "error payload");
+    nros_log::log_fatal!(&TEST_LOGGER, "fatal payload");
     nros_log::flush();
 }
 
@@ -51,7 +51,7 @@ fn runtime_threshold_silences_below() {
     // Trace/Debug/Info dropped; Warn/Error/Fatal delivered. No
     // panics, no allocator pressure beyond the stack buffer.
     nros_log::nros_trace!(l, "should be filtered");
-    nros_log::nros_info!(l, "should be filtered");
-    nros_log::nros_warn!(l, "should appear");
-    nros_log::nros_error!(l, "should appear");
+    nros_log::log_info!(l, "should be filtered");
+    nros_log::log_warn!(l, "should appear");
+    nros_log::log_error!(l, "should appear");
 }

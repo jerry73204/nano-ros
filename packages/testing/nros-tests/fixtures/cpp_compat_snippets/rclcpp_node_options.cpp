@@ -1,4 +1,4 @@
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <memory>
 #include <string>

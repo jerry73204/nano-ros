@@ -72,7 +72,7 @@ pub struct nros_publisher_t {
     /// Pointer to parent node
     pub node: crate::node::nros_node_ref_t,
     /// Inline opaque storage for the RMW publisher handle.
-    /// Avoids heap allocation — managed by nros_publisher_init/fini.
+    /// Avoids heap allocation — managed by rclc_publisher_init_default/fini.
     pub _opaque: [u64; PUBLISHER_OPAQUE_U64S],
 }
 
@@ -123,13 +123,13 @@ pub struct nros_publisher_options_t {
 /// fields they want to override before passing the struct to
 /// [`nros_publisher_init_with_options`].
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_publisher_get_default_options() -> nros_publisher_options_t {
+pub extern "C" fn rcl_publisher_get_default_options() -> nros_publisher_options_t {
     nros_publisher_options_t::default()
 }
 
 /// Get a zero-initialized publisher.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_publisher_get_zero_initialized() -> nros_publisher_t {
+pub extern "C" fn rcl_get_zero_initialized_publisher() -> nros_publisher_t {
     nros_publisher_t::default()
 }
 
@@ -154,7 +154,7 @@ pub extern "C" fn nros_publisher_get_zero_initialized() -> nros_publisher_t {
 /// * All pointers must be valid
 /// * `topic_name` must be a valid null-terminated string
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_publisher_init(
+pub unsafe extern "C" fn rclc_publisher_init_default(
     publisher: *mut nros_publisher_t,
     node: *const nros_node_t,
     type_info: *const nros_message_type_t,
@@ -232,7 +232,7 @@ pub unsafe extern "C" fn nros_publisher_init_with_qos(
         // Phase 156 Sub-bug D — resolve session via the multi-Session
         // helper. Branches on whether the Node was bound via
         // `nros_executor_node_init` (sets `node.executor` + non-zero
-        // `node.node_id`) or via legacy `nros_node_init` (sets
+        // `node.node_id`) or via legacy `rclc_node_init_default` (sets
         // `node.support`). Single call covers both shapes; bridge
         // examples now reach the XRCE / DDS extra sessions instead of
         // hitting NROS_RET_NOT_INIT against a NULL support pointer.
@@ -491,7 +491,7 @@ pub unsafe extern "C" fn nros_publisher_publish_streamed(
 /// # Safety
 /// * `publisher` must be a valid pointer to an initialized publisher
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_publisher_assert_liveliness(
+pub unsafe extern "C" fn rcl_publisher_assert_liveliness(
     publisher: *const nros_publisher_t,
 ) -> nros_ret_t {
     validate_not_null!(publisher);
@@ -752,7 +752,7 @@ pub unsafe extern "C" fn nros_publisher_fini(publisher: *mut nros_publisher_t) -
 /// # Returns
 /// * Pointer to topic name (null-terminated), or NULL if invalid
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_publisher_get_topic_name(
+pub unsafe extern "C" fn rcl_publisher_get_topic_name(
     publisher: *const nros_publisher_t,
 ) -> *const c_char {
     if publisher.is_null() {
@@ -775,7 +775,7 @@ pub unsafe extern "C" fn nros_publisher_get_topic_name(
 /// # Returns
 /// * `true` if valid, `false` if invalid or NULL
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_publisher_is_valid(publisher: *const nros_publisher_t) -> bool {
+pub unsafe extern "C" fn rcl_publisher_is_valid(publisher: *const nros_publisher_t) -> bool {
     if publisher.is_null() {
         return false;
     }
@@ -801,12 +801,12 @@ mod verification {
             serialized_size_max: 4,
         };
 
-        let mut node = crate::node::nros_node_get_zero_initialized();
+        let mut node = crate::node::rcl_get_zero_initialized_node();
 
         // NULL publisher → INVALID_ARGUMENT
         assert_eq!(
             unsafe {
-                nros_publisher_init(
+                rclc_publisher_init_default(
                     core::ptr::null_mut(),
                     &node,
                     &type_info,
@@ -817,10 +817,10 @@ mod verification {
         );
 
         // NULL node → INVALID_ARGUMENT
-        let mut pub_ = nros_publisher_get_zero_initialized();
+        let mut pub_ = rcl_get_zero_initialized_publisher();
         assert_eq!(
             unsafe {
-                nros_publisher_init(
+                rclc_publisher_init_default(
                     &mut pub_,
                     core::ptr::null(),
                     &type_info,
@@ -831,10 +831,10 @@ mod verification {
         );
 
         // NULL type_info → INVALID_ARGUMENT
-        let mut pub_ = nros_publisher_get_zero_initialized();
+        let mut pub_ = rcl_get_zero_initialized_publisher();
         assert_eq!(
             unsafe {
-                nros_publisher_init(
+                rclc_publisher_init_default(
                     &mut pub_,
                     &node,
                     core::ptr::null(),
@@ -845,9 +845,9 @@ mod verification {
         );
 
         // NULL topic → INVALID_ARGUMENT
-        let mut pub_ = nros_publisher_get_zero_initialized();
+        let mut pub_ = rcl_get_zero_initialized_publisher();
         assert_eq!(
-            unsafe { nros_publisher_init(&mut pub_, &node, &type_info, core::ptr::null()) },
+            unsafe { rclc_publisher_init_default(&mut pub_, &node, &type_info, core::ptr::null()) },
             NROS_RET_INVALID_ARGUMENT,
         );
     }
@@ -855,7 +855,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     fn publisher_zero_initialized_state() {
-        let pub_ = nros_publisher_get_zero_initialized();
+        let pub_ = rcl_get_zero_initialized_publisher();
         assert_eq!(
             pub_.state,
             nros_publisher_state_t::NROS_PUBLISHER_STATE_UNINITIALIZED,

@@ -145,4 +145,83 @@ static inline nros_ret_t nros_service_send_response(struct nros_service_t* servi
 }
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ===================================================================
+ * DEPRECATED spellings -- phase-417 stage 6 (RFC-0087, 2026-09-04)
+ *
+ * RFC-0087 settled that **the C API takes rcl's spellings**: the goal is
+ * drop-in replacement and a ported file's line is rcl's line. These names
+ * are the pre-stage-6 `nros_` spellings, kept one release as
+ * `NROS_DEPRECATED_MSG` `static inline` forwarders so an out-of-tree C node
+ * that still writes them keeps compiling and gets a diagnostic naming its
+ * replacement.
+ *
+ * An inline definition in a header has no external linkage, so every
+ * translation unit may define it and none exports it: the rcl/rclc name is
+ * the ONLY exported symbol. This is a SOURCE compatibility promise, not a
+ * binary one -- an object file built against the pre-rename library must be
+ * recompiled.
+ *
+ * `nros_ret_t`'s VALUES are unchanged. RFC-0087 records this as the one place
+ * where taking rcl's spelling must not mean taking rcl's numbering; the
+ * mapping lives in `<nros/rcl_compat.h>` and is the one part of that header
+ * which does not dissolve.
+ *
+ * Define NROS_NO_DEPRECATED_SERVICE_ALIASES to compile without any of it --
+ * for a consumer whose build is `-Werror` and who wants the old names to be a
+ * hard error rather than a warning.
+ *
+ * Scheduled for removal as ONE batch (stage 6 step B); migrate.
+ * =================================================================== */
+
+#ifndef NROS_NO_DEPRECATED_SERVICE_ALIASES
+
+NROS_DEPRECATED_MSG(
+    "nros_service_get_zero_initialized() is deprecated; use rcl_get_zero_initialized_service()")
+static inline struct nros_service_t nros_service_get_zero_initialized(void) {
+    return rcl_get_zero_initialized_service();
+}
+
+NROS_DEPRECATED_MSG(
+    "nros_service_get_default_options() is deprecated; use rcl_service_get_default_options()")
+static inline struct nros_service_options_t nros_service_get_default_options(void) {
+    return rcl_service_get_default_options();
+}
+
+NROS_DEPRECATED_MSG(
+    "nros_service_get_service_name() is deprecated; use rcl_service_get_service_name()")
+static inline const char* nros_service_get_service_name(const struct nros_service_t* service) {
+    return rcl_service_get_service_name(service);
+}
+
+NROS_DEPRECATED_MSG("nros_service_is_valid() is deprecated; use rcl_service_is_valid()")
+static inline bool nros_service_is_valid(const struct nros_service_t* service) {
+    return rcl_service_is_valid(service);
+}
+
+/* The ARITY move, the service side of `nros_subscription_init`'s. The handler
+ * and its context are supplied at REGISTRATION now, by
+ * `nros_executor_add_service_raw` -- the call rclc calls
+ * `rclc_executor_add_service`. Forwards to `nros_service_init_with_qos`, which
+ * still carries them, so the old behaviour is preserved exactly. */
+NROS_DEPRECATED_MSG("nros_service_init() is deprecated; use rclc_service_init_default() and "
+                    "supply the handler at registration with nros_executor_add_service_raw()")
+static inline nros_ret_t nros_service_init(struct nros_service_t* service,
+                                           const struct nros_node_t* node,
+                                           const struct nros_service_type_t* type_info,
+                                           const char* service_name,
+                                           nros_service_callback_t callback, void* context) {
+    return nros_service_init_with_qos(service, node, type_info, service_name, callback, context,
+                                      NULL);
+}
+
+#endif /* NROS_NO_DEPRECATED_SERVICE_ALIASES */
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* NROS_SERVICE_H */

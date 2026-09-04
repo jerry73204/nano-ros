@@ -282,8 +282,21 @@ mod tests {
         // A triple no host has installed, and which is not a real target — so
         // this cannot pass by accident on a well-provisioned machine.
         let b = board("target = \"nros-not-a-real-triple\"\n");
+        // Probe ONCE, before `check`, and branch on that one answer.
+        //
+        // `rust_target_installed` returns TRUE when the fork fails (`:186`,
+        // `:189`) -- "no rustup here, so report installed". Asking twice means
+        // the two answers can disagree under load: `check`'s call forks fine and
+        // reports the missing target, this one fails to spawn and takes the
+        // "nothing to assert" branch, and the test fails on a tree that is
+        // correct. Observed in `check::build`'s parallel lane; passes solo and
+        // twice in a row standalone.
+        //
+        // Issue 0726's class exactly: a forked process that failed to START
+        // under a fan-out, reported as a finding about the source tree.
+        let installed = rust_target_installed("nros-not-a-real-triple");
         let m = check(&b, tmp.path(), None);
-        if rust_target_installed("nros-not-a-real-triple") {
+        if installed {
             // No rustup on this host: the check reports installed by design
             // (see `rust_target_installed`), so there is nothing to assert.
             assert!(m.iter().all(|m| !m.what.contains("Rust target")));
