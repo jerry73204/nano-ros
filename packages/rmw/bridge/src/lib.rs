@@ -451,7 +451,7 @@ impl<const RX_BUF: usize, const TX_BUF: usize, const CONV_BUF: usize>
                         // cannot be represented on the far side. Counted AND
                         // logged, never silent: a converter that fails every
                         // sample must not read as a quiet bridge.
-                        nros_log::nros_error!(
+                        nros_log::log_error!(
                             nros_log::get_logger("nros_bridge"),
                             "bridge conversion failed, sample dropped: {}",
                             e

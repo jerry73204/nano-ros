@@ -57,7 +57,7 @@ impl ExecutableNode for Talker {
             // log writer) — the e2e harness waits for `Publishing:` to confirm
             // the 1 Hz timer fired + the session published. Mirrors the
             // official ROS 2 demo talker (phase-277 W4).
-            nros_board_esp32_qemu::nros_log::nros_info!(
+            nros_board_esp32_qemu::nros_log::log_info!(
                 nros_board_esp32_qemu::nros_log::get_logger("talker"),
                 "Publishing: '{}'",
                 msg.data
