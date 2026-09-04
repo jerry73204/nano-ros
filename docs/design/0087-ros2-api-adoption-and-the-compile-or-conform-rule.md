@@ -317,22 +317,42 @@ rclc binds it at `rclc_executor_add_subscription`. So "sort the arguments to
 match" is not reachable by reordering — those two arguments have to go
 somewhere else, or stay.
 
-**The decision, which is a design reversal and not a rename:**
+### CORRECTED — RFC-0041 does not decide this, and the rule cited instead does not exist
 
-1. **Adopt rclc's split** — `*_init` takes no callback; the callback and its
-   storage arrive at executor-add. That is what W5.a's
-   `nros_executor_add_subscription_typed` already does for the typed path, so
-   the shape exists and is proven; what remains is making it the ONLY shape and
-   reversing RFC-0041 for the three entity types.
-2. **Keep RFC-0041** — the three signatures stay 6-argument and are documented
-   divergences forever. Source compatibility for those three calls is
-   unreachable, and `rcl_compat.h` cannot be deleted for them.
+I first wrote that taking rclc's order requires reversing RFC-0041, which is
+Stable, and that this was the last blocker for deleting the C compat header.
+**Both halves are wrong**, and checking took one grep:
 
-(1) is the only choice consistent with "no compat layer survives", so choosing
-the end state chooses it. Worth saying plainly: **RFC-0041 becomes the last
-blocker for deleting the C compat header**, and it is Stable, so reversing it is
-an RFC amendment with its own acceptance — not something a rename sweep can do
-on the way past.
+* **RFC-0041 says nothing about a binding site.** Its normative content is the
+  DISPATCH MODEL — every callback-capable entity is callback-based by default,
+  the executor pumps once per `spin_once`, and an entity must be arena-registered
+  to be dispatched at all. Where the callback is *passed* — `*_init` or
+  `executor_add_*` — appears nowhere in it.
+* **`executor-owns-no-entity-storage`, cited by name in ten ledger rows as the
+  reason, is defined nowhere.** Zero occurrences in `docs/design/`. It reads as
+  a settled principle and is a phrase the ledger invented for itself.
+
+So the binding site is an implementation habit that was retroactively attributed
+to an RFC that does not mandate it. That is issue 1022's class — prose citing a
+source that does not support it — in the rows that were about to justify keeping
+a compat layer forever.
+
+**What IS real**, and is the only constraint found: `c:timer_exchange_callback`
+gives a concrete reason for the RUNTIME case — "the executor's static dispatch
+table cannot be rewritten while it is being walked". That forbids *swapping* a
+callback on a live entity. It says nothing about which call first supplies one.
+
+**So the decision is smaller and already unblocked.** Moving the callback from
+`*_init` to `executor_add_*` needs no RFC amendment; it needs the same shape
+W5.a shipped and proved this week
+(`nros_executor_add_subscription_typed(exec, sub, msg, cb, ctx, invocation)` —
+rclc's arguments in rclc's order). What remains is making it the only shape and
+migrating in-tree callers.
+
+**What still needs writing down** is the reverse: the ten rows asserting a rule
+that does not exist have to be corrected, and if the habit has a real
+justification, it belongs in an RFC rather than in ledger prose that cites
+itself.
 
 ## Argument ORDER follows the same decision, and is mostly not a separate task
 
