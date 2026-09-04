@@ -160,11 +160,7 @@
   },
   "rust:Logger::set_default_level": {
     "verdict": "gap",
-    "why": "sets the threshold new/unnamed loggers start at. `nros_log::DEFAULT_LOGGER` is an ordinary `Logger`, so `DEFAULT_LOGGER.set_level(..)` is the capability -- it just reaches no public API. See `rust:Logger::set_level`."
-  },
-  "rust:Logger::set_level": {
-    "verdict": "gap",
-    "why": "the per-logger runtime threshold. `nros_log::Logger::set_level` exists (an `AtomicU8`, `Relaxed`), but the `Logger` the `nros` facade exports is `nros_core::logger::Logger`, which has no threshold at all -- it forwards straight to `log::info!` and whatever `log` backend the binary installed decides what survives. So the capability is in the tree and is not in the public API. See `rust:Logger::info` for why there are two loggers, and `c:log_levels_add_logger_setting` for the same hole in C and C++. Phase 379 W3."
+    "why": "sets the threshold new/unnamed loggers start at. `nros_log::DEFAULT_LOGGER` is an ordinary `Logger`, so `DEFAULT_LOGGER.set_level(..)` is the capability, and since phase-417 W4.d both halves ARE public: the facade re-binds `nros::Logger` to `nros_log::Logger` and re-exports `DEFAULT_LOGGER`. What is still missing is the NAME -- rclrs has a distinct `set_default_level`; ours is spelled `DEFAULT_LOGGER.set_level`."
   },
   "rust:Logger::trace": {
     "verdict": "divergence",

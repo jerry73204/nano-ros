@@ -492,7 +492,7 @@
   },
   "c:goal_uuid_t": {
     "verdict": "divergence",
-    "why": "the 16-byte goal id as its own type. rcl carries it inside `rcl_action_goal_info_t` and rclcpp_action aliases it as `GoalUUID` (a `std::array`). Ours is a plain struct so it is copyable by value into caller storage with no allocator and no STL. Note our C++ has no goal-id type at all -- it passes bare `uint8_t goal_id[16]`; see `cpp:GoalUUID`."
+    "why": "the 16-byte goal id as its own type. rcl carries it inside `rcl_action_goal_info_t` and rclcpp_action aliases it as `GoalUUID` (a `std::array`). Ours is a plain struct so it is copyable by value into caller storage with no allocator and no STL. Note our C++ grew `nros::GoalUUID` in phase-417 W4.b -- a standard-layout, trivially copyable value over the same 16 bytes; before that every C++ action signature passed a bare `uint8_t goal_id[16]`, which decays to a pointer."
   },
   "c:result_callback_t": {
     "verdict": "divergence",
@@ -579,10 +579,6 @@
   "cpp:GoalResponse": {
     "verdict": "divergence",
     "why": "the goal callback's accept/reject/defer decision, name-for-name rclcpp_action's `GoalResponse` with the same three cases. NOTE the discriminants do not match rclcpp_action's: ours are 0-based (0/1/2), rclcpp_action's are 1-based (1/2/3), and the enumerators are `Reject` vs `REJECT`. The correlator sees only the NAME, so this pair reports as `same`; enumerator comparison is a feature it does not have, which is why the fact lives here. DECIDED (issue 0796) NOT to align, for two reasons. (1) These are not preferences but a C ABI: the value crosses three FFI seams as an integer -- a `#[repr(i8)]` Rust enum returned directly from `extern \"C\"` trampolines, `nros_c_goal_response_t` / `nros_c_cancel_response_t` in component.h, and an `enum class : int32_t` in C++ -- so renumbering is the kind of break that produces NO compile error anywhere, just a half-rebuilt tree that starts deciding accept where it meant reject. (2) It would buy nothing anyway: a ported `switch` still names `rclcpp_action::GoalResponse::REJECT`, so it must be edited regardless, and once edited it uses OUR enumerators and gets the right value under either numbering. Only code that hardcodes the integers is affected, and that code is already wrong. Against that, `Reject` = 0 is load-bearing: the arena's decision slots are zero-initialised static storage with no allocator and no constructor, and the null-callback path yields `Default`, so 0 MUST mean reject. Making 0 invalid would make \"nobody answered\" mean accept. See `c:goal_response_t` for the C spelling and `rust:GoalResponse` for the Rust one."
-  },
-  "cpp:GoalUUID": {
-    "verdict": "gap",
-    "why": "OUR LANGUAGES DISAGREE: rclcpp_action aliases the goal id as a named type. Our C has `nros_goal_uuid_t` with `nros_goal_uuid_generate` and `nros_goal_uuid_equal`; our Rust has `GoalId` with `new`/`zero`/`is_zero`/`from_counter`. Our C++ has nothing -- every action signature in `action_server.hpp`, `action_client.hpp` and the two polling headers passes a raw `uint8_t goal_id[16]`, which decays to a pointer, compares with neither `==` nor `!=`, and cannot be stored in a container without the user writing the wrapper. Phase 379 W3."
   },
   "cpp:Node::create_action_client": {
     "verdict": "rename",

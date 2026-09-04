@@ -530,7 +530,7 @@
   },
   "cpp:NodeOptions::start_parameter_services": {
     "verdict": "divergence",
-    "why": "rclcpp starts the parameter servers from node options; ours is an explicit executor call. See `c:executor_register_parameter_services`."
+    "why": "rclcpp starts the parameter servers from node options; ours is an explicit executor call. See `c:executor_register_parameter_services`. COLLAPSE CHECK 2026-09-04 (phase-417): correlates `same` because the name EXISTS and is REFUSE-LOUD (phase-417 W3.f) -- `NodeOptions::start_parameter_services` is a dependent `static_assert`, not an implementation. Using it is a compile error naming the executor call. The divergence recorded here is unchanged."
   },
   "cpp:ParameterService::ParameterService": {
     "verdict": "divergence",
@@ -675,7 +675,7 @@
   },
   "cpp:ServicesQoS::ServicesQoS": {
     "verdict": "divergence",
-    "why": "rclcpp gives each QoS preset its own TYPE (`ServicesQoS`, `ClockQoS`, `SensorDataQoS`) so a preset can be passed where a `QoS` is expected and still be named. Ours are named constructors on one `QoS` type -- a type per preset costs a class each with no allocator to justify it, and the presets are the same values."
+    "why": "rclcpp gives each QoS preset its own TYPE (`ServicesQoS`, `ClockQoS`, `SensorDataQoS`) so a preset can be passed where a `QoS` is expected and still be named. Ours are named constructors on one `QoS` type -- a type per preset costs a class each with no allocator to justify it, and the presets are the same values. COLLAPSE CHECK 2026-09-04 (phase-417): the \"a type per preset costs a class each with no allocator to justify it\" argument NO LONGER HOLDS. phase-417 W3.f ships `SensorDataQoS`, `ServicesQoS`, `ParametersQoS`, `ParameterEventsQoS`, `RosoutQoS` and `ClockQoS` as `constexpr` classes deriving from `QoS` in `rclcpp_compat.hpp`, transcribed field-for-field from `rmw/qos_profiles.h`, with no allocator involved -- so this correlates `same` on the PORTED surface. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::QoS` still spells the presets as named constructors (`qos.hpp:328-334`) and ships only three of them."
   },
   "cpp:WaitSetTemplate::add_client": {
     "verdict": "declined",

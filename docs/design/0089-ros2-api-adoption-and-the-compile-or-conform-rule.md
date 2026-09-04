@@ -575,6 +575,46 @@ is the only field that separates a name we serve from a name we declared in
 order to say no. The correlator cannot recover that, because at the level of
 names and shapes there is nothing to recover.
 
+## Four ways a row correlates `same` without our having implemented it
+
+A collapse pass over rows that correlate `same` looked mechanical and was not.
+Measured 2026-09-04, and each of these was hit:
+
+1. **The gate reads a DIFFERENT surface than the headline bucket.** `--check`
+   gates the NATIVE bucket; the shim surface is opt-in (`--check-ported`). Of 53
+   rows reading `same`, only 16 were `same` natively — the other 37 are
+   `theirs-only` without the shim and still gated. A blind collapse takes the
+   gate red.
+2. **A refusal correlates `same` by construction** — a `static_assert` template
+   or an inert getter is a declarable name, and correlation compares names and
+   shapes.
+3. **A sentinel correlates `same` and is neither.** `rclcpp::Logger` in the shim
+   has the right name and the right member and carries no information to the
+   sink.
+4. **UPSTREAM moving produces `same` with no change of ours at all.** The rclrs
+   reference was re-pinned 0.5.1 → 0.7.0, and 0.7.0 ships actions. Nine rows
+   saying "rclrs ships NO action API at all; the convergence point is whenever
+   rclrs grows actions" became false without anyone touching our tree.
+
+(4) is the one worth naming as a class: **the ledger is a join over two moving
+surfaces, so it goes stale from THEIR side too.** Every other staleness rule in
+this campaign — issues 1012, 1022 — assumes we moved. A `--refresh` that bumps
+the recorded surface must be followed by a re-read of every row that argued from
+its absence, and nothing enforces that today.
+
+## `disposition` is not evidence, and W-M2 proved it
+
+The disposition pass was PROSE-DRIVEN: it read each row's `why` and classified.
+That is why it stamped `refuse-loud` on `cpp:Rate`, `Rate::sleep`,
+`Rate::reset` and `WallRate` — rows whose prose argued from RFC-0021 — when
+W2.d had already SHIPPED them (`rclcpp_compat.hpp:1327`), answering the
+objection rather than overriding it: `sleep()` computes a deadline and makes one
+call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running.
+
+So the field records an intent, and an intent can be wrong about the code. A
+later pass must verify against the header, not against the field. Recorded here
+because the failure is in a mechanism this RFC introduced, not in the rows.
+
 ## Dispositions apply to every upstream item, not only `declined` ones
 
 The four values were measured over all 717 uncovered rclcpp items (117 / 123 /
