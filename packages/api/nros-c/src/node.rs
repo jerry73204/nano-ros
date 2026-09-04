@@ -729,7 +729,10 @@ unsafe fn write_cstr_out(s: &str, out: *mut c_char, out_size: usize) -> nros_ret
     if s.len() + 1 > out_size {
         return NROS_RET_FULL;
     }
-    let dst = unsafe { core::slice::from_raw_parts_mut(out, s.len() + 1) };
+    // As `u8`, not `c_char`: the latter is `i8` on x86_64/aarch64-linux and
+    // `u8` elsewhere, so copying `s.as_bytes()` into it compiles on only one of
+    // the two. The bytes written are identical either way.
+    let dst = unsafe { core::slice::from_raw_parts_mut(out.cast::<u8>(), s.len() + 1) };
     dst[..s.len()].copy_from_slice(s.as_bytes());
     dst[s.len()] = 0;
     NROS_RET_OK
