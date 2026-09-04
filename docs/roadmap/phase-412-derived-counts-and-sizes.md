@@ -285,7 +285,7 @@ that stopped matching cannot report success. Point it at a real dir by hand:
 Verified against the island both ways: it FAILS on the pre-fix build naming all
 four dropped knobs, and passes on the fixed one.
 
-## W5 -- the instrument, because the campaign ran out of oracle. LANDED 2026-09-04
+## W6 -- the instrument, because the campaign ran out of oracle. LANDED 2026-09-04
 
 W1 through W4 all assume a way to tell a correct image from a broken one. On
 the island there is not one.
@@ -355,7 +355,7 @@ seventh that survives the build system entirely.
 silent -- and it is the half carrying buffered subscriptions and action
 entries, which is what an island image actually allocates. Fixed with W5.
 
-### What W5 does NOT settle
+### What W6 does NOT settle
 
 No cell builds an image with the record on, exhausts its arena on purpose, and
 asserts the dump names the shortfall. The instrument is verified in every part
