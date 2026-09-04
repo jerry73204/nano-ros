@@ -23,6 +23,9 @@
 #define NROS_CPP_OPTIONS_HPP
 
 #include <cstdint>
+// phase-417 stage 6 step A — `rclcpp::detail::refuse` and
+// `NROS_RCLCPP_REFUSE_NODE_OPTIONS`, used by `rclcpp::NodeOptions` below.
+#include "nros/log.hpp"
 
 namespace nros {
 
@@ -151,5 +154,184 @@ struct ClientOptions {
 };
 
 } // namespace nros
+
+// ============================================================================
+// rclcpp::NodeOptions (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`. This header is where the
+// rclcpp-shaped named-options structs live, so it is where the node's own
+// options object belongs.
+//
+// The TYPE survives; every OPTION on it is REFUSE-LOUD (RFC-0087 W3.f).
+//
+// What was here: ten setters that stored their argument in a private field
+// nothing read, and returned `*this` so the idiomatic chain compiled and
+// configured nothing. The header called them "intentionally inert today". That
+// is the second of RFC-0087's two live inversions, and it is the one a rename
+// would inherit most quietly — `NodeOptions().use_intra_process_comms(true)`
+// correlates `same` against upstream by name AND shape, so the parity
+// instrument cannot see the defect it is measuring.
+//
+// It is not fixable by implementing them, either: nano-ros has no runtime
+// ComponentManager, no intra-process transport, no topic-statistics collector
+// and no `/rosout` topic, and its parameters and remaps are resolved by the
+// LAUNCHER and projected into the environment before exec (RFC-0060). There is
+// nothing behind these knobs to switch. So they refuse, with one message.
+//
+// The DEFAULT CONSTRUCTOR stays, because `rclcpp::NodeOptions{}` and
+// `Node(name, options)` are the load-bearing shapes for a composable node and
+// neither claims anything. `get_node_options()` on the node stays for the same
+// reason: handing back the (empty) options object states nothing false.
+//
+// The getters refuse alongside the setters. A getter that reports `false` for
+// a policy nothing implements reads as "intra-process is off", which is a
+// claim about a switch that does not exist — the same silent difference one
+// step further from the call site.
+//
+// `<string>` / `<vector>` are GATED (issue 0112 — `__has_include`, rationale in
+// `publisher.hpp`), because this header is on the freestanding path. Upstream's
+// `arguments()` signature is spelled in terms of `std::vector<std::string>`, so
+// where those types are absent the class is too; a freestanding build has no
+// `rclcpp::Node` to hand it to either.
+#if defined(NROS_CPP_STD)
+#include <string>
+#define NROS_CPP_HAS_STD_STRING 1
+#elif defined(__has_include)
+#if __has_include(<string>)
+#include <string>
+#define NROS_CPP_HAS_STD_STRING 1
+#endif
+#endif
+
+#if defined(NROS_CPP_STD)
+#include <vector>
+#define NROS_CPP_HAS_STD_VECTOR 1
+#elif defined(__has_include)
+#if __has_include(<vector>)
+#include <vector>
+#define NROS_CPP_HAS_STD_VECTOR 1
+#endif
+#endif
+
+#if defined(NROS_CPP_HAS_STD_STRING) && defined(NROS_CPP_HAS_STD_VECTOR)
+
+namespace rclcpp {
+
+class NodeOptions {
+  public:
+    NodeOptions() = default;
+
+    // --- REFUSED: see NROS_RCLCPP_REFUSE_NODE_OPTIONS -----------------------
+    //
+    // Each pair is `template <typename T = void>` purely so the
+    // `static_assert` is dependent and therefore fires on USE rather than on
+    // include. Callers write them exactly as upstream does; deduction picks
+    // `T = void` and the assertion reports the migration.
+
+    template <typename T = void> NodeOptions& arguments(const std::vector<std::string>&) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> const std::vector<std::string>& arguments() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return no_arguments_();
+    }
+
+    template <typename T = void> NodeOptions& use_global_arguments(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool use_global_arguments() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& enable_rosout(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool enable_rosout() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& start_parameter_services(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool start_parameter_services() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& start_parameter_event_publisher(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool start_parameter_event_publisher() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& allow_undeclared_parameters(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool allow_undeclared_parameters() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void>
+    NodeOptions& automatically_declare_parameters_from_overrides(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool automatically_declare_parameters_from_overrides() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& use_intra_process_comms(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool use_intra_process_comms() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& enable_topic_statistics(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool enable_topic_statistics() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+    template <typename T = void> NodeOptions& enable_logger_service(bool) {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return *this;
+    }
+    template <typename T = void> bool enable_logger_service() const {
+        static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS);
+        return false;
+    }
+
+  private:
+    /// Never reached — the `static_assert` above fires first. It exists only so
+    /// the refused `arguments()` has a return expression of the right type,
+    /// keeping the diagnostic to ONE error instead of two.
+    static const std::vector<std::string>& no_arguments_() {
+        static const std::vector<std::string> empty;
+        return empty;
+    }
+};
+
+} // namespace rclcpp
+
+#endif // NROS_CPP_HAS_STD_STRING && NROS_CPP_HAS_STD_VECTOR
 
 #endif // NROS_CPP_OPTIONS_HPP

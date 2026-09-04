@@ -85,4 +85,92 @@ nros_subscription_try_recv_validated(struct nros_subscription_t* subscription, u
 }
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ===================================================================
+ * DEPRECATED spellings -- phase-417 stage 6 (RFC-0087, 2026-09-04)
+ *
+ * RFC-0087 settled that **the C API takes rcl's spellings**: the goal is
+ * drop-in replacement and a ported file's line is rcl's line. These names
+ * are the pre-stage-6 `nros_` spellings, kept one release as
+ * `NROS_DEPRECATED_MSG` `static inline` forwarders so an out-of-tree C node
+ * that still writes them keeps compiling and gets a diagnostic naming its
+ * replacement.
+ *
+ * An inline definition in a header has no external linkage, so every
+ * translation unit may define it and none exports it: the rcl/rclc name is
+ * the ONLY exported symbol. This is a SOURCE compatibility promise, not a
+ * binary one -- an object file built against the pre-rename library must be
+ * recompiled.
+ *
+ * `nros_ret_t`'s VALUES are unchanged. RFC-0087 records this as the one place
+ * where taking rcl's spelling must not mean taking rcl's numbering; the
+ * mapping lives in `<nros/rcl_compat.h>` and is the one part of that header
+ * which does not dissolve.
+ *
+ * Define NROS_NO_DEPRECATED_SUBSCRIPTION_ALIASES to compile without any of it --
+ * for a consumer whose build is `-Werror` and who wants the old names to be a
+ * hard error rather than a warning.
+ *
+ * Scheduled for removal as ONE batch (stage 6 step B); migrate.
+ * =================================================================== */
+
+#ifndef NROS_NO_DEPRECATED_SUBSCRIPTION_ALIASES
+
+NROS_DEPRECATED_MSG("nros_subscription_get_zero_initialized() is deprecated; use "
+                    "rcl_get_zero_initialized_subscription()")
+static inline struct nros_subscription_t nros_subscription_get_zero_initialized(void) {
+    return rcl_get_zero_initialized_subscription();
+}
+
+NROS_DEPRECATED_MSG("nros_subscription_get_default_options() is deprecated; use "
+                    "rcl_subscription_get_default_options()")
+static inline struct nros_subscription_options_t nros_subscription_get_default_options(void) {
+    return rcl_subscription_get_default_options();
+}
+
+NROS_DEPRECATED_MSG(
+    "nros_subscription_get_topic_name() is deprecated; use rcl_subscription_get_topic_name()")
+static inline const char*
+nros_subscription_get_topic_name(const struct nros_subscription_t* subscription) {
+    return rcl_subscription_get_topic_name(subscription);
+}
+
+NROS_DEPRECATED_MSG("nros_subscription_is_valid() is deprecated; use rcl_subscription_is_valid()")
+static inline bool nros_subscription_is_valid(const struct nros_subscription_t* subscription) {
+    return rcl_subscription_is_valid(subscription);
+}
+
+/* The ARITY move. `rclc_subscription_init_default` takes rclc's four
+ * arguments; the byte callback and its context are supplied at REGISTRATION,
+ * by `nros_executor_add_subscription_raw` (raw path) or
+ * `nros_executor_add_subscription_typed` (typed path, rclc's
+ * `rclc_executor_add_subscription_with_context` shape). RFC-0087 records that
+ * nothing mandated the old binding site: RFC-0041 governs the DISPATCH MODEL,
+ * and `executor-owns-no-entity-storage` -- cited by name in ten ledger rows --
+ * is defined nowhere in `docs/design/`.
+ *
+ * This forwarder does NOT lose the callback: it delegates to
+ * `nros_subscription_init_with_qos`, which still carries it, so the old
+ * behaviour is preserved exactly. */
+NROS_DEPRECATED_MSG("nros_subscription_init() is deprecated; use "
+                    "rclc_subscription_init_default() and supply the callback at registration "
+                    "with nros_executor_add_subscription_raw() or "
+                    "nros_executor_add_subscription_typed()")
+static inline nros_ret_t
+nros_subscription_init(struct nros_subscription_t* subscription, const struct nros_node_t* node,
+                       const struct nros_message_type_t* type_info, const char* topic_name,
+                       nros_subscription_callback_t callback, void* context) {
+    return nros_subscription_init_with_qos(subscription, node, type_info, topic_name, callback,
+                                           context, NULL);
+}
+
+#endif /* NROS_NO_DEPRECATED_SUBSCRIPTION_ALIASES */
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* NROS_SUBSCRIPTION_H */

@@ -57,7 +57,7 @@ pub const NROS_RET_BAD_SEQUENCE: nros_ret_t = -8;
 
 /// phase-379 W4 — the entity's node reference no longer names a live binding.
 ///
-/// Returned when an entity is used or finalised after `nros_node_fini` retired
+/// Returned when an entity is used or finalised after `rcl_node_fini` retired
 /// the slot it was created on. Before W4 the entity held a raw
 /// `*const nros_node_t` that nothing dereferenced, so this case SUCCEEDED
 /// silently; the identity makes it detectable. Distinct from
@@ -88,7 +88,7 @@ pub const NROS_RET_TRY_AGAIN: nros_ret_t = -14;
 /// Reentrant call detected — a blocking helper (`nros_client_call`,
 /// `nros_action_send_goal`, `nros_action_get_result`) was called from
 /// inside a dispatch callback. These functions internally call
-/// `nros_executor_spin_some`, which is not reentrant.
+/// `rclc_executor_spin_some`, which is not reentrant.
 pub const NROS_RET_REENTRANT: nros_ret_t = -15;
 
 /// The active backend does not implement this operation. Phase 108

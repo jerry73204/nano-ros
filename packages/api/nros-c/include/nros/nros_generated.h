@@ -1238,7 +1238,7 @@ typedef void (*nros_result_callback_t)(const struct nros_goal_uuid_t *goal_uuid,
  *
  * So the entity stores an IDENTITY instead: the executor slot the node is
  * bound to, plus the generation that slot carried when the entity was created.
- * `nros_node_fini` bumps the generation, which makes "finalise an entity after
+ * `rcl_node_fini` bumps the generation, which makes "finalise an entity after
  * its node" a return code rather than a silent success.
  *
  * `generation == 0` is reserved and never issued, so a zeroed struct — the
@@ -1459,11 +1459,11 @@ typedef struct nros_node_t {
    * Phase 156 / 104.C.8.b — executor pointer for the multi-Session
    * dispatch path. `nros_executor_node_init` populates this when
    * the Node is bound; per-entity `nros_*_init` paths
-   * (`nros_publisher_init`, `nros_subscription_init`, etc.) branch
+   * (`rclc_publisher_init_default`, `nros_subscription_init`, etc.) branch
    * on `node_id != 0 && !executor.is_null()` to route through
    * `Executor::node_session_mut(NodeId)` instead of the legacy
    * support-based dispatch. NULL = legacy single-Node path
-   * (`nros_node_init` / `nros_node_init_ex`).
+   * (`rclc_node_init_default` / `nros_node_init_ex`).
    */
   const struct nros_executor_t *executor;
   /**
@@ -1942,7 +1942,7 @@ typedef struct nros_publisher_t {
   struct nros_node_ref_t node;
   /**
    * Inline opaque storage for the RMW publisher handle.
-   * Avoids heap allocation — managed by nros_publisher_init/fini.
+   * Avoids heap allocation — managed by rclc_publisher_init_default/fini.
    */
   uint64_t _opaque[PUBLISHER_OPAQUE_U64S];
 } nros_publisher_t;
@@ -2164,7 +2164,7 @@ typedef struct nros_timer_t {
    */
   size_t handle_id;
   /**
-   * Opaque pointer to internal executor (set by nros_executor_add_timer)
+   * Opaque pointer to internal executor (set by rclc_executor_add_timer)
    */
   void *_executor;
 } nros_timer_t;
@@ -2349,7 +2349,7 @@ typedef struct nros_client_t {
    */
   size_t type_hash_len;
   /**
-   * User response callback, fired from `nros_executor_spin_some` when
+   * User response callback, fired from `rclc_executor_spin_some` when
    * a response to a previously-sent async request arrives.
    */
   nros_response_callback_t response_callback;
@@ -2753,7 +2753,7 @@ typedef struct nros_integrity_status_t {
 /**
  * phase-379 W4 — the entity's node reference no longer names a live binding.
  *
- * Returned when an entity is used or finalised after `nros_node_fini` retired
+ * Returned when an entity is used or finalised after `rcl_node_fini` retired
  * the slot it was created on. Before W4 the entity held a raw
  * `*const nros_node_t` that nothing dereferenced, so this case SUCCEEDED
  * silently; the identity makes it detectable. Distinct from
@@ -2798,7 +2798,7 @@ typedef struct nros_integrity_status_t {
  * Reentrant call detected — a blocking helper (`nros_client_call`,
  * `nros_action_send_goal`, `nros_action_get_result`) was called from
  * inside a dispatch callback. These functions internally call
- * `nros_executor_spin_some`, which is not reentrant.
+ * `rclc_executor_spin_some`, which is not reentrant.
  */
 #define NROS_RET_REENTRANT -15
 
@@ -3228,17 +3228,17 @@ NROS_PUBLIC enum nros_clock_type_t nros_clock_get_type(const struct nros_clock_t
 /**
  * Finalize a clock.
  */
-NROS_PUBLIC nros_ret_t nros_clock_fini(struct nros_clock_t *clock);
+NROS_PUBLIC nros_ret_t rcl_clock_fini(struct nros_clock_t *clock);
 
 /**
  * Enable the ROS time override on a `NROS_CLOCK_ROS_TIME` clock.
  *
  * Mirrors `rcl_enable_ros_time_override`. If no override is active yet the
  * clock starts at time 0 — the state rcl reports as "not started"
- * (`nros_clock_time_started`), i.e. enabled but waiting for the first
+ * (`rcl_clock_time_started`), i.e. enabled but waiting for the first
  * `/clock` sample. An already-active override keeps its value.
  */
-NROS_PUBLIC nros_ret_t nros_enable_ros_time_override(const struct nros_clock_t *clock);
+NROS_PUBLIC nros_ret_t rcl_enable_ros_time_override(const struct nros_clock_t *clock);
 
 /**
  * Disable the ROS time override; the clock reads the system clock again.
@@ -3248,7 +3248,7 @@ NROS_PUBLIC nros_ret_t nros_enable_ros_time_override(const struct nros_clock_t *
  * one piece of state there is nowhere for an inert value to live, so
  * re-enabling starts from 0 again.
  */
-NROS_PUBLIC nros_ret_t nros_disable_ros_time_override(const struct nros_clock_t *clock);
+NROS_PUBLIC nros_ret_t rcl_disable_ros_time_override(const struct nros_clock_t *clock);
 
 /**
  * Whether the ROS time override is in effect.
@@ -3257,8 +3257,8 @@ NROS_PUBLIC nros_ret_t nros_disable_ros_time_override(const struct nros_clock_t 
  * `NROS_RET_OK`.
  */
 NROS_PUBLIC
-nros_ret_t nros_is_enabled_ros_time_override(const struct nros_clock_t *clock,
-                                             bool *is_enabled);
+nros_ret_t rcl_is_enabled_ros_time_override(const struct nros_clock_t *clock,
+                                            bool *is_enabled);
 
 /**
  * Set the time a `NROS_CLOCK_ROS_TIME` clock reads, in nanoseconds since the
@@ -3270,8 +3270,8 @@ nros_ret_t nros_is_enabled_ros_time_override(const struct nros_clock_t *clock,
  * value is the "no override" sentinel.
  */
 NROS_PUBLIC
-nros_ret_t nros_set_ros_time_override(const struct nros_clock_t *clock,
-                                      int64_t nanoseconds);
+nros_ret_t rcl_set_ros_time_override(const struct nros_clock_t *clock,
+                                     int64_t nanoseconds);
 
 /**
  * Read the ROS time override back, in nanoseconds since the epoch.
@@ -3293,10 +3293,10 @@ nros_ret_t nros_get_ros_time_override(const struct nros_clock_t *clock,
  * Mirrors `rcl_clock_time_started`, including its implementation: read the
  * clock and report whether the value is non-zero. For a ROS-time clock that is
  * the "enabled, but no `/clock` sample has arrived" state — the one
- * `nros_enable_ros_time_override` leaves behind — and for a system or steady
+ * `rcl_enable_ros_time_override` leaves behind — and for a system or steady
  * clock it is true as soon as the clock is valid.
  */
-NROS_PUBLIC bool nros_clock_time_started(const struct nros_clock_t *clock);
+NROS_PUBLIC bool rcl_clock_time_started(const struct nros_clock_t *clock);
 
 /**
  * Convert nanoseconds to a nros_time_t structure.
@@ -3536,7 +3536,7 @@ NROS_PUBLIC nros_ret_t nros_has_custom_transport(void);
 /**
  * Get a zero-initialized action client.
  */
-NROS_PUBLIC struct nros_action_client_t nros_action_client_get_zero_initialized(void);
+NROS_PUBLIC struct nros_action_client_t rcl_action_get_zero_initialized_client(void);
 
 /**
  * Initialize an action client.
@@ -3550,7 +3550,7 @@ nros_ret_t nros_action_client_init(struct nros_action_client_t *client,
 /**
  * Get a zero-initialised [`nros_action_client_options_t`] (`sched_context = 0`).
  */
-NROS_PUBLIC struct nros_action_client_options_t nros_action_client_get_default_options(void);
+NROS_PUBLIC struct nros_action_client_options_t rcl_action_client_get_default_options(void);
 
 /**
  * Phase 189.M3.3.b — initialize an action client with named options. Like
@@ -3685,7 +3685,7 @@ NROS_PUBLIC nros_ret_t nros_action_try_recv_feedback(struct nros_action_client_t
  * Sends the goal request and returns immediately. The goal response
  * (accepted/rejected) arrives via the goal_response_callback registered
  * with `nros_action_client_set_goal_response_callback`, invoked during
- * `nros_executor_spin_some`.
+ * `rclc_executor_spin_some`.
  *
  * The `goal_uuid` output is filled with the generated goal UUID on success.
  *
@@ -3705,7 +3705,7 @@ nros_ret_t nros_action_send_goal_async(struct nros_action_client_t *client,
  * Sends the get_result request and returns immediately. The result
  * arrives via the result_callback registered with
  * `nros_action_client_set_result_callback`, invoked during
- * `nros_executor_spin_some`.
+ * `rclc_executor_spin_some`.
  *
  * # Safety
  * All pointers must be valid.
@@ -3717,7 +3717,7 @@ nros_ret_t nros_action_get_result_async(struct nros_action_client_t *client,
 /**
  * Set the goal response callback for async goal sending.
  *
- * Called during `nros_executor_spin_some` when the server accepts or
+ * Called during `rclc_executor_spin_some` when the server accepts or
  * rejects a goal sent via `nros_action_send_goal_async`.
  *
  * # Safety
@@ -3731,7 +3731,7 @@ nros_ret_t nros_action_client_set_goal_response_callback(struct nros_action_clie
 /**
  * Poll the action client for pending async replies (non-blocking).
  *
- * **Note**: In the unified design (77.6+), `nros_executor_spin_some` already
+ * **Note**: In the unified design (77.6+), `rclc_executor_spin_some` already
  * dispatches `action_client_raw_try_process` which invokes callbacks. This
  * function is provided for manual polling outside the executor loop.
  *
@@ -3900,7 +3900,7 @@ NROS_PUBLIC const char *nros_goal_status_to_string(enum nros_goal_status_t statu
  * references a runtime-internal type. The pointer itself is C-ABI
  * safe; the C API never lets callers invoke through it directly.
  */
-NROS_PUBLIC struct nros_action_server_t nros_action_server_get_zero_initialized(void);
+NROS_PUBLIC struct nros_action_server_t rcl_action_get_zero_initialized_server(void);
 
 /**
  * Initialize an action server.
@@ -3942,7 +3942,7 @@ nros_ret_t nros_action_server_init_with_qos(struct nros_action_server_t *server,
 /**
  * Get a zero-initialised [`nros_action_server_options_t`] (`sched_context = 0`).
  */
-NROS_PUBLIC struct nros_action_server_options_t nros_action_server_get_default_options(void);
+NROS_PUBLIC struct nros_action_server_options_t rcl_action_server_get_default_options(void);
 
 /**
  * Phase 189.M3.3.b — initialize an action server with custom QoS + named
@@ -4338,7 +4338,7 @@ nros_ret_t nros_publisher_set_offered_deadline_missed_callback(struct nros_publi
 /**
  * Get a zero-initialized executor.
  */
-NROS_PUBLIC struct nros_executor_t nros_executor_get_zero_initialized(void);
+NROS_PUBLIC struct nros_executor_t rclc_executor_get_zero_initialized_executor(void);
 
 /**
  * Initialize an executor.
@@ -4368,7 +4368,7 @@ nros_ret_t nros_executor_init(struct nros_executor_t *executor,
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_set_timeout(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_set_timeout(struct nros_executor_t *executor,
                                      uint64_t timeout_ns);
 
 /**
@@ -4588,7 +4588,7 @@ nros_ret_t nros_executor_get_subscriptions_info_by_topic(struct nros_executor_t 
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_set_semantics(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_set_semantics(struct nros_executor_t *executor,
                                        enum nros_executor_semantics_t semantics);
 
 /**
@@ -4606,7 +4606,7 @@ nros_ret_t nros_executor_set_semantics(struct nros_executor_t *executor,
  *
  * Replaces the pre-104.C ordering of `support_init → node_init →
  * executor_init` with the rclcpp-aligned `support_init → executor_init →
- * executor_node_init`. The old `nros_node_init` / `nros_node_init_ex`
+ * executor_node_init`. The old `rclc_node_init_default` / `nros_node_init_ex`
  * entry points are preserved for source compatibility — they still
  * drive the single-Node legacy path and leave `node.node_id = 0`.
  *
@@ -4643,7 +4643,7 @@ nros_ret_t nros_executor_node_init(struct nros_executor_t *executor,
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_set_trigger(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_set_trigger(struct nros_executor_t *executor,
                                      nros_executor_trigger_t trigger,
                                      void *context);
 
@@ -4653,7 +4653,7 @@ nros_ret_t nros_executor_set_trigger(struct nros_executor_t *executor,
  * # Safety
  * * `ready` must point to a valid array of at least `count` booleans
  */
-NROS_PUBLIC bool nros_executor_trigger_any(const bool *ready, size_t count, void *context);
+NROS_PUBLIC bool rclc_executor_trigger_any(const bool *ready, size_t count, void *context);
 
 /**
  * Built-in trigger: fire when ALL handles have data ready.
@@ -4661,7 +4661,7 @@ NROS_PUBLIC bool nros_executor_trigger_any(const bool *ready, size_t count, void
  * # Safety
  * * `ready` must point to a valid array of at least `count` booleans
  */
-NROS_PUBLIC bool nros_executor_trigger_all(const bool *ready, size_t count, void *context);
+NROS_PUBLIC bool rclc_executor_trigger_all(const bool *ready, size_t count, void *context);
 
 /**
  * Built-in trigger: always fire (unconditionally).
@@ -4669,7 +4669,7 @@ NROS_PUBLIC bool nros_executor_trigger_all(const bool *ready, size_t count, void
  * # Safety
  * * `ready` and `count` are unused
  */
-NROS_PUBLIC bool nros_executor_trigger_always(const bool *ready, size_t count, void *context);
+NROS_PUBLIC bool rclc_executor_trigger_always(const bool *ready, size_t count, void *context);
 
 /**
  * Built-in trigger: fire when the handle at the index stored in context has data.
@@ -4682,14 +4682,14 @@ NROS_PUBLIC bool nros_executor_trigger_always(const bool *ready, size_t count, v
  * Recommended usage:
  * ```c
  * static size_t my_trigger_index = 2;
- * nros_executor_set_trigger(&exec, nros_executor_trigger_one, &my_trigger_index);
+ * rclc_executor_set_trigger(&exec, rclc_executor_trigger_one, &my_trigger_index);
  * ```
  *
  * # Safety
  * * `ready` must point to a valid array of at least `count` booleans.
  * * `context` must point to a valid `size_t` alive for the trigger's lifetime.
  */
-NROS_PUBLIC bool nros_executor_trigger_one(const bool *ready, size_t count, void *context);
+NROS_PUBLIC bool rclc_executor_trigger_one(const bool *ready, size_t count, void *context);
 
 /**
  * Add a subscription to the executor.
@@ -4813,6 +4813,35 @@ nros_ret_t nros_executor_add_subscription_typed_sized(struct nros_executor_t *ex
                                                       uint32_t rx_bytes);
 
 /**
+ * phase-417 stage 6 — register a BYTE-oriented subscription, supplying its
+ * callback HERE rather than at `*_init`.
+ *
+ * This is the raw-path sibling of [`nros_executor_add_subscription_typed`].
+ * `rclc_subscription_init_default` takes no callback (rclc's arity), so the
+ * byte callback that used to ride on `nros_subscription_init` is supplied at
+ * registration, which is where rclc supplies it
+ * (`rclc_executor_add_subscription`). The name keeps the `nros_` prefix
+ * deliberately: rclc's `add_subscription` delivers a DESERIALIZED message into
+ * caller storage, so the byte path has no upstream counterpart and must not
+ * wear its name (RFC-0087's compile-or-conform rule — a plausible name over an
+ * opposite data contract is the defect the RFC exists to prevent).
+ *
+ * `callback` may be NULL, which registers the subscription with nothing to
+ * dispatch — the same state `nros_executor_add_subscription` sees for a
+ * subscription initialised by `rclc_subscription_init_default` alone.
+ *
+ * # Safety
+ * * `executor` and `subscription` must be valid, initialised objects.
+ * * `context` is passed through untouched and may be NULL.
+ */
+NROS_PUBLIC
+nros_ret_t nros_executor_add_subscription_raw(struct nros_executor_t *executor,
+                                              struct nros_subscription_t *subscription,
+                                              nros_subscription_callback_t callback,
+                                              void *context,
+                                              enum nros_executor_handle_invocation_t invocation);
+
+/**
  * Phase 189.M3.4 — register a raw subscription whose callback also receives
  * the sample's wire **attachment** (the C analog of the Rust
  * `node.subscription(t).generic(..).message_info()` builder; rclc's
@@ -4850,7 +4879,7 @@ nros_ret_t nros_executor_add_subscription_raw_with_info(struct nros_executor_t *
  * * All pointers must be valid and point to initialized objects
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_add_timer(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_add_timer(struct nros_executor_t *executor,
                                    struct nros_timer_t *timer);
 
 /**
@@ -4873,10 +4902,10 @@ nros_ret_t nros_executor_add_subscription_in_group(struct nros_executor_t *execu
 /**
  * Phase 273 (RFC-0047) — register a timer in a named callback group.
  *
- * Identical to `nros_executor_add_timer` but additionally passes the
+ * Identical to `rclc_executor_add_timer` but additionally passes the
  * group name so the seeded `group_sched_table` can bind the callback to the
  * group's `SchedContext`. `callback_group` may be NULL or empty — both behave
- * identically to `nros_executor_add_timer`.
+ * identically to `rclc_executor_add_timer`.
  *
  * # Safety
  * All non-NULL pointers must be valid and point to initialized objects.
@@ -4900,6 +4929,29 @@ nros_ret_t nros_executor_add_service(struct nros_executor_t *executor,
                                      struct nros_service_t *service);
 
 /**
+ * phase-417 stage 6 — register a service server, supplying its request
+ * callback HERE rather than at `*_init`.
+ *
+ * `rclc_service_init_default` takes no callback (rclc's arity), so the handler
+ * that used to ride on `nros_service_init` is supplied at registration — the
+ * call rclc calls `rclc_executor_add_service`. The `nros_` prefix is kept for
+ * the same reason as `nros_executor_add_subscription_raw`: rclc's
+ * `rclc_executor_add_service` carries caller-owned `request_msg` /
+ * `response_msg` storage and a `void (*)(const void *, void *)` handler, while
+ * ours is a CDR-byte handler that RETURNS a value. Same capability, different
+ * signature, and only a signature can carry a name.
+ *
+ * # Safety
+ * * Both pointers must reference initialized objects.
+ * * `context` is passed through untouched and may be NULL.
+ */
+NROS_PUBLIC
+nros_ret_t nros_executor_add_service_raw(struct nros_executor_t *executor,
+                                         struct nros_service_t *service,
+                                         nros_service_callback_t callback,
+                                         void *context);
+
+/**
  * Add a service client to the executor (Phase 82).
  *
  * Creates the underlying `RmwServiceClient` inside the executor's arena
@@ -4908,7 +4960,7 @@ nros_ret_t nros_executor_add_service(struct nros_executor_t *executor,
  * `nros_client_send_request_async`, and friends can drive the executor
  * without taking it as an explicit argument.
  *
- * Must be called exactly once after `nros_client_init` and before any
+ * Must be called exactly once after `rclc_client_init_default` and before any
  * send/call. Calling it twice on the same client returns
  * `NROS_RET_BAD_SEQUENCE`.
  *
@@ -4945,7 +4997,7 @@ nros_ret_t nros_executor_add_action_server(struct nros_executor_t *executor,
 /**
  * Register an action client with the executor for async (non-blocking) operation.
  *
- * After registration, `nros_executor_spin_some` polls the action client's
+ * After registration, `rclc_executor_spin_some` polls the action client's
  * pending requests (goal response, feedback, result) and invokes the
  * registered callbacks.
  *
@@ -4970,7 +5022,7 @@ nros_ret_t nros_executor_add_action_client(struct nros_executor_t *executor,
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_spin_some(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_spin_some(struct nros_executor_t *executor,
                                    uint64_t timeout_ns);
 
 /**
@@ -4979,7 +5031,7 @@ nros_ret_t nros_executor_spin_some(struct nros_executor_t *executor,
  * # Safety
  * * `executor` must be a valid pointer to an initialized executor
  */
-NROS_PUBLIC nros_ret_t nros_executor_spin(struct nros_executor_t *executor);
+NROS_PUBLIC nros_ret_t rclc_executor_spin(struct nros_executor_t *executor);
 
 /**
  * Spin the executor with a fixed period.
@@ -4988,7 +5040,7 @@ NROS_PUBLIC nros_ret_t nros_executor_spin(struct nros_executor_t *executor);
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_spin_period(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_spin_period(struct nros_executor_t *executor,
                                      uint64_t period_ns);
 
 /**
@@ -4998,7 +5050,7 @@ nros_ret_t nros_executor_spin_period(struct nros_executor_t *executor,
  * * `executor` must be a valid pointer to an initialized executor
  */
 NROS_PUBLIC
-nros_ret_t nros_executor_spin_one_period(struct nros_executor_t *executor,
+nros_ret_t rclc_executor_spin_one_period(struct nros_executor_t *executor,
                                          uint64_t period_ns);
 
 /**
@@ -5014,10 +5066,10 @@ nros_ret_t nros_executor_spin_one_period(struct nros_executor_t *executor,
  * `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
  * returns BEFORE spinning has actually stopped;
  * [`nros_executor_is_spinning`] is the observable that tells you when it has.
- * The boundary is one `spin_once` timeout wide (`nros_executor_set_timeout`).
+ * The boundary is one `spin_once` timeout wide (`rclc_executor_set_timeout`).
  *
  * It does NOT tear down the session: the executor stays initialised, keeps its
- * entities, and can be spun again. `nros_executor_fini` is the other verb.
+ * entities, and can be spun again. `rclc_executor_fini` is the other verb.
  *
  * Safe to call from a signal handler or another thread.
  *
@@ -5027,7 +5079,7 @@ nros_ret_t nros_executor_spin_one_period(struct nros_executor_t *executor,
 NROS_PUBLIC nros_ret_t nros_executor_cancel(struct nros_executor_t *executor);
 
 /**
- * Is a blocking spin (`nros_executor_spin` / `_spin_period`) running on this
+ * Is a blocking spin (`rclc_executor_spin` / `_spin_period`) running on this
  * executor right now? phase-417 W4.c — `rclcpp::Executor::is_spinning`.
  *
  * The C API has always MODELLED this (`NROS_EXECUTOR_STATE_SPINNING`) and
@@ -5053,7 +5105,7 @@ NROS_PUBLIC bool nros_executor_is_spinning(const struct nros_executor_t *executo
  * # Safety
  * * `executor` must be a valid pointer
  */
-NROS_PUBLIC nros_ret_t nros_executor_fini(struct nros_executor_t *executor);
+NROS_PUBLIC nros_ret_t rclc_executor_fini(struct nros_executor_t *executor);
 
 /**
  * Get the number of handles in the executor.
@@ -5136,7 +5188,7 @@ nros_ret_t nros_executor_bind_handle_to_sched_context(struct nros_executor_t *ex
  * `NROS_RET_OK`. Returns `NROS_RET_FULL` when the phase's fixed table is
  * exhausted (build-time `NROS_EXECUTOR_MAX_SHUTDOWN_CBS`, default 2).
  *
- * The hooks run when the executor is finalized — `nros_executor_fini()`, or
+ * The hooks run when the executor is finalized — `rclc_executor_fini()`, or
  * whatever tears the executor down. They are a CLEAN-STOP facility: a watchdog
  * reset, a hard fault or an abort does not come through here.
  *
@@ -5197,7 +5249,7 @@ nros_ret_t nros_executor_remove_on_shutdown_callback(struct nros_executor_t *exe
 /**
  * Get a zero-initialized guard condition.
  */
-NROS_PUBLIC struct nros_guard_condition_t nros_guard_condition_get_zero_initialized(void);
+NROS_PUBLIC struct nros_guard_condition_t rcl_get_zero_initialized_guard_condition(void);
 
 /**
  * Initialize a guard condition.
@@ -5221,7 +5273,7 @@ nros_ret_t nros_guard_condition_set_callback(struct nros_guard_condition_t *guar
  * executor, it triggers via the executor's guard handle (atomic flag in
  * the arena). Otherwise falls back to the local triggered flag.
  */
-NROS_PUBLIC nros_ret_t nros_guard_condition_trigger(struct nros_guard_condition_t *guard);
+NROS_PUBLIC nros_ret_t rcl_trigger_guard_condition(struct nros_guard_condition_t *guard);
 
 /**
  * Check if the guard condition is triggered.
@@ -5241,7 +5293,7 @@ NROS_PUBLIC bool nros_guard_condition_is_valid(const struct nros_guard_condition
 /**
  * Finalize a guard condition.
  */
-NROS_PUBLIC nros_ret_t nros_guard_condition_fini(struct nros_guard_condition_t *guard);
+NROS_PUBLIC nros_ret_t rcl_guard_condition_fini(struct nros_guard_condition_t *guard);
 
 /**
  * Get a zero-initialized lifecycle state machine.
@@ -5425,7 +5477,7 @@ nros_ret_t nros_executor_lifecycle_register_on_error(struct nros_executor_t *exe
  * `qos_overrides.<topic>.<role>.<policy>` launch params (issue #52). Every
  * entity created on `node` afterwards folds the matching `(topic, role)`
  * entries into its QoS before the backend-compat check — the C/C++ mirror of
- * Rust's `NodeHandle::set_qos_overrides`. Call once, after `nros_node_init*`
+ * Rust's `NodeHandle::set_qos_overrides`. Call once, after `rclc_node_init_default*`
  * and before creating publishers/subscriptions (a generated entry does this
  * before `configure(node)`).
  *
@@ -5450,7 +5502,7 @@ nros_ret_t nros_node_set_qos_overrides(struct nros_node_t *node,
  * `domain_id_override = NROS_DOMAIN_ID_INHERIT`, `sched_context_id = 0`.
  * Callers populate only the fields they want to override.
  */
-NROS_PUBLIC struct nros_node_options_t nros_node_get_default_options(void);
+NROS_PUBLIC struct nros_node_options_t rcl_node_get_default_options(void);
 
 /**
  * Get a zero-initialized node.
@@ -5458,22 +5510,43 @@ NROS_PUBLIC struct nros_node_options_t nros_node_get_default_options(void);
  * # Safety
  * Returns a stack-allocated struct that must be initialized before use.
  */
-NROS_PUBLIC struct nros_node_t nros_node_get_zero_initialized(void);
+NROS_PUBLIC struct nros_node_t rcl_get_zero_initialized_node(void);
 
 /**
- * Initialize a node with default options.
+ * Initialize a node with default options — rclc's `rclc_node_init_default`,
+ * in rclc's argument ORDER.
+ *
+ * **The parameters were REORDERED at phase-417 stage 6.** This is the one
+ * entry point in the whole C surface that is a pure PERMUTATION of its
+ * upstream counterpart (measured over the surface, not assumed):
+ *
+ * ```text
+ * rclc  rclc_node_init_default(node, name, namespace_, support)
+ * was   nros_node_init        (node, support, name, namespace_)
+ * ```
+ *
+ * The rename and the reorder land TOGETHER, and that is not stylistic.
+ * RFC-0087's corrected hazard note: in C an incompatible pointer argument is
+ * a **WARNING**, not an error, even under `-Wall -Wextra`, so a reorder alone
+ * is silent-by-default for out-of-tree callers who do not build with our
+ * flags. Renaming makes a stale call fail on the IDENTIFIER, which C does
+ * diagnose fatally. `nros_node_init` therefore survives only as an
+ * `NROS_DEPRECATED_MSG` `static inline` in `<nros/node.h>` that names each
+ * parameter and forwards in the OLD order — never a macro, which would
+ * forward positionally and silently build a node with its name in the
+ * support slot.
  *
  * Equivalent to building a [`nros_node_options_t`] via
- * [`nros_node_get_default_options`], copying `namespace_` into its
- * `namespace` field, and calling [`nros_node_init_ex`]. The shim is
- * kept for source-compatibility with rclc-style callers that pre-date
- * Phase 104.C.8.
+ * [`rcl_node_get_default_options`], copying `namespace_` into its
+ * `namespace` field, and calling [`nros_node_init_ex`] — which is
+ * `rcl_node_init_with_options`'s counterpart and keeps OUR order, because it
+ * has no rclc counterpart to match.
  *
  * # Parameters
  * * `node` - Pointer to a zero-initialized node
- * * `support` - Pointer to an initialized support context
  * * `name` - Node name (null-terminated string)
  * * `namespace_` - Node namespace (null-terminated string, use "/" for root)
+ * * `support` - Pointer to an initialized support context
  *
  * # Returns
  * * `NROS_RET_OK` on success
@@ -5486,10 +5559,10 @@ NROS_PUBLIC struct nros_node_t nros_node_get_zero_initialized(void);
  * * `name` and `namespace_` must be valid null-terminated strings
  */
 NROS_PUBLIC
-nros_ret_t nros_node_init(struct nros_node_t *node,
-                          const struct nros_support_t *support,
-                          const char *name,
-                          const char *namespace_);
+nros_ret_t rclc_node_init_default(struct nros_node_t *node,
+                                  const char *name,
+                                  const char *namespace_,
+                                  const struct nros_support_t *support);
 
 /**
  * Phase 104.C.8 — initialize a Node with extended options.
@@ -5498,7 +5571,7 @@ nros_ret_t nros_node_init(struct nros_node_t *node,
  * .locator(...).domain_id(...).namespace(...).sched(...).build()`
  * chain. Options fields with `*_len == 0` (or `domain_id_override ==
  * NROS_DOMAIN_ID_INHERIT`) inherit from the support context, matching
- * the legacy single-Node behaviour `nros_node_init` provides.
+ * the legacy single-Node behaviour `rclc_node_init_default` provides.
  *
  * The `rmw_name` selector drives Phase 104 multi-RMW Node binding: a
  * bridge node can be initialised with `options.rmw_name = "cyclonedds"` while
@@ -5550,7 +5623,7 @@ nros_ret_t nros_node_init_ex(struct nros_node_t *node,
  * # Safety
  * * `node` must be a valid pointer to an initialized nros_node_t
  */
-NROS_PUBLIC nros_ret_t nros_node_fini(struct nros_node_t *node);
+NROS_PUBLIC nros_ret_t rcl_node_fini(struct nros_node_t *node);
 
 /**
  * Get the node name.
@@ -5564,7 +5637,7 @@ NROS_PUBLIC nros_ret_t nros_node_fini(struct nros_node_t *node);
  * # Safety
  * * `node` must be a valid pointer
  */
-NROS_PUBLIC const char *nros_node_get_name(const struct nros_node_t *node);
+NROS_PUBLIC const char *rcl_node_get_name(const struct nros_node_t *node);
 
 /**
  * Get the node namespace.
@@ -5578,7 +5651,7 @@ NROS_PUBLIC const char *nros_node_get_name(const struct nros_node_t *node);
  * # Safety
  * * `node` must be a valid pointer
  */
-NROS_PUBLIC const char *nros_node_get_namespace(const struct nros_node_t *node);
+NROS_PUBLIC const char *rcl_node_get_namespace(const struct nros_node_t *node);
 
 /**
  * RFC-0088 D4 / phase-421 W2 — the serialization format the backend behind
@@ -5637,7 +5710,7 @@ NROS_PUBLIC const void *nros_node_get_logger(const struct nros_node_t *node);
  *
  * Two questions, both answered, because either one alone is a lie:
  *
- * * the handle's own state is `INITIALIZED` — `nros_node_fini` sets
+ * * the handle's own state is `INITIALIZED` — `rcl_node_fini` sets
  *   `SHUTDOWN`, so a finalised node reports false; and
  * * the executor slot it is bound to still carries the generation it was
  *   bound at (phase-379 W4). C has no move semantics, so
@@ -5645,13 +5718,13 @@ NROS_PUBLIC const void *nros_node_get_logger(const struct nros_node_t *node);
  *   `state == INITIALIZED` after the original is finalised, and only the
  *   generation catches that.
  *
- * A legacy (`nros_node_init`) node is not executor-bound, so only the first
+ * A legacy (`rclc_node_init_default`) node is not executor-bound, so only the first
  * question applies to it.
  *
  * # Safety
  * * `node` must be NULL or point to a valid `nros_node_t`.
  */
-NROS_PUBLIC bool nros_node_is_valid(const struct nros_node_t *node);
+NROS_PUBLIC bool rcl_node_is_valid(const struct nros_node_t *node);
 
 /**
  * The ROS domain this node's entities are declared on.
@@ -5688,7 +5761,7 @@ NROS_PUBLIC nros_ret_t nros_node_get_domain_id(const struct nros_node_t *node, u
  *
  * rcl's `rcl_node_get_fully_qualified_name`. Gap
  * `c:node_get_fully_qualified_name` records that we exposed
- * `nros_node_get_name` and `nros_node_get_namespace` separately and never
+ * `rcl_node_get_name` and `rcl_node_get_namespace` separately and never
  * their composition.
  *
  * The composition is NOT written here. It is `nros_node::names::expand_name`
@@ -5735,7 +5808,7 @@ nros_ret_t nros_node_get_fully_qualified_name(const struct nros_node_t *node,
  *
  * **Remaps live on the executor, so `only_expand == false` needs an
  * executor-bound node** (`nros_executor_node_init`). On the legacy
- * `nros_node_init` path this returns `NROS_RET_NOT_INIT` rather than
+ * `rclc_node_init_default` path this returns `NROS_RET_NOT_INIT` rather than
  * quietly expanding without the rules — silently dropping a routing rule is
  * the failure this whole campaign exists to stop, and the caller who wants
  * expansion alone can ask for it by passing `true`.
@@ -5766,12 +5839,12 @@ nros_ret_t nros_node_resolve_name(const struct nros_node_t *node,
  * fields they want to override before passing the struct to
  * [`nros_publisher_init_with_options`].
  */
-NROS_PUBLIC struct nros_publisher_options_t nros_publisher_get_default_options(void);
+NROS_PUBLIC struct nros_publisher_options_t rcl_publisher_get_default_options(void);
 
 /**
  * Get a zero-initialized publisher.
  */
-NROS_PUBLIC struct nros_publisher_t nros_publisher_get_zero_initialized(void);
+NROS_PUBLIC struct nros_publisher_t rcl_get_zero_initialized_publisher(void);
 
 /**
  * Initialize a publisher with default QoS (RELIABLE, KEEP_LAST(10)).
@@ -5796,10 +5869,10 @@ NROS_PUBLIC struct nros_publisher_t nros_publisher_get_zero_initialized(void);
  * * `topic_name` must be a valid null-terminated string
  */
 NROS_PUBLIC
-nros_ret_t nros_publisher_init(struct nros_publisher_t *publisher,
-                               const struct nros_node_t *node,
-                               const struct nros_message_type_t *type_info,
-                               const char *topic_name);
+nros_ret_t rclc_publisher_init_default(struct nros_publisher_t *publisher,
+                                       const struct nros_node_t *node,
+                                       const struct nros_message_type_t *type_info,
+                                       const char *topic_name);
 
 /**
  * Initialize a publisher with custom QoS.
@@ -5950,7 +6023,7 @@ nros_ret_t nros_publisher_publish_streamed(const struct nros_publisher_t *publis
  * # Safety
  * * `publisher` must be a valid pointer to an initialized publisher
  */
-NROS_PUBLIC nros_ret_t nros_publisher_assert_liveliness(const struct nros_publisher_t *publisher);
+NROS_PUBLIC nros_ret_t rcl_publisher_assert_liveliness(const struct nros_publisher_t *publisher);
 
 /**
  * Phase 124.A.6 — loan a writable slot from the publisher's outbound
@@ -6077,7 +6150,7 @@ NROS_PUBLIC nros_ret_t nros_publisher_fini(struct nros_publisher_t *publisher);
  * # Returns
  * * Pointer to topic name (null-terminated), or NULL if invalid
  */
-NROS_PUBLIC const char *nros_publisher_get_topic_name(const struct nros_publisher_t *publisher);
+NROS_PUBLIC const char *rcl_publisher_get_topic_name(const struct nros_publisher_t *publisher);
 
 /**
  * Check if publisher is valid (initialized).
@@ -6088,12 +6161,12 @@ NROS_PUBLIC const char *nros_publisher_get_topic_name(const struct nros_publishe
  * # Returns
  * * `true` if valid, `false` if invalid or NULL
  */
-NROS_PUBLIC bool nros_publisher_is_valid(const struct nros_publisher_t *publisher);
+NROS_PUBLIC bool rcl_publisher_is_valid(const struct nros_publisher_t *publisher);
 
 /**
  * Get a zero-initialized service server.
  */
-NROS_PUBLIC struct nros_service_t nros_service_get_zero_initialized(void);
+NROS_PUBLIC struct nros_service_t rcl_get_zero_initialized_service(void);
 
 /**
  * Initialize a service server.
@@ -6111,23 +6184,17 @@ NROS_PUBLIC struct nros_service_t nros_service_get_zero_initialized(void);
  * * `NROS_RET_INVALID_ARGUMENT` if any required pointer is NULL
  * * `NROS_RET_NOT_INIT` if node is not initialized
  * * `NROS_RET_ERROR` on initialization failure
- */
-NROS_PUBLIC
-nros_ret_t nros_service_init(struct nros_service_t *service,
-                             const struct nros_node_t *node,
-                             const struct nros_service_type_t *type_info,
-                             const char *service_name,
-                             nros_service_callback_t callback,
-                             void *context);
-
-/**
- * Phase 193.4 — initialize a service server with an explicit QoS profile
- * (rclc's `_with_options`; the profile applies to both the request + reply
- * endpoints). `qos` NULL ⇒ the services default. Same as
- * [`nros_service_init`] otherwise.
  *
- * # Safety
- * All non-NULL pointers must be valid + the node initialized.
+ * phase-417 stage 6 — the callback-carrying core. `qos` NULL ⇒ the services
+ * default profile. This is the entry point the deprecated six-argument
+ * `nros_service_init` forwards to, so the pre-stage-6 behaviour is preserved
+ * byte for byte.
+ *
+ * A NULL `callback` is LEGAL here, and it is [`rclc_service_init_default`]'s
+ * shape: the callback is supplied at registration by
+ * `nros_executor_add_service_raw`, exactly as rclc supplies it at
+ * `rclc_executor_add_service`. `nros_executor_add_service` treats an absent
+ * callback as nothing to dispatch.
  */
 NROS_PUBLIC
 nros_ret_t nros_service_init_with_qos(struct nros_service_t *service,
@@ -6139,9 +6206,34 @@ nros_ret_t nros_service_init_with_qos(struct nros_service_t *service,
                                       const struct nros_qos_t *qos);
 
 /**
+ * rclc's `rclc_service_init_default`, in rclc's argument order and at rclc's
+ * ARITY (phase-417 stage 6). The old `nros_service_init` carried `callback`
+ * and `context` in positions 5 and 6; RFC-0087 records that the binding site
+ * was never mandated (RFC-0041 governs the DISPATCH MODEL, and
+ * `executor-owns-no-entity-storage` is defined nowhere), so the callback moves
+ * to registration where rclc puts it — `nros_executor_add_service_raw`.
+ *
+ * The typesupport parameter keeps OUR type for the reason RFC-0087 settled on
+ * 2026-09-04: a rosidl typesupport's members are its contract, including a
+ * `func` dispatcher we do not have.
+ *
+ * The deprecated six-argument `nros_service_init` survives as an
+ * `NROS_DEPRECATED_MSG` `static inline` in `<nros/service.h>` forwarding to
+ * [`nros_service_init_with_qos`], so old behaviour is preserved exactly.
+ *
+ * # Safety
+ * All non-NULL pointers must be valid + the node initialized.
+ */
+NROS_PUBLIC
+nros_ret_t rclc_service_init_default(struct nros_service_t *service,
+                                     const struct nros_node_t *node,
+                                     const struct nros_service_type_t *type_info,
+                                     const char *service_name);
+
+/**
  * Get a zero-initialised [`nros_service_options_t`] (`sched_context = 0`).
  */
-NROS_PUBLIC struct nros_service_options_t nros_service_get_default_options(void);
+NROS_PUBLIC struct nros_service_options_t rcl_service_get_default_options(void);
 
 /**
  * Phase 189.M3.3.a — initialize a service server with custom QoS + named
@@ -6305,7 +6397,7 @@ NROS_PUBLIC void nros_service_typed_report_error(int32_t error, const char *type
  * # Returns
  * * Pointer to service name (null-terminated), or NULL if invalid
  */
-NROS_PUBLIC const char *nros_service_get_service_name(const struct nros_service_t *service);
+NROS_PUBLIC const char *rcl_service_get_service_name(const struct nros_service_t *service);
 
 /**
  * Check if service is valid (initialized).
@@ -6316,12 +6408,12 @@ NROS_PUBLIC const char *nros_service_get_service_name(const struct nros_service_
  * # Returns
  * * `true` if valid, `false` if invalid or NULL
  */
-NROS_PUBLIC bool nros_service_is_valid(const struct nros_service_t *service);
+NROS_PUBLIC bool rcl_service_is_valid(const struct nros_service_t *service);
 
 /**
  * Get a zero-initialized client.
  */
-NROS_PUBLIC struct nros_client_t nros_client_get_zero_initialized(void);
+NROS_PUBLIC struct nros_client_t rcl_get_zero_initialized_client(void);
 
 /**
  * Initialize a service client (Phase 82: metadata-only).
@@ -6343,16 +6435,16 @@ NROS_PUBLIC struct nros_client_t nros_client_get_zero_initialized(void);
  * * `NROS_RET_NOT_INIT` if node is not initialized
  */
 NROS_PUBLIC
-nros_ret_t nros_client_init(struct nros_client_t *client,
-                            const struct nros_node_t *node,
-                            const struct nros_service_type_t *type_info,
-                            const char *service_name);
+nros_ret_t rclc_client_init_default(struct nros_client_t *client,
+                                    const struct nros_node_t *node,
+                                    const struct nros_service_type_t *type_info,
+                                    const char *service_name);
 
 /**
  * Phase 193.4b — initialize a service client with an explicit QoS profile
  * (rclc's `_with_options`; the profile applies to both the request + reply
  * endpoints). `qos` NULL ⇒ the services default. Same as
- * [`nros_client_init`] otherwise.
+ * [`rclc_client_init_default`] otherwise.
  *
  * # Safety
  * All non-NULL pointers must be valid + the node initialized.
@@ -6367,7 +6459,7 @@ nros_ret_t nros_client_init_with_qos(struct nros_client_t *client,
 /**
  * Get a zero-initialised [`nros_client_options_t`] (`sched_context = 0`).
  */
-NROS_PUBLIC struct nros_client_options_t nros_client_get_default_options(void);
+NROS_PUBLIC struct nros_client_options_t rcl_client_get_default_options(void);
 
 /**
  * Phase 189.M3.3.a — initialize a service client with custom QoS + named
@@ -6467,7 +6559,7 @@ int32_t nros_client_take_response_raw(struct nros_client_t *client,
                                       size_t buf_len);
 
 /**
- * Set the response callback fired by `nros_executor_spin_some` when an
+ * Set the response callback fired by `rclc_executor_spin_some` when an
  * async request has its reply delivered.
  */
 NROS_PUBLIC
@@ -6540,7 +6632,7 @@ NROS_PUBLIC bool nros_client_service_is_ready(const struct nros_client_t *client
  * Send a service request asynchronously (Phase 82).
  *
  * Non-blocking. The reply is delivered via the registered
- * `response_callback` during `nros_executor_spin_some`. The user must
+ * `response_callback` during `rclc_executor_spin_some`. The user must
  * have previously registered the client with `nros_executor_add_client`.
  *
  * # Returns
@@ -6574,7 +6666,7 @@ nros_ret_t nros_client_take_response(struct nros_client_t *client,
  *
  * Phase 82: signature unchanged, but no longer blocks at the transport
  * layer. Internally calls `nros_client_send_request_async` and spins
- * the registered executor via `nros_executor_spin_some` until the
+ * the registered executor via `rclc_executor_spin_some` until the
  * response arrives or the client's `timeout_ms` elapses. The client
  * must have been registered with `nros_executor_add_client`.
  *
@@ -6610,7 +6702,7 @@ nros_ret_t nros_client_call(struct nros_client_t *client,
  * # Returns
  * * Pointer to service name (null-terminated), or NULL if invalid
  */
-NROS_PUBLIC const char *nros_client_get_service_name(const struct nros_client_t *client);
+NROS_PUBLIC const char *rcl_client_get_service_name(const struct nros_client_t *client);
 
 /**
  * Check if client is valid (initialized).
@@ -6621,12 +6713,12 @@ NROS_PUBLIC const char *nros_client_get_service_name(const struct nros_client_t 
  * # Returns
  * * `true` if valid, `false` if invalid or NULL
  */
-NROS_PUBLIC bool nros_client_is_valid(const struct nros_client_t *client);
+NROS_PUBLIC bool rcl_client_is_valid(const struct nros_client_t *client);
 
 /**
  * Get a zero-initialized subscription.
  */
-NROS_PUBLIC struct nros_subscription_t nros_subscription_get_zero_initialized(void);
+NROS_PUBLIC struct nros_subscription_t rcl_get_zero_initialized_subscription(void);
 
 /**
  * Get a zero-initialised [`nros_subscription_options_t`].
@@ -6636,21 +6728,47 @@ NROS_PUBLIC struct nros_subscription_t nros_subscription_get_zero_initialized(vo
  * the fields they want before passing the struct to
  * [`nros_subscription_init_with_options`].
  */
-NROS_PUBLIC struct nros_subscription_options_t nros_subscription_get_default_options(void);
+NROS_PUBLIC struct nros_subscription_options_t rcl_subscription_get_default_options(void);
 
 /**
  * Initialize a subscription with default QoS (RELIABLE, KEEP_LAST(10)).
  *
- * This is the recommended initialization function for most use cases.
- * Uses `QOS_PROFILE_DEFAULT` which provides reliable delivery.
+ * rclc's `rclc_subscription_init_default`, in rclc's argument order and at
+ * rclc's ARITY (phase-417 stage 6). The old `nros_subscription_init` carried
+ * two extra arguments — `callback` and `context` — and RFC-0087 records why
+ * they are gone from here:
+ *
+ * * the binding site was never mandated. RFC-0041 is about the DISPATCH
+ *   MODEL, not about which call first supplies a callback, and
+ *   `executor-owns-no-entity-storage` — cited by name in ten ledger rows as
+ *   the reason — is defined nowhere in `docs/design/`;
+ * * the only real constraint found (`c:timer_exchange_callback`) forbids
+ *   SWAPPING a callback on a live entity, which registration-time binding
+ *   does not do.
+ *
+ * So the callback is supplied where rclc supplies it, at registration:
+ * [`nros_executor_add_subscription_typed`] for the typed path (rclc's
+ * `rclc_executor_add_subscription_with_context` shape) and
+ * `nros_executor_add_subscription_raw` for the byte path, which has no rclc
+ * counterpart and therefore keeps an `nros_` name.
+ *
+ * The typesupport parameter stays `const nros_message_type_t *` rather than
+ * taking `rosidl_message_type_support_t`'s name: a rosidl typesupport's
+ * MEMBERS are its contract, including the `func` dispatcher we do not have,
+ * so adopting the name would claim a structure we lack (RFC-0087, settled
+ * 2026-09-04). It costs a ported call site nothing — the argument comes from
+ * our codegen either way.
+ *
+ * The deprecated six-argument `nros_subscription_init` survives as an
+ * `NROS_DEPRECATED_MSG` `static inline` in `<nros/subscription.h>`; it
+ * forwards to [`nros_subscription_init_with_qos`], which still carries the
+ * callback, so the old behaviour is preserved exactly.
  *
  * # Parameters
  * * `subscription` - Pointer to a zero-initialized subscription
  * * `node` - Pointer to an initialized node
  * * `type_info` - Pointer to message type information
  * * `topic_name` - Topic name (null-terminated string)
- * * `callback` - Callback function to invoke when messages arrive
- * * `context` - User context pointer passed to callback (can be NULL)
  *
  * # Returns
  * * `NROS_RET_OK` on success
@@ -6661,15 +6779,12 @@ NROS_PUBLIC struct nros_subscription_options_t nros_subscription_get_default_opt
  * # Safety
  * * All required pointers must be valid
  * * `topic_name` must be a valid null-terminated string
- * * `callback` must be a valid function pointer
  */
 NROS_PUBLIC
-nros_ret_t nros_subscription_init(struct nros_subscription_t *subscription,
-                                  const struct nros_node_t *node,
-                                  const struct nros_message_type_t *type_info,
-                                  const char *topic_name,
-                                  nros_subscription_callback_t callback,
-                                  void *context);
+nros_ret_t rclc_subscription_init_default(struct nros_subscription_t *subscription,
+                                          const struct nros_node_t *node,
+                                          const struct nros_message_type_t *type_info,
+                                          const char *topic_name);
 
 /**
  * Initialize a subscription with custom QoS.
@@ -6956,7 +7071,7 @@ NROS_PUBLIC nros_ret_t nros_subscription_fini(struct nros_subscription_t *subscr
  * * Pointer to topic name (null-terminated), or NULL if invalid
  */
 NROS_PUBLIC
-const char *nros_subscription_get_topic_name(const struct nros_subscription_t *subscription);
+const char *rcl_subscription_get_topic_name(const struct nros_subscription_t *subscription);
 
 /**
  * Check if subscription is valid (initialized).
@@ -6967,7 +7082,7 @@ const char *nros_subscription_get_topic_name(const struct nros_subscription_t *s
  * # Returns
  * * `true` if valid, `false` if invalid or NULL
  */
-NROS_PUBLIC bool nros_subscription_is_valid(const struct nros_subscription_t *subscription);
+NROS_PUBLIC bool rcl_subscription_is_valid(const struct nros_subscription_t *subscription);
 
 /**
  * Get a zero-initialized support context.
@@ -7068,7 +7183,7 @@ nros_ret_t nros_support_init_rmw(struct nros_support_t *support,
  * # Safety
  * * `support` must be a valid pointer to an initialized nros_support_t
  */
-NROS_PUBLIC nros_ret_t nros_support_fini(struct nros_support_t *support);
+NROS_PUBLIC nros_ret_t rclc_support_fini(struct nros_support_t *support);
 
 /**
  * Check if support context is valid (initialized).
@@ -7084,7 +7199,7 @@ NROS_PUBLIC bool nros_support_is_valid(const struct nros_support_t *support);
 /**
  * Get a zero-initialized timer.
  */
-NROS_PUBLIC struct nros_timer_t nros_timer_get_zero_initialized(void);
+NROS_PUBLIC struct nros_timer_t rcl_get_zero_initialized_timer(void);
 
 /**
  * Initialize a timer.
@@ -7126,7 +7241,7 @@ nros_ret_t nros_timer_init(struct nros_timer_t *timer,
  * * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
  * * `NROS_RET_NOT_INIT` if not initialized
  */
-NROS_PUBLIC nros_ret_t nros_timer_cancel(struct nros_timer_t *timer);
+NROS_PUBLIC nros_ret_t rcl_timer_cancel(struct nros_timer_t *timer);
 
 /**
  * Reset a timer.
@@ -7143,7 +7258,7 @@ NROS_PUBLIC nros_ret_t nros_timer_cancel(struct nros_timer_t *timer);
  * * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
  * * `NROS_RET_NOT_INIT` if not initialized
  */
-NROS_PUBLIC nros_ret_t nros_timer_reset(struct nros_timer_t *timer);
+NROS_PUBLIC nros_ret_t rcl_timer_reset(struct nros_timer_t *timer);
 
 /**
  * Finalize a timer.
@@ -7156,7 +7271,7 @@ NROS_PUBLIC nros_ret_t nros_timer_reset(struct nros_timer_t *timer);
  * * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
  * * `NROS_RET_NOT_INIT` if not initialized
  */
-NROS_PUBLIC nros_ret_t nros_timer_fini(struct nros_timer_t *timer);
+NROS_PUBLIC nros_ret_t rcl_timer_fini(struct nros_timer_t *timer);
 
 /**
  * Check if timer is valid (initialized and not shutdown).
@@ -7203,7 +7318,7 @@ uint64_t nros_timer_get_time_until_next_call(const struct nros_timer_t *timer,
  *
  * Forwards to `Executor::timer_is_canceled` for a registered timer — the
  * arena flag `arena::timer_try_process` actually consults, and the one
- * `nros_timer_cancel` sets through `Executor::cancel_timer`. A timer that
+ * `rcl_timer_cancel` sets through `Executor::cancel_timer`. A timer that
  * has been initialised but not yet added to an executor has no arena entry,
  * so its own `nros_timer_state_t` is the whole truth and is read instead.
  *
@@ -7216,7 +7331,7 @@ uint64_t nros_timer_get_time_until_next_call(const struct nros_timer_t *timer,
  * * `timer` must be NULL or point to a valid `nros_timer_t`.
  * * `is_canceled` must be NULL or writable.
  */
-NROS_PUBLIC nros_ret_t nros_timer_is_canceled(const struct nros_timer_t *timer, bool *is_canceled);
+NROS_PUBLIC nros_ret_t rcl_timer_is_canceled(const struct nros_timer_t *timer, bool *is_canceled);
 
 /**
  * Would this timer fire on the next `nros_executor_spin_*` pass?
@@ -7241,7 +7356,7 @@ NROS_PUBLIC nros_ret_t nros_timer_is_canceled(const struct nros_timer_t *timer, 
  * * `timer` must be NULL or point to a valid `nros_timer_t`.
  * * `is_ready` must be NULL or writable.
  */
-NROS_PUBLIC nros_ret_t nros_timer_is_ready(const struct nros_timer_t *timer, bool *is_ready);
+NROS_PUBLIC nros_ret_t rcl_timer_is_ready(const struct nros_timer_t *timer, bool *is_ready);
 
 /**
  * Nanoseconds accumulated since this timer last fired.
@@ -7252,7 +7367,7 @@ NROS_PUBLIC nros_ret_t nros_timer_is_ready(const struct nros_timer_t *timer, boo
  * Forwards to `Executor::timer_elapsed_us`, the arena's `elapsed_us`
  * counter. **This is why the accessor could not read `nros_timer_t` and had
  * to reach the executor:** `nros_timer_t::last_call_time_ns` is written by
- * `nros_timer_init` and `nros_timer_reset` and by nothing else — no
+ * `nros_timer_init` and `rcl_timer_reset` and by nothing else — no
  * dispatch path updates it — so a struct-local computation answers `0` for
  * every timer that has ever fired.
  *

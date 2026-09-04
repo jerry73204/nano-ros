@@ -18,7 +18,7 @@
  * "the file is not there".
  */
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <string>
 #include <vector>

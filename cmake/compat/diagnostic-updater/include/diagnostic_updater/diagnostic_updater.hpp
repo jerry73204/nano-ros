@@ -36,7 +36,7 @@
 #include <utility>
 #include <vector>
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>

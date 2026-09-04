@@ -8,7 +8,7 @@ through the `nros_platform_log_*` ABI (see `nros-platform-cffi`).
 
 ```rust
 use nros_log::{Logger, Severity};
-use nros_log::{nros_info, nros_warn};
+use nros_log::{log_info, log_warn};
 
 static LOGGER: Logger = Logger::new("my_node");
 
@@ -16,8 +16,8 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_log::sinks::default());
 
-    nros_info!(&LOGGER, "started; domain = {}", 42);
-    nros_warn!(&LOGGER, "queue depth {} exceeds soft limit", 5);
+    log_info!(&LOGGER, "started; domain = {}", 42);
+    log_warn!(&LOGGER, "queue depth {} exceeds soft limit", 5);
 }
 ```
 
@@ -28,8 +28,16 @@ fn main() {
 
 ## Macros
 
-- `nros_trace!` / `nros_debug!` / `nros_info!` / `nros_warn!` /
-  `nros_error!` / `nros_fatal!`
+- `log_debug!` / `log_info!` / `log_warn!` / `log_error!` / `log_fatal!` —
+  rclrs's spellings. Rust follows rclrs because the three ROS 2 client
+  libraries disagree with each other (`log_info!` / `RCLCPP_INFO` /
+  `RCUTILS_LOG_INFO_NAMED`) and rclrs is the one a ported Rust node is read
+  beside (RFC-0087, settled 2026-09-04).
+- `nros_trace!` — kept under OUR prefix: rclrs stops at `debug`, so TRACE has
+  no upstream twin and must not borrow a name that implies one.
+- `nros_debug!` / `nros_info!` / `nros_warn!` / `nros_error!` / `nros_fatal!`
+  still work as `#[deprecated]` forwarders and emit an identical record.
+  They are removed in a later batch.
 - All take `(logger, fmt, args…)`.
 - Below-ceiling macros expand to `()` (the format call is
   dead-code-eliminated).

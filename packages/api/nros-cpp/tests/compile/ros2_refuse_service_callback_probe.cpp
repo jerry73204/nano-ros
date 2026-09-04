@@ -20,7 +20,7 @@
  * (`ros2_api_adoption_stage2.cpp`). Compile that one first.
  */
 
-#include <nros/rclcpp_compat.hpp>
+#include <nros/nros.hpp>
 
 #include <memory>
 

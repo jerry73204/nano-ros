@@ -255,7 +255,7 @@ impl Default for nros_executor_t {
 
 /// Get a zero-initialized executor.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_executor_get_zero_initialized() -> nros_executor_t {
+pub extern "C" fn rclc_executor_get_zero_initialized_executor() -> nros_executor_t {
     nros_executor_t::default()
 }
 
@@ -368,7 +368,7 @@ pub unsafe extern "C" fn nros_executor_init(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_set_timeout(
+pub unsafe extern "C" fn rclc_executor_set_timeout(
     executor: *mut nros_executor_t,
     timeout_ns: u64,
 ) -> nros_ret_t {
@@ -1056,7 +1056,7 @@ pub unsafe extern "C" fn nros_executor_get_subscriptions_info_by_topic(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_set_semantics(
+pub unsafe extern "C" fn rclc_executor_set_semantics(
     executor: *mut nros_executor_t,
     semantics: nros_executor_semantics_t,
 ) -> nros_ret_t {
@@ -1104,7 +1104,7 @@ pub unsafe extern "C" fn nros_executor_set_semantics(
 ///
 /// Replaces the pre-104.C ordering of `support_init → node_init →
 /// executor_init` with the rclcpp-aligned `support_init → executor_init →
-/// executor_node_init`. The old `nros_node_init` / `nros_node_init_ex`
+/// executor_node_init`. The old `rclc_node_init_default` / `nros_node_init_ex`
 /// entry points are preserved for source compatibility — they still
 /// drive the single-Node legacy path and leave `node.node_id = 0`.
 ///
@@ -1232,7 +1232,7 @@ pub unsafe extern "C" fn nros_executor_node_init(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_set_trigger(
+pub unsafe extern "C" fn rclc_executor_set_trigger(
     executor: *mut nros_executor_t,
     trigger: nros_executor_trigger_t,
     context: *mut core::ffi::c_void,
@@ -1276,7 +1276,7 @@ pub unsafe extern "C" fn nros_executor_set_trigger(
 /// # Safety
 /// * `ready` must point to a valid array of at least `count` booleans
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_trigger_any(
+pub unsafe extern "C" fn rclc_executor_trigger_any(
     ready: *const bool,
     count: usize,
     context: *mut core::ffi::c_void,
@@ -1295,7 +1295,7 @@ pub unsafe extern "C" fn nros_executor_trigger_any(
 /// # Safety
 /// * `ready` must point to a valid array of at least `count` booleans
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_trigger_all(
+pub unsafe extern "C" fn rclc_executor_trigger_all(
     ready: *const bool,
     count: usize,
     context: *mut core::ffi::c_void,
@@ -1317,7 +1317,7 @@ pub unsafe extern "C" fn nros_executor_trigger_all(
 /// # Safety
 /// * `ready` and `count` are unused
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_trigger_always(
+pub unsafe extern "C" fn rclc_executor_trigger_always(
     ready: *const bool,
     count: usize,
     context: *mut core::ffi::c_void,
@@ -1336,14 +1336,14 @@ pub unsafe extern "C" fn nros_executor_trigger_always(
 /// Recommended usage:
 /// ```c
 /// static size_t my_trigger_index = 2;
-/// nros_executor_set_trigger(&exec, nros_executor_trigger_one, &my_trigger_index);
+/// rclc_executor_set_trigger(&exec, rclc_executor_trigger_one, &my_trigger_index);
 /// ```
 ///
 /// # Safety
 /// * `ready` must point to a valid array of at least `count` booleans.
 /// * `context` must point to a valid `size_t` alive for the trigger's lifetime.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_trigger_one(
+pub unsafe extern "C" fn rclc_executor_trigger_one(
     ready: *const bool,
     count: usize,
     context: *mut core::ffi::c_void,
@@ -1434,7 +1434,7 @@ pub unsafe extern "C" fn nros_executor_add_subscription(
         // Phase 104.C.8.b — when the Node was created via
         // `nros_executor_node_init`, route through `_on(NodeId, ...)`
         // so multi-RMW bridges land on the right session. Legacy
-        // `nros_node_init`-style Nodes carry `node_id == 0` and fall
+        // `rclc_node_init_default`-style Nodes carry `node_id == 0` and fall
         // through to the single-Node entry point.
         let node_raw_id = if !subscription_ref.node.is_bound() {
             0
@@ -1740,6 +1740,40 @@ pub unsafe extern "C" fn nros_executor_add_subscription_typed_sized(
     }
 }
 
+/// phase-417 stage 6 — register a BYTE-oriented subscription, supplying its
+/// callback HERE rather than at `*_init`.
+///
+/// This is the raw-path sibling of [`nros_executor_add_subscription_typed`].
+/// `rclc_subscription_init_default` takes no callback (rclc's arity), so the
+/// byte callback that used to ride on `nros_subscription_init` is supplied at
+/// registration, which is where rclc supplies it
+/// (`rclc_executor_add_subscription`). The name keeps the `nros_` prefix
+/// deliberately: rclc's `add_subscription` delivers a DESERIALIZED message into
+/// caller storage, so the byte path has no upstream counterpart and must not
+/// wear its name (RFC-0087's compile-or-conform rule — a plausible name over an
+/// opposite data contract is the defect the RFC exists to prevent).
+///
+/// `callback` may be NULL, which registers the subscription with nothing to
+/// dispatch — the same state `nros_executor_add_subscription` sees for a
+/// subscription initialised by `rclc_subscription_init_default` alone.
+///
+/// # Safety
+/// * `executor` and `subscription` must be valid, initialised objects.
+/// * `context` is passed through untouched and may be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_executor_add_subscription_raw(
+    executor: *mut nros_executor_t,
+    subscription: *mut nros_subscription_t,
+    callback: crate::subscription::nros_subscription_callback_t,
+    context: *mut core::ffi::c_void,
+    invocation: nros_executor_handle_invocation_t,
+) -> nros_ret_t {
+    validate_not_null!(executor, subscription);
+    (*subscription).callback = callback;
+    (*subscription).context = context;
+    nros_executor_add_subscription(executor, subscription, invocation)
+}
+
 /// Phase 189.M3.4 — register a raw subscription whose callback also receives
 /// the sample's wire **attachment** (the C analog of the Rust
 /// `node.subscription(t).generic(..).message_info()` builder; rclc's
@@ -1842,7 +1876,7 @@ pub unsafe extern "C" fn nros_executor_add_subscription_raw_with_info(
 /// # Safety
 /// * All pointers must be valid and point to initialized objects
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_add_timer(
+pub unsafe extern "C" fn rclc_executor_add_timer(
     executor: *mut nros_executor_t,
     timer: *mut nros_timer_t,
 ) -> nros_ret_t {
@@ -2023,10 +2057,10 @@ pub unsafe extern "C" fn nros_executor_add_subscription_in_group(
 
 /// Phase 273 (RFC-0047) — register a timer in a named callback group.
 ///
-/// Identical to `nros_executor_add_timer` but additionally passes the
+/// Identical to `rclc_executor_add_timer` but additionally passes the
 /// group name so the seeded `group_sched_table` can bind the callback to the
 /// group's `SchedContext`. `callback_group` may be NULL or empty — both behave
-/// identically to `nros_executor_add_timer`.
+/// identically to `rclc_executor_add_timer`.
 ///
 /// # Safety
 /// All non-NULL pointers must be valid and point to initialized objects.
@@ -2065,7 +2099,7 @@ pub unsafe extern "C" fn nros_executor_add_timer_in_group(
             c_callback(timer_ptr, c_context);
         };
 
-        // Issue #505 — microseconds, as in `nros_executor_add_timer`.
+        // Issue #505 — microseconds, as in `rclc_executor_add_timer`.
         let period_us = timer_ref.period_ns / 1_000;
         if period_us == 0 {
             return NROS_RET_INVALID_ARGUMENT;
@@ -2227,6 +2261,34 @@ pub unsafe extern "C" fn nros_executor_add_service(
     }
 }
 
+/// phase-417 stage 6 — register a service server, supplying its request
+/// callback HERE rather than at `*_init`.
+///
+/// `rclc_service_init_default` takes no callback (rclc's arity), so the handler
+/// that used to ride on `nros_service_init` is supplied at registration — the
+/// call rclc calls `rclc_executor_add_service`. The `nros_` prefix is kept for
+/// the same reason as `nros_executor_add_subscription_raw`: rclc's
+/// `rclc_executor_add_service` carries caller-owned `request_msg` /
+/// `response_msg` storage and a `void (*)(const void *, void *)` handler, while
+/// ours is a CDR-byte handler that RETURNS a value. Same capability, different
+/// signature, and only a signature can carry a name.
+///
+/// # Safety
+/// * Both pointers must reference initialized objects.
+/// * `context` is passed through untouched and may be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_executor_add_service_raw(
+    executor: *mut nros_executor_t,
+    service: *mut nros_service_t,
+    callback: crate::service::nros_service_callback_t,
+    context: *mut core::ffi::c_void,
+) -> nros_ret_t {
+    validate_not_null!(executor, service);
+    (*service).callback = callback;
+    (*service).context = context;
+    nros_executor_add_service(executor, service)
+}
+
 /// Add a service client to the executor (Phase 82).
 ///
 /// Creates the underlying `RmwServiceClient` inside the executor's arena
@@ -2235,7 +2297,7 @@ pub unsafe extern "C" fn nros_executor_add_service(
 /// `nros_client_send_request_async`, and friends can drive the executor
 /// without taking it as an explicit argument.
 ///
-/// Must be called exactly once after `nros_client_init` and before any
+/// Must be called exactly once after `rclc_client_init_default` and before any
 /// send/call. Calling it twice on the same client returns
 /// `NROS_RET_BAD_SEQUENCE`.
 ///
@@ -2299,7 +2361,7 @@ pub unsafe extern "C" fn nros_executor_add_client(
             client_ref.node.node_id
         };
         // Phase 193.4b — the client's QoS (set via nros_client_init_with_qos;
-        // defaults to services_default via nros_client_init).
+        // defaults to services_default via rclc_client_init_default).
         let client_qos = client_ref.get_qos_settings();
         // Phase 189.M3.3.a — capture the requested sched-context slot before the
         // `&mut *client` reborrow in the Ok arm (avoids an aliasing borrow).
@@ -2559,7 +2621,7 @@ pub unsafe extern "C" fn nros_executor_add_action_server(
 
 /// Register an action client with the executor for async (non-blocking) operation.
 ///
-/// After registration, `nros_executor_spin_some` polls the action client's
+/// After registration, `rclc_executor_spin_some` polls the action client's
 /// pending requests (goal response, feedback, result) and invokes the
 /// registered callbacks.
 ///
@@ -2766,7 +2828,7 @@ unsafe extern "C" fn result_trampoline(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_spin_some(
+pub unsafe extern "C" fn rclc_executor_spin_some(
     executor: *mut nros_executor_t,
     timeout_ns: u64,
 ) -> nros_ret_t {
@@ -2811,7 +2873,7 @@ pub unsafe extern "C" fn nros_executor_spin_some(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> nros_ret_t {
+pub unsafe extern "C" fn rclc_executor_spin(executor: *mut nros_executor_t) -> nros_ret_t {
     validate_not_null!(executor);
 
     let executor_ref = &mut *executor;
@@ -2830,7 +2892,7 @@ pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> n
 
     // Spin until shutdown, or until the SESSION dies persistently.
     //
-    // issue 0324 — this used `let _ = nros_executor_spin_some(...)`, so a
+    // issue 0324 — this used `let _ = rclc_executor_spin_some(...)`, so a
     // transport that had died kept the loop running forever and the blocking
     // spin still returned OK on shutdown: the C caller could not distinguish
     // "ran until you stopped me" from "spun uselessly against a dead session".
@@ -2850,7 +2912,7 @@ pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> n
     while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING
         && !get_executor(&mut executor_ref._opaque).is_halted()
     {
-        let ret = nros_executor_spin_some(executor, executor_ref.timeout_ns);
+        let ret = rclc_executor_spin_some(executor, executor_ref.timeout_ns);
         if get_executor(&mut executor_ref._opaque).session_io_failures() >= SPIN_ERROR_TOLERANCE {
             get_executor(&mut executor_ref._opaque).exit_spin_loop();
             if executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
@@ -2893,7 +2955,7 @@ const SPIN_ERROR_TOLERANCE: u32 = 16;
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_spin_period(
+pub unsafe extern "C" fn rclc_executor_spin_period(
     executor: *mut nros_executor_t,
     period_ns: u64,
 ) -> nros_ret_t {
@@ -2912,7 +2974,7 @@ pub unsafe extern "C" fn nros_executor_spin_period(
 
     executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING;
     executor_ref.invocation_time_ns = crate::platform::get_time_ns();
-    // phase-417 W4.c — see `nros_executor_spin`: one flag, owned by Rust.
+    // phase-417 W4.c — see `rclc_executor_spin`: one flag, owned by Rust.
     get_executor(&mut executor_ref._opaque).enter_spin_loop();
 
     while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING
@@ -2924,10 +2986,10 @@ pub unsafe extern "C" fn nros_executor_spin_period(
         // available), not `period_ns` itself — transports like zenoh-pico's
         // condvar wake early on data arrival, and treating the requested
         // timeout as the delta would tick timers faster than wall-clock.
-        let ret = nros_executor_spin_some(executor, period_ns);
+        let ret = rclc_executor_spin_some(executor, period_ns);
         // issue 0355 — bail only on genuine SESSION death, read from the real
         // `drive_io` health counter, NOT from `spin_some`'s idle
-        // `NROS_RET_TIMEOUT`. See `nros_executor_spin` for the full rationale:
+        // `NROS_RET_TIMEOUT`. See `rclc_executor_spin` for the full rationale:
         // an idle tick against a live transport is expected while a publisher
         // is still discovering, and must not count toward the tolerance.
         if get_executor(&mut executor_ref._opaque).session_io_failures() >= SPIN_ERROR_TOLERANCE {
@@ -2962,7 +3024,7 @@ pub unsafe extern "C" fn nros_executor_spin_period(
 /// # Safety
 /// * `executor` must be a valid pointer to an initialized executor
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_spin_one_period(
+pub unsafe extern "C" fn rclc_executor_spin_one_period(
     executor: *mut nros_executor_t,
     period_ns: u64,
 ) -> nros_ret_t {
@@ -2984,8 +3046,8 @@ pub unsafe extern "C" fn nros_executor_spin_one_period(
 
     // `period_ns` bounds how long `drive_io` may block. spin_once
     // measures the actual elapsed wall-clock and credits that — not
-    // `period_ns` — to timers. See `nros_executor_spin_period` above.
-    let _ = nros_executor_spin_some(executor, period_ns);
+    // `period_ns` — to timers. See `rclc_executor_spin_period` above.
+    let _ = rclc_executor_spin_some(executor, period_ns);
 
     // Sleep for remaining time in period
     let elapsed = crate::platform::get_time_ns().saturating_sub(start);
@@ -3008,10 +3070,10 @@ pub unsafe extern "C" fn nros_executor_spin_one_period(
 /// `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
 /// returns BEFORE spinning has actually stopped;
 /// [`nros_executor_is_spinning`] is the observable that tells you when it has.
-/// The boundary is one `spin_once` timeout wide (`nros_executor_set_timeout`).
+/// The boundary is one `spin_once` timeout wide (`rclc_executor_set_timeout`).
 ///
 /// It does NOT tear down the session: the executor stays initialised, keeps its
-/// entities, and can be spun again. `nros_executor_fini` is the other verb.
+/// entities, and can be spun again. `rclc_executor_fini` is the other verb.
 ///
 /// Safe to call from a signal handler or another thread.
 ///
@@ -3040,7 +3102,7 @@ pub unsafe extern "C" fn nros_executor_cancel(executor: *mut nros_executor_t) ->
     NROS_RET_OK
 }
 
-/// Is a blocking spin (`nros_executor_spin` / `_spin_period`) running on this
+/// Is a blocking spin (`rclc_executor_spin` / `_spin_period`) running on this
 /// executor right now? phase-417 W4.c — `rclcpp::Executor::is_spinning`.
 ///
 /// The C API has always MODELLED this (`NROS_EXECUTOR_STATE_SPINNING`) and
@@ -3087,7 +3149,7 @@ pub unsafe extern "C" fn nros_executor_is_spinning(executor: *const nros_executo
 /// # Safety
 /// * `executor` must be a valid pointer
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_fini(executor: *mut nros_executor_t) -> nros_ret_t {
+pub unsafe extern "C" fn rclc_executor_fini(executor: *mut nros_executor_t) -> nros_ret_t {
     validate_not_null!(executor);
 
     let executor = &mut *executor;
@@ -3175,7 +3237,7 @@ mod verification {
         );
 
         // NULL support → INVALID_ARGUMENT
-        let mut executor = nros_executor_get_zero_initialized();
+        let mut executor = rclc_executor_get_zero_initialized_executor();
         assert_eq!(
             unsafe { nros_executor_init(&mut executor, core::ptr::null(), 4) },
             NROS_RET_INVALID_ARGUMENT,
@@ -3185,7 +3247,7 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     fn executor_zero_initialized_state() {
-        let executor = nros_executor_get_zero_initialized();
+        let executor = rclc_executor_get_zero_initialized_executor();
         assert_eq!(
             executor.state,
             nros_executor_state_t::NROS_EXECUTOR_STATE_UNINITIALIZED,
@@ -3453,7 +3515,7 @@ const _: () = assert!(
 /// `NROS_RET_OK`. Returns `NROS_RET_FULL` when the phase's fixed table is
 /// exhausted (build-time `NROS_EXECUTOR_MAX_SHUTDOWN_CBS`, default 2).
 ///
-/// The hooks run when the executor is finalized — `nros_executor_fini()`, or
+/// The hooks run when the executor is finalized — `rclc_executor_fini()`, or
 /// whatever tears the executor down. They are a CLEAN-STOP facility: a watchdog
 /// reset, a hard fault or an abort does not come through here.
 ///
@@ -3588,20 +3650,20 @@ mod tests {
     fn test_trigger_any_matches_behavior() {
         unsafe {
             let ready = [true, false, true];
-            assert!(nros_executor_trigger_any(
+            assert!(rclc_executor_trigger_any(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
             ));
 
             let ready = [false, false, false];
-            assert!(!nros_executor_trigger_any(
+            assert!(!rclc_executor_trigger_any(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
             ));
 
-            assert!(!nros_executor_trigger_any([].as_ptr(), 0, ptr::null_mut()));
+            assert!(!rclc_executor_trigger_any([].as_ptr(), 0, ptr::null_mut()));
         }
     }
 
@@ -3609,41 +3671,41 @@ mod tests {
     fn test_trigger_all_matches_behavior() {
         unsafe {
             let ready = [true, true, true];
-            assert!(nros_executor_trigger_all(
+            assert!(rclc_executor_trigger_all(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
             ));
 
             let ready = [true, false, true];
-            assert!(!nros_executor_trigger_all(
+            assert!(!rclc_executor_trigger_all(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
             ));
 
             let ready = [false, false, false];
-            assert!(!nros_executor_trigger_all(
+            assert!(!rclc_executor_trigger_all(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
             ));
 
-            assert!(!nros_executor_trigger_all([].as_ptr(), 0, ptr::null_mut()));
+            assert!(!rclc_executor_trigger_all([].as_ptr(), 0, ptr::null_mut()));
         }
     }
 
     #[test]
     fn test_trigger_always_matches_behavior() {
         unsafe {
-            assert!(nros_executor_trigger_always(
+            assert!(rclc_executor_trigger_always(
                 [].as_ptr(),
                 0,
                 ptr::null_mut()
             ));
 
             let ready = [false, false];
-            assert!(nros_executor_trigger_always(
+            assert!(rclc_executor_trigger_always(
                 ready.as_ptr(),
                 ready.len(),
                 ptr::null_mut()
@@ -3656,28 +3718,28 @@ mod tests {
         unsafe {
             let ready = [false, true, false];
             let mut idx: usize = 1;
-            assert!(nros_executor_trigger_one(
+            assert!(rclc_executor_trigger_one(
                 ready.as_ptr(),
                 ready.len(),
                 &mut idx as *mut usize as *mut core::ffi::c_void,
             ));
 
             idx = 0;
-            assert!(!nros_executor_trigger_one(
+            assert!(!rclc_executor_trigger_one(
                 ready.as_ptr(),
                 ready.len(),
                 &mut idx as *mut usize as *mut core::ffi::c_void,
             ));
 
             idx = 10;
-            assert!(!nros_executor_trigger_one(
+            assert!(!rclc_executor_trigger_one(
                 ready.as_ptr(),
                 ready.len(),
                 &mut idx as *mut usize as *mut core::ffi::c_void,
             ));
 
             // NULL context returns false (no dereference).
-            assert!(!nros_executor_trigger_one(
+            assert!(!rclc_executor_trigger_one(
                 ready.as_ptr(),
                 ready.len(),
                 core::ptr::null_mut(),
@@ -3698,7 +3760,7 @@ mod tests {
 
         for (case, expected) in test_cases {
             let c_result =
-                unsafe { nros_executor_trigger_all(case.as_ptr(), case.len(), ptr::null_mut()) };
+                unsafe { rclc_executor_trigger_all(case.as_ptr(), case.len(), ptr::null_mut()) };
             assert_eq!(
                 c_result, *expected,
                 "trigger_all mismatch for {:?}: got {}, expected {}",
@@ -3710,11 +3772,11 @@ mod tests {
     #[test]
     fn test_set_trigger_requires_init() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
+            let mut executor = rclc_executor_get_zero_initialized_executor();
 
-            let ret = nros_executor_set_trigger(
+            let ret = rclc_executor_set_trigger(
                 &mut executor,
-                Some(nros_executor_trigger_all),
+                Some(rclc_executor_trigger_all),
                 ptr::null_mut(),
             );
             assert_eq!(ret, NROS_RET_NOT_INIT);
@@ -3724,9 +3786,9 @@ mod tests {
     #[test]
     fn test_set_trigger_null_executor() {
         unsafe {
-            let ret = nros_executor_set_trigger(
+            let ret = rclc_executor_set_trigger(
                 ptr::null_mut(),
-                Some(nros_executor_trigger_all),
+                Some(rclc_executor_trigger_all),
                 ptr::null_mut(),
             );
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
@@ -3737,7 +3799,7 @@ mod tests {
     fn test_set_semantics_rclcpp() {
         unsafe {
             // Manually initialize (no real session needed for semantics test)
-            let mut executor = nros_executor_get_zero_initialized();
+            let mut executor = rclc_executor_get_zero_initialized_executor();
             executor.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
             executor.max_handles = 4;
 
@@ -3746,7 +3808,7 @@ mod tests {
                 nros_executor_semantics_t::NROS_SEMANTICS_RCLCPP_EXECUTOR
             );
 
-            let ret = nros_executor_set_semantics(
+            let ret = rclc_executor_set_semantics(
                 &mut executor,
                 nros_executor_semantics_t::NROS_SEMANTICS_RCLCPP_EXECUTOR,
             );
@@ -3762,11 +3824,11 @@ mod tests {
     fn test_set_semantics_let() {
         unsafe {
             // Manually initialize (no real session needed for semantics test)
-            let mut executor = nros_executor_get_zero_initialized();
+            let mut executor = rclc_executor_get_zero_initialized_executor();
             executor.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
             executor.max_handles = 4;
 
-            let ret = nros_executor_set_semantics(
+            let ret = rclc_executor_set_semantics(
                 &mut executor,
                 nros_executor_semantics_t::NROS_SEMANTICS_LOGICAL_EXECUTION_TIME,
             );
@@ -3781,9 +3843,9 @@ mod tests {
     #[test]
     fn test_set_semantics_requires_init() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
+            let mut executor = rclc_executor_get_zero_initialized_executor();
 
-            let ret = nros_executor_set_semantics(
+            let ret = rclc_executor_set_semantics(
                 &mut executor,
                 nros_executor_semantics_t::NROS_SEMANTICS_LOGICAL_EXECUTION_TIME,
             );
@@ -3794,7 +3856,7 @@ mod tests {
     #[test]
     fn test_spin_one_period_null() {
         unsafe {
-            let ret = nros_executor_spin_one_period(ptr::null_mut(), 10_000_000);
+            let ret = rclc_executor_spin_one_period(ptr::null_mut(), 10_000_000);
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
@@ -3802,8 +3864,8 @@ mod tests {
     #[test]
     fn test_spin_one_period_zero_period() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
-            let ret = nros_executor_spin_one_period(&mut executor, 0);
+            let mut executor = rclc_executor_get_zero_initialized_executor();
+            let ret = rclc_executor_spin_one_period(&mut executor, 0);
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
@@ -3811,8 +3873,8 @@ mod tests {
     #[test]
     fn test_spin_one_period_not_init() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
-            let ret = nros_executor_spin_one_period(&mut executor, 10_000_000);
+            let mut executor = rclc_executor_get_zero_initialized_executor();
+            let ret = rclc_executor_spin_one_period(&mut executor, 10_000_000);
             assert_eq!(ret, NROS_RET_NOT_INIT);
         }
     }
@@ -3820,7 +3882,7 @@ mod tests {
     #[test]
     fn test_spin_period_null() {
         unsafe {
-            let ret = nros_executor_spin_period(ptr::null_mut(), 10_000_000);
+            let ret = rclc_executor_spin_period(ptr::null_mut(), 10_000_000);
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
@@ -3828,21 +3890,21 @@ mod tests {
     #[test]
     fn test_spin_period_zero_period() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
-            let ret = nros_executor_spin_period(&mut executor, 0);
+            let mut executor = rclc_executor_get_zero_initialized_executor();
+            let ret = rclc_executor_spin_period(&mut executor, 0);
             assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
         }
     }
 
     #[test]
     fn test_invocation_time_ns_initialized() {
-        let executor = nros_executor_get_zero_initialized();
+        let executor = rclc_executor_get_zero_initialized_executor();
         assert_eq!(executor.invocation_time_ns, 0);
     }
 
     #[test]
     fn test_per_type_counters_initialized_to_zero() {
-        let executor = nros_executor_get_zero_initialized();
+        let executor = rclc_executor_get_zero_initialized_executor();
         assert_eq!(executor.subscription_count, 0);
         assert_eq!(executor.timer_count, 0);
         assert_eq!(executor.service_count, 0);
@@ -3858,7 +3920,7 @@ mod tests {
     #[test]
     fn test_remaining_capacity_initial() {
         unsafe {
-            let mut executor = nros_executor_get_zero_initialized();
+            let mut executor = rclc_executor_get_zero_initialized_executor();
             executor.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
             executor.max_handles = NROS_EXECUTOR_MAX_HANDLES;
 

@@ -98,7 +98,7 @@ class Clock {
     /// predicate, not a status the caller has to unpack.
     bool ros_time_is_active() const {
         bool enabled = false;
-        if (nros_is_enabled_ros_time_override(&clock_, &enabled) != 0) {
+        if (rcl_is_enabled_ros_time_override(&clock_, &enabled) != 0) {
             return false;
         }
         return enabled;
@@ -110,12 +110,29 @@ class Clock {
     /// `/clock` sample"; a system or steady clock has started as soon as it is
     /// valid. (`rclcpp::Clock::wait_until_started` is deliberately absent —
     /// RFC-0021 forbids a blocking helper that does not drive the executor.)
-    bool started() const { return nros_clock_time_started(&clock_); }
+    bool started() const { return rcl_clock_time_started(&clock_); }
 
   private:
     nros_clock_t clock_;
 };
 
 } // namespace nros
+
+// ============================================================================
+// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
+// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// makes the ROS 2 spelling a first-class name declared by the API header that
+// owns the concept, at which point a shim has nothing left to bridge.
+
+// phase-417 W1.d — `rclcpp::Clock` is the nano-ros type UNCHANGED.
+// `rclcpp::Node::get_clock()` (`nros/nros.hpp`) hands back a pointer to the
+// node's own, because there is no allocator here to hand back a `SharedPtr`
+// from (RFC-0022); the `node->get_clock()->now()` spelling is unchanged.
+namespace rclcpp {
+using Clock = ::nros::Clock;
+} // namespace rclcpp
 
 #endif // NROS_CPP_CLOCK_HPP

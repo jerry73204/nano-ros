@@ -1,6 +1,14 @@
 /*
- * Phase-417 W5.b — `<nros/rcl_compat.h>`, the alias step of RFC-0087's
- * "C takes rcl's spellings" (settled 2026-09-04).
+ * Phase-417 stage 6 — the C entry points ARE rcl's spellings now.
+ *
+ * This file began at W5.b as a probe over `<nros/rcl_compat.h>`'s twelve
+ * `static inline` forwarders. Stage 6 renamed the entry points themselves, so
+ * the forwarders became IDENTITY and were deleted; every name below now
+ * resolves to the exported symbol directly, and the header contributes only
+ * the `RCL_RET_*` mapping and the handle typedefs.
+ *
+ * What the file tests did not change, which is the point — a ported rcl/rclc
+ * file writes exactly these lines, and it must compile either way.
  *
  * This TU is written the way a PORTED rcl/rclc file is written: it names rcl's
  * types, rcl's zero-initialisers, rcl's guard-condition verb and rcl's return
@@ -75,11 +83,13 @@ static rclc_executor_t (*const k_zero_exec)(void) = rclc_executor_get_zero_initi
 static rcl_ret_t (*const k_trigger)(rcl_guard_condition_t*) = rcl_trigger_guard_condition;
 
 /*
- * The three rclc `_init_default` forwarders. Pointer-taking matters most here:
- * `rclc_node_init_default` REORDERS its arguments onto `nros_node_init`
- * (`support` is 4th upstream, 2nd for us), so this is the drift a positional
- * macro would have hidden. The other three rclc `_init_default` forms are
- * deliberately absent -- see section 5 of the header for both signatures each.
+ * The rclc `_init_default` constructors. Pointer-taking matters most for
+ * `rclc_node_init_default`: it is the one entry point in the surface that is a
+ * pure PERMUTATION of its upstream counterpart, and under the `#pragma` above
+ * a reverted reorder is a hard ERROR here rather than the warning C would
+ * otherwise emit. `rclc_timer_init_default` remains deliberately absent -- see
+ * section 4 of the header for both signatures and the callback-contract
+ * reason.
  */
 static rcl_ret_t (*const k_pub_init_default)(rcl_publisher_t*, const rcl_node_t*,
                                              const struct nros_message_type_t*,
@@ -88,7 +98,36 @@ static rcl_ret_t (*const k_cli_init_default)(rcl_client_t*, const rcl_node_t*,
                                              const struct nros_service_type_t*,
                                              const char*) = rclc_client_init_default;
 static rcl_ret_t (*const k_node_init_default)(rcl_node_t*, const char*, const char*,
-                                              rclc_support_t*) = rclc_node_init_default;
+                                              const rclc_support_t*) = rclc_node_init_default;
+
+/*
+ * The two that stage 6 moved from REFUSED to native. Their arity used to be 6
+ * against rclc's 4, because ours carried `callback` and `context`; RFC-0087
+ * withdrew the reason (RFC-0041 governs the DISPATCH MODEL, not a binding
+ * site, and `executor-owns-no-entity-storage` is defined nowhere), so the
+ * callback moved to registration where rclc puts it. Pinning the pointer here
+ * is what makes a silent re-growth of the argument list fail.
+ */
+static rcl_ret_t (*const k_sub_init_default)(rcl_subscription_t*, const rcl_node_t*,
+                                             const struct nros_message_type_t*,
+                                             const char*) = rclc_subscription_init_default;
+static rcl_ret_t (*const k_srv_init_default)(rcl_service_t*, const rcl_node_t*,
+                                             const struct nros_service_type_t*,
+                                             const char*) = rclc_service_init_default;
+
+/*
+ * ...and the registration entry points that now carry the callback. These keep
+ * the `nros_` prefix deliberately: rclc's `rclc_executor_add_subscription` and
+ * `rclc_executor_add_service` deliver a DESERIALIZED message into caller-owned
+ * storage, so a byte-oriented entry point must not wear their names
+ * (RFC-0087's compile-or-conform rule).
+ */
+static nros_ret_t (*const k_add_sub_raw)(
+    struct nros_executor_t*, struct nros_subscription_t*, nros_subscription_callback_t, void*,
+    enum nros_executor_handle_invocation_t) = nros_executor_add_subscription_raw;
+static nros_ret_t (*const k_add_srv_raw)(struct nros_executor_t*, struct nros_service_t*,
+                                         nros_service_callback_t,
+                                         void*) = nros_executor_add_service_raw;
 
 /* ── 2. A ported file's own shape: rcl types, rcl zero-init, rcl codes ─── */
 
@@ -117,9 +156,6 @@ rcl_ret_t nros_rcl_compat_ported_shape(struct nros_executor_t* executor, rclc_su
 
     (void)node;
     (void)publisher;
-    (void)subscription;
-    (void)client;
-    (void)service;
     (void)timer;
     (void)zero_executor;
 
@@ -144,6 +180,16 @@ rcl_ret_t nros_rcl_compat_ported_shape(struct nros_executor_t* executor, rclc_su
         return ret;
     }
     ret = rclc_client_init_default(&client, &node, srv_type, "add_two_ints");
+    if (ret != RCL_RET_OK) {
+        return ret;
+    }
+    /* rclc's four-argument subscription and service constructors: no callback
+     * here, exactly as upstream. */
+    ret = rclc_subscription_init_default(&subscription, &node, msg_type, "chatter");
+    if (ret != RCL_RET_OK) {
+        return ret;
+    }
+    ret = rclc_service_init_default(&service, &node, srv_type, "add_two_ints");
     if (ret != RCL_RET_OK) {
         return ret;
     }
@@ -245,5 +291,9 @@ const void* nros_rcl_compat_alias_probe(void) {
     (void)k_pub_init_default;
     (void)k_cli_init_default;
     (void)k_node_init_default;
+    (void)k_sub_init_default;
+    (void)k_srv_init_default;
+    (void)k_add_sub_raw;
+    (void)k_add_srv_raw;
     return (const void*)k_trigger;
 }

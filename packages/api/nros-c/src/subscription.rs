@@ -128,7 +128,7 @@ impl Default for nros_subscription_t {
 
 /// Get a zero-initialized subscription.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_subscription_get_zero_initialized() -> nros_subscription_t {
+pub extern "C" fn rcl_get_zero_initialized_subscription() -> nros_subscription_t {
     nros_subscription_t::default()
 }
 
@@ -169,22 +169,48 @@ pub struct nros_subscription_options_t {
 /// the fields they want before passing the struct to
 /// [`nros_subscription_init_with_options`].
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_subscription_get_default_options() -> nros_subscription_options_t {
+pub extern "C" fn rcl_subscription_get_default_options() -> nros_subscription_options_t {
     nros_subscription_options_t::default()
 }
 
 /// Initialize a subscription with default QoS (RELIABLE, KEEP_LAST(10)).
 ///
-/// This is the recommended initialization function for most use cases.
-/// Uses `QOS_PROFILE_DEFAULT` which provides reliable delivery.
+/// rclc's `rclc_subscription_init_default`, in rclc's argument order and at
+/// rclc's ARITY (phase-417 stage 6). The old `nros_subscription_init` carried
+/// two extra arguments — `callback` and `context` — and RFC-0087 records why
+/// they are gone from here:
+///
+/// * the binding site was never mandated. RFC-0041 is about the DISPATCH
+///   MODEL, not about which call first supplies a callback, and
+///   `executor-owns-no-entity-storage` — cited by name in ten ledger rows as
+///   the reason — is defined nowhere in `docs/design/`;
+/// * the only real constraint found (`c:timer_exchange_callback`) forbids
+///   SWAPPING a callback on a live entity, which registration-time binding
+///   does not do.
+///
+/// So the callback is supplied where rclc supplies it, at registration:
+/// [`nros_executor_add_subscription_typed`] for the typed path (rclc's
+/// `rclc_executor_add_subscription_with_context` shape) and
+/// `nros_executor_add_subscription_raw` for the byte path, which has no rclc
+/// counterpart and therefore keeps an `nros_` name.
+///
+/// The typesupport parameter stays `const nros_message_type_t *` rather than
+/// taking `rosidl_message_type_support_t`'s name: a rosidl typesupport's
+/// MEMBERS are its contract, including the `func` dispatcher we do not have,
+/// so adopting the name would claim a structure we lack (RFC-0087, settled
+/// 2026-09-04). It costs a ported call site nothing — the argument comes from
+/// our codegen either way.
+///
+/// The deprecated six-argument `nros_subscription_init` survives as an
+/// `NROS_DEPRECATED_MSG` `static inline` in `<nros/subscription.h>`; it
+/// forwards to [`nros_subscription_init_with_qos`], which still carries the
+/// callback, so the old behaviour is preserved exactly.
 ///
 /// # Parameters
 /// * `subscription` - Pointer to a zero-initialized subscription
 /// * `node` - Pointer to an initialized node
 /// * `type_info` - Pointer to message type information
 /// * `topic_name` - Topic name (null-terminated string)
-/// * `callback` - Callback function to invoke when messages arrive
-/// * `context` - User context pointer passed to callback (can be NULL)
 ///
 /// # Returns
 /// * `NROS_RET_OK` on success
@@ -195,23 +221,20 @@ pub extern "C" fn nros_subscription_get_default_options() -> nros_subscription_o
 /// # Safety
 /// * All required pointers must be valid
 /// * `topic_name` must be a valid null-terminated string
-/// * `callback` must be a valid function pointer
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_subscription_init(
+pub unsafe extern "C" fn rclc_subscription_init_default(
     subscription: *mut nros_subscription_t,
     node: *const nros_node_t,
     type_info: *const nros_message_type_t,
     topic_name: *const c_char,
-    callback: nros_subscription_callback_t,
-    context: *mut c_void,
 ) -> nros_ret_t {
     nros_subscription_init_with_qos(
         subscription,
         node,
         type_info,
         topic_name,
-        callback,
-        context,
+        None,
+        ptr::null_mut(),
         ptr::null(),
     )
 }
@@ -474,7 +497,7 @@ pub unsafe extern "C" fn nros_subscription_init_polling_with_qos(
         use nros_node::{Session, TopicInfo};
 
         // Phase 156 Sub-bug D — multi-Session dispatch (see
-        // `nros_publisher_init` for the long form).
+        // `rclc_publisher_init_default` for the long form).
         let (session, domain_id) = match crate::node::resolve_session_and_domain(node_ref) {
             Some(t) => t,
             None => return NROS_RET_NOT_INIT,
@@ -937,7 +960,7 @@ pub unsafe extern "C" fn nros_subscription_fini(
 /// # Returns
 /// * Pointer to topic name (null-terminated), or NULL if invalid
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_subscription_get_topic_name(
+pub unsafe extern "C" fn rcl_subscription_get_topic_name(
     subscription: *const nros_subscription_t,
 ) -> *const c_char {
     if subscription.is_null() {
@@ -960,7 +983,7 @@ pub unsafe extern "C" fn nros_subscription_get_topic_name(
 /// # Returns
 /// * `true` if valid, `false` if invalid or NULL
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_subscription_is_valid(
+pub unsafe extern "C" fn rcl_subscription_is_valid(
     subscription: *const nros_subscription_t,
 ) -> bool {
     if subscription.is_null() {

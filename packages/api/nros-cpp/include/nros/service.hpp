@@ -316,4 +316,22 @@ Result Node::create_service(Service<S>& out, const char* service_name, F callbac
 
 } // namespace nros
 
+// ============================================================================
+// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// ============================================================================
+//
+// Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
+// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// makes the ROS 2 spelling a first-class name declared by the API header that
+// owns the concept, at which point a shim has nothing left to bridge.
+
+// `rclcpp::Service<S>::SharedPtr` — see `publisher.hpp` for why the alias
+// template is the whole adoption. The upstream shared_ptr CALLBACK shape is
+// REFUSE-LOUD, and the refusal lives on `rclcpp::Node::create_service`
+// (`nros/nros.hpp`) because that is the call site it fires at; its diagnostic
+// is `NROS_RCLCPP_REFUSE_SHARED_PTR_SERVICE_CALLBACK` in `log.hpp`.
+namespace rclcpp {
+template <typename S> using Service = ::nros::Service<S>;
+} // namespace rclcpp
+
 #endif // NROS_CPP_SERVICE_HPP

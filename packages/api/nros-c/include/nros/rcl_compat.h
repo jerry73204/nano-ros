@@ -1,57 +1,43 @@
 /**
  * @file rcl_compat.h
- * @brief OPT-IN rcl / rclc spellings for ported ROS 2 C code (RFC-0087).
+ * @brief What is LEFT of the rcl compat layer after phase-417 stage 6.
  *
  * RFC-0087 settled on 2026-09-04 that **the C API takes rcl's spellings**,
  * because the goal is drop-in replacement and a ported file's line is rcl's
- * line. The migration it prescribes is ALIAS first, REPLACE later, and this
- * header is the alias step: our own surface keeps `nros_` until stage 6, and a
- * ported `.c` file meets the names it already writes by including this header.
+ * line. The migration it prescribes is ALIAS first, REPLACE later. Stage 5 was
+ * the alias step and this header held twelve `static inline` forwarders;
+ * **stage 6 renamed the entry points themselves, so all twelve became IDENTITY
+ * and were deleted** — see section 3 for the list and for where each one lives
+ * now.
+ *
+ * That is RFC-0087's "dissolves by construction": a shim exists to bridge two
+ * spellings, and when there is one spelling it has nothing to bridge. The
+ * deletion is not a judgement call either — an identity `static inline` beside
+ * the non-static declaration in `<nros/nros_generated.h>` is a hard
+ * `error: static declaration of '...' follows non-static declaration`.
+ *
+ * ## What does NOT dissolve, and why that is fine
+ *
+ * TWO things, and neither is a spelling:
+ *
+ * 1. **The `RCL_RET_*` value MAPPING (section 1).** RFC-0087 forbids
+ *    renumbering `nros_ret_t` to rcl's values — that would silently flip the
+ *    meaning of every stored return code across three FFI seams. So
+ *    `RCL_RET_TIMEOUT` does not go away; it becomes the NAME of our constant,
+ *    with our value. A ported `if (ret == RCL_RET_TIMEOUT)` is correct; a
+ *    program that hardcodes `if (ret == 2)` is not, and never was.
+ * 2. **The handle TYPEDEFS (section 2).** Our structs are still
+ *    `struct nros_node_t` and friends, so `rcl_node_t` is still an alias
+ *    rather than the name itself. These retire with the TYPE rename, which is
+ *    a separate step from the entry-point rename this file records.
  *
  *     #include <nros/rcl_compat.h>   // opt-in; nothing force-includes it
- *
- * Nothing here changes the meaning of an existing symbol. Every entry point is
- * a `static inline` forwarder onto the `nros_` function that already
- * implements the contract, so an alias whose argument list drifted from the
- * function it forwards to fails to COMPILE rather than at a call site
- * (RFC-0019/0020: ergonomics may live in the wrapper, behaviour may not — a
- * forwarder emits no logic of its own).
- *
- * ## What is deliberately NOT here
- *
- * RFC-0087's rule is *never compile and differ*. A name whose contract we
- * cannot keep must fail to compile, so it is ABSENT here rather than aliased:
- *
- * - `rcl_take_request` / `rcl_take_response` — upstream hands back a
- *   DESERIALIZED message plus an `rmw_request_id_t` out-struct
- *   (`rcl/service.h:279`, `rcl/client.h:301`); ours are the CDR-byte drains
- *   `nros_service_take_request_raw(service, buf, buf_len, int64_t *seq)` and
- *   `nros_client_take_response(client, buf, buf_len, size_t *out_len)`.
- *   Different arity, different argument order, different data. This is
- *   `PollingSubscription::take()`'s class exactly — a plausible name over an
- *   opposite data contract — and it is the reason RFC-0087 exists.
- *   (`nros_service_take_request` is additionally a permanent
- *   `NROS_RET_NOT_INIT` stub; see `nros/service.h:15`.)
- * - the `rclc_*_init_default` family — three of the six differ in ARITY by
- *   construction — see the refusals recorded beside the three that ARE aliased
- *   in section 5.
- * - `rclc_executor_add_subscription_with_context` /
- *   `..._add_service_with_context` — rclc's variants carry caller-owned
- *   message STORAGE (`void *msg`, `void *request_msg` / `void *response_msg`)
- *   plus a callback receiving a DESERIALIZED message; ours are arity 3 and 2,
- *   over a callback receiving CDR BYTES. The CAPABILITY matches (which is what
- *   the ledger's `disposition: adopt` records); the SIGNATURE does not, and
- *   only a signature can carry a name. Section 6 states the entry point shape
- *   a faithful alias needs.
- * - `RCL_RET_BAD_ALLOC`, `RCL_RET_ALREADY_INIT`, `RCL_RET_*_INVALID`,
- *   `RCL_RET_*_TAKE_FAILED`, `RCL_RET_TIMER_CANCELED`, the wait-set codes —
- *   see the note above the constant block.
  *
  * ## Scope
  *
  * Freestanding C: no allocator, no libc beyond what `<nros/types.h>` already
- * uses. This header adds no symbol to the link — every forwarder is
- * `static inline` and every constant is a macro.
+ * uses. This header adds no symbol to the link — every remaining item is a
+ * typedef or a macro.
  */
 
 #ifndef NROS_RCL_COMPAT_H
@@ -271,221 +257,97 @@ typedef struct nros_support_t rclc_support_t;
  */
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * 3. The zero-initialiser family — rcl's free-function spelling
+ * 3. What used to be here: TWELVE forwarders, now IDENTITY and therefore gone
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * rcl spells it `rcl_get_zero_initialized_<thing>(void)` returning the struct
- * BY VALUE; ours is the method-style `nros_<thing>_get_zero_initialized(void)`,
- * also nullary and also by value. Identical shape, identical contract — the
- * ledger records the difference as spelling alone at every site
- * (`docs/reference/api-parity-ledger/pubsub.json` `c:get_zero_initialized_publisher`,
- * `node.json` `c:get_zero_initialized_node`, `timer.json` `c:get_zero_initialized_timer`,
- * `exec.json` `c:get_zero_initialized_guard_condition` and
- * `c:executor_get_zero_initialized_executor`, `service.json`
- * `c:get_zero_initialized_client` / `c:get_zero_initialized_service`).
+ * phase-417 stage 6 (2026-09-04) renamed the C entry points themselves, so
+ * every function forwarder this header used to carry now has the SAME name on
+ * both sides. An identity `static inline` is not a shim, it is infinite
+ * recursion waiting for `-O0`, and the compiler says so first: a
+ * `static inline rcl_get_zero_initialized_node` beside the non-static
+ * declaration in `<nros/nros_generated.h>` is
+ * `error: static declaration of 'rcl_get_zero_initialized_node' follows
+ * non-static declaration`. They are deleted rather than argued away — RFC-0087
+ * calls this "dissolving by construction", and it is the property that keeps a
+ * compat layer from rotting into permanent debt.
  *
- * The service/client pair reads `refuse-loud` in `service.json` where the
- * identical class reads `adopt` in four other shards. RFC-0087 identifies that
- * split as "never agent disagreement but an unmade decision surfacing five
- * times", and settles it: all of them are `adopt`. Aliased here on the
- * settlement, having re-read each signature — RFC-0087 also warns that
- * `disposition` records an intent and "a later pass must verify against the
- * header, not against the field".
+ * The twelve, and where each one now lives natively:
  *
- * Only the eight types nano-ros actually has are here. rcl also ships
- * `rcl_get_zero_initialized_{context,init_options,arguments,log_levels,event,
- * wait_set,subscription_content_filter_options}` and the seven
- * `rcl_action_get_zero_initialized_*` forms; we have none of those TYPES, so
- * the names stay ABSENT and a ported line naming one fails to compile.
- */
-
-static inline rcl_node_t rcl_get_zero_initialized_node(void) {
-    return nros_node_get_zero_initialized();
-}
-
-static inline rcl_publisher_t rcl_get_zero_initialized_publisher(void) {
-    return nros_publisher_get_zero_initialized();
-}
-
-static inline rcl_subscription_t rcl_get_zero_initialized_subscription(void) {
-    return nros_subscription_get_zero_initialized();
-}
-
-static inline rcl_client_t rcl_get_zero_initialized_client(void) {
-    return nros_client_get_zero_initialized();
-}
-
-static inline rcl_service_t rcl_get_zero_initialized_service(void) {
-    return nros_service_get_zero_initialized();
-}
-
-static inline rcl_timer_t rcl_get_zero_initialized_timer(void) {
-    return nros_timer_get_zero_initialized();
-}
-
-static inline rcl_guard_condition_t rcl_get_zero_initialized_guard_condition(void) {
-    return nros_guard_condition_get_zero_initialized();
-}
-
-/** rclc's stuttering spelling — the type name appears twice. Ours is the
- *  method-style `nros_executor_get_zero_initialized`. */
-static inline rclc_executor_t rclc_executor_get_zero_initialized_executor(void) {
-    return nros_executor_get_zero_initialized();
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * 4. Verbs whose word already matches and only the ORDER differs
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-/**
- * rcl's free-function spelling of the guard-condition trigger.
+ *   rcl_get_zero_initialized_node                  nros_generated.h (node.rs)
+ *   rcl_get_zero_initialized_publisher             nros_generated.h (publisher.rs)
+ *   rcl_get_zero_initialized_subscription          nros_generated.h (subscription.rs)
+ *   rcl_get_zero_initialized_client                nros_generated.h (service.rs)
+ *   rcl_get_zero_initialized_service               nros_generated.h (service.rs)
+ *   rcl_get_zero_initialized_timer                 nros_generated.h (timer.rs)
+ *   rcl_get_zero_initialized_guard_condition       nros_generated.h (guard_condition.rs)
+ *   rclc_executor_get_zero_initialized_executor    nros_generated.h (executor.rs)
+ *   rcl_trigger_guard_condition                    nros_generated.h (guard_condition.rs)
+ *   rclc_publisher_init_default                    nros_generated.h (publisher.rs)
+ *   rclc_client_init_default                       nros_generated.h (service.rs)
+ *   rclc_node_init_default                         nros_generated.h (node.rs)  <-- REORDERED
  *
- * Upstream: `rcl_ret_t rcl_trigger_guard_condition(rcl_guard_condition_t *)`
- * (`rcl/guard_condition.h:207`). Ours:
- * `nros_ret_t nros_guard_condition_trigger(struct nros_guard_condition_t *)`
- * (`nros/nros_generated.h:5025`). Same arity, same argument, same return
- * kind — the WORD already matches and only our `nros_<entity>_<verb>` order
- * differs, which is what `docs/reference/api-parity-ledger/exec.json`
- * `c:trigger_guard_condition` records (`disposition: adopt`).
+ * `rclc_node_init_default` is the one that moved arguments, and the rename and
+ * the reorder landed TOGETHER on purpose. RFC-0087's corrected hazard note:
  *
- * Thread-safe, as upstream's is.
- */
-static inline rcl_ret_t rcl_trigger_guard_condition(rcl_guard_condition_t* guard_condition) {
-    return nros_guard_condition_trigger(guard_condition);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * 5. rclc's `_init_default` convenience constructors
+ *     C   : warning: passing argument 1 of 'f' from incompatible pointer type
+ *           ...even under -Wall -Wextra.
+ *     C++ : error: cannot convert 'support_t*' to 'const char*'
+ *
+ * So a C reorder is silent-by-default for exactly the callers it must not be
+ * silent for — out-of-tree consumers, who do not build with our flags. A
+ * rename makes the stale call fail on the IDENTIFIER, which C does diagnose
+ * fatally. The old `nros_node_init` survives as an `NROS_DEPRECATED_MSG`
+ * `static inline` in `<nros/node.h>` that names each parameter and forwards in
+ * the old order; it is deliberately not a macro, because a macro would forward
+ * positionally and silently build a node with its name in the support slot.
+ *
+ * TWO of rclc's six `_init_default` constructors were refused here as recently
+ * as stage 5 and are now native, because the reason was withdrawn rather than
+ * worked around:
+ *
+ *   rclc_subscription_init_default(sub, node, type_support, topic_name)
+ *   rclc_service_init_default(service, node, type_support, service_name)
+ *
+ * Ours used to carry `callback` and `context` in two extra positions, and the
+ * ledger attributed that to RFC-0041 and to a rule called
+ * `executor-owns-no-entity-storage`. RFC-0087 checked both: RFC-0041's
+ * normative content is the DISPATCH MODEL and says nothing about a binding
+ * site, and `executor-owns-no-entity-storage` has zero occurrences in
+ * `docs/design/` — it is a phrase the ledger invented and then cited ten
+ * times. The one real constraint (`c:timer_exchange_callback`) forbids
+ * SWAPPING a callback on a live entity, not supplying one at registration.
+ *
+ * So the callback moved to where rclc puts it:
+ *   - typed path: `nros_executor_add_subscription_typed(exec, sub, msg,
+ *     deserialize, cb, ctx, invocation)`, which the generated per-type macro
+ *     collapses to rclc's six arguments in rclc's order;
+ *   - byte path: `nros_executor_add_subscription_raw(exec, sub, cb, ctx,
+ *     invocation)` and `nros_executor_add_service_raw(exec, service, cb, ctx)`.
+ *     These keep the `nros_` prefix on purpose: rclc's `add_subscription` and
+ *     `add_service` deliver DESERIALIZED messages into caller-owned storage,
+ *     so a byte-oriented entry point must not wear their names.
+ *
+ * ── The typesupport parameter still keeps OUR type ────────────────────────
+ *
+ * `rclc_publisher_init_default` and friends spell their third parameter
+ * `const struct nros_message_type_t *` (or `nros_service_type_t`), not
+ * `rosidl_message_type_support_t`. Settled 2026-09-04 and unchanged by the
+ * rename: a rosidl typesupport's MEMBERS are its contract — the
+ * `typesupport_identifier`, the `data`, and the `func` dispatcher that
+ * resolves the implementation at runtime — against our flat `type_name` /
+ * `type_hash` / `serialized_size_max`. Adopting the name would claim a
+ * dispatcher we do not have, and the "compiles and differs" that follows is
+ * exactly what RFC-0087 forbids. It costs a ported call site nothing, because
+ * the argument comes from OUR codegen either way: `ROSIDL_GET_MSG_TYPE_SUPPORT`
+ * does not exist here, so a ported line that tries to produce one fails to
+ * compile.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 4. Still refused: `rclc_timer_init_default`
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * rclc ships six. THREE are aliased here and THREE are refused, and the split
- * is not a judgement call — it falls out of comparing the two signatures. Both
- * halves were read: upstream from the recorded surface
- * `docs/reference/api-surface/rclc.json` (which stores full parameter types
- * for all 95 `rclc_*` and 489 `rcl_*` functions, at the record's top level as
- * `params`), ours from `nros/nros_generated.h`.
- *
- * The pattern in the three refusals is one thing, stated once: nano-ros binds
- * a callback and its `void *context` to the ENTITY at creation (RFC-0041/0043)
- * where rclc hands them to the executor later. So our `_init` takes arguments
- * rclc's `_init_default` does not, and there is no value a forwarder could
- * invent for them. Each is written out below rather than summarised, because
- * "the arities differ" is the kind of claim that gets asserted from memory.
- */
-
-/**
- * rclc's default-QoS publisher constructor.
- *
- *   rclc: rcl_ret_t rclc_publisher_init_default(
- *             rcl_publisher_t *publisher, const rcl_node_t *node,
- *             const rosidl_message_type_support_t *type_support,
- *             const char *topic_name)
- *   ours: nros_ret_t nros_publisher_init(
- *             struct nros_publisher_t *publisher, const struct nros_node_t *node,
- *             const struct nros_message_type_t *type_info,
- *             const char *topic_name)                  (`nros_generated.h:5441`)
- *
- * Same arity, same order, same const-ness, no callback on either side.
- * `nros_publisher_init` takes no QoS and IS the default form
- * (`nros_publisher_init_with_qos` is the explicit one), which is exactly what
- * `pubsub.json c:publisher_init_default` records. Aliased.
- */
-static inline rcl_ret_t rclc_publisher_init_default(rcl_publisher_t* publisher,
-                                                    const rcl_node_t* node,
-                                                    const struct nros_message_type_t* type_support,
-                                                    const char* topic_name) {
-    return nros_publisher_init(publisher, node, type_support, topic_name);
-}
-
-/**
- * rclc's default-QoS service-client constructor.
- *
- *   rclc: rcl_ret_t rclc_client_init_default(
- *             rcl_client_t *client, const rcl_node_t *node,
- *             const rosidl_service_type_support_t *type_support,
- *             const char *service_name)
- *   ours: nros_ret_t nros_client_init(
- *             struct nros_client_t *client, const struct nros_node_t *node,
- *             const struct nros_service_type_t *type_info,
- *             const char *service_name)                (`nros_generated.h:5988`)
- *
- * Same arity, same order. A client has no callback in either API — it is the
- * SERVICE side that does — so the RFC-0041/0043 divergence does not reach
- * here. Aliased.
- *
- * Note this row reads `refuse-loud` in `service.json` where the identical
- * class reads `adopt` in four other shards; RFC-0087 settles that split as
- * `adopt`. Verified against the signature, not taken from the field.
- */
-static inline rcl_ret_t rclc_client_init_default(rcl_client_t* client, const rcl_node_t* node,
-                                                 const struct nros_service_type_t* type_support,
-                                                 const char* service_name) {
-    return nros_client_init(client, node, type_support, service_name);
-}
-
-/**
- * rclc's default-options node constructor. **The arguments are REORDERED.**
- *
- *   rclc: rcl_ret_t rclc_node_init_default(
- *             rcl_node_t *node, const char *name, const char *namespace_,
- *             rclc_support_t *support)
- *   ours: nros_ret_t nros_node_init(
- *             struct nros_node_t *node, const struct nros_support_t *support,
- *             const char *name, const char *namespace_)
- *                                                      (`nros_generated.h:5290`)
- *
- * Same arity, same four things, different ORDER: rclc puts `support` last,
- * ours puts it second. That is precisely why this is a `static inline` naming
- * each parameter and not a macro — a macro alias would forward the arguments
- * positionally and silently build a node with its name and namespace swapped
- * into the support slot. Here the compiler checks each one, and
- * `const char *` against `const struct nros_support_t *` cannot be confused.
- *
- * Ours takes no node options at all, so it already IS the default form
- * (`node.json c:node_init_default`). A ported file wanting non-default options
- * reaches `nros_node_init_ex`, which is `rcl_node_init_with_options`'s
- * counterpart (`c:node_init_with_options`).
- */
-static inline rcl_ret_t rclc_node_init_default(rcl_node_t* node, const char* name,
-                                               const char* namespace_, rclc_support_t* support) {
-    return nros_node_init(node, support, name, namespace_);
-}
-
-/*
- * ── The three refused, with both signatures ──────────────────────────────
- *
- * `rclc_subscription_init_default` — arity 4 against our 6.
- *
- *   rclc: rcl_ret_t rclc_subscription_init_default(
- *             rcl_subscription_t *subscription, rcl_node_t *node,
- *             const rosidl_message_type_support_t *type_support,
- *             const char *topic_name)
- *   ours: nros_ret_t nros_subscription_init(
- *             struct nros_subscription_t *subscription,
- *             const struct nros_node_t *node,
- *             const struct nros_message_type_t *type_info,
- *             const char *topic_name,
- *             nros_subscription_callback_t callback,
- *             void *context)                           (`nros_generated.h:6309`)
- *
- * The callback and its context are ours to require and rclc's to defer to
- * `rclc_executor_add_subscription`. A forwarder has nothing to pass for them.
- *
- * `rclc_service_init_default` — arity 4 against our 6, the same way.
- *
- *   rclc: rcl_ret_t rclc_service_init_default(
- *             rcl_service_t *service, const rcl_node_t *node,
- *             const rosidl_service_type_support_t *type_support,
- *             const char *service_name)
- *   ours: nros_ret_t nros_service_init(
- *             struct nros_service_t *service, const struct nros_node_t *node,
- *             const struct nros_service_type_t *type_info,
- *             const char *service_name,
- *             nros_service_callback_t callback,
- *             void *context)                           (`nros_generated.h:5758`)
- *
- * `rclc_timer_init_default` — arity 4 against our 5, AND the callback contract
- * differs, which is the sharper of the two reasons.
+ * The one `_init_default` that did NOT converge, and the reason is the
+ * CALLBACK CONTRACT rather than the arity:
  *
  *   rclc: rcl_ret_t rclc_timer_init_default(
  *             rcl_timer_t *timer, rclc_support_t *support,
@@ -493,23 +355,62 @@ static inline rcl_ret_t rclc_node_init_default(rcl_node_t* node, const char* nam
  *   ours: nros_ret_t nros_timer_init(
  *             struct nros_timer_t *timer, const struct nros_support_t *support,
  *             uint64_t period_ns, nros_timer_callback_t callback,
- *             void *context)                           (`nros_generated.h:6725`)
- *
- * Note the callbacks, because the trailing `void *context` is the LESS
- * interesting difference:
+ *             void *context)
  *
  *   rcl_timer_callback_t   = void (*)(rcl_timer_t *, int64_t last_call_time)
  *   nros_timer_callback_t  = void (*)(struct nros_timer_t *, void *context)
- *                                                      (`nros_generated.h:2104`)
  *
- * Both are two-parameter, both lead with the timer, and the SECOND parameter
- * carries entirely different information: upstream hands the callback the time
+ * Both are two-parameter and both lead with the timer; the SECOND parameter
+ * carries entirely different information. Upstream hands the callback the time
  * since its last call, we hand it the user's context pointer. A ported timer
- * callback is therefore a different function, not a differently-registered
- * one. It happens to fail to compile on assignment (`int64_t` against
- * `void *`), which is the loudness the rule wants — but the refusal is not
- * resting on that, because a target where the two are assignable would make
- * the mistake silent.
+ * callback is therefore a different FUNCTION, not a differently-registered
+ * one, so dropping our trailing `void *context` to reach rclc's arity would
+ * buy a matching argument COUNT over a mismatched contract — which is the
+ * "compile and differ" the rule exists to prevent. It happens to fail to
+ * compile on assignment (`int64_t` against `void *`), but the refusal does not
+ * rest on that: a target where the two are assignable would make the mistake
+ * silent.
+ *
+ * `nros_timer_init` therefore keeps its name, its arity and its `context`, and
+ * is NOT deprecated. Closing this needs a decision about what our timer
+ * callback receives, not a rename.
+ *
+ * ── Also still refused, and why, so the absence is a record ───────────────
+ *
+ * * `rcl_*_fini` for publisher / subscription / client / service / action —
+ *   upstream takes `(entity, node)`; ours take `(entity)`. Arity, not
+ *   spelling. (`rcl_node_fini`, `rcl_timer_fini`, `rcl_clock_fini`,
+ *   `rcl_guard_condition_fini`, `rclc_executor_fini` and `rclc_support_fini`
+ *   ARE arity 1 upstream and were adopted.)
+ * * `rcl_node_get_domain_id` — upstream writes `size_t *`, ours writes
+ *   `uint32_t *`. In C that mismatch is a WARNING, so a ported
+ *   `size_t id; rcl_node_get_domain_id(&node, &id);` would compile and leave
+ *   half of `id` uninitialised. The out-parameter type is authored at the
+ *   CALL SITE, which is what separates this from the typesupport case above.
+ * * `rcl_timer_get_period` / `rcl_timer_get_time_until_next_call` — upstream
+ *   returns the value through an `int64_t *` out-parameter; ours return it,
+ *   and `nros_timer_get_time_until_next_call` additionally takes the current
+ *   time IN. Different data flow, not a different word.
+ * * `rcl_timer_get_time_since_last_call` — same shape, but `uint64_t *`
+ *   against upstream's `int64_t *`; caller-authored out-parameter again.
+ * * `rcl_clock_get_now` — upstream writes an `int64_t` nanosecond count, ours
+ *   writes a `struct nros_time_t`.
+ * * `rcl_clock_init`, `rcl_guard_condition_init`, `rcl_node_resolve_name`,
+ *   `rcl_node_get_fully_qualified_name`, `rclc_support_init`,
+ *   `rclc_executor_init`, the `rcl_action_*` constructors, the
+ *   `rclc_lifecycle_*` family and `rclc_parameter_server_fini` — every one
+ *   differs in ARITY, and several take an `rcl_allocator_t` we do not have.
+ * * `rcl_take_request` / `rcl_take_response` — upstream hands back a
+ *   DESERIALIZED message plus an `rmw_request_id_t` out-struct
+ *   (`rcl/service.h:279`, `rcl/client.h:301`); ours are the CDR-byte drains
+ *   `nros_service_take_request_raw(service, buf, buf_len, int64_t *seq)` and
+ *   `nros_client_take_response(client, buf, buf_len, size_t *out_len)`.
+ *   Different arity, different argument order, different data. This is
+ *   `PollingSubscription::take()`'s class exactly — a plausible name over an
+ *   opposite data contract — and it is the reason RFC-0087 exists.
+ * * `RCL_RET_BAD_ALLOC`, `RCL_RET_ALREADY_INIT`, `RCL_RET_*_INVALID`,
+ *   `RCL_RET_*_TAKE_FAILED`, `RCL_RET_TIMER_CANCELED`, the wait-set codes —
+ *   see the note above the constant block.
  */
 
 /* ═══════════════════════════════════════════════════════════════════════════

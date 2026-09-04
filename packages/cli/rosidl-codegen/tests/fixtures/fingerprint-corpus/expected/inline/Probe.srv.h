@@ -104,7 +104,7 @@ const struct nros_service_type_t* fingerprint_corpus_srv_probe_get_type_support(
 // Typed service path (phase-417 W5.e)
 // ============================================================================
 //
-// Everything above is bytes: `nros_service_init` takes an
+// Everything above is bytes: `rclc_service_init_default` takes an
 // `nros_service_callback_t`, which is
 // `(const uint8_t*, size_t, uint8_t*, size_t, size_t*, void*) -> bool`, so
 // every C service in the tree had to call `_request_deserialize` and
@@ -254,19 +254,28 @@ static inline bool fingerprint_corpus_srv_probe_service_handle_request(
 }
 
 /// Create a typed Probe server. The forwarder onto
-/// `nros_service_init` that names the type support, the trampoline and the
-/// handler together, so the three cannot disagree.
+/// `nros_service_init_with_qos` that names the type support, the trampoline and
+/// the handler together, so the three cannot disagree.
 ///
 /// Register it with `nros_executor_add_service()` exactly as for a raw server.
+///
+/// phase-417 stage 6 — this delegates to `nros_service_init_with_qos(..., NULL)`
+/// rather than to `nros_service_init`, which is now an `NROS_DEPRECATED_MSG`
+/// forwarder. The typed macro binds its trampoline at CREATION on purpose: the
+/// trampoline is derived from the type, not chosen by the caller, so there is
+/// nothing for a later `nros_executor_add_service_raw()` to decide. rclc's
+/// four-argument `rclc_service_init_default` is the shape for a caller who
+/// supplies their own handler at registration.
 static inline nros_ret_t fingerprint_corpus_srv_probe_service_init(
     struct nros_service_t* service, const struct nros_node_t* node, const char* service_name,
     fingerprint_corpus_srv_probe_service_handler_t* handler) {
     if (handler == NULL || handler->callback == NULL) {
         return NROS_RET_INVALID_ARGUMENT;
     }
-    return nros_service_init(service, node, fingerprint_corpus_srv_probe_get_type_support(),
-                             service_name, fingerprint_corpus_srv_probe_service_handle_request,
-                             handler);
+    return nros_service_init_with_qos(service, node,
+                                      fingerprint_corpus_srv_probe_get_type_support(), service_name,
+                                      fingerprint_corpus_srv_probe_service_handle_request, handler,
+                                      NULL);
 }
 
 // ============================================================================

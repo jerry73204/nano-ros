@@ -3937,6 +3937,29 @@ c: c-fmt
         -Ipackages/api/nros-c/include \
         -Ipackages/platform/nros-platform-api/include \
         packages/api/nros-c/tests/compile/typed_service_handler.c
+    # phase-417 stage 6 — the rename+reorder guards. Both carry their pragma
+    # INSIDE the TU, so the wiring needs no flags; both are expected-FAILURE.
+    #
+    # The reorder one matters most and its guard is measured, not assumed:
+    # WITHOUT `#pragma GCC diagnostic error "-Wincompatible-pointer-types"` the
+    # same file compiles at rc=0, because C diagnoses an incompatible pointer
+    # ARGUMENT as a warning even under -Wall -Wextra. That is why a C reorder
+    # ships with a RENAME beside it (RFC-0087): a stale call must fail on the
+    # identifier, which C does diagnose fatally.
+    for probe in rcl_rename_deprecation_probe rcl_node_init_reorder_probe; do \
+        f="packages/api/nros-c/tests/compile/$probe.c"; \
+        test -f "$f" || { echo "ERROR: $f is MISSING -- an expected-failure check" >&2; \
+                          echo "       passes on a missing file." >&2; exit 1; }; \
+        if cc -fsyntax-only -std=c11 -Wall -Wextra \
+            -Itarget/nros-c-generated \
+            -Ipackages/api/nros-c/include \
+            -Ipackages/platform/nros-platform-api/include \
+            "$f" 2>"tmp/rename-$probe.log"; then \
+            echo "ERROR: $f COMPILED. The stage-6 guard for '$probe' is not firing;" >&2; \
+            echo "       a stale call now binds silently. See RFC-0087." >&2; exit 1; \
+        fi; \
+    done
+
     # ...and the rcl collision guard must FIRE. nano-ros and the real rcl define
     # the same RCL_RET_* with DIFFERENT values, so a TU holding both compiles
     # and silently takes whichever won the include race.

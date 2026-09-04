@@ -257,12 +257,37 @@ pub use nros_log::{
 // `use nros::prelude::*` should not have to learn a second crate name to log a
 // line. `#[macro_export]` puts them at `nros_log`'s root; this puts them at
 // ours.
+//
+// NAMES (phase-417, RFC-0087 "each language follows ITS OWN upstream",
+// settled 2026-09-04). The three ROS 2 client libraries disagree about how to
+// spell a log line — `rclrs::log_info!`, `RCLCPP_INFO`,
+// `RCUTILS_LOG_INFO_NAMED` — so there is no one "ROS 2 spelling" to match.
+// Rust follows rclrs, because a node ported from rclrs is read beside rclrs.
+// Hence the five severity macros below carry rclrs's names.
+//
+// Two families keep OUR prefix, and that is a decision rather than an
+// oversight: a name takes rclrs's spelling exactly when rclrs HAS that name.
+//
+//   * `nros_trace!` — rclrs stops at `debug`. TRACE has no upstream twin, so
+//     giving it one would claim a correspondence that does not exist.
+//   * `nros_*_throttle!` / `nros_*_throttle_at!` — rclrs throttles with a
+//     MODIFIER on one macro (`log_info!(logger.throttle(d), "…")` via
+//     `LogParams` / `ToLogParams`), not a macro per severity. Adopting that is
+//     a shape change, not a rename; see `nros-log/src/macros.rs`'s throttle
+//     note for the three ledger rows it would have to reverse.
 pub use nros_log::{
-    nros_debug, nros_debug_throttle, nros_debug_throttle_at, nros_error, nros_error_throttle,
-    nros_error_throttle_at, nros_fatal, nros_fatal_throttle, nros_fatal_throttle_at, nros_info,
-    nros_info_throttle, nros_info_throttle_at, nros_trace, nros_trace_throttle,
-    nros_trace_throttle_at, nros_warn, nros_warn_throttle, nros_warn_throttle_at,
+    log_debug, log_error, log_fatal, log_info, log_warn, nros_debug_throttle,
+    nros_debug_throttle_at, nros_error_throttle, nros_error_throttle_at, nros_fatal_throttle,
+    nros_fatal_throttle_at, nros_info_throttle, nros_info_throttle_at, nros_trace,
+    nros_trace_throttle, nros_trace_throttle_at, nros_warn_throttle, nros_warn_throttle_at,
 };
+// The pre-rename spellings, forwarded so an unmigrated call site keeps working
+// and gets a deadline rather than a break. RFC-0087's "alias as the migration
+// step"; removal is a later batch with a changelog entry. `#[allow(deprecated)]`
+// on the re-export itself: the warning belongs at the USER's call site, not on
+// this line.
+#[allow(deprecated)]
+pub use nros_log::{nros_debug, nros_error, nros_fatal, nros_info, nros_warn};
 
 /// The whole logging facade — sinks, the early-record ring, the throttle
 /// primitives, `init`/`flush`/`add_sink`.
@@ -285,7 +310,7 @@ pub mod logging {
     since = "0.5.0",
     note = "`nros::Logger` now means `nros_log::Logger`, the logger that reaches the platform \
             sink. This alias is the `log`-crate-backed type it used to mean; its records are \
-            dropped on any target with no `log` backend. Use `nros::Logger` + the `nros_info!` \
+            dropped on any target with no `log` backend. Use `nros::Logger` + the `log_info!` \
             family."
 )]
 pub type LogCrateLogger<'a> = nros_core::Logger<'a>;
@@ -1463,28 +1488,39 @@ pub mod prelude {
         StandaloneNode, SubscriptionHandle, TopicInfo,
     };
 
-    // phase-417 W4.d / issue 0589 — logging, in the glob a node author already
+    // phase-417 / issue 0589 — logging, in the glob a node author already
     // writes. `Logger` above now means `nros_log::Logger`; these are what
     // drives it. Without them the shortest path from `use nros::prelude::*` to
     // a printed line was `std::println!`, which kills a Zephyr `native_sim`
     // image outright.
-    // The severity macros only. Each is a `rename` of an rclrs counterpart
-    // (`nros_info` <- `rclrs::log_info`), so a ROS 2 developer meeting one
-    // through the glob meets something their own client library also has.
+    //
+    // The five severity macros now carry rclrs's OWN names (RFC-0087, settled
+    // 2026-09-04), so a ROS 2 developer meeting one through the glob meets the
+    // exact spelling their client library has, not a near-miss of it. That is
+    // the property `check-prelude-tiers` enforces mechanically: a ledger
+    // `extension` may not sit in the glob.
     //
     // `Severity`, `get_logger`, `get_or_create_logger`, `register_logger` and
     // `nros_trace` are ledger `extension`s -- rclrs has no correspondent for a
     // free logger lookup, a registry, or a TRACE severity (it stops at debug).
-    // `check-prelude-tiers` refuses an extension in the glob, and it is right
-    // to: the prelude is what a ported node meets without asking, so a name
-    // with no upstream twin belongs behind `nros::logging::` where reaching for
-    // it is a decision. phase-379 W5's rule, applied to this phase's own work.
+    // They stay behind `nros::logging::` / the crate root, where reaching for
+    // one is a decision. phase-379 W5's rule, applied to this phase's own work.
+    //
+    // The throttle macros ARE here: they are ledger `divergence`s, not
+    // extensions -- rclrs has the capability under a different decomposition
+    // (`log_info!(logger.throttle(d), "…")`), so the glob is not introducing a
+    // name with no upstream counterpart.
     pub use crate::{
-        nros_debug, nros_debug_throttle, nros_debug_throttle_at, nros_error, nros_error_throttle,
-        nros_error_throttle_at, nros_fatal, nros_fatal_throttle, nros_fatal_throttle_at, nros_info,
-        nros_info_throttle, nros_info_throttle_at, nros_warn, nros_warn_throttle,
+        log_debug, log_error, log_fatal, log_info, log_warn, nros_debug_throttle,
+        nros_debug_throttle_at, nros_error_throttle, nros_error_throttle_at, nros_fatal_throttle,
+        nros_fatal_throttle_at, nros_info_throttle, nros_info_throttle_at, nros_warn_throttle,
         nros_warn_throttle_at,
     };
+    // The deprecated pre-rename spellings, so `use nros::prelude::*` keeps
+    // compiling in an unmigrated node -- with a warning that names the new one.
+    // They leave the glob with the removal batch.
+    #[allow(deprecated)]
+    pub use crate::{nros_debug, nros_error, nros_fatal, nros_info, nros_warn};
 
     // Re-export component-mode API.
     #[cfg(feature = "rmw-cffi")]

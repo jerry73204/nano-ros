@@ -3,5 +3,8 @@
 // in ported ROS 2 source to the nano-ros compat surface.
 #ifndef NROS_COMPAT_RCLCPP_RCLCPP_HPP
 #define NROS_COMPAT_RCLCPP_RCLCPP_HPP
-#include "nros/rclcpp_compat.hpp"
+// phase-417 stage 6 step A — the `rclcpp::` names are declared BY the API
+// headers now, not by a shim over them, so this resolves straight to the
+// umbrella. `nros/rclcpp_compat.hpp` is an empty forwarder awaiting deletion.
+#include "nros/nros.hpp"
 #endif

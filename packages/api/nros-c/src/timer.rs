@@ -48,7 +48,7 @@ pub struct nros_timer_t {
     pub support: *const nros_support_t,
     /// Handle ID from executor registration (SIZE_MAX = not registered)
     pub handle_id: usize,
-    /// Opaque pointer to internal executor (set by nros_executor_add_timer)
+    /// Opaque pointer to internal executor (set by rclc_executor_add_timer)
     pub _executor: *mut c_void,
 }
 
@@ -84,7 +84,7 @@ impl nros_timer_t {
         self.handle_id = id.0;
     }
 
-    /// Set the executor pointer (called by nros_executor_add_timer)
+    /// Set the executor pointer (called by rclc_executor_add_timer)
     pub(crate) fn set_executor_ptr(&mut self, executor: *mut c_void) {
         self._executor = executor;
     }
@@ -92,7 +92,7 @@ impl nros_timer_t {
 
 /// Get a zero-initialized timer.
 #[unsafe(no_mangle)]
-pub extern "C" fn nros_timer_get_zero_initialized() -> nros_timer_t {
+pub extern "C" fn rcl_get_zero_initialized_timer() -> nros_timer_t {
     nros_timer_t::default()
 }
 
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn nros_timer_init(
 /// * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
 /// * `NROS_RET_NOT_INIT` if not initialized
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_timer_cancel(timer: *mut nros_timer_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_timer_cancel(timer: *mut nros_timer_t) -> nros_ret_t {
     validate_not_null!(timer);
 
     let timer = &mut *timer;
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn nros_timer_cancel(timer: *mut nros_timer_t) -> nros_ret
 /// * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
 /// * `NROS_RET_NOT_INIT` if not initialized
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_timer_reset(timer: *mut nros_timer_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_timer_reset(timer: *mut nros_timer_t) -> nros_ret_t {
     validate_not_null!(timer);
 
     let timer = &mut *timer;
@@ -233,7 +233,7 @@ pub unsafe extern "C" fn nros_timer_reset(timer: *mut nros_timer_t) -> nros_ret_
 /// * `NROS_RET_INVALID_ARGUMENT` if timer is NULL
 /// * `NROS_RET_NOT_INIT` if not initialized
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_timer_fini(timer: *mut nros_timer_t) -> nros_ret_t {
+pub unsafe extern "C" fn rcl_timer_fini(timer: *mut nros_timer_t) -> nros_ret_t {
     validate_not_null!(timer);
 
     let timer = &mut *timer;
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn nros_timer_fini(timer: *mut nros_timer_t) -> nros_ret_t
     NROS_RET_OK
 }
 
-// `nros_timer_is_ready` and `nros_timer_call` were previously exposed
+// `rcl_timer_is_ready` and `nros_timer_call` were previously exposed
 // as public C symbols for users who wanted to drive timers manually.
 // The executor arena now owns timer readiness evaluation and callback
 // dispatch end-to-end (see `packages/api/nros-c/src/executor.rs`'s
@@ -331,8 +331,8 @@ pub unsafe extern "C" fn nros_timer_get_time_until_next_call(
 // phase-417 W5.c — the timer accessors filed as `gap`
 //
 // All three are FORWARDERS onto the executor arena's `TimerEntry`, reached
-// through the `(handle_id, _executor)` pair `nros_executor_add_timer`
-// installs — the same pair `nros_timer_cancel` and `nros_timer_reset` have
+// through the `(handle_id, _executor)` pair `rclc_executor_add_timer`
+// installs — the same pair `rcl_timer_cancel` and `rcl_timer_reset` have
 // always used. That indirection is why these were gaps: a registered timer's
 // live state is the arena's, not this struct's, and this struct's copy is
 // stale by construction (nothing writes `last_call_time_ns` after
@@ -368,7 +368,7 @@ unsafe fn registered_handle(
 ///
 /// Forwards to `Executor::timer_is_canceled` for a registered timer — the
 /// arena flag `arena::timer_try_process` actually consults, and the one
-/// `nros_timer_cancel` sets through `Executor::cancel_timer`. A timer that
+/// `rcl_timer_cancel` sets through `Executor::cancel_timer`. A timer that
 /// has been initialised but not yet added to an executor has no arena entry,
 /// so its own `nros_timer_state_t` is the whole truth and is read instead.
 ///
@@ -381,7 +381,7 @@ unsafe fn registered_handle(
 /// * `timer` must be NULL or point to a valid `nros_timer_t`.
 /// * `is_canceled` must be NULL or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_timer_is_canceled(
+pub unsafe extern "C" fn rcl_timer_is_canceled(
     timer: *const nros_timer_t,
     is_canceled: *mut bool,
 ) -> nros_ret_t {
@@ -423,7 +423,7 @@ pub unsafe extern "C" fn nros_timer_is_canceled(
 /// * `timer` must be NULL or point to a valid `nros_timer_t`.
 /// * `is_ready` must be NULL or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_timer_is_ready(
+pub unsafe extern "C" fn rcl_timer_is_ready(
     timer: *const nros_timer_t,
     is_ready: *mut bool,
 ) -> nros_ret_t {
@@ -456,7 +456,7 @@ pub unsafe extern "C" fn nros_timer_is_ready(
 /// Forwards to `Executor::timer_elapsed_us`, the arena's `elapsed_us`
 /// counter. **This is why the accessor could not read `nros_timer_t` and had
 /// to reach the executor:** `nros_timer_t::last_call_time_ns` is written by
-/// `nros_timer_init` and `nros_timer_reset` and by nothing else — no
+/// `nros_timer_init` and `rcl_timer_reset` and by nothing else — no
 /// dispatch path updates it — so a struct-local computation answers `0` for
 /// every timer that has ever fired.
 ///
@@ -547,7 +547,7 @@ mod tests {
 
         let mut ready = true;
         assert_eq!(
-            unsafe { nros_timer_is_ready(&timer, &mut ready) },
+            unsafe { rcl_timer_is_ready(&timer, &mut ready) },
             NROS_RET_NOT_INIT
         );
         assert!(ready, "a failed read must not write the out-param");
@@ -555,20 +555,20 @@ mod tests {
 
     /// Cancellation is the one predicate an unregistered timer CAN answer:
     /// with no arena entry, its own `nros_timer_state_t` is the whole truth,
-    /// and `nros_timer_cancel` maintains it on this path.
+    /// and `rcl_timer_cancel` maintains it on this path.
     #[test]
     fn cancel_state_is_readable_without_an_executor() {
         let mut timer = unregistered_running_timer();
         let mut canceled = true;
         assert_eq!(
-            unsafe { nros_timer_is_canceled(&timer, &mut canceled) },
+            unsafe { rcl_timer_is_canceled(&timer, &mut canceled) },
             NROS_RET_OK
         );
         assert!(!canceled);
 
-        assert_eq!(unsafe { nros_timer_cancel(&mut timer) }, NROS_RET_OK);
+        assert_eq!(unsafe { rcl_timer_cancel(&mut timer) }, NROS_RET_OK);
         assert_eq!(
-            unsafe { nros_timer_is_canceled(&timer, &mut canceled) },
+            unsafe { rcl_timer_is_canceled(&timer, &mut canceled) },
             NROS_RET_OK
         );
         assert!(canceled);
@@ -582,11 +582,11 @@ mod tests {
         let mut b = false;
         let mut n: u64 = 0;
         assert_eq!(
-            unsafe { nros_timer_is_canceled(&timer, &mut b) },
+            unsafe { rcl_timer_is_canceled(&timer, &mut b) },
             NROS_RET_NOT_INIT
         );
         assert_eq!(
-            unsafe { nros_timer_is_ready(&timer, &mut b) },
+            unsafe { rcl_timer_is_ready(&timer, &mut b) },
             NROS_RET_NOT_INIT
         );
         assert_eq!(
@@ -602,15 +602,15 @@ mod tests {
         let mut b = false;
         let mut n: u64 = 0;
         assert_eq!(
-            unsafe { nros_timer_is_canceled(core::ptr::null(), &mut b) },
+            unsafe { rcl_timer_is_canceled(core::ptr::null(), &mut b) },
             NROS_RET_INVALID_ARGUMENT
         );
         assert_eq!(
-            unsafe { nros_timer_is_canceled(&timer, core::ptr::null_mut()) },
+            unsafe { rcl_timer_is_canceled(&timer, core::ptr::null_mut()) },
             NROS_RET_INVALID_ARGUMENT
         );
         assert_eq!(
-            unsafe { nros_timer_is_ready(&timer, core::ptr::null_mut()) },
+            unsafe { rcl_timer_is_ready(&timer, core::ptr::null_mut()) },
             NROS_RET_INVALID_ARGUMENT
         );
         assert_eq!(
