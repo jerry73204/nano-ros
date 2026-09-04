@@ -46,7 +46,7 @@ familiarity."* Only `OK` agrees:
 | NOT_INIT | −7 | 101 |
 
 Ported code writing `if (ret == RCL_RET_TIMEOUT)` compiles and never matches.
-This is RFC-0087's compile-and-differ shape, in a comment rather than a
+This is RFC-0089's compile-and-differ shape, in a comment rather than a
 signature.
 
 ## The systematic one, and the reason this is worth a separate issue

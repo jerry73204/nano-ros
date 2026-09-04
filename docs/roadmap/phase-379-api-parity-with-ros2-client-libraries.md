@@ -906,7 +906,7 @@ each rename lands. Two things to carry into it:
 
 This phase owns the MEASUREMENT campaign and W7 steps 1–4. Adoption — taking
 ROS 2's names, and everything that must be true first — moves to
-**phase-417**, which implements RFC-0087 and is the home for the correction,
+**phase-417**, which implements RFC-0089 and is the home for the correction,
 migration and retirement tracks going forward.
 
 W7 steps 1–3 stay here and are in flight. W7 step 4 (the deprecated-alias

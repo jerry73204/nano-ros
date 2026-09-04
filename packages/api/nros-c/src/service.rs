@@ -305,12 +305,12 @@ pub unsafe extern "C" fn nros_service_init_with_qos(
 
 /// rclc's `rclc_service_init_default`, in rclc's argument order and at rclc's
 /// ARITY (phase-417 stage 6). The old `nros_service_init` carried `callback`
-/// and `context` in positions 5 and 6; RFC-0087 records that the binding site
+/// and `context` in positions 5 and 6; RFC-0089 records that the binding site
 /// was never mandated (RFC-0041 governs the DISPATCH MODEL, and
 /// `executor-owns-no-entity-storage` is defined nowhere), so the callback moves
 /// to registration where rclc puts it — `nros_executor_add_service_raw`.
 ///
-/// The typesupport parameter keeps OUR type for the reason RFC-0087 settled on
+/// The typesupport parameter keeps OUR type for the reason RFC-0089 settled on
 /// 2026-09-04: a rosidl typesupport's members are its contract, including a
 /// `func` dispatcher we do not have.
 ///
@@ -788,7 +788,7 @@ pub unsafe extern "C" fn nros_service_send_response_raw(
 // per-type `_deserialize` / `_serialize` the same pack emits. Everything a
 // trampoline needs is in `<nros/types.h>` EXCEPT one thing: a way to be LOUD.
 //
-// RFC-0087 requires a deserialise failure or an oversized payload to be loud
+// RFC-0089 requires a deserialise failure or an oversized payload to be loud
 // rather than a silent truncation, and the executor's own dispatch cannot
 // supply that — `srv_raw_try_process`
 // (`nros-node/src/executor/arena.rs:2559`) reads the callback's `false` as
@@ -796,7 +796,7 @@ pub unsafe extern "C" fn nros_service_send_response_raw(
 // from a reply that has not arrived yet. The peer eventually times out with
 // no statement of why.
 //
-// So the diagnostic lands HERE, in Rust, for the reason RFC-0087 §"Who
+// So the diagnostic lands HERE, in Rust, for the reason RFC-0089 §"Who
 // implements an adopted name" gives: the logger is Rust's, and a second
 // formatting path in a generated header would be a second implementation.
 // Pulling `<nros/log.h>` into every generated service header is not an option
@@ -826,7 +826,7 @@ pub const NROS_SERVICE_TYPED_ERR_NO_CALLBACK: i32 = -5;
 
 /// Append as much of `s` as fits, silently stopping at the end of `buf`.
 ///
-/// Truncating a DIAGNOSTIC is not the truncation RFC-0087 forbids: the
+/// Truncating a DIAGNOSTIC is not the truncation RFC-0089 forbids: the
 /// payload is refused either way, and this only bounds how much of the type
 /// name the message can carry.
 fn append_bytes(buf: &mut [u8], n: &mut usize, s: &[u8]) {

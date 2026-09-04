@@ -895,7 +895,7 @@ typedef struct nros_clock_t {
  * | NOT_INIT | -7 | 101 |
  *
  * A ported `if (ret == RCL_RET_TIMEOUT)` compiled against the old comment and
- * never matched — the "compiles and differs" shape RFC-0087 forbids, arriving
+ * never matched — the "compiles and differs" shape RFC-0089 forbids, arriving
  * through a doc comment rather than a signature.
  *
  * `<nros/rcl_compat.h>` maps rcl's constant SPELLINGS onto these values. The
@@ -4707,7 +4707,7 @@ nros_ret_t nros_executor_add_subscription(struct nros_executor_t *executor,
                                           enum nros_executor_handle_invocation_t invocation);
 
 /**
- * phase-417 W5.a (RFC-0087 stage 5) — add a subscription that delivers a
+ * phase-417 W5.a (RFC-0089 stage 5) — add a subscription that delivers a
  * **deserialised message** into storage the CALLER owns.
  *
  * The rclc-shaped registration:
@@ -4747,7 +4747,7 @@ nros_ret_t nros_executor_add_subscription(struct nros_executor_t *executor,
  * spin result, and emits a rate-limited `nros_log` error naming the sample
  * length and the return code. Dispatching anyway would hand the callback the
  * PREVIOUS message under the impression it was the new one, which is exactly
- * the "compile and differ" RFC-0087 forbids.
+ * the "compile and differ" RFC-0089 forbids.
  *
  * A message too large for the caller's storage arrives here as that same
  * failure and never as a truncation: a bounded string whose wire length
@@ -4823,7 +4823,7 @@ nros_ret_t nros_executor_add_subscription_typed_sized(struct nros_executor_t *ex
  * (`rclc_executor_add_subscription`). The name keeps the `nros_` prefix
  * deliberately: rclc's `add_subscription` delivers a DESERIALIZED message into
  * caller storage, so the byte path has no upstream counterpart and must not
- * wear its name (RFC-0087's compile-or-conform rule — a plausible name over an
+ * wear its name (RFC-0089's compile-or-conform rule — a plausible name over an
  * opposite data contract is the defect the RFC exists to prevent).
  *
  * `callback` may be NULL, which registers the subscription with nothing to
@@ -5061,7 +5061,7 @@ nros_ret_t rclc_executor_spin_one_period(struct nros_executor_t *executor,
  * `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
  * had three answers to "stop spinning"; `cancel` is ROS 2's.
  *
- * # ADOPT-BOUNDED (RFC-0087)
+ * # ADOPT-BOUNDED (RFC-0089)
  *
  * `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
  * returns BEFORE spinning has actually stopped;
@@ -5526,7 +5526,7 @@ NROS_PUBLIC struct nros_node_t rcl_get_zero_initialized_node(void);
  * ```
  *
  * The rename and the reorder land TOGETHER, and that is not stylistic.
- * RFC-0087's corrected hazard note: in C an incompatible pointer argument is
+ * RFC-0089's corrected hazard note: in C an incompatible pointer argument is
  * a **WARNING**, not an error, even under `-Wall -Wextra`, so a reorder alone
  * is silent-by-default for out-of-tree callers who do not build with our
  * flags. Renaming makes a stale call fail on the IDENTIFIER, which C does
@@ -5817,7 +5817,7 @@ nros_ret_t nros_node_get_fully_qualified_name(const struct nros_node_t *node,
  * allocator, so the caller owns the buffer and `NROS_RET_FULL` reports a
  * short one), and no `is_service` (it selects between rcl's topic- and
  * service-name VALIDATORS, which we do not ship; taking the argument and
- * ignoring it would be the inert-parameter defect RFC-0087 §"The hazard"
+ * ignoring it would be the inert-parameter defect RFC-0089 §"The hazard"
  * names).
  *
  * # Safety
@@ -6208,12 +6208,12 @@ nros_ret_t nros_service_init_with_qos(struct nros_service_t *service,
 /**
  * rclc's `rclc_service_init_default`, in rclc's argument order and at rclc's
  * ARITY (phase-417 stage 6). The old `nros_service_init` carried `callback`
- * and `context` in positions 5 and 6; RFC-0087 records that the binding site
+ * and `context` in positions 5 and 6; RFC-0089 records that the binding site
  * was never mandated (RFC-0041 governs the DISPATCH MODEL, and
  * `executor-owns-no-entity-storage` is defined nowhere), so the callback moves
  * to registration where rclc puts it — `nros_executor_add_service_raw`.
  *
- * The typesupport parameter keeps OUR type for the reason RFC-0087 settled on
+ * The typesupport parameter keeps OUR type for the reason RFC-0089 settled on
  * 2026-09-04: a rosidl typesupport's members are its contract, including a
  * `func` dispatcher we do not have.
  *
@@ -6735,7 +6735,7 @@ NROS_PUBLIC struct nros_subscription_options_t rcl_subscription_get_default_opti
  *
  * rclc's `rclc_subscription_init_default`, in rclc's argument order and at
  * rclc's ARITY (phase-417 stage 6). The old `nros_subscription_init` carried
- * two extra arguments — `callback` and `context` — and RFC-0087 records why
+ * two extra arguments — `callback` and `context` — and RFC-0089 records why
  * they are gone from here:
  *
  * * the binding site was never mandated. RFC-0041 is about the DISPATCH
@@ -6755,7 +6755,7 @@ NROS_PUBLIC struct nros_subscription_options_t rcl_subscription_get_default_opti
  * The typesupport parameter stays `const nros_message_type_t *` rather than
  * taking `rosidl_message_type_support_t`'s name: a rosidl typesupport's
  * MEMBERS are its contract, including the `func` dispatcher we do not have,
- * so adopting the name would claim a structure we lack (RFC-0087, settled
+ * so adopting the name would claim a structure we lack (RFC-0089, settled
  * 2026-09-04). It costs a ported call site nothing — the argument comes from
  * our codegen either way.
  *

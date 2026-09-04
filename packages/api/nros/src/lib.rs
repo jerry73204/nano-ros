@@ -245,7 +245,7 @@ pub use nros_core::{
 // one has inherent `.info(&str)` / `.warn(&str)` / `*_once` / `*_throttle`
 // methods, the new one is driven by the `nros_*!` macros. So every call site
 // that used the old surface FAILS TO COMPILE against the new binding rather
-// than silently changing where its records go. That is the RFC-0087 rule
+// than silently changing where its records go. That is the RFC-0089 rule
 // applied to our own rename, and it is why this is a re-binding with a named
 // escape hatch instead of a quiet swap. The escape hatch is
 // [`LogCrateLogger`], deprecated on arrival.
@@ -258,7 +258,7 @@ pub use nros_log::{
 // line. `#[macro_export]` puts them at `nros_log`'s root; this puts them at
 // ours.
 //
-// NAMES (phase-417, RFC-0087 "each language follows ITS OWN upstream",
+// NAMES (phase-417, RFC-0089 "each language follows ITS OWN upstream",
 // settled 2026-09-04). The three ROS 2 client libraries disagree about how to
 // spell a log line — `rclrs::log_info!`, `RCLCPP_INFO`,
 // `RCUTILS_LOG_INFO_NAMED` — so there is no one "ROS 2 spelling" to match.
@@ -282,7 +282,7 @@ pub use nros_log::{
     nros_trace_throttle, nros_trace_throttle_at, nros_warn_throttle, nros_warn_throttle_at,
 };
 // The pre-rename spellings, forwarded so an unmigrated call site keeps working
-// and gets a deadline rather than a break. RFC-0087's "alias as the migration
+// and gets a deadline rather than a break. RFC-0089's "alias as the migration
 // step"; removal is a later batch with a changelog entry. `#[allow(deprecated)]`
 // on the re-export itself: the warning belongs at the USER's call site, not on
 // this line.
@@ -1494,7 +1494,7 @@ pub mod prelude {
     // a printed line was `std::println!`, which kills a Zephyr `native_sim`
     // image outright.
     //
-    // The five severity macros now carry rclrs's OWN names (RFC-0087, settled
+    // The five severity macros now carry rclrs's OWN names (RFC-0089, settled
     // 2026-09-04), so a ROS 2 developer meeting one through the glob meets the
     // exact spelling their client library has, not a near-miss of it. That is
     // the property `check-prelude-tiers` enforces mechanically: a ledger

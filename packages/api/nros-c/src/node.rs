@@ -370,7 +370,7 @@ pub extern "C" fn rcl_get_zero_initialized_node() -> nros_node_t {
 /// ```
 ///
 /// The rename and the reorder land TOGETHER, and that is not stylistic.
-/// RFC-0087's corrected hazard note: in C an incompatible pointer argument is
+/// RFC-0089's corrected hazard note: in C an incompatible pointer argument is
 /// a **WARNING**, not an error, even under `-Wall -Wextra`, so a reorder alone
 /// is silent-by-default for out-of-tree callers who do not build with our
 /// flags. Renaming makes a stale call fail on the IDENTIFIER, which C does
@@ -898,7 +898,7 @@ pub unsafe extern "C" fn nros_node_get_fully_qualified_name(
 /// allocator, so the caller owns the buffer and `NROS_RET_FULL` reports a
 /// short one), and no `is_service` (it selects between rcl's topic- and
 /// service-name VALIDATORS, which we do not ship; taking the argument and
-/// ignoring it would be the inert-parameter defect RFC-0087 §"The hazard"
+/// ignoring it would be the inert-parameter defect RFC-0089 §"The hazard"
 /// names).
 ///
 /// # Safety

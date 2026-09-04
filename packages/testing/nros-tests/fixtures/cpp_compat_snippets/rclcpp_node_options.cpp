@@ -55,7 +55,7 @@ int main() {
     //
     // Both are now deleted overloads. They stored the argument in a private
     // field that nothing read and returned `*this`, so the idiomatic chained
-    // call compiled and configured nothing — the "compiles and differs" RFC-0087
+    // call compiled and configured nothing — the "compiles and differs" RFC-0089
     // forbids, and the exact inert chain it names. This fixture asserted the
     // chain kept COMPILING, which made it a guard on the defect.
     //

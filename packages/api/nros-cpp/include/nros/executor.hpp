@@ -372,7 +372,7 @@ class Executor {
     /// Ask a running [`spin`] to stop, WITHOUT tearing down the session —
     /// `rclcpp::Executor::cancel`. phase-417 W4.c.
     ///
-    /// ADOPT-BOUNDED (RFC-0087): `cancel` sets a flag the spin loop observes at
+    /// ADOPT-BOUNDED (RFC-0089): `cancel` sets a flag the spin loop observes at
     /// the NEXT POLL BOUNDARY, so it returns BEFORE spinning has actually
     /// stopped; [`is_spinning`] is the observable that tells you when it has.
     /// The boundary is one `poll_ms` wide (the `spin()` argument), so the delay

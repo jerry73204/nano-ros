@@ -1,4 +1,4 @@
-// POSITIVE compile probe for phase-417 stage 2 (RFC-0087) — the node surface a
+// POSITIVE compile probe for phase-417 stage 2 (RFC-0089) — the node surface a
 // real ported rclcpp node reaches once it stops being a tutorial, plus the
 // named QoS profiles the loudness pass corrected.
 //
@@ -20,7 +20,7 @@
 // W2.c  create_service / create_client, poll-style and callback-style.
 // W2.d  rclcpp::Rate / WallRate as forwarders onto nros::spin.
 // W3.f  the named QoS profiles, transcribed from upstream. The static_asserts
-//       below ARE the table-driven test RFC-0087 W3.f asks for: the profiles
+//       below ARE the table-driven test RFC-0089 W3.f asks for: the profiles
 //       are constexpr, so the check is a compile-time comparison against the
 //       values read out of /opt/ros/humble rather than a runtime test no
 //       embedded lane runs.
@@ -42,7 +42,7 @@ namespace nros_cpp_ros2_api_adoption_stage2_test {
 // --- W3.f: the named QoS profiles, checked against upstream -----------------
 //
 // Each row is transcribed from the file named beside it. A wrong value here is
-// the defect RFC-0087 was written about: `ParametersQoS()` shipped at depth 10
+// the defect RFC-0089 was written about: `ParametersQoS()` shipped at depth 10
 // where upstream is 1000, under a name that claims to be the ROS 2 profile.
 //
 //   rmw_qos_profile_sensor_data       qos_profiles.h:25   KEEP_LAST 5    BEST_EFFORT VOLATILE
@@ -67,7 +67,7 @@ static_assert(rclcpp::ServicesQoS().reliability() == ::nros::Reliable,
 static_assert(rclcpp::ServicesQoS().durability() == ::nros::Volatile,
               "ServicesQoS is VOLATILE upstream");
 
-// The inversion RFC-0087 names first. 10 was the shipped value; 1000 is
+// The inversion RFC-0089 names first. 10 was the shipped value; 1000 is
 // upstream's, and a hundredfold history difference costs samples under load
 // with nothing to read.
 static_assert(rclcpp::ParametersQoS().depth() == 1000,

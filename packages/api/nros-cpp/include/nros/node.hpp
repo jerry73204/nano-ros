@@ -48,7 +48,7 @@
 #include "nros/clock.hpp"
 #include "nros/guard_condition.hpp"
 #include "nros/executor.hpp"
-// phase-417 stage 2b (RFC-0087) — `nros::TopicEndpointInfo` and the visitor
+// phase-417 stage 2b (RFC-0089) — `nros::TopicEndpointInfo` and the visitor
 // typedef used by the graph forwarders below.
 #include "nros/graph.hpp"
 // Phase 273 (RFC-0047) — callback-group token (value type, no heap).
@@ -348,7 +348,7 @@ class Node {
     /// `nullptr` on an uninitialized node.
     void* executor_handle() const { return initialized_ ? executor_handle_ : nullptr; }
 
-    // ---- Graph queries — phase-417 stage 2b (RFC-0087) --------------------
+    // ---- Graph queries — phase-417 stage 2b (RFC-0089) --------------------
     //
     // rclcpp puts these on the node. `nros::Executor` owns them here because
     // one session per image makes the executor the graph's receiver
@@ -356,7 +356,7 @@ class Node {
     // opened against and nothing else: no state, no loop, no caching, no name
     // construction. RFC-0019 — the behaviour is Rust's and stays there.
     //
-    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0087): they
+    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0089): they
     // report what has been DISCOVERED and never block, so an empty result
     // means "nobody seen yet" and never "nobody exists" — poll rather than
     // calling once and concluding. `ErrorCode::Unsupported`, which is what a
@@ -489,7 +489,7 @@ class Node {
     ///
     /// rclcpp also takes `no_mangle`; there is no such parameter here, because
     /// accepting one and ignoring it would silently drop configuration —
-    /// exactly what RFC-0087's rule forbids.
+    /// exactly what RFC-0089's rule forbids.
     ///
     /// Same discovery envelope as [`get_node_names`].
     Result get_publishers_info_by_topic(const char* topic_name,

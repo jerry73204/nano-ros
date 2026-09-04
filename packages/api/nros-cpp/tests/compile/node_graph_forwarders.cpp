@@ -1,4 +1,4 @@
-// phase-417 stage 2b (RFC-0087) — the graph surface must be reachable on
+// phase-417 stage 2b (RFC-0089) — the graph surface must be reachable on
 // `nros::Node` and `nros::LifecycleNode`, not only on `nros::Executor`.
 //
 // Why this probe exists: rclcpp puts the graph calls on the NODE, and 18
@@ -82,7 +82,7 @@ bool visit_endpoint_typed(void* ctx, const nros::TopicEndpointInfo& info) {
     // No `qos_profile()`, deliberately: no backend can read a remote's GRANTED
     // profile, and reporting the DECLARED one would be a confident wrong
     // answer. A ported file that asks for it must fail to compile rather than
-    // read a QoS nobody granted (RFC-0087 — never compile and differ). Adding
+    // read a QoS nobody granted (RFC-0089 — never compile and differ). Adding
     // the accessor makes the next line stop being true, which is the point of
     // writing it down here.
     return info.is_valid();

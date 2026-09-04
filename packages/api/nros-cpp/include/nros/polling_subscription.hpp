@@ -66,7 +66,7 @@ template <typename M> class PollingSubscription {
     /// `PollingSubscription`; the analog is `autoware_utils::
     /// InterProcessPollingSubscriber` (issue 0278).
     ///
-    /// Ergonomics only (RFC-0087 §"Who implements an adopted name"): a
+    /// Ergonomics only (RFC-0089 §"Who implements an adopted name"): a
     /// spelling for `std::shared_ptr<PollingSubscription<M>>`, no second code
     /// path.
     ///

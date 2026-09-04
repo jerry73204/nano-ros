@@ -1030,7 +1030,7 @@ nros_cpp_ret_t nros_cpp_spin(void *handle, int32_t poll_ms);
 /**
  * Ask a spinning executor to stop — `rclcpp::Executor::cancel`, phase-417 W4.c.
  *
- * # ADOPT-BOUNDED (RFC-0087)
+ * # ADOPT-BOUNDED (RFC-0089)
  *
  * Sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it returns
  * BEFORE spinning has actually stopped; [`nros_cpp_executor_is_spinning`] is

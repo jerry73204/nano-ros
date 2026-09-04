@@ -1592,7 +1592,7 @@ pub(crate) unsafe fn sub_buffered_raw_c_has_data(ptr: *const u8) -> bool {
 // ============================================================================
 
 /// Buffered subscription entry that deserialises into CALLER-OWNED storage
-/// before dispatching (phase-417 W5.a, RFC-0087 stage 5).
+/// before dispatching (phase-417 W5.a, RFC-0089 stage 5).
 ///
 /// Structurally [`SubBufferedRawCEntry`] plus two words: the caller's `msg`
 /// pointer and the erased deserialiser for its type. Deliberately the same
@@ -1646,7 +1646,7 @@ unsafe fn drain_into_buffer_typed_c(
 /// NOT invoked in that case — a caller that read `msg` after a failed decode
 /// would be reading the previous message, or an `_init` default, under the
 /// impression it was the one that just arrived. That is precisely the
-/// "compile and differ" RFC-0087 forbids, so the failure costs the dispatch.
+/// "compile and differ" RFC-0089 forbids, so the failure costs the dispatch.
 ///
 /// # Safety
 /// `entry` must be a live typed entry; `data`/`len` a readable CDR sample.

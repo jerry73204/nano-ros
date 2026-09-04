@@ -3944,7 +3944,7 @@ c: c-fmt
     # WITHOUT `#pragma GCC diagnostic error "-Wincompatible-pointer-types"` the
     # same file compiles at rc=0, because C diagnoses an incompatible pointer
     # ARGUMENT as a warning even under -Wall -Wextra. That is why a C reorder
-    # ships with a RENAME beside it (RFC-0087): a stale call must fail on the
+    # ships with a RENAME beside it (RFC-0089): a stale call must fail on the
     # identifier, which C does diagnose fatally.
     for probe in rcl_rename_deprecation_probe rcl_node_init_reorder_probe; do \
         f="packages/api/nros-c/tests/compile/$probe.c"; \
@@ -3956,7 +3956,7 @@ c: c-fmt
             -Ipackages/platform/nros-platform-api/include \
             "$f" 2>"tmp/rename-$probe.log"; then \
             echo "ERROR: $f COMPILED. The stage-6 guard for '$probe' is not firing;" >&2; \
-            echo "       a stale call now binds silently. See RFC-0087." >&2; exit 1; \
+            echo "       a stale call now binds silently. See RFC-0089." >&2; exit 1; \
         fi; \
     done
 

@@ -177,7 +177,7 @@ pub extern "C" fn rcl_subscription_get_default_options() -> nros_subscription_op
 ///
 /// rclc's `rclc_subscription_init_default`, in rclc's argument order and at
 /// rclc's ARITY (phase-417 stage 6). The old `nros_subscription_init` carried
-/// two extra arguments — `callback` and `context` — and RFC-0087 records why
+/// two extra arguments — `callback` and `context` — and RFC-0089 records why
 /// they are gone from here:
 ///
 /// * the binding site was never mandated. RFC-0041 is about the DISPATCH
@@ -197,7 +197,7 @@ pub extern "C" fn rcl_subscription_get_default_options() -> nros_subscription_op
 /// The typesupport parameter stays `const nros_message_type_t *` rather than
 /// taking `rosidl_message_type_support_t`'s name: a rosidl typesupport's
 /// MEMBERS are its contract, including the `func` dispatcher we do not have,
-/// so adopting the name would claim a structure we lack (RFC-0087, settled
+/// so adopting the name would claim a structure we lack (RFC-0089, settled
 /// 2026-09-04). It costs a ported call site nothing — the argument comes from
 /// our codegen either way.
 ///

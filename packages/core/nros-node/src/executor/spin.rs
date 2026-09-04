@@ -5313,7 +5313,7 @@ impl<'s> Executor<'s> {
         Ok(HandleId(slot))
     }
 
-    /// phase-417 W5.a (RFC-0087 stage 5) — the TYPED C-FFI subscription core:
+    /// phase-417 W5.a (RFC-0089 stage 5) — the TYPED C-FFI subscription core:
     /// the same registration as [`Self::add_arena_subscription_c_callback`],
     /// plus caller-owned message storage and the erased deserialiser for its
     /// type, so the callback receives a DESERIALISED message instead of CDR
@@ -7976,6 +7976,135 @@ impl<'s> Executor<'s> {
             .map(|p| &mut p.server)
             .ok_or(NodeError::NotInitialized)?;
         Ok(nros_params::ParameterBuilder::new(server, name))
+    }
+}
+
+// ============================================================================
+// Executor lifecycle — cancel / is_spinning (phase-417 W4.c)
+// ============================================================================
+
+impl<'s> Executor<'s> {
+    /// Request the executor to stop spinning — `rclcpp::Executor::cancel`.
+    ///
+    /// # ADOPT-BOUNDED (RFC-0089)
+    ///
+    /// `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY,
+    /// so it returns BEFORE spinning has actually stopped;
+    /// [`is_spinning()`](Self::is_spinning) is the observable that tells you
+    /// when it has. rclcpp makes the same promise in the same shape, but the
+    /// boundary here is one `spin_once` timeout wide (a backend's `drive_io`
+    /// blocks up to the poll interval), so "next boundary" is a duration a
+    /// caller can measure rather than an implementation detail. The wake flag
+    /// below shortens it; it does not remove it.
+    ///
+    /// Nothing here tears down the session: an executor that has been cancelled
+    /// is still initialised, still owns its entities, and can be spun again.
+    /// Teardown is a different verb (`fini` / `shutdown`), and collapsing the
+    /// two costs a full discovery round on every mode change.
+    ///
+    /// Safe to call from another thread or a signal handler.
+    ///
+    /// Also raises the Phase 104.C.6 wake flag so a `spin_once` already blocked
+    /// inside a backend's `drive_io` falls through to the cancel check on its
+    /// next loop iteration instead of waiting out its full `timeout_ms` first.
+    pub fn cancel(&self) {
+        self.halt_flag
+            .store(true, core::sync::atomic::Ordering::SeqCst);
+        // The wake flag is the `Arc` half and still needs an allocator. A
+        // core-only image simply waits out the poll interval, which is the
+        // bounded behaviour the envelope above already promises.
+        #[cfg(feature = "alloc")]
+        self.wake_flag
+            .store(true, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Deprecated spelling of [`cancel()`](Self::cancel) — phase-417 W4.c.
+    ///
+    /// `cancel` is ROS 2's name for this (`rclcpp::Executor::cancel`,
+    /// `rclpy.executors.Executor.cancel`) and is now the primary. `halt` was our
+    /// own vocabulary and stays as a forwarder so out-of-tree callers keep
+    /// compiling; it holds no state of its own.
+    #[deprecated(
+        since = "0.5.0",
+        note = "renamed to `cancel()` to match `rclcpp::Executor::cancel` (phase-417 W4.c)"
+    )]
+    pub fn halt(&self) {
+        self.cancel();
+    }
+
+    /// Has a [`cancel()`](Self::cancel) been REQUESTED?
+    ///
+    /// Not the same question as [`is_spinning()`](Self::is_spinning), and both
+    /// are kept because both have callers:
+    ///
+    /// * `is_halted()` — "someone asked this executor to stop." True the instant
+    ///   `cancel()` returns, and it stays true until the next spin loop clears
+    ///   it on entry. This is the flag a hand-rolled `while !exec.is_halted()`
+    ///   loop polls, which is what a BSP that drives `spin_once` itself writes.
+    /// * `is_spinning()` — "a spin loop is running right now." Answers the other
+    ///   half of the envelope: whether the cancel has been ACTED on yet.
+    ///
+    /// The two are true together for as long as one poll takes, which is exactly
+    /// the window the ADOPT-BOUNDED envelope on `cancel()` describes. Neither is
+    /// derivable from the other: an executor that was never spun is neither
+    /// halted nor spinning, and one cancelled mid-poll is both.
+    ///
+    /// The name is the pre-rename spelling and is deliberately NOT deprecated —
+    /// `cancel`'s rclcpp pair is a `spinning` observable, not an
+    /// `is_cancel_requested` one, so there is no ROS 2 name to adopt here and a
+    /// third spelling would buy nothing.
+    pub fn is_halted(&self) -> bool {
+        self.halt_flag.load(core::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Is a spin loop running on this executor right now?
+    ///
+    /// rclcpp spells this `Executor::is_spinning()`. True between the entry and
+    /// the exit of [`spin_blocking`](Self::spin_blocking),
+    /// [`spin_period`](Self::spin_period), the `open_threaded` worker loop, and
+    /// the C / C++ API loops — every construct that owns its own iteration.
+    ///
+    /// A bare `spin_once` does NOT set it: one poll is not a spin, and a caller
+    /// running its own `while` around `spin_once` is the one who knows it is
+    /// looping. Such a caller can say so with
+    /// [`enter_spin_loop`](Self::enter_spin_loop).
+    ///
+    /// See [`is_halted()`](Self::is_halted) for why this is a different question
+    /// from "was cancel requested".
+    pub fn is_spinning(&self) -> bool {
+        self.spinning.load(core::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Declare that the caller is entering a spin loop it drives itself.
+    ///
+    /// The seam the C and C++ APIs use so their loops answer
+    /// [`is_spinning()`](Self::is_spinning) without keeping a flag of their own
+    /// (RFC-0019: ergonomics may live in the wrapper, state may not). Also
+    /// CLEARS any pending cancel, matching what `spin_blocking` does on entry:
+    /// a cancel requested before a spin started is not a cancel of THIS spin.
+    ///
+    /// Pair it with [`exit_spin_loop`](Self::exit_spin_loop) on EVERY exit path,
+    /// `break` and early `return` alike — a loop that leaves without it reports
+    /// `is_spinning() == true` forever. It is a method pair rather than an RAII
+    /// guard on purpose: a guard would have to borrow the executor for the whole
+    /// loop, and every caller needs `&mut` inside the body to poll.
+    ///
+    /// Takes `&self` (the flags are atomics), so the borrow ends at the call.
+    pub fn enter_spin_loop(&self) {
+        self.halt_flag
+            .store(false, core::sync::atomic::Ordering::SeqCst);
+        self.spinning
+            .store(true, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// End the scope opened by [`enter_spin_loop`](Self::enter_spin_loop).
+    ///
+    /// Idempotent. Leaves the cancel flag alone: "someone asked me to stop" is
+    /// the caller's answer to keep or clear, and clearing it here would lose the
+    /// reason the loop exited.
+    pub fn exit_spin_loop(&self) {
+        self.spinning
+            .store(false, core::sync::atomic::Ordering::SeqCst);
     }
 }
 

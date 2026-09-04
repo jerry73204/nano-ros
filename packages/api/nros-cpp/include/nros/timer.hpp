@@ -60,7 +60,7 @@ class Timer {
     /// timer member (`rclcpp::TimerBase::SharedPtr timer_;`). The shim's own
     /// `rclcpp::TimerBase` carries the same three aliases.
     ///
-    /// Ergonomics only (RFC-0087 §"Who implements an adopted name"): a
+    /// Ergonomics only (RFC-0089 §"Who implements an adopted name"): a
     /// spelling for `std::shared_ptr<Timer>`, no second code path.
     ///
     /// Present only where `<memory>` is — a freestanding target has no
@@ -173,7 +173,7 @@ class Timer {
 } // namespace nros
 
 // ============================================================================
-// rclcpp::TimerBase (RFC-0087 stage 6, step A)
+// rclcpp::TimerBase (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // Moved here from `nros/rclcpp_compat.hpp`. rclcpp users typically store a
@@ -191,7 +191,7 @@ class Timer {
 // diagnostic could be written for it because both spin spellings are
 // legitimate and which one is wrong depends on the node object the file holds.
 // Scheduling in the wrapper is RFC-0019/RFC-0020 violation class 2; this is the
-// structural fix RFC-0087 makes a prerequisite for the stage-6 rename. Do not
+// structural fix RFC-0089 makes a prerequisite for the stage-6 rename. Do not
 // reintroduce a second dispatch loop.
 //
 // ADOPT-BOUNDED, and both halves of the envelope come with the executor:
@@ -249,7 +249,7 @@ namespace detail {
 /// `nros_cpp_timer_callback_t` — `void(*)(void* ctx)` — and a ported rclcpp
 /// timer callback is a capturing lambda or a `std::bind` result, which cannot
 /// convert to a function pointer. `trampoline` recovers the cell from `ctx` and
-/// calls it. That is a spelling, not a second code path (RFC-0087 §"Who
+/// calls it. That is a spelling, not a second code path (RFC-0089 §"Who
 /// implements an adopted name"); no schedule, no clock read, no ordering.
 ///
 /// LIFETIME: the arena stores `this` as the dispatch context and nothing

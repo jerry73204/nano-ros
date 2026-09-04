@@ -16,7 +16,7 @@
 //!
 //! over a lookup-only implementation would silently have moved the threshold
 //! of the catch-all logger every other unregistered name also resolves to —
-//! compile, and differ. RFC-0087 forbids exactly that, so the creation has to
+//! compile, and differ. RFC-0089 forbids exactly that, so the creation has to
 //! be real, and by RFC-0019 it has to be real HERE rather than in `nros-c`.
 //!
 //! ## Bounded, because `no_std`

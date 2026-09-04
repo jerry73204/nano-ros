@@ -1,6 +1,6 @@
 //! phase-417 — the `nros_*!` -> `log_*!` rename keeps a working forwarder.
 //!
-//! RFC-0087's "replace, with alias as the migration step": the ROS 2 spelling
+//! RFC-0089's "replace, with alias as the migration step": the ROS 2 spelling
 //! becomes first-class, ours remains, and BOTH work until the removal batch.
 //! The claim that needs a test is not "the old name still compiles" — a
 //! forwarder that emitted at the wrong severity, through a different logger,

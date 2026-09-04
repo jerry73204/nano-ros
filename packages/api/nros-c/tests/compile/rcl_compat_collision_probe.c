@@ -11,7 +11,7 @@
  * the constants, the other's functions would return the other numbering, and
  * every comparison in the file would compile and be wrong. There is no value a
  * program could inspect afterwards to tell which happened. That is exactly the
- * "compiles and differs" RFC-0087 forbids, so the collision must be fatal at
+ * "compiles and differs" RFC-0089 forbids, so the collision must be fatal at
  * the earliest point it is KNOWABLE, which is the preprocessor.
  *
  * `RCL_RET_OK` stands in for the whole real header here. Defining it is what

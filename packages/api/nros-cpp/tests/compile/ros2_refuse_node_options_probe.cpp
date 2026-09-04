@@ -1,9 +1,9 @@
 /*
- * NEGATIVE probe — phase-417 W3.f, one of RFC-0087's two live inversions.
+ * NEGATIVE probe — phase-417 W3.f, one of RFC-0089's two live inversions.
  *
  * `rclcpp::NodeOptions`' ten option setters stored their argument in a private
  * field that NOTHING read, and returned `*this`, so the idiomatic chained call
- * compiled and configured nothing. RFC-0087's rule: a contract that silently
+ * compiled and configured nothing. RFC-0089's rule: a contract that silently
  * drops configuration must fail to COMPILE.
  *
  * `just check cpp` requires this TU to FAIL, and requires the failure text to
@@ -25,7 +25,7 @@
 
 int ros2_refuse_node_options_probe();
 int ros2_refuse_node_options_probe() {
-    // The chain RFC-0087 quotes: compiles today, configures nothing.
+    // The chain RFC-0089 quotes: compiles today, configures nothing.
     auto options = rclcpp::NodeOptions().use_intra_process_comms(true);
 
     // ...and the read-back, which reports a policy that does not exist.

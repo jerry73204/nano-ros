@@ -22,7 +22,7 @@
 #include <cstdint>
 
 #include "nros/result.hpp"
-// phase-417 stage 2b (RFC-0087) — `nros::TopicEndpointInfo` and the visitor
+// phase-417 stage 2b (RFC-0089) — `nros::TopicEndpointInfo` and the visitor
 // typedef used by the graph forwarders below.
 #include "nros/graph.hpp"
 
@@ -174,7 +174,7 @@ class LifecycleNode {
         return Result(nros_cpp_lifecycle_change_state(exec_, transition_id));
     }
 
-    // ---- Graph queries — phase-417 stage 2b (RFC-0087) --------------------
+    // ---- Graph queries — phase-417 stage 2b (RFC-0089) --------------------
     //
     // rclcpp_lifecycle's `LifecycleNode` carries the same graph surface as
     // `rclcpp::Node`, so a ported managed node reaches these on `this`. Each
@@ -189,7 +189,7 @@ class LifecycleNode {
     // return `InvalidArgument`, matching the register/transition calls above
     // rather than trapping.
     //
-    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0087): they
+    // The envelope every one of them shares (ADOPT-BOUNDED, RFC-0089): they
     // report what has been DISCOVERED and never block, so an empty result
     // means "nobody seen yet" and never "nobody exists". `ErrorCode::
     // Unsupported`, which is what a backend with no graph at all returns, is a

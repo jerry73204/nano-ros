@@ -36,7 +36,7 @@ claim about the signature, never about the behaviour.** Everything this campaign
 has built — verdicts, dispositions, the `--require-disposition` gate — hangs off
 rows that exist, and a correctly-named wrong implementation creates no row.
 
-The related trap is already recorded in RFC-0087 (a refusal correlates `same`;
+The related trap is already recorded in RFC-0089 (a refusal correlates `same`;
 a sentinel correlates `same`); this is the third member of that family and the
 only one where the code is simply wrong.
 

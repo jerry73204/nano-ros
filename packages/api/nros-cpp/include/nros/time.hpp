@@ -143,11 +143,11 @@ constexpr Time operator+(const Duration& lhs, const Time& rhs) {
 } // namespace nros
 
 // ============================================================================
-// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// rclcpp:: — the ROS 2 spelling (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // Moved here from `nros/rclcpp_compat.hpp`, which no longer carries a surface
-// of its own: RFC-0087 §"Naming: replace, with alias as the migration step"
+// of its own: RFC-0089 §"Naming: replace, with alias as the migration step"
 // makes the ROS 2 spelling a first-class name declared by the API header that
 // owns the concept, at which point a shim has nothing left to bridge.
 

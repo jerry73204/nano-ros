@@ -26,7 +26,7 @@
  *   2. `if (ret == RCL_RET_TIMEOUT)` is true exactly when a REAL nano-ros call
  *      timed out. `nros_executor_ping` is the call: its own header documents
  *      `NROS_RET_TIMEOUT` as the no-reply-within-budget code
- *      (`nros/nros_generated.h:4292`). This is the property RFC-0087 says must
+ *      (`nros/nros_generated.h:4292`). This is the property RFC-0089 says must
  *      survive the spelling change, and the only one a porting user can
  *      observe. (`ping` has no rcl name — micro-ROS spells it
  *      `rmw_uros_ping_agent` — so it is called under ours.)
@@ -37,7 +37,7 @@
  *      dispatch is usually a switch, and the collapse would otherwise show up
  *      as one arm silently shadowing another.
  *
- *   4. the VALUES stayed ours. RFC-0087 forbids renumbering `nros_ret_t` to
+ *   4. the VALUES stayed ours. RFC-0089 forbids renumbering `nros_ret_t` to
  *      rcl's numbers — a stored return code crosses the C, C++ and Rust FFI
  *      seams, so renumbering flips all three at once with nothing to read. The
  *      header asserts this too; asserted again from the CONSUMER side because
@@ -102,7 +102,7 @@ static rcl_ret_t (*const k_node_init_default)(rcl_node_t*, const char*, const ch
 
 /*
  * The two that stage 6 moved from REFUSED to native. Their arity used to be 6
- * against rclc's 4, because ours carried `callback` and `context`; RFC-0087
+ * against rclc's 4, because ours carried `callback` and `context`; RFC-0089
  * withdrew the reason (RFC-0041 governs the DISPATCH MODEL, not a binding
  * site, and `executor-owns-no-entity-storage` is defined nowhere), so the
  * callback moved to registration where rclc puts it. Pinning the pointer here
@@ -120,7 +120,7 @@ static rcl_ret_t (*const k_srv_init_default)(rcl_service_t*, const rcl_node_t*,
  * the `nros_` prefix deliberately: rclc's `rclc_executor_add_subscription` and
  * `rclc_executor_add_service` deliver a DESERIALIZED message into caller-owned
  * storage, so a byte-oriented entry point must not wear their names
- * (RFC-0087's compile-or-conform rule).
+ * (RFC-0089's compile-or-conform rule).
  */
 static nros_ret_t (*const k_add_sub_raw)(
     struct nros_executor_t*, struct nros_subscription_t*, nros_subscription_callback_t, void*,
@@ -260,7 +260,7 @@ _Static_assert(RCL_RET_INVALID_ARGUMENT == RMW_RET_INVALID_ARGUMENT,
 
 /*
  * Asserted from the consumer side as well as inside the header, because this
- * is the mutation RFC-0087 singles out: renumbering `nros_ret_t` to rcl's
+ * is the mutation RFC-0089 singles out: renumbering `nros_ret_t` to rcl's
  * values would keep every one of the aliases above compiling while flipping
  * the meaning of every return code already stored across the C, C++ and Rust
  * FFI seams. The header would still be self-consistent; only a check that

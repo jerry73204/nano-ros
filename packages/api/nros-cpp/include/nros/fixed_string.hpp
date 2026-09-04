@@ -106,7 +106,7 @@ template <size_t N> struct FixedString {
     //
     // did not compile: the only assignment was from `const char*`. These
     // members COPY and call through to the existing `const char*` paths; they
-    // add no data member and no second code path (RFC-0087 §"Who implements an
+    // add no data member and no second code path (RFC-0089 §"Who implements an
     // adopted name" — container/string conversions that copy and delegate are
     // wrapper-side ergonomics), so the `char[N]` layout the FFI relies on is
     // unchanged.

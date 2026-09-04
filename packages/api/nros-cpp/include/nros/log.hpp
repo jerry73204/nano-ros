@@ -82,18 +82,18 @@
 #include <nros/log.h>
 
 // ============================================================================
-// rclcpp:: — the ROS 2 spelling (RFC-0087 stage 6, step A)
+// rclcpp:: — the ROS 2 spelling (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // These names used to live in `nros/rclcpp_compat.hpp`, a separate source-compat
-// shim a ported file had to be force-included with. RFC-0087 §"Naming: replace,
+// shim a ported file had to be force-included with. RFC-0089 §"Naming: replace,
 // with alias as the migration step" makes the ROS 2 spelling a FIRST-CLASS name
 // declared by the API headers themselves, at which point the shim has nothing
 // left to bridge and dissolves by construction. `nros::` is untouched: both
 // spellings work, and deprecating one is step B.
 //
 // This header carries the REFUSAL VOCABULARY as well as the logging surface,
-// and the two belong together for a reason RFC-0087 states: a REFUSE-LOUD name
+// and the two belong together for a reason RFC-0089 states: a REFUSE-LOUD name
 // EMITS NO CODE — it is a diagnostic, and this is nano-ros's diagnostic header.
 // It is also the only header the umbrella pulls before everything else while
 // including nothing of ours, so `qos.hpp`, `options.hpp`, `service.hpp` and the
@@ -129,9 +129,9 @@
 
 namespace rclcpp {
 
-// --- REFUSE-LOUD infrastructure (RFC-0087 stage 3) ---------------------------
+// --- REFUSE-LOUD infrastructure (RFC-0089 stage 3) ---------------------------
 //
-// RFC-0087's rule:
+// RFC-0089's rule:
 //
 //   An upstream name may be adopted only if its observable contract is the
 //   same, or strictly weaker in a documented, non-inverting way. A contract
@@ -180,7 +180,7 @@ template <typename T> struct refuse {
 
 #define NROS_RCLCPP_REFUSE_NODE_OPTIONS                                                            \
     "rclcpp::NodeOptions' option setters and getters are REFUSED by nano-ros "                     \
-    "(RFC-0087, phase-417 W3.f). Each one used to store its argument in a private field that "     \
+    "(RFC-0089, phase-417 W3.f). Each one used to store its argument in a private field that "     \
     "NOTHING read and return *this, so the idiomatic chained call compiled and configured "        \
     "nothing -- a silent drop of configuration, which the compile-or-conform rule requires to "    \
     "fail to compile instead. nano-ros resolves parameters and remaps in the LAUNCHER "            \
@@ -193,7 +193,7 @@ template <typename T> struct refuse {
 
 #define NROS_RCLCPP_REFUSE_INIT_ARGV                                                               \
     "rclcpp::init(argc, argv) was given --ros-args, which nano-ros cannot honour "                 \
-    "(RFC-0087, phase-417 W3.b). Proceeding would DISCARD it, so `-r chatter:=/other` would "      \
+    "(RFC-0089, phase-417 W3.b). Proceeding would DISCARD it, so `-r chatter:=/other` would "      \
     "silently become a wrong-topic bug at runtime -- the 'compiles and differs' the rule "         \
     "forbids. Nothing in this process parses --ros-args yet: nros::init_with_launch_auto(argc, "   \
     "argv) discards them too (node.hpp:1025-1027), and honouring them is remap resolution -- "     \
@@ -203,7 +203,7 @@ template <typename T> struct refuse {
     "nros::init_with_launch_auto(0, nullptr, \"my_session\") for the launch-aware entry point."
 
 #define NROS_RCLCPP_REFUSE_SYSTEM_DEFAULTS_QOS                                                     \
-    "rclcpp::SystemDefaultsQoS is REFUSED by nano-ros (RFC-0087 W3.f, issue 0829). Upstream's "    \
+    "rclcpp::SystemDefaultsQoS is REFUSED by nano-ros (RFC-0089 W3.f, issue 0829). Upstream's "    \
     "rmw_qos_profile_system_default names NO concrete policy: every field is a sentinel meaning "  \
     "'let the RMW decide', and the two reference RMWs resolve the depth sentinel differently "     \
     "(rmw_cyclonedds_cpp -> KEEP_LAST 1, rmw_zenoh_cpp -> 42). nros::QoS has no sentinel, "        \
@@ -214,7 +214,7 @@ template <typename T> struct refuse {
     "rclcpp::SensorDataQoS(), rclcpp::ServicesQoS(), or nros::QoS().best_effort().keep_last(1)."
 
 #define NROS_RCLCPP_REFUSE_THROTTLE                                                                \
-    "RCLCPP_*_THROTTLE is REFUSED by nano-ros (RFC-0087 W3.a, issue 1019). It expanded to the "    \
+    "RCLCPP_*_THROTTLE is REFUSED by nano-ros (RFC-0089 W3.a, issue 1019). It expanded to the "    \
     "plain RCLCPP_* macro with `clock` and the period left UNEVALUATED, so a 1 Hz throttle "       \
     "logged at loop rate and a side-effecting clock expression was dropped entirely. There is no " \
     "throttle on the C or C++ logging path; nros-log has one Rust-side and re-exporting it is "    \
@@ -223,7 +223,7 @@ template <typename T> struct refuse {
     "RCLCPP_INFO / RCLCPP_WARN / RCLCPP_ERROR."
 
 #define NROS_RCLCPP_REFUSE_SHARED_PTR_SERVICE_CALLBACK                                             \
-    "the shared_ptr service-callback shape is REFUSED by nano-ros (RFC-0087, phase-417 W2.c). "    \
+    "the shared_ptr service-callback shape is REFUSED by nano-ros (RFC-0089, phase-417 W2.c). "    \
     "rclcpp's create_service/create_client callback takes std::shared_ptr<Request> and "           \
     "std::shared_ptr<Response> (plus a request header), which needs a per-request heap "           \
     "allocation on the delivery path. nano-ros has no allocator there (RFC-0022) and hands the "   \
@@ -296,7 +296,7 @@ void throttle_is_refused(Logger&&, Clock&&, Period&&, Rest&&...) {
 // worst outcome available: the call compiled, the level was right, the file and
 // line were right, and the text was gone. It now formats through
 // `std::ostringstream` and hands the result to the same sink — a string
-// conversion that copies and calls through, which RFC-0087 §"Who implements an
+// conversion that copies and calls through, which RFC-0089 §"Who implements an
 // adopted name" allows in the wrapper. Since the move into this header
 // `<sstream>` is GATED rather than unconditional, so the `_STREAM` family is
 // declared only where the standard library that backs it exists.
