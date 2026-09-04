@@ -744,7 +744,13 @@ class Node : public std::enable_shared_from_this<Node> {
                                       &detail::WallTimer::trampoline, t.get());
         // The arena holds `t.get()`; the node keeps the cell alive, and
         // `~nros::Timer` cancels the slot when it finally drops.
-        timers_.push_back(t);
+        // `owned_entities_`, NOT a typed `timers_` member. The typed vector
+        // existed so the deleted `pump()` could iterate it; with pump gone its
+        // only remaining job is keeping the cell alive, which is exactly what
+        // `owned_entities_` does -- and that member is UNCONDITIONAL, while a
+        // `std::vector<std::shared_ptr<detail::WallTimer>>` cannot be declared
+        // without `<chrono>`. See the layout rule below.
+        owned_entities_.push_back(t);
         return std::static_pointer_cast<TimerBase>(t);
     }
 #endif // NROS_CPP_HAS_STD_CHRONO
@@ -949,15 +955,34 @@ class Node : public std::enable_shared_from_this<Node> {
     // made visible by a diagnostic.
 
   private:
+    // LAYOUT RULE (phase-417): no member of this class may sit inside a
+    // capability `#if`. A probe may gate a METHOD; it may never change
+    // `sizeof`. Enforced by `check-cpp-capability-layout`, which MEASURES it.
+    //
+    // `timers_` broke this rule and the breakage SHIPPED. It was a
+    // `std::vector<std::shared_ptr<detail::WallTimer>>` behind
+    // `NROS_CPP_HAS_STD_CHRONO`, which at the time was reachable only through
+    // `NROS_CPP_STD` -- a macro nothing in the build system sets, EXCEPT
+    // `examples/px4/cpp/bridge/.../CMakeLists.txt:123`, on ONE module of a
+    // larger image. So that module compiled a 3776-byte node while every other
+    // TU compiled a 3752-byte one, they linked, and each wrote the object
+    // through its own layout. Measured, not inferred: restoring both halves
+    // reproduces `3752` vs `3776` exactly, and the gate reports it.
+    //
+    // Two TUs of one image disagreeing about a capability is a SUPPORTED
+    // state, not a misconfiguration -- px4 sets the macro deliberately, and
+    // `zephyr/cmake/nros_rmw_cyclonedds.cmake` adds an include dir for some
+    // targets only. This tree has the scar twice: issues 0135 and 0460.
+    //
+    // Worse than an ordinary ODR hazard, because the probes are themselves
+    // unreliable -- three failure modes measured in one day: `<type_traits>`
+    // present-but-hollow on Zephyr, `NROS_CPP_STD` set by nothing that ships,
+    // `<memory>` present-then-`#error` under `-ffreestanding` on GCC 13. So
+    // the rule is not "get the probe right"; it is "make being wrong unable to
+    // change a layout".
     ::nros::Node node_;
     NodeOptions node_options_;
     bool initialized_ = false;
-#ifdef NROS_CPP_HAS_STD_CHRONO
-    // Wall-timer cells. The executor arena dispatches them and holds each
-    // cell's address as its callback context, so the node keeps them alive —
-    // see `rclcpp::detail::WallTimer` for the destruction-order rule.
-    std::vector<std::shared_ptr<detail::WallTimer>> timers_;
-#endif
     // Node-local parameter store — see `declare_parameter` above.
     ::nros::ParameterServer<NROS_RCLCPP_MAX_PARAMS> params_;
     // Co-ownership of arena-registered services / clients / subscription
