@@ -3,6 +3,13 @@
 #define _CXX_CSTDLIB
 #include <stdlib.h>
 namespace std {
+using ::abort;
+// ^ RFC-0089 W3.b's refusal path calls `::std::abort()` (`nros.hpp:369`), so
+// without this every ThreadX-RISCV64 C++ image failed to compile the moment
+// `rclcpp::init` entered the umbrella header. picolibc's <stdlib.h> declares
+// `abort`; only the `std::` re-export was missing. Found by the -nostdinc++
+// header lane, not by any build -- the freestanding probe compiles against the
+// HOST's full libstdc++, where `std::abort` is always there.
 using ::calloc;
 using ::free;
 using ::getenv;
