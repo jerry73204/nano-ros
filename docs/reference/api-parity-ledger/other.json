@@ -1089,7 +1089,7 @@
   },
   "rust:EXECUTOR_VALUE_SIZE": {
     "verdict": "extension",
-    "why": "An `export_size!` probe (`packages/api/nros/src/sizes.rs:109`), not a user-facing API: it publishes `size_of::<Executor>()` so the generated C++ header can hold an executor BY VALUE (`nros-build-helpers/src/cpp.rs:283` bakes it as `NROS_EXECUTOR_VALUE_SIZE`). rclcpp needs no such thing because it heap-allocates its executor; here the whole point is that there is no allocator, so the size has to cross from Rust to C++ at build time. This is the sizes-header mirror whose drift is its own recurring issue family (0088/0114/0122/0123/0245/0268) -- the constant is the mechanism, not an addition to the user surface."
+    "why": "phase-417 W-M2 note: ledgered because `--require-disposition` armed the gate and this landed on main in parallel.\n\nSee `rust:EXECUTOR_SIZE`. A `size_of` export in `nros::sizes`, consumed by `nros-build-helpers` (`c.rs:152`, `cpp.rs:111`) to size the C and C++ opaque storage that holds an `Executor` BY VALUE. rclrs has no counterpart because it never hands an executor across an FFI boundary into caller-owned storage; ours must, and the number has to be a build-time fact rather than a guess, which is what the export makes it."
   },
   "cpp:SerializationFormat": {
     "verdict": "extension",
