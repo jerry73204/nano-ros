@@ -64,13 +64,3 @@ docs/roadmap/phase-292-asi-reference-consumer-revisit.md	zephyr
 docs/roadmap/phase-375-board-tier-policy-and-onboarding-cost.md	board-new
 docs/roadmap/phase-395-dev-workflow-migration.md	ci-l2
 docs/roadmap/phase-395-dev-workflow-migration.md	ci-l4-tier1
-packages/cli/CONTRIBUTING.md	build-build-tools
-packages/cli/CONTRIBUTING.md	build-user-libs
-packages/cli/CONTRIBUTING.md	clean-build-tools
-packages/cli/CONTRIBUTING.md	clean-user-libs
-packages/cli/CONTRIBUTING.md	test-build-tools
-packages/cli/CONTRIBUTING.md	test-user-libs
-packages/cli/testing_workspaces/complex_workspace/README.md	build-interfaces
-packages/cli/testing_workspaces/complex_workspace/README.md	build-rust
-packages/cli/testing_workspaces/complex_workspace/README.md	list
-packages/cli/testing_workspaces/complex_workspace/README.md	run
