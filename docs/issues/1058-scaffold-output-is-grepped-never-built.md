@@ -66,4 +66,4 @@ Cheaper interim: assert every `::rclcpp::`-qualified name a template emits is
 declared in the headers, by grepping the header set. That catches the
 undeclared-type half (2 of the 3 here) without a build, but not the
 `rclcpp::Node` half, whose name resolves and whose SHAPE differs — the
-compile-or-conform hazard RFC-0087 exists for.
+compile-or-conform hazard RFC-0089 exists for.
