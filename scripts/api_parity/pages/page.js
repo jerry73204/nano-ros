@@ -6,7 +6,7 @@ const STATES = [
 ];
 const GLYPH = Object.fromEntries(STATES.map(s => [s[0], s[2]]));
 const LABEL = Object.fromEntries(STATES.map(s => [s[0], s[1]]));
-// RFC-0087 dispositions. A SECOND axis, not an eighth state: the state says
+// RFC-0089 dispositions. A SECOND axis, not an eighth state: the state says
 // what we did, the disposition says what a porting user gets.
 const DISP = {
   "adopt": "adopt", "adopt-bounded": "adopt \u00b7 bounded",
