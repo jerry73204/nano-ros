@@ -85,7 +85,7 @@ buffer-size-1024 = []
 # than timid: this workspace sets `warnings = "deny"` (root `Cargo.toml`
 # `[workspace.lints.rust]`), so an always-armed deprecation is not a migration
 # STEP -- it is a hard compile error in every crate that has not moved yet, i.e.
-# the flag day RFC-0087's two-step alias exists to avoid. Measured at the rename:
+# the flag day RFC-0089's two-step alias exists to avoid. Measured at the rename:
 # 9 errors in `nros-rmw-cffi` alone stopped the workspace build.
 #
 # So the attribute is authored, reviewed and inert, and the migration batch is

@@ -143,7 +143,7 @@ const struct nros_service_type_t* {{ service_struct_name }}_get_type_support(voi
 // reply buffer (`response_data`/`response_capacity`), so the missing storage is
 // only the two payload STRUCTS, and those live in the handler struct below.
 //
-// LOUDNESS (RFC-0087). A malformed request or a response that does not fit the
+// LOUDNESS (RFC-0089). A malformed request or a response that does not fit the
 // reply buffer makes the trampoline return `false`, and
 // `srv_raw_try_process` sends NOTHING on `false` — so a truncated CDR payload
 // is never put on the wire. Refusing quietly would only move the problem, so
@@ -251,7 +251,7 @@ static inline bool {{ service_struct_name }}_service_handle_request(
     if (rc != 0) {
         /* Oversized (or otherwise unencodable). `_serialize` writes only what
            fits and reports -1; forwarding `written` here would put a truncated
-           CDR payload on the wire, which is the failure RFC-0087 names. */
+           CDR payload on the wire, which is the failure RFC-0089 names. */
         handler->last_error = NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE;
         handler->error_count++;
         nros_service_typed_report_error(handler->last_error,
