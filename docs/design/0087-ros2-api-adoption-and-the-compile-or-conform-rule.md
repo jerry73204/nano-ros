@@ -301,17 +301,40 @@ converge or do not depending on RFC-0041 and W5.a, and forcing an order onto
 lists of different lengths would produce a signature that matches upstream in
 neither.
 
-### The hazard, and why this one is safe
+### The hazard, CORRECTED — a distinguishable type is not enough in C
 
-Reordering parameters of the SAME type is silent: a caller that is not updated
-still compiles and passes the wrong values. `node_init` is safe because the
-argument moving is `support` (a `struct nros_support_t *`) crossing `name` and
-`namespace_` (both `const char *`) — an un-updated caller puts a struct pointer
-where a `char *` is expected and fails to compile.
+The first version of this section said `node_init` was safe to reorder because
+the moved parameter is a `struct nros_support_t *` crossing two `const char *`,
+so a stale caller "fails to compile". **That is false for C**, and it was
+falsified by a mutation test rather than by review:
 
-That is luck, not a rule. **Before any future reorder, check whether the moved
-parameter's type is distinguishable from its neighbours'; where it is not, the
-reorder needs a rename alongside it so the old spelling cannot silently bind.**
+```
+C   : warning: passing argument 1 of 'f' from incompatible pointer type
+      ...even under -Wall -Wextra.
+C++ : error: cannot convert 'support_t*' to 'const char*'
+```
+
+C permits an incompatible pointer argument with a diagnostic that is a WARNING
+by default. So a reorder in the C API is silent-by-default for exactly the
+callers it must not be silent for: out-of-tree consumers, who do not build with
+our flags.
+
+**The rule, restated:**
+
+* A reorder is safe only where the build treats an incompatible pointer as an
+  ERROR. Ours does; a user's does not, and we do not control that.
+* Therefore a C reorder must be accompanied by a RENAME, so a stale call fails
+  on the identifier — which C does diagnose fatally — rather than on the
+  argument type, which it does not.
+* Where the moved parameter's type is INDISTINGUISHABLE from its neighbours
+  (two `const char *`), it is silent in C++ too, and the rename is not optional
+  in either language.
+
+This is why the compat header's reordering forwarder is a `static inline` that
+names each parameter and never a macro, and why its probe pins the reorder with
+`#pragma GCC diagnostic error "-Wincompatible-pointer-types"` scoped to that TU:
+the guard cannot be advisory when the reorder is the whole reason the forwarder
+exists. Without the pragma the guarding mutation PASSED.
 
 ## What "mostly full compat" can honestly mean
 
