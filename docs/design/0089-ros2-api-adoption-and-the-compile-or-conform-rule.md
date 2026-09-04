@@ -276,12 +276,16 @@ our names differ, so a shape that differs is *visible* — while the mismatches
 are still there. The two live inversions above (`ParametersQoS`, the inert
 `NodeOptions` setters) are exactly what "inherited by a rename" looks like.
 
-There is also one mismatch the rename makes strictly worse, and it is not
-fixable by a diagnostic: the shim `Node` pumps its own callbacks while
-`nros::Node` is arena-driven, and a file that mixes them gets no callbacks and
-no error. Today the two types have different NAMES, which is the only thing
-making that visible. That is a structural prerequisite for step 2, not a
-loudness item — see phase-417.
+There WAS one mismatch the rename made strictly worse, and it is fixed
+(corrected 2026-09-05). The shim `Node` pumped its own callbacks while
+`nros::Node` was arena-driven, so a file mixing them got no callbacks and no
+error, and only the differing NAMES made that visible at all. `pump()` and
+`rclcpp_compat.hpp` were both deleted by this phase — every entity a
+`rclcpp::Node` creates is now arena-registered through the same call the native
+path makes, and `nros.hpp` says so at the call site. This paragraph outlived the
+fix by a month and was still being cited as the reason the node-type merge was
+not scheduled, which is the cost of stating a prerequisite in two documents and
+retiring it in neither.
 
 ## Settled: C takes rcl's spellings (2026-09-04)
 
