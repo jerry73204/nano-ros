@@ -655,5 +655,9 @@
   "rust:QoSProfile::has_unresolved_system_default": {
     "verdict": "extension",
     "why": "issue 0829. Predicate for `is any policy field still the sentinel`, the guard a backend or test uses to assert resolution happened before anything is derived from the profile -- load-bearing on the zenoh path, where the QoS is serialised into a liveliness-token keyexpr that a ROS `rmw_zenoh_cpp` peer parses, and an unresolved `0:0:0,0` would advertise a policy nobody chose. rclrs exposes nothing equivalent for the same reason as `resolve_system_default`: upstream's resolution is invisible C++ inside the loaded RMW, so there is no client-library state to ask about."
+  },
+  "cpp:NodeOptions::rosout_qos": {
+    "verdict": "declined",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }
 }

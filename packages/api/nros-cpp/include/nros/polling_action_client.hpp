@@ -19,6 +19,10 @@
 #include <cstdint>
 #include <string.h>
 
+// phase-417 W4.b — `nros::GoalUUID`, the goal-id VALUE type, is declared
+// beside the shared action enums in action_server.hpp (which is also where
+// polling_action_server.hpp reaches for them).
+#include "nros/action_server.hpp"
 #include "nros/config.hpp"
 #include "nros/node.hpp"
 #include "nros/nros_cpp_config_generated.h"
@@ -81,6 +85,12 @@ template <typename A> class PollingActionClient {
             storage_, buf, len, reinterpret_cast<uint8_t(*)[16]>(goal_id_out)));
     }
 
+    /// @ref send_goal writing the generated id into a `GoalUUID` value
+    /// (phase-417 W4.b).
+    Result send_goal(const GoalType& goal, GoalUUID& goal_id_out) {
+        return send_goal(goal, goal_id_out.data());
+    }
+
     /// Try to receive the send_goal RPC reply (accept / reject).
     /// Caller deserializes the wire CDR as needed; this template
     /// just returns the raw bytes count in `out_len`.
@@ -101,6 +111,11 @@ template <typename A> class PollingActionClient {
         if (!initialized_) return Result(ErrorCode::NotInitialized);
         return Result(nros_cpp_action_client_send_get_result_request_raw(
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id)));
+    }
+
+    /// @ref send_get_result_request taking a `GoalUUID` value (phase-417 W4.b).
+    Result send_get_result_request(const GoalUUID& goal_id) {
+        return send_get_result_request(goal_id.data());
     }
 
     /// Try to receive the get_result reply as a typed result.
@@ -137,6 +152,11 @@ template <typename A> class PollingActionClient {
             storage_, reinterpret_cast<const uint8_t(*)[16]>(goal_id)));
     }
 
+    /// @ref send_cancel_request taking a `GoalUUID` value (phase-417 W4.b).
+    Result send_cancel_request(const GoalUUID& goal_id) {
+        return send_cancel_request(goal_id.data());
+    }
+
     /// Try to receive the cancel RPC reply (raw CDR bytes).
     Result try_recv_cancel_response(uint8_t* buf, size_t cap, size_t& out_len) {
         if (!initialized_) return Result(ErrorCode::NotInitialized);
@@ -155,6 +175,19 @@ template <typename A> class PollingActionClient {
     Result try_recv_feedback(uint8_t goal_id_out[16], FeedbackType& out_fb) {
         return try_recv_feedback_sized<::nros::rx_buffer_capacity<FeedbackType>::value>(goal_id_out,
                                                                                         out_fb);
+    }
+
+    /// @ref try_recv_feedback writing the source id into a `GoalUUID` value
+    /// (phase-417 W4.b).
+    Result try_recv_feedback(GoalUUID& goal_id_out, FeedbackType& out_fb) {
+        return try_recv_feedback_sized<::nros::rx_buffer_capacity<FeedbackType>::value>(
+            goal_id_out.data(), out_fb);
+    }
+
+    /// @ref try_recv_feedback_sized taking a `GoalUUID` value.
+    template <size_t Cap>
+    Result try_recv_feedback_sized(GoalUUID& goal_id_out, FeedbackType& out_fb) {
+        return try_recv_feedback_sized<Cap>(goal_id_out.data(), out_fb);
     }
 
     /// @ref try_recv_feedback with the receive buffer sized by the CALLER.

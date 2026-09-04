@@ -44,17 +44,23 @@ extern crate alloc;
 // crate enables `unsafe-assume-single-core` / `critical-section` on
 // its own `portable-atomic` dep; native CAS targets get the
 // passthrough.
-use portable_atomic::{AtomicPtr, AtomicU8, Ordering};
+use portable_atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};
 
 pub mod early;
 #[cfg(feature = "log-compat")]
 pub mod log_compat;
 pub mod macros;
+pub mod pool;
 pub mod sinks;
+pub mod throttle;
 
 mod buffer;
 
 pub use buffer::{FormatBuffer, format_buffer_capacity};
+pub use pool::{
+    MAX_LOGGER_NAME_LEN, dynamic_logger_capacity, dynamic_logger_name_arena, dynamic_loggers_in_use,
+};
+pub use throttle::{ThrottleState, interval_ms_to_ns, throttle_admits};
 
 /// REP-2012 severity levels, mirroring `rcutils_log_severity_t`.
 ///
@@ -232,6 +238,35 @@ impl Logger {
         (severity as u8) >= self.level.load(Ordering::Relaxed)
     }
 
+    /// Whether a record at `severity` would be emitted, given both this
+    /// logger's runtime threshold AND a per-call-site throttle window.
+    ///
+    /// phase-417 W4.d. The order is load-bearing and is the same order
+    /// `rclcpp` uses: the SEVERITY test runs first, so a record the level
+    /// already filters does not consume the throttle window. Reversing them
+    /// makes a raised-then-lowered log level lose its first record for a whole
+    /// interval, which is the shape of bug nobody reports because it looks
+    /// like the throttle working.
+    ///
+    /// Consumes the window when it returns `true`, so call it exactly once per
+    /// candidate record — the `nros_*_throttle!` macros do.
+    ///
+    /// `now_ns` is the caller's monotonic clock; the macros pass
+    /// [`__timestamp_ns`]. Taking it as an argument rather than reading the
+    /// clock here is what lets the whole rule be tested without a platform
+    /// port, and is the same shape `rclcpp::RCLCPP_*_THROTTLE` uses when it
+    /// asks for a `Clock`.
+    #[must_use]
+    pub fn is_enabled_throttled(
+        &self,
+        severity: Severity,
+        state: &ThrottleState,
+        now_ns: u64,
+        interval_ns: u64,
+    ) -> bool {
+        self.is_enabled(severity) && state.should_log(now_ns, interval_ns)
+    }
+
     /// Hand `record` to every registered sink, after the runtime
     /// threshold check.
     ///
@@ -348,6 +383,44 @@ pub fn get_logger(name: &str) -> &'static Logger {
     INTERN.lookup(name).unwrap_or(&DEFAULT_LOGGER)
 }
 
+/// Look up a logger by name, CREATING one if the name is new.
+///
+/// phase-417 W4.d. This is the shape `rclcpp::get_logger` / `rcutils`' logger
+/// lookup have, and the one a wrapper needs: [`get_logger`] answers
+/// [`DEFAULT_LOGGER`] for an unregistered name, so a C or C++ caller doing
+/// `set_level(get_logger("nav"), Debug)` over the lookup-only form would have
+/// moved the threshold of the catch-all logger that EVERY other unregistered
+/// name also resolves to. Same call, same types, different effect — precisely
+/// the compile-and-differ RFC-0087 forbids.
+///
+/// Storage is the bounded static arena in [`pool`], sized by the
+/// `dynamic-loggers-<N>` feature. Returns `None` — never a logger under the
+/// wrong name — when:
+///
+/// * `name` is empty or longer than [`MAX_LOGGER_NAME_LEN`],
+/// * the name arena or the logger arena is full,
+/// * the [`MAX_LOGGERS`] intern table is full.
+///
+/// Callers decide what an exhausted arena means for them; `nros-c` reports it
+/// and falls back to [`DEFAULT_LOGGER`] loudly rather than silently.
+///
+/// Loggers created this way are never destroyed — the arena has no free list,
+/// which is what makes the returned `&'static Logger` honest on `no_std`.
+#[must_use]
+pub fn get_or_create_logger(name: &str) -> Option<&'static Logger> {
+    if let Some(existing) = INTERN.lookup(name) {
+        return Some(existing);
+    }
+    let interned = pool::intern_name(name)?;
+    let placed = pool::place(Logger::new(interned))?;
+    // Not `register_logger`: that answers `DEFAULT_LOGGER` on a full table,
+    // which would hand back a logger under the wrong name — the exact aliasing
+    // this function exists to avoid. On a lost race `insert` returns the
+    // winner and our slot is spent, which `pool::dynamic_loggers_in_use`
+    // reports.
+    INTERN.insert(placed)
+}
+
 // -----------------------------------------------------------------------------
 // Sink list. Set once at `init`; read every dispatch.
 // -----------------------------------------------------------------------------
@@ -431,6 +504,136 @@ impl SinkSlot {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Appendable sink registry (phase-417 W4.d).
+//
+// `init` REPLACES the list, which is right for the board — it names, once, the
+// whole delivery it chose. It is the wrong verb for a consumer: C and C++ had
+// no way to install a sink at all (`nros_log_init(void)` takes no arguments
+// and hardcodes the platform default), and a library that wants to tee records
+// to /rosout cannot call `init` without discarding whatever the board
+// installed.
+//
+// So `add_sink` APPENDS, and dispatch walks both lists. The two are kept
+// separate rather than merged into one growable list because they have
+// different owners and different lifetimes-of-decision: `init` may be called
+// again and swap the board's choice wholesale, and doing so must not silently
+// unregister a consumer's sink.
+// -----------------------------------------------------------------------------
+
+/// How many sinks [`add_sink`] can append on top of the [`init`] list.
+///
+/// Small on purpose: the appendable list is for consumers that TEE (a /rosout
+/// bridge, a test collector), not for composing a delivery — a board composing
+/// its own delivery passes the whole slice to [`init`].
+pub const MAX_ADDED_SINKS: usize = 4;
+
+struct AddedSinks {
+    slots: core::cell::UnsafeCell<[Option<&'static dyn LogSink>; MAX_ADDED_SINKS]>,
+    /// Number of slots fully written. `Release` on publish, `Acquire` on read.
+    len: AtomicUsize,
+}
+
+// SAFETY: writes happen only under `ADD_LOCK` and only to the slot at index
+// `len`, which no reader looks at until the `Release` store to `len` that
+// follows the write is observed by an `Acquire` load. A slot is written once
+// and never rewritten.
+unsafe impl Sync for AddedSinks {}
+
+static ADDED: AddedSinks = AddedSinks {
+    slots: core::cell::UnsafeCell::new([None; MAX_ADDED_SINKS]),
+    len: AtomicUsize::new(0),
+};
+
+/// Serialises `add_sink` against itself.
+///
+/// A spin lock, held for two stores with no call inside it, is admissible here
+/// where the in-order-publish alternative is not: that one has a thread
+/// waiting on ANOTHER thread's progress, which on a single-core RTOS with
+/// priorities is a deadlock rather than a delay. Do not call `add_sink` from
+/// an ISR.
+static ADD_LOCK: AtomicBool = AtomicBool::new(false);
+
+/// Append `sink` to the sinks every record is delivered to.
+///
+/// Returns `false` when [`MAX_ADDED_SINKS`] are already registered — the sink
+/// is NOT installed, and the caller is expected to say so rather than carry on
+/// as if it were.
+///
+/// Records raised before any sink existed are replayed into `sink` here, the
+/// same way [`init`] replays them, so the first sink to arrive still sees the
+/// boot story regardless of which of the two calls installed it.
+pub fn add_sink(sink: &'static dyn LogSink) -> bool {
+    while ADD_LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Acquire)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+    let idx = ADDED.len.load(Ordering::Relaxed);
+    let installed = if idx < MAX_ADDED_SINKS {
+        // SAFETY: `ADD_LOCK` makes this the only writer, `idx` is beyond what
+        // any reader may look at until the `Release` store below publishes it,
+        // and the slot is never written again.
+        unsafe {
+            ADDED
+                .slots
+                .get()
+                .cast::<Option<&'static dyn LogSink>>()
+                .add(idx)
+                .write(Some(sink));
+        }
+        ADDED.len.store(idx + 1, Ordering::Release);
+        true
+    } else {
+        false
+    };
+    ADD_LOCK.store(false, Ordering::Release);
+
+    if installed && SINKS_PTR.load(Ordering::Acquire).is_null() && idx == 0 {
+        // First delivery target in the program, and `init` has not run: the
+        // held records are ours to replay. AFTER publishing, for the reason
+        // `init` states — a record raised during the drain reaches the sink
+        // directly rather than joining a ring nobody will drain again.
+        early::drain_with(&mut |record| sink.log(record));
+    }
+    installed
+}
+
+/// How many sinks [`add_sink`] has installed.
+#[must_use]
+pub fn added_sink_count() -> usize {
+    ADDED.len.load(Ordering::Acquire)
+}
+
+/// Hand `record` to every sink installed by [`add_sink`]. Returns how many
+/// saw it.
+fn deliver_to_added(record: &Record<'_>) -> usize {
+    let len = ADDED.len.load(Ordering::Acquire);
+    let base = ADDED.slots.get().cast::<Option<&'static dyn LogSink>>();
+    for idx in 0..len {
+        // SAFETY: `idx < len`, and the `Acquire` load above pairs with the
+        // `Release` store in `add_sink` that published slot `idx`. Slots below
+        // `len` are immutable for the rest of the program.
+        if let Some(sink) = unsafe { base.add(idx).read() } {
+            sink.log(record);
+        }
+    }
+    len
+}
+
+/// Whether [`__timestamp_ns`] can answer with a real clock.
+///
+/// `false` means every `Record::timestamp_ns` is `0` and anything DERIVED from
+/// the timestamp — the throttle windows above all of them — has no time base.
+/// Exposed so a wrapper can say so out loud instead of degrading quietly:
+/// without this, a throttled C call site looks identical whether it is
+/// rate-limiting or not.
+#[must_use]
+pub const fn timestamp_available() -> bool {
+    cfg!(feature = "platform-clock")
+}
+
 /// Current monotonic time for `Record::timestamp_ns` (issue #503).
 ///
 /// With the `platform-clock` feature this reads
@@ -465,8 +668,15 @@ fn dispatch_to_sinks(record: &Record<'_>) {
     if recursion_guard_check_and_set() {
         return;
     }
+    // phase-417 W4.d — the appendable list is walked whether or not `init`
+    // ran, and a record with at least one destination is NOT held.
+    let added = deliver_to_added(record);
     let ptr = SINKS_PTR.load(Ordering::Acquire);
     if ptr.is_null() {
+        if added > 0 {
+            recursion_guard_clear();
+            return;
+        }
         // Nothing installed yet — HOLD the record; `init` replays it into
         // whatever sinks the board chooses. See `early` for why this crate
         // does not reach for the platform sink itself: doing that (issue 0710)
@@ -491,8 +701,16 @@ fn dispatch_to_sinks(record: &Record<'_>) {
     recursion_guard_clear();
 }
 
-/// Flush every registered sink.
+/// Flush every registered sink, appended ones included.
 pub fn flush() {
+    let len = ADDED.len.load(Ordering::Acquire);
+    let base = ADDED.slots.get().cast::<Option<&'static dyn LogSink>>();
+    for idx in 0..len {
+        // SAFETY: same publication invariant as `deliver_to_added`.
+        if let Some(sink) = unsafe { base.add(idx).read() } {
+            sink.flush();
+        }
+    }
     let ptr = SINKS_PTR.load(Ordering::Acquire);
     if ptr.is_null() {
         return;

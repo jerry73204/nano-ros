@@ -2577,6 +2577,11 @@ pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> n
     );
 
     executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING;
+    // phase-417 W4.c — this loop owns its own iteration, so it must tell the
+    // executor: `enter_spin_loop` clears any stale cancel and raises the flag
+    // `nros_executor_is_spinning` reads. RFC-0019 — the loop keeps no bit of its
+    // own. Paired with `exit_spin_loop` on BOTH exits below.
+    get_executor(&mut executor_ref._opaque).enter_spin_loop();
 
     // Spin until shutdown, or until the SESSION dies persistently.
     //
@@ -2594,9 +2599,18 @@ pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> n
     // executor's `session_io_failures()` counts only genuine `drive_io` errors
     // (dead router, closed socket, expired lease) and resets on any successful
     // drive, so a benign idle leaves it at 0. Same threshold, correct signal.
-    while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+    // The cancel flag is the second exit, and it is the one `nros_executor_cancel`
+    // raises from a signal handler: `state` is only readable by whoever holds the
+    // struct, while the flag is what a `drive_io` blocked mid-poll is woken on.
+    while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING
+        && !get_executor(&mut executor_ref._opaque).is_halted()
+    {
         let ret = nros_executor_spin_some(executor, executor_ref.timeout_ns);
         if get_executor(&mut executor_ref._opaque).session_io_failures() >= SPIN_ERROR_TOLERANCE {
+            get_executor(&mut executor_ref._opaque).exit_spin_loop();
+            if executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+                executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
+            }
             return if ret != NROS_RET_OK {
                 ret
             } else {
@@ -2605,6 +2619,10 @@ pub unsafe extern "C" fn nros_executor_spin(executor: *mut nros_executor_t) -> n
         }
     }
 
+    get_executor(&mut executor_ref._opaque).exit_spin_loop();
+    if executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+        executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
+    }
     NROS_RET_OK
 }
 
@@ -2649,8 +2667,12 @@ pub unsafe extern "C" fn nros_executor_spin_period(
 
     executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING;
     executor_ref.invocation_time_ns = crate::platform::get_time_ns();
+    // phase-417 W4.c — see `nros_executor_spin`: one flag, owned by Rust.
+    get_executor(&mut executor_ref._opaque).enter_spin_loop();
 
-    while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+    while executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING
+        && !get_executor(&mut executor_ref._opaque).is_halted()
+    {
         // `period_ns` is an upper bound on how long `drive_io` will block.
         // The timer delta credited to spin_once is the *real* wall-clock
         // elapsed inside drive_io (measured via std::time::Instant when
@@ -2664,6 +2686,10 @@ pub unsafe extern "C" fn nros_executor_spin_period(
         // an idle tick against a live transport is expected while a publisher
         // is still discovering, and must not count toward the tolerance.
         if get_executor(&mut executor_ref._opaque).session_io_failures() >= SPIN_ERROR_TOLERANCE {
+            get_executor(&mut executor_ref._opaque).exit_spin_loop();
+            if executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+                executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
+            }
             return if ret != NROS_RET_OK {
                 ret
             } else {
@@ -2679,6 +2705,10 @@ pub unsafe extern "C" fn nros_executor_spin_period(
         }
     }
 
+    get_executor(&mut executor_ref._opaque).exit_spin_loop();
+    if executor_ref.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
+        executor_ref.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
+    }
     NROS_RET_OK
 }
 
@@ -2721,21 +2751,90 @@ pub unsafe extern "C" fn nros_executor_spin_one_period(
     NROS_RET_OK
 }
 
-/// Stop a spinning executor.
+/// Ask a spinning executor to stop — `rclcpp::Executor::cancel` /
+/// `rcl`'s context shutdown, phase-417 W4.c.
+///
+/// Renamed from `nros_executor_stop`, which survives as a deprecated
+/// `static inline` forwarder in `<nros/executor.h>`. Three of our own languages
+/// had three answers to "stop spinning"; `cancel` is ROS 2's.
+///
+/// # ADOPT-BOUNDED (RFC-0087)
+///
+/// `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it
+/// returns BEFORE spinning has actually stopped;
+/// [`nros_executor_is_spinning`] is the observable that tells you when it has.
+/// The boundary is one `spin_once` timeout wide (`nros_executor_set_timeout`).
+///
+/// It does NOT tear down the session: the executor stays initialised, keeps its
+/// entities, and can be spun again. `nros_executor_fini` is the other verb.
+///
+/// Safe to call from a signal handler or another thread.
 ///
 /// # Safety
 /// * `executor` must be a valid pointer
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_executor_stop(executor: *mut nros_executor_t) -> nros_ret_t {
+pub unsafe extern "C" fn nros_executor_cancel(executor: *mut nros_executor_t) -> nros_ret_t {
     validate_not_null!(executor);
 
     let executor = &mut *executor;
+
+    // RFC-0019 — the state lives in Rust. This raises the ONE cancel flag
+    // `nros_node::Executor` owns (which also wakes a `drive_io` blocked on its
+    // full timeout); the `state` transition below is the C ABI's own
+    // observable, not a second copy of the decision.
+    if executor.state != nros_executor_state_t::NROS_EXECUTOR_STATE_UNINITIALIZED
+        && executor.state != nros_executor_state_t::NROS_EXECUTOR_STATE_SHUTDOWN
+    {
+        get_executor(&mut executor._opaque).cancel();
+    }
 
     if executor.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SPINNING {
         executor.state = nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED;
     }
 
     NROS_RET_OK
+}
+
+/// Is a blocking spin (`nros_executor_spin` / `_spin_period`) running on this
+/// executor right now? phase-417 W4.c — `rclcpp::Executor::is_spinning`.
+///
+/// The C API has always MODELLED this (`NROS_EXECUTOR_STATE_SPINNING`) and
+/// never exported a way to ask, so a C caller could stop a spin but not observe
+/// that it had stopped — the second half of [`nros_executor_cancel`]'s envelope
+/// had no reader.
+///
+/// A DIFFERENT question from "was cancel requested": between `cancel()` and the
+/// loop's next poll boundary the request is in and the spin is still running.
+/// This answers the second, which is the one a caller waits on.
+///
+/// `false` for a null pointer — "no executor" is not spinning, and this is a
+/// predicate with no error channel.
+///
+/// # Safety
+/// * `executor` must be null or a valid pointer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_executor_is_spinning(executor: *const nros_executor_t) -> bool {
+    if executor.is_null() {
+        return false;
+    }
+
+    let executor = &*executor;
+
+    if executor.state == nros_executor_state_t::NROS_EXECUTOR_STATE_UNINITIALIZED
+        || executor.state == nros_executor_state_t::NROS_EXECUTOR_STATE_SHUTDOWN
+    {
+        return false;
+    }
+
+    // Read the Rust flag, not `state`. `state` is set to SPINNING before the
+    // loop is entered and cleared by `cancel` before the loop has observed it,
+    // so it answers "was a spin ASKED FOR"; the executor's own flag answers
+    // "is one RUNNING", which is what the envelope promises.
+    //
+    // The cast drops `const`: `get_executor` hands out `&mut CExecutor` because
+    // every other caller mutates through it. Nothing is mutated here.
+    let opaque = &raw const executor._opaque;
+    get_executor(&mut *opaque.cast_mut()).is_spinning()
 }
 
 /// Finalize an executor.

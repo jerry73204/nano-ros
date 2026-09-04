@@ -196,5 +196,113 @@
     "verdict": "gap",
     "bucket": "theirs-only",
     "why": "OUR LANGUAGES DISAGREE: rclrs's `log_debug!` / `log_info!` / `log_warn!` / `log_error!` / `log_fatal!`. We have the whole family -- `nros_log::{nros_trace, nros_debug, nros_info, nros_warn, nros_error, nros_fatal}!`, six to rclrs's five -- and the `nros` facade does not `pub use nros_log` or re-export a single macro, even though it already depends on the crate. So `use nros::prelude::*` gives a Rust user no way to log, while `#include <nros/nros.hpp>` gives a C++ user six macros; `examples/native/rust/logging/` has to depend on `nros-log` directly, and so does every call site following CLAUDE.md's issue-0589 rule. This is the gap to close first, because it is what makes `std::println!` -- fatal on Zephyr native_sim -- the path of least resistance for anyone using the facade. The names also differ (`nros_info!` vs `log_info!`) and W5 should settle that, but the missing re-export is the real finding, and it is why no matching ours-only row exists for a rename to point at. Phase 379 W3."
+  },
+  "cpp:Logger::Logger": {
+    "verdict": "divergence",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not."
+  },
+  "cpp:Logger::get_child": {
+    "verdict": "divergence",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not."
+  },
+  "c:log_add_sink": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_emit_at": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_emit_fmt_at": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_get_logger": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_sink_fn": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_throttle_admit": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:log_timestamp_available": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:logger_get_level": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:logger_get_name": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:logger_is_enabled": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "c:logger_set_level": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — the C logging surface, a thin FFI wrapper over `nros-log` (RFC-0019). rcl's counterpart is `rcutils_logging_*`, which the recorded rclc surface does not carry, so there is no upstream row to correlate against; the SHAPE follows rclcpp's `Logger` (named lookup, per-logger threshold, throttle) because that is the spelling a porting user writes. `nros_log_get_logger` is TOTAL: an exhausted arena answers the catch-all and logs a WARN saying so, rather than silently aliasing a name onto the default logger and moving the wrong threshold."
+  },
+  "rust:LogCrateLogger": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:LogSink::log": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Logger::dispatch": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Logger::is_enabled": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Logger::is_enabled_throttled": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Logger::level": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Logger::with_level": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:Severity": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s surface, now re-exported from the `nros` facade. It was reachable only as a crate dependency before, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write` — which is why `std::println!` was the path of least resistance from the facade, and that is FATAL on Zephyr native_sim (issue 0589: recursive `zvfs_write`, stack exhaustion, no message). rclrs has no counterpart for the sink and arena types; `Logger`/`Severity` mirror `rclcpp::Logger` in role."
+  },
+  "rust:dynamic_logger_capacity": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+  },
+  "rust:dynamic_logger_name_arena": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+  },
+  "rust:dynamic_loggers_in_use": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+  },
+  "rust:get_logger": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+  },
+  "rust:get_or_create_logger": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+  },
+  "rust:register_logger": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
   }
 }

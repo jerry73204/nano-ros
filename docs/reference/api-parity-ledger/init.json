@@ -133,5 +133,9 @@
   "c:support_init_rmw": {
     "verdict": "extension",
     "why": "`nros_support_init_named` plus a backend selector -- it names the RMW backend the session opens against. rclc/rclcpp have no counterpart because a ROS 2 desktop process selects its middleware with the `RMW_IMPLEMENTATION` environment variable, and an embedded image has no environment to read -- which is precisely how issue 1050 happened: the selector had an env rung and no baked one, so a PX4 module declaring `BACKENDS uorb` could not say so and the registry's first entry won. The hosted env rung (`$NROS_RMW`) still takes precedence, matching `RMW_IMPLEMENTATION`'s authority; this is the rung beneath it."
+  },
+  "rust:init": {
+    "verdict": "extension",
+    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
   }
 }
