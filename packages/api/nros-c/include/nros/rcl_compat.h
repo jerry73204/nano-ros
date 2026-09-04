@@ -2,7 +2,7 @@
  * @file rcl_compat.h
  * @brief What is LEFT of the rcl compat layer after phase-417 stage 6.
  *
- * RFC-0087 settled on 2026-09-04 that **the C API takes rcl's spellings**,
+ * RFC-0089 settled on 2026-09-04 that **the C API takes rcl's spellings**,
  * because the goal is drop-in replacement and a ported file's line is rcl's
  * line. The migration it prescribes is ALIAS first, REPLACE later. Stage 5 was
  * the alias step and this header held twelve `static inline` forwarders;
@@ -10,7 +10,7 @@
  * and were deleted** — see section 3 for the list and for where each one lives
  * now.
  *
- * That is RFC-0087's "dissolves by construction": a shim exists to bridge two
+ * That is RFC-0089's "dissolves by construction": a shim exists to bridge two
  * spellings, and when there is one spelling it has nothing to bridge. The
  * deletion is not a judgement call either — an identity `static inline` beside
  * the non-static declaration in `<nros/nros_generated.h>` is a hard
@@ -20,7 +20,7 @@
  *
  * TWO things, and neither is a spelling:
  *
- * 1. **The `RCL_RET_*` value MAPPING (section 1).** RFC-0087 forbids
+ * 1. **The `RCL_RET_*` value MAPPING (section 1).** RFC-0089 forbids
  *    renumbering `nros_ret_t` to rcl's values — that would silently flip the
  *    meaning of every stored return code across three FFI seams. So
  *    `RCL_RET_TIMEOUT` does not go away; it becomes the NAME of our constant,
@@ -87,7 +87,7 @@ RMW_RET_* and the VALUES differ. Include one."
  * `rcl/rcl/types.h:26-41`.)
  *
  * So this header MAPS the constants onto ours. It does NOT renumber
- * `nros_ret_t` — RFC-0087 records this as the one place where taking rcl's
+ * `nros_ret_t` — RFC-0089 records this as the one place where taking rcl's
  * spelling must not mean taking rcl's values, because a stored return code
  * crosses three FFI seams (C, C++, the Rust bindings) and renumbering would
  * flip the meaning of every one of them silently. A ported
@@ -164,7 +164,7 @@ typedef nros_ret_t rmw_ret_t;
  *
  *   (b) someone "fixes" the incompatibility by taking rcl's VALUES as well as
  *       its spelling — the second block asserts we did not. This is the
- *       mutation RFC-0087 names as forbidden, and without it the header would
+ *       mutation RFC-0089 names as forbidden, and without it the header would
  *       still compile after the change that breaks three FFI seams.
  */
 #if defined(__cplusplus) && __cplusplus >= 201103L
@@ -188,21 +188,21 @@ NROS_RCL_COMPAT_ASSERT(NROS_RET_NOT_INIT == -7,
 NROS_RCL_COMPAT_ASSERT(NROS_RET_UNSUPPORTED == -16,
                        "NROS_RET_UNSUPPORTED moved; rcl_compat.h's mapping is stale");
 
-/* (b) we took rcl's SPELLINGS and not its VALUES. RFC-0087: renumbering
+/* (b) we took rcl's SPELLINGS and not its VALUES. RFC-0089: renumbering
  *     nros_ret_t would silently flip every stored return code across the C,
  *     C++ and Rust FFI seams. OK is the sole code where the two agree. */
 NROS_RCL_COMPAT_ASSERT(RCL_RET_OK == 0, "RCL_RET_OK must be 0 -- the one value ours and rcl share");
 NROS_RCL_COMPAT_ASSERT(RCL_RET_ERROR != 1,
-                       "nros_ret_t was renumbered to rcl's values; see RFC-0087 -- MAP, never "
+                       "nros_ret_t was renumbered to rcl's values; see RFC-0089 -- MAP, never "
                        "renumber (three FFI seams store these)");
 NROS_RCL_COMPAT_ASSERT(RCL_RET_TIMEOUT != 2,
-                       "nros_ret_t was renumbered to rcl's values; see RFC-0087");
+                       "nros_ret_t was renumbered to rcl's values; see RFC-0089");
 NROS_RCL_COMPAT_ASSERT(RCL_RET_UNSUPPORTED != 3,
-                       "nros_ret_t was renumbered to rcl's values; see RFC-0087");
+                       "nros_ret_t was renumbered to rcl's values; see RFC-0089");
 NROS_RCL_COMPAT_ASSERT(RCL_RET_INVALID_ARGUMENT != 11,
-                       "nros_ret_t was renumbered to rcl's values; see RFC-0087");
+                       "nros_ret_t was renumbered to rcl's values; see RFC-0089");
 NROS_RCL_COMPAT_ASSERT(RCL_RET_NOT_INIT != 101,
-                       "nros_ret_t was renumbered to rcl's values; see RFC-0087");
+                       "nros_ret_t was renumbered to rcl's values; see RFC-0089");
 
 /* The type alias must be able to hold what upstream's `int32_t` holds. */
 NROS_RCL_COMPAT_ASSERT(sizeof(rcl_ret_t) == 4, "rcl_ret_t must be 32-bit, as upstream's rmw_ret_t");
@@ -267,7 +267,7 @@ typedef struct nros_support_t rclc_support_t;
  * `static inline rcl_get_zero_initialized_node` beside the non-static
  * declaration in `<nros/nros_generated.h>` is
  * `error: static declaration of 'rcl_get_zero_initialized_node' follows
- * non-static declaration`. They are deleted rather than argued away — RFC-0087
+ * non-static declaration`. They are deleted rather than argued away — RFC-0089
  * calls this "dissolving by construction", and it is the property that keeps a
  * compat layer from rotting into permanent debt.
  *
@@ -287,7 +287,7 @@ typedef struct nros_support_t rclc_support_t;
  *   rclc_node_init_default                         nros_generated.h (node.rs)  <-- REORDERED
  *
  * `rclc_node_init_default` is the one that moved arguments, and the rename and
- * the reorder landed TOGETHER on purpose. RFC-0087's corrected hazard note:
+ * the reorder landed TOGETHER on purpose. RFC-0089's corrected hazard note:
  *
  *     C   : warning: passing argument 1 of 'f' from incompatible pointer type
  *           ...even under -Wall -Wextra.
@@ -310,7 +310,7 @@ typedef struct nros_support_t rclc_support_t;
  *
  * Ours used to carry `callback` and `context` in two extra positions, and the
  * ledger attributed that to RFC-0041 and to a rule called
- * `executor-owns-no-entity-storage`. RFC-0087 checked both: RFC-0041's
+ * `executor-owns-no-entity-storage`. RFC-0089 checked both: RFC-0041's
  * normative content is the DISPATCH MODEL and says nothing about a binding
  * site, and `executor-owns-no-entity-storage` has zero occurrences in
  * `docs/design/` — it is a phrase the ledger invented and then cited ten
@@ -337,7 +337,7 @@ typedef struct nros_support_t rclc_support_t;
  * resolves the implementation at runtime — against our flat `type_name` /
  * `type_hash` / `serialized_size_max`. Adopting the name would claim a
  * dispatcher we do not have, and the "compiles and differs" that follows is
- * exactly what RFC-0087 forbids. It costs a ported call site nothing, because
+ * exactly what RFC-0089 forbids. It costs a ported call site nothing, because
  * the argument comes from OUR codegen either way: `ROSIDL_GET_MSG_TYPE_SUPPORT`
  * does not exist here, so a ported line that tries to produce one fails to
  * compile.
@@ -407,7 +407,7 @@ typedef struct nros_support_t rclc_support_t;
  *   `nros_client_take_response(client, buf, buf_len, size_t *out_len)`.
  *   Different arity, different argument order, different data. This is
  *   `PollingSubscription::take()`'s class exactly — a plausible name over an
- *   opposite data contract — and it is the reason RFC-0087 exists.
+ *   opposite data contract — and it is the reason RFC-0089 exists.
  * * `RCL_RET_BAD_ALLOC`, `RCL_RET_ALREADY_INIT`, `RCL_RET_*_INVALID`,
  *   `RCL_RET_*_TAKE_FAILED`, `RCL_RET_TIMER_CANCELED`, the wait-set codes —
  *   see the note above the constant block.
@@ -445,7 +445,7 @@ typedef struct nros_support_t rclc_support_t;
  *                                                      (`nros_generated.h:1774`)
  *
  * Ours delivers CDR BYTES; rclc delivers a typed message into storage the
- * caller supplied. That is RFC-0087's stage-5 item — "typed C subscription
+ * caller supplied. That is RFC-0089's stage-5 item — "typed C subscription
  * delivery needs an `add_subscription` variant that carries caller-owned
  * message storage through the FFI" — and it is Rust-side work, not a wrapper's.
  *

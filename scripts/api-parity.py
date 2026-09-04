@@ -20,7 +20,7 @@ does not correspond.
     scripts/api-parity.py --by-topic      # what is left, per stage
     scripts/api-parity.py --check         # fail on anything unledgered
     scripts/api-parity.py --check-ported  # ...including the compat-shim surface
-    scripts/api-parity.py --check --require-disposition   # RFC-0087's four
+    scripts/api-parity.py --check --require-disposition   # RFC-0089's four
     scripts/api-parity.py --refresh       # re-derive the ROS 2 side from source
     scripts/api-parity.py --self-test
 
@@ -76,7 +76,7 @@ each tier removed. `--include-internal` compares everything.
 
 The gate is not "no differences". It is "no UNEXPLAINED differences".
 
-# What a DISPOSITION means (RFC-0087, phase-417 W0.b)
+# What a DISPOSITION means (RFC-0089, phase-417 W0.b)
 
 A verdict says why WE differ. A disposition says what a PORTING USER GETS:
 `adopt`, `adopt-bounded`, `refuse-loud`, `absent`. It is optional today and
@@ -132,7 +132,7 @@ THEIR_RENAME_FIELDS = ("ours", "majority", "outlier")
 UPSTREAM_TOKENS = ("rcl", "rclcpp", "rclrs", "rclc", "rcl_interfaces",
                    "action_msgs", "lifecycle_msgs", "rosidl", "rmw", "REP-")
 
-# RFC-0087's four dispositions. A verdict says WHY we differ; a disposition says
+# RFC-0089's four dispositions. A verdict says WHY we differ; a disposition says
 # what a PORTING USER GETS, which is the only half a porting user can act on:
 #
 #   adopt          same name, same observable contract.
@@ -733,7 +733,7 @@ def validate_ledger(entries):
 def undisposed(entries):
     """`declined` rows that do not say what a porting user GETS.
 
-    RFC-0087's consequence for RFC-0036: a `declined` verdict with no
+    RFC-0089's consequence for RFC-0036: a `declined` verdict with no
     disposition does not say whether a ported program gets a compile error or a
     surprise, and that is the only thing a porting user needs to know.
 
@@ -1083,7 +1083,7 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
             missing = undisposed(ledger)
             if missing:
                 print(
-                    "\n%d `declined` ledger row(s) carry no disposition. RFC-0087: "
+                    "\n%d `declined` ledger row(s) carry no disposition. RFC-0089: "
                     "a decline that does not say what a porting user GETS is not "
                     "actionable. Add `\"disposition\"` -- one of: %s"
                     % (len(missing), ", ".join(DISPOSITIONS)),
@@ -1581,8 +1581,8 @@ def self_test():
           [("cpp", "ours-only", "Y")])
 
     # ---------------------------------------------------------------- W0.b
-    # RFC-0087's four dispositions.
-    check("the four dispositions are RFC-0087's",
+    # RFC-0089's four dispositions.
+    check("the four dispositions are RFC-0089's",
           set(DISPOSITIONS),
           {"adopt", "adopt-bounded", "refuse-loud", "absent"})
     for good in DISPOSITIONS:
@@ -1627,7 +1627,7 @@ def main():
                          "phase-417 W-M2 makes this the default")
     ap.add_argument("--require-disposition", action="store_true",
                     help="with --check, fail when a `declined` row carries no "
-                         "RFC-0087 disposition; phase-417 W-M2 makes this the default")
+                         "RFC-0089 disposition; phase-417 W-M2 makes this the default")
     ap.add_argument("--suggest-renames", action="store_true",
                     help="pair unmatched names by similarity (suggestions, never findings)")
     ap.add_argument("--include-internal", action="store_true",

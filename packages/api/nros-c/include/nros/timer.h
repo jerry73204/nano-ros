@@ -93,9 +93,9 @@ extern "C" {
 #endif
 
 /* ===================================================================
- * DEPRECATED spellings -- phase-417 stage 6 (RFC-0087, 2026-09-04)
+ * DEPRECATED spellings -- phase-417 stage 6 (RFC-0089, 2026-09-04)
  *
- * RFC-0087 settled that **the C API takes rcl's spellings**: the goal is
+ * RFC-0089 settled that **the C API takes rcl's spellings**: the goal is
  * drop-in replacement and a ported file's line is rcl's line. These names
  * are the pre-stage-6 `nros_` spellings, kept one release as
  * `NROS_DEPRECATED_MSG` `static inline` forwarders so an out-of-tree C node
@@ -108,7 +108,7 @@ extern "C" {
  * binary one -- an object file built against the pre-rename library must be
  * recompiled.
  *
- * `nros_ret_t`'s VALUES are unchanged. RFC-0087 records this as the one place
+ * `nros_ret_t`'s VALUES are unchanged. RFC-0089 records this as the one place
  * where taking rcl's spelling must not mean taking rcl's numbering; the
  * mapping lives in `<nros/rcl_compat.h>` and is the one part of that header
  * which does not dissolve.

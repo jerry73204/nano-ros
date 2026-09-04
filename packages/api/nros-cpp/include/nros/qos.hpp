@@ -461,11 +461,11 @@ constexpr nros_cpp_qos_t qos_to_ffi(const QoS& qos) {
 } // namespace nros
 
 // ============================================================================
-// rclcpp:: — the ROS 2 spelling of the QoS surface (RFC-0087 stage 6, step A)
+// rclcpp:: — the ROS 2 spelling of the QoS surface (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // Moved here from `nros/rclcpp_compat.hpp`, which no longer exists as a
-// separate surface: RFC-0087 §"Naming: replace, with alias as the migration
+// separate surface: RFC-0089 §"Naming: replace, with alias as the migration
 // step" makes the ROS 2 spelling a first-class name declared by the API header
 // that owns the concept. `nros::QoS` is unchanged and still the name every
 // in-tree caller writes; step B deprecates it.
@@ -505,7 +505,7 @@ struct is_qos_arg : ::std::is_base_of<::nros::QoS, typename ::std::decay<F>::typ
 
 } // namespace detail
 
-// --- Named QoS profiles (RFC-0087 W3.f) --------------------------------------
+// --- Named QoS profiles (RFC-0089 W3.f) --------------------------------------
 //
 // TRANSCRIBED from upstream field by field, not approximated. Two of these
 // shipped WRONG, which is the evidence for why the transcription is pinned by a
@@ -557,7 +557,7 @@ class ServicesQoS : public QoS {
 };
 
 /// `rmw_qos_profile_parameters` — KEEP_LAST(**1000**), RELIABLE, VOLATILE.
-/// ADOPT, at the corrected depth. This is one of RFC-0087's two live
+/// ADOPT, at the corrected depth. This is one of RFC-0089's two live
 /// inversions: it returned `QoS(10)`.
 class ParametersQoS : public QoS {
   public:

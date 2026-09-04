@@ -1,4 +1,4 @@
-// Compile regression for phase-417 stage 1 (RFC-0087) — the three "cheap
+// Compile regression for phase-417 stage 1 (RFC-0089) — the three "cheap
 // unblockers" that the first lines of nearly every ported rclcpp file need.
 //
 // W1.a  nested `SharedPtr` / `ConstSharedPtr` / `UniquePtr` on the entity
@@ -12,7 +12,7 @@
 //       `rclcpp::Node`, plus the `rclcpp::Time` / `Duration` / `Clock`
 //       aliases.
 //
-// None of this is behaviour — RFC-0087 §"Who implements an adopted name"
+// None of this is behaviour — RFC-0089 §"Who implements an adopted name"
 // allows aliases, forwarders and copying conversions in the wrapper and
 // nothing else. The header `-fsyntax-only` loop in `just check cpp` only
 // PARSES templates, so a nested alias inside a class template is never

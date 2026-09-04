@@ -3389,7 +3389,7 @@ fn typed_c_subscription_refused_decode_is_loud_and_undelivered() {
     assert_eq!(
         result.subscription_errors, 1,
         "a refused decode must be OBSERVABLE — silence here is exactly what \
-         RFC-0087 forbids"
+         RFC-0089 forbids"
     );
     assert!(
         result.any_errors(),

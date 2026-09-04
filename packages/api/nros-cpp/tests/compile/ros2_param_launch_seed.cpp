@@ -8,7 +8,7 @@
 // before any user code runs — so `declare_parameter` must adopt the seeded
 // value over the code default, exactly as `nros::ComponentNode` does for issue
 // 0745. Without it a launch parameter would be dead weight, which is the
-// "silently drops configuration" RFC-0087 requires to fail to compile.
+// "silently drops configuration" RFC-0089 requires to fail to compile.
 //
 // This TU exists because that branch is compiled by NO other probe: the rest of
 // `just check cpp` never defines the macro, so the adoption helper would ship

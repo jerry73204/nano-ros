@@ -535,7 +535,7 @@ static NO_CLOCK_REPORTED: AtomicBool = AtomicBool::new(false);
 /// `throttle_admits` sees an elapsed time that never grows and admits every
 /// record. That is the safe direction to fail — a throttle that silences is
 /// worse than one that does not throttle — but it is still not what the call
-/// site says, and RFC-0087 puts the burden on us to say so.
+/// site says, and RFC-0089 puts the burden on us to say so.
 fn warn_once_if_no_clock() {
     if nros_log::timestamp_available() {
         return;

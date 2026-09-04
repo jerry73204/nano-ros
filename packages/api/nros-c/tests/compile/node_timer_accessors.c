@@ -44,7 +44,7 @@ int main(void) {
      * ported `size_t id; rcl_node_get_domain_id(&node, &id);` would compile
      * and leave half of `id` uninitialised — the out-parameter type is
      * authored at the CALL SITE, which is what separates this from the
-     * typesupport handle RFC-0087 settled we keep. */
+     * typesupport handle RFC-0089 settled we keep. */
     nros_ret_t (*p_domain)(const struct nros_node_t*, uint32_t*) = nros_node_get_domain_id;
 
     /* Caller-owned buffer, not rcl's `const char *` return: we have no
@@ -56,7 +56,7 @@ int main(void) {
      * `allocator` and `is_service` are deliberately absent — the first
      * because there is no allocator, the second because it selects between
      * validators we do not ship, and an argument we ignore is the inert-
-     * parameter defect RFC-0087 is written to end. */
+     * parameter defect RFC-0089 is written to end. */
     nros_ret_t (*p_resolve)(const struct nros_node_t*, const char*, bool, char*, size_t) =
         nros_node_resolve_name;
 

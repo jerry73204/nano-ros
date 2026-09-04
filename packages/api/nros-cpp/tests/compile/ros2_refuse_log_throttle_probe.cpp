@@ -5,7 +5,7 @@
  * `RCLCPP_*` macro with `clock` and `period_ms` left UNEVALUATED. So a 1 Hz
  * throttle logged at loop rate — the exact opposite of what the call asks for —
  * and a side-effecting clock expression was dropped entirely. "Compiles and
- * differs", which RFC-0087 forbids.
+ * differs", which RFC-0089 forbids.
  *
  * There is no throttle on the C or C++ logging path. `nros-log` has one
  * Rust-side and re-exporting it is phase-417 W4.d; writing a second one in this

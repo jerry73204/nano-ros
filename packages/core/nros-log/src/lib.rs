@@ -391,7 +391,7 @@ pub fn get_logger(name: &str) -> &'static Logger {
 /// `set_level(get_logger("nav"), Debug)` over the lookup-only form would have
 /// moved the threshold of the catch-all logger that EVERY other unregistered
 /// name also resolves to. Same call, same types, different effect — precisely
-/// the compile-and-differ RFC-0087 forbids.
+/// the compile-and-differ RFC-0089 forbids.
 ///
 /// Storage is the bounded static arena in [`pool`], sized by the
 /// `dynamic-loggers-<N>` feature. Returns `None` — never a logger under the

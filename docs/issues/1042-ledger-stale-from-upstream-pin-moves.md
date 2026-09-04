@@ -62,7 +62,7 @@ coexist with its bucket.
 2. Gate the contradiction: `extension` may not sit on a row whose bucket is
    `same` or `theirs-only`; `declined` may not sit on `ours-only` UNLESS its
    disposition is `refuse-loud` (that exemption exists because a refusal is a
-   declaration — RFC-0087). Three of the four shapes are already known to occur.
+   declaration — RFC-0089). Three of the four shapes are already known to occur.
 3. Make `--refresh` name the rows it may have invalidated: any row whose `why`
    mentions a symbol or family the NEW surface contains and the OLD one did not.
    That is computable from the two surface files at refresh time, which is the

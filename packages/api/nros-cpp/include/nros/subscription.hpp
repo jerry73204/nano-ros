@@ -117,7 +117,7 @@ template <typename M> class Subscription {
     ///
     /// rclcpp indexes its entity types this way, and
     /// `rclcpp::Subscription<M>::SharedPtr member_;` is close to universal in
-    /// ported source. Ergonomics only (RFC-0087 §"Who implements an adopted
+    /// ported source. Ergonomics only (RFC-0089 §"Who implements an adopted
     /// name"): a spelling for `std::shared_ptr<Subscription<M>>`, no second code path.
     ///
     /// Present only where `<memory>` is — a freestanding target has no
@@ -855,7 +855,7 @@ Result Node::create_subscription_with_safety(Subscription<M>& out, const char* t
 } // namespace nros
 
 // ============================================================================
-// rclcpp::Subscription<M> (RFC-0087 stage 6, step A)
+// rclcpp::Subscription<M> (RFC-0089 stage 6, step A)
 // ============================================================================
 //
 // Moved here from `nros/rclcpp_compat.hpp`. The alias is the whole adoption:
