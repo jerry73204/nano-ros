@@ -1089,7 +1089,7 @@
   },
   "rust:EXECUTOR_VALUE_SIZE": {
     "verdict": "extension",
-    "why": "phase-417 W-M2 note: ledgered because `--require-disposition` armed the gate and this landed on main in parallel.\n\nSee `rust:EXECUTOR_SIZE`. A `size_of` export in `nros::sizes`, consumed by `nros-build-helpers` (`c.rs:152`, `cpp.rs:111`) to size the C and C++ opaque storage that holds an `Executor` BY VALUE. rclrs has no counterpart because it never hands an executor across an FFI boundary into caller-owned storage; ours must, and the number has to be a build-time fact rather than a guess, which is what the export makes it."
+    "why": "MERGED 2026-09-04 during the phase-417 rebase onto main, from two independent rows that both landed -- this branch's W-M2 note and main's own filing. JSON keeps the LAST, so one author's reasoning was being discarded silently. Both said `extension`; the prose is combined here and neither is lost.\n\nAn `export_size!` probe (`packages/api/nros/src/sizes.rs:109`), not a user-facing API: it publishes `size_of::<Executor>()` so the generated C++ header can hold an executor BY VALUE (`nros-build-helpers/src/cpp.rs:283` bakes it as `NROS_EXECUTOR_VALUE_SIZE`). rclcpp needs no such thing because it heap-allocates its executor; here the whole point is that there is no allocator, so the size has to cross from Rust to C++ at build time. This is the sizes-header mirror whose drift is its own recurring issue family (0088/0114/0122/0123/0245/0268) -- the constant is the mechanism, not an addition to the user surface.\n\nphase-417 W-M2 note: ledgered because `--require-disposition` armed the gate and this landed on main in parallel.\n\nSee `rust:EXECUTOR_SIZE`. A `size_of` export in `nros::sizes`, consumed by `nros-build-helpers` (`c.rs:152`, `cpp.rs:111`) to size the C and C++ opaque storage that holds an `Executor` BY VALUE. rclrs has no counterpart because it never hands an executor across an FFI boundary into caller-owned storage; ours must, and the number has to be a build-time fact rather than a guess, which is what the export makes it."
   },
   "cpp:SerializationFormat": {
     "verdict": "extension",
@@ -1238,7 +1238,7 @@
       "to": "nros::nros_debug"
     },
     "verdict": "rename",
-    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_debug`; we spell it `nros_debug`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0087's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
+    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_debug`; we spell it `nros_debug`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0089's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
   },
   "rust:nros_debug_throttle": {
     "provides": [
@@ -1261,7 +1261,7 @@
       "to": "nros::nros_error"
     },
     "verdict": "rename",
-    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_error`; we spell it `nros_error`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0087's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
+    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_error`; we spell it `nros_error`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0089's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
   },
   "rust:nros_error_throttle": {
     "provides": [
@@ -1284,7 +1284,7 @@
       "to": "nros::nros_fatal"
     },
     "verdict": "rename",
-    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_fatal`; we spell it `nros_fatal`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0087's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
+    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_fatal`; we spell it `nros_fatal`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0089's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
   },
   "rust:nros_fatal_throttle": {
     "provides": [
@@ -1307,7 +1307,7 @@
       "to": "nros::nros_info"
     },
     "verdict": "rename",
-    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_info`; we spell it `nros_info`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0087's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
+    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_info`; we spell it `nros_info`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0089's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
   },
   "rust:nros_info_throttle": {
     "provides": [
@@ -1342,7 +1342,7 @@
       "to": "nros::nros_warn"
     },
     "verdict": "rename",
-    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_warn`; we spell it `nros_warn`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0087's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
+    "why": "phase-417 W4.d — rclrs spells this `rclrs::log_warn`; we spell it `nros_warn`. Same capability, different name, so this is a RENAME and not the `extension` it was first filed as. rclrs's logging macros were overlooked because the correlator pairs on NAME and `log_info` never matched `nros_info`.\n\nNot yet executed. RFC-0089's end state is that we carry ROS 2's names, and the rename lands LAST -- after the shapes match -- because renaming first relabels a gap without closing one. The decision it is blocked on: rclrs says `log_info!`, rclcpp says `RCLCPP_INFO`, and C already ships `NROS_LOG_INFO`. Following each language's own upstream is defensible; one spelling for all three is not obviously right."
   },
   "rust:nros_warn_throttle": {
     "provides": [
