@@ -313,6 +313,25 @@ shape is uniform (`nros_node_init(&x, &y, "name", "/")`). So a regex codemod is
 honest here — but it must be a codemod that reorders, not a `sed s/old/new/`,
 and the two must not be run as separate passes.
 
+### Work items
+
+* **W-B1 [rust]** — flip `nros-log/deprecate-legacy-names`, then fix the 208
+  sites it names across 50 files. The flip comes FIRST because
+  `warnings = "deny"` makes it enumerate the work instead of a grep guessing at
+  it.
+* **W-B2 [c]** — the 43 deprecated C names across 206 sites / 40 files,
+  **including the `nros_node_init` reorder in the same pass**. Rename and
+  reorder must not be separate passes: the rename is what makes a missed
+  reorder fail to compile.
+* **W-B3 [cpp]** — `nros::` → `rclcpp::` across 645 sites / 119 files.
+* **W-B4 [docs]** — 57 files in `book/` and `docs/` naming an old spelling in
+  prose or a code block. No compiler checks these.
+* **W-B5 [retire]** — delete the 110 `NROS_DEPRECATED_MSG` forwarders across 12
+  headers, the five Rust forwarders, and the feature flag. Last, and only after
+  W-B1..4 are green.
+* **W-B6 [changelog]** — one entry, carrying phase-379 W7 step 4's two
+  warnings.
+
 ### Order, and why
 
 1. **Flip `nros-log/deprecate-legacy-names`.** The workspace sets
