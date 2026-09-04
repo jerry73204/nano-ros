@@ -264,7 +264,36 @@ inline Result spin(uint32_t duration_ms, int32_t poll_ms = 10) {
 // a freestanding toolchain ships a partial header, only the consumer's own
 // `NROS_CPP_STD` opt-in is a reliable signal. Issue 0112's class, one layer past
 // where step A caught it.
-#if defined(NROS_CPP_STD)
+// CORRECTED 2026-09-05. The `NROS_CPP_STD`-only gate above was measured on the
+// Zephyr lane and never on a plain hosted one, and NOTHING THAT SHIPS DEFINES
+// `NROS_CPP_STD`: it appears in no cmake module, no toolchain file, no build.rs
+// and no Kconfig -- only in docs and in `check.just`'s own probe TUs. So the
+// narrow gate did not merely tighten `<chrono>`; it removed `create_wall_timer`
+// and `Rate` from EVERY shipped configuration, including the hosted one, where
+// `examples/templates/cpp-port-minimal-publisher` calls `create_wall_timer` and
+// is phase-417's own acceptance criterion.
+//
+// The right predicate needs BOTH halves, because the two lanes fail
+// differently and neither test alone sees both:
+//
+//   * Zephyr / ThreadX-RV64 build `-nostdinc++` against a minimal libcpp that
+//     has no `<chrono>` at all, so `__has_include` answers FALSE and is exactly
+//     right there.
+//   * FreeRTOS armcm3 builds `-ffreestanding` WITHOUT `-nostdinc++`, so
+//     `__has_include(<chrono>)` answers TRUE against the host's own libstdc++
+//     -- which then refuses to be used, because GCC 13 gates
+//     `bits/requires_hosted.h` on `__STDC_HOSTED__` and `-ffreestanding` clears
+//     it. That is the "present but hollow" case, and `__STDC_HOSTED__` is
+//     precisely the flag that distinguishes it.
+//
+// `__STDC_HOSTED__` alone is still not enough -- CLAUDE.md's pitfall entry says
+// so, and it is right: a hosted compiler can run `-nostdinc++` against Zephyr's
+// minimal libcpp, where the macro is 1 and the header is absent. Neither test
+// covers both lanes; the conjunction does.
+//
+// `NROS_CPP_STD` stays as an explicit override for a consumer who knows better
+// than the probes, which is what the parity extractor and the docs use it for.
+#if defined(NROS_CPP_STD) || (defined(__STDC_HOSTED__) && __STDC_HOSTED__ && __has_include(<chrono>))
 #include <chrono>
 #define NROS_CPP_HAS_STD_CHRONO 1
 #endif
