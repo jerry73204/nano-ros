@@ -112,6 +112,47 @@ nothing. A deleted overload produces the migration at the point of failure:
 
 That costs one line and is the highest-leverage documentation in the design.
 
+## Where the refusal fires: the earliest point the defect is KNOWABLE
+
+`rclcpp::init(argc, argv)` forced this and it generalises.
+
+The rule says a contract that silently drops configuration must fail to compile.
+Applied literally to `init`, that means a `static_assert` on the two-argument
+overload — which rejects **every** caller, including the overwhelmingly common
+embedded one that forwards `main`'s argv and has no ROS arguments at all. It
+also makes upstream's own tutorial `main` unportable, which collides head-on
+with phase-417 stage 1's acceptance that the ported template be byte-identical
+to upstream. Two parts of this design cannot both hold under the literal
+reading.
+
+The resolution is that the rule's real requirement is **loudness**, and compile
+time is the earliest point loudness is *available* — not the only point it is
+permitted:
+
+> A refusal fires at the earliest point the defect is KNOWABLE. When the
+> signature or the type carries it, that is compile time and a `static_assert`
+> or `= delete` is correct. When only the VALUE carries it, that is the call,
+> and a loud abort naming the unsupported input is correct. Silence remains
+> forbidden at every point.
+
+So `init(argc, argv)` compiles, scans for `--ros-args`, and aborts naming the
+flag if it is present. A program with no ROS arguments is unaffected, because
+nothing was dropped; a program that passes them dies immediately instead of
+running for three hours on a remap that was never applied.
+
+**The predicate must be separately checkable, or this becomes a check nothing
+runs.** An abort inlined into `init` can only be observed by a process that then
+dies, which is the shape of a gate that quietly stops working. Ours is
+`constexpr` (`rclcpp_compat.hpp`, `detail::argv_has_ros_args`), so its cases are
+`static_assert`ed in the ordinary compile lane — including the two mutations
+that would silently stop it refusing: a null `argv` entry ending the scan early,
+and a prefix match treating `--ros-args-extra` as the flag. Both were
+mutation-tested and both fail their own named assertion.
+
+This is a refinement of the rule, not an exemption from it. A disposition of
+ADOPT-BOUNDED with a runtime refusal is still a promise that the contract never
+differs silently; it just makes the promise where the information exists.
+
 ## Who implements an adopted name
 
 RFC-0019 is Stable and says it plainly: **the Rust API is the source of truth;

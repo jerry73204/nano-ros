@@ -1122,5 +1122,13 @@
   "rust:now_us": {
     "verdict": "extension",
     "why": "monotonic time helpers on the executor's clock (`now`, `now_us`), the imperative counterpart of `Clock::now`. rclcpp reaches the same through `node->get_clock()->now()`, which we lack in C++ entirely (issue 0789)."
+  },
+  "cpp:Rate::Rate": {
+    "verdict": "divergence",
+    "why": "phase-417 W2.d — `rclcpp::Rate`/`WallRate` as a FORWARDER onto `nros::spin(remaining_ms, poll_ms)`, which DRIVES the executor. The obvious C++ class with its own sleep loop is RFC-0020 violation class 2 and what RFC-0021 forbids; same capability, only one admissible shape. ADOPT-BOUNDED: your callbacks RUN during the sleep, which they do not under a single-threaded rclcpp executor."
+  },
+  "cpp:Rate::period": {
+    "verdict": "divergence",
+    "why": "phase-417 W2.d — `rclcpp::Rate`/`WallRate` as a FORWARDER onto `nros::spin(remaining_ms, poll_ms)`, which DRIVES the executor. The obvious C++ class with its own sleep loop is RFC-0020 violation class 2 and what RFC-0021 forbids; same capability, only one admissible shape. ADOPT-BOUNDED: your callbacks RUN during the sleep, which they do not under a single-threaded rclcpp executor."
   }
 }

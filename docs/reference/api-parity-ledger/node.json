@@ -481,5 +481,29 @@
   "rust:register_node": {
     "verdict": "extension",
     "why": "machinery `nros::node!` expands into. Public because the macro resolves it through `::nros::`, not because a user writes it -- the module says so in its own first line (\"shared by metadata discovery and generated runtimes\"). rclrs has no counterpart because rclrs has no codegen step. Issue 0784: this should be `#[doc(hidden)]` as `__private_node_state_into_raw` already is."
+  },
+  "cpp:Node::initialized": {
+    "verdict": "extension",
+    "why": "phase-417 stage 0 — a member of the compat shim's own `rclcpp::Node`, visible since issue 1020 admitted that header. Ours-only by construction: it is the shim's machinery (`pump` drives the shim's callbacks, `nros_node` reaches the wrapped node, `parameters` is the escape hatch to the node-owned store), not a name rclcpp declares."
+  },
+  "cpp:Node::nros_node": {
+    "verdict": "extension",
+    "why": "phase-417 stage 0 — a member of the compat shim's own `rclcpp::Node`, visible since issue 1020 admitted that header. Ours-only by construction: it is the shim's machinery (`pump` drives the shim's callbacks, `nros_node` reaches the wrapped node, `parameters` is the escape hatch to the node-owned store), not a name rclcpp declares."
+  },
+  "cpp:Node::pump": {
+    "verdict": "extension",
+    "why": "phase-417 stage 0 — a member of the compat shim's own `rclcpp::Node`, visible since issue 1020 admitted that header. Ours-only by construction: it is the shim's machinery (`pump` drives the shim's callbacks, `nros_node` reaches the wrapped node, `parameters` is the escape hatch to the node-owned store), not a name rclcpp declares."
+  },
+  "cpp:NodeOptions::allocator": {
+    "verdict": "declined",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+  },
+  "cpp:NodeOptions::context": {
+    "verdict": "declined",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+  },
+  "cpp:NodeOptions::get_rcl_node_options": {
+    "verdict": "declined",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
   }
 }

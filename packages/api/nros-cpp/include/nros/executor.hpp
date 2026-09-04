@@ -345,20 +345,73 @@ class Executor {
     /// `exec.spin()` and it did not compile; reaching for `spin(ms)` instead
     /// silently returned early. The bounded form is now [`spin_for`].
     ///
-    /// Exit condition: [`shutdown`] on THIS executor (the executor-scoped
-    /// analogue of rclcpp exiting when its context is shut down) — typically
-    /// from a signal handler or another thread. Returns the first non-success
-    /// `spin_once` result, or success after a clean shutdown.
+    /// Exit condition: [`cancel`] on THIS executor — typically from a signal
+    /// handler or another thread, which is rclcpp's clean-shutdown idiom.
+    /// Returns the first non-success `spin_once` result, or success after a
+    /// clean cancel.
+    ///
+    /// phase-417 W4.c — the loop MOVED. It used to be right here, spelled
+    /// `while (initialized_)`, which made [`shutdown`] the only way out; and
+    /// `shutdown()` calls `nros_cpp_fini`, so a C++ node could not stop spinning
+    /// without tearing down the middleware and paying a full discovery round to
+    /// come back. Two things were wrong with that: the missing verb, and a
+    /// polling loop living in the wrapper (RFC-0020 violation class 2, the same
+    /// defect issue 0329 fixed for the BOUNDED form). Both are gone —
+    /// `nros_cpp_spin` is the loop, Rust-side, and this is a forwarder.
+    ///
+    /// A concurrent `shutdown()` is no longer the supported way to end a spin.
+    /// It never really was: it frees the executor the loop is polling. Say
+    /// `cancel()`, then `shutdown()` once `spin()` has returned.
     ///
     /// @param poll_ms  Individual spin_once timeout (default: 10ms).
     Result spin(int32_t poll_ms = 10) {
         if (!initialized_) return Result(ErrorCode::NotInitialized);
-        Result last = Result::success();
-        while (initialized_) {
-            last = Result(nros_cpp_spin_once(storage_, poll_ms));
-            if (!last.ok()) return last;
-        }
-        return last;
+        return Result(nros_cpp_spin(storage_, poll_ms));
+    }
+
+    /// Ask a running [`spin`] to stop, WITHOUT tearing down the session —
+    /// `rclcpp::Executor::cancel`. phase-417 W4.c.
+    ///
+    /// ADOPT-BOUNDED (RFC-0087): `cancel` sets a flag the spin loop observes at
+    /// the NEXT POLL BOUNDARY, so it returns BEFORE spinning has actually
+    /// stopped; [`is_spinning`] is the observable that tells you when it has.
+    /// The boundary is one `poll_ms` wide (the `spin()` argument), so the delay
+    /// is a duration you chose rather than an unknown. rclcpp's `cancel()` makes
+    /// the same "returns immediately" promise; naming the width is the part we
+    /// add.
+    ///
+    /// This is the verb a signal handler wants. [`shutdown`] is the other one
+    /// and still tears everything down: after `cancel()` the executor is still
+    /// `ok()`, still owns its publishers, subscriptions, services and clients,
+    /// and can be spun again with no rediscovery. Collapsing the two — which is
+    /// what a C++ node had to do before this existed — costs a full discovery
+    /// round on every mode change.
+    ///
+    /// Safe to call from another thread or a signal handler.
+    Result cancel() {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_executor_cancel(storage_));
+    }
+
+    /// Is a spin loop running on this executor right now? —
+    /// `rclcpp::Executor::is_spinning`. phase-417 W4.c.
+    ///
+    /// A DIFFERENT question from [`ok`], which answers "is this executor
+    /// INITIALISED" — an executor that has never spun is `ok()` and not
+    /// spinning, and one that has been cancelled mid-poll is both. Before this
+    /// existed, `ok()` was the closest thing on offer and it answered neither
+    /// half of the cancel envelope.
+    ///
+    /// This is the second half of [`cancel`]'s contract: poll it to learn when
+    /// the cancel has been ACTED on.
+    ///
+    /// `const` because it is a pure read, and a predicate a caller cannot ask of
+    /// a `const Executor&` is a predicate with an arbitrary restriction. The FFI
+    /// slot takes `void*` because every OTHER `nros_cpp_executor_*` entry point
+    /// mutates through it (see [`handle`]); this one does not, and the
+    /// `const_cast` is confined to that mismatch.
+    bool is_spinning() const {
+        return nros_cpp_executor_is_spinning(const_cast<uint8_t*>(storage_));
     }
 
     /// Spin for a bounded duration (blocking) — rclcpp's

@@ -64,6 +64,17 @@ early-records-0  = []
 early-records-8  = []
 early-records-16 = []
 
+# phase-417 W4.d — how many loggers `get_or_create_logger` may CREATE for names
+# nobody registered at compile time (`rclcpp::get_logger("x")`'s shape, and what
+# `nros_log_get_logger` in the C API needs). Same family shape and same reason
+# as `early-records-<N>`: static arenas, and a 64 KB MCU and a Linux host do not
+# want the same number. `dynamic-loggers-0` declines the arenas entirely and
+# leaves lookup-only behaviour, which is the right build for an image whose
+# loggers are all `static`. Else-branch default is 16.
+dynamic-loggers-0  = []
+dynamic-loggers-8  = []
+dynamic-loggers-32 = []
+
 buffer-size-128  = []
 buffer-size-256  = []
 buffer-size-512  = []

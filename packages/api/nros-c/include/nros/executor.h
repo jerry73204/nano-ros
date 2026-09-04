@@ -42,4 +42,41 @@
 #define nros_executor_register_time_triggered_dispatcher nros_executor_add_time_triggered_dispatcher
 #endif /* NROS_NO_DEPRECATED_EXECUTOR_REGISTER_ALIASES */
 
+/* ===================================================================
+ * phase-417 W4.c — `stop` -> `cancel`.
+ *
+ * Our own three languages gave three answers to "stop spinning without
+ * tearing down the session": C had `nros_executor_stop`, Rust had
+ * `Executor::halt`, and C++ had nothing at all. `cancel` is ROS 2's word
+ * (`rclcpp::Executor::cancel`, `rclpy.executors.Executor.cancel`) and is
+ * now the one all three carry, alongside `is_spinning` — the observable
+ * that says when a cancel has been ACTED on, which the C API modelled
+ * (`nros_executor_state_t`) but never exported.
+ *
+ * The forwarder is `NROS_DEPRECATED_MSG` `static inline`, the shape
+ * `nros/parameter.h` and `nros/subscription.h` established: an inline
+ * definition has no external linkage, so every translation unit may
+ * define it and none export it. `nros_executor_cancel` is the ONLY
+ * exported symbol — a SOURCE compatibility promise, not a binary one, so
+ * an object built against the pre-rename library must be recompiled.
+ *
+ * Define NROS_NO_DEPRECATED_EXECUTOR_STOP_ALIAS to compile without it,
+ * for a consumer whose build is `-Werror` and who wants the old name to
+ * be a hard error rather than a warning.
+ *
+ * Scheduled for removal; migrate.
+ * =================================================================== */
+
+#ifndef NROS_NO_DEPRECATED_EXECUTOR_STOP_ALIAS
+
+/* No `extern "C"` wrapper: a `static inline` has no external linkage, so it has
+ * no name to mangle. */
+NROS_DEPRECATED_MSG("nros_executor_stop() is deprecated; use nros_executor_cancel() "
+                    "(and nros_executor_is_spinning() to observe when it takes effect)")
+static inline nros_ret_t nros_executor_stop(struct nros_executor_t* executor) {
+    return nros_executor_cancel(executor);
+}
+
+#endif /* NROS_NO_DEPRECATED_EXECUTOR_STOP_ALIAS */
+
 #endif /* NROS_EXECUTOR_H */
