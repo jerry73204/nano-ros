@@ -232,9 +232,19 @@ pub unsafe extern "C" fn nros_subscription_init_with_qos(
 ) -> nros_ret_t {
     validate_not_null!(subscription, node, type_info, topic_name);
 
-    if callback.is_none() {
-        return NROS_RET_INVALID_ARGUMENT;
-    }
+    // phase-417 W5.a — a NULL callback is LEGAL, and it is the typed path's
+    // shape. `nros_executor_add_subscription_typed` reads neither
+    // `subscription->callback` nor `->context`: it carries its own deserialiser,
+    // the caller's message storage and the typed callback. Rejecting NULL forced
+    // a typed-only user to pass a raw callback that can never fire, which is a
+    // required argument with no meaning -- and it is also why
+    // `rclc_subscription_init_default` (4 args, no callback) could not be
+    // aliased onto ours (6 args) in `<nros/rcl_compat.h>`.
+    //
+    // The raw path is unchanged: it is `nros_executor_add_subscription` that
+    // dispatches through this field, and that entry point already treats an
+    // absent callback as nothing to dispatch.
+    let _ = &callback;
 
     let subscription = &mut *subscription;
     let node_ref = &*node;

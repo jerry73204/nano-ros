@@ -13,6 +13,7 @@ const TYPES_H: &str = r#"
 #ifndef NROS_TYPES_STUB_H
 #define NROS_TYPES_STUB_H
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 typedef struct { const char* type_name; const char* type_hash; size_t serialized_size_max; } nros_message_type_t;
 // Issue 0345 — the service emitter defines a `struct nros_service_type_t`
@@ -24,6 +25,46 @@ typedef struct nros_service_type_t {
 typedef int32_t nros_ret_t;
 struct nros_publisher_t;
 nros_ret_t nros_publish_raw(struct nros_publisher_t* p, const uint8_t* buf, size_t n);
+
+// phase-417 W5.e — the typed service/client glue the service pack now emits.
+// The stub grows with the surface the templates NAME; a stub that stops short
+// of it turns "the generated code is wrong" into "the stub is short", which is
+// the failure mode this comment exists to prevent.
+#define NROS_RET_OK 0
+#define NROS_RET_ERROR -1
+#define NROS_RET_INVALID_ARGUMENT -3
+#define NROS_RET_TRY_AGAIN -14
+
+#define NROS_SERVICE_TYPED_OK 0
+#define NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE -1
+#define NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE -2
+#define NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE -3
+#define NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE -4
+#define NROS_SERVICE_TYPED_ERR_NO_CALLBACK -5
+
+struct nros_node_t;
+struct nros_service_t;
+struct nros_client_t;
+
+typedef bool (*nros_service_callback_t)(const uint8_t* request_data, size_t request_len,
+                                        uint8_t* response_data, size_t response_capacity,
+                                        size_t* response_len, void* context);
+typedef void (*nros_response_callback_t)(const uint8_t* response, size_t response_len,
+                                         void* context);
+
+void nros_service_typed_report_error(int32_t error, const char* type_name);
+nros_ret_t nros_service_init(struct nros_service_t* service, const struct nros_node_t* node,
+                             const struct nros_service_type_t* type_info, const char* service_name,
+                             nros_service_callback_t callback, void* context);
+nros_ret_t nros_client_set_response_callback(struct nros_client_t* client,
+                                             nros_response_callback_t callback, void* context);
+nros_ret_t nros_client_send_request_async(struct nros_client_t* client,
+                                          const uint8_t* request_data, size_t request_len);
+nros_ret_t nros_client_take_response(struct nros_client_t* client, uint8_t* response_data,
+                                     size_t response_capacity, size_t* response_len);
+nros_ret_t nros_client_call(struct nros_client_t* client, const uint8_t* request_data,
+                            size_t request_len, uint8_t* response_data, size_t response_capacity,
+                            size_t* response_len);
 #endif
 "#;
 
@@ -235,7 +276,12 @@ fn generated_borrowed_c_service_compiles() {
     fs::write(nros.join("types.h"), TYPES_H).unwrap();
     fs::write(nros.join("cdr.h"), CDR_H).unwrap();
     fs::write(nros.join("platform.h"), PLATFORM_H).unwrap();
-    fs::write(nros.join("borrowed.h"), BORROWED_H).unwrap();
+    // The pack emits `#include <nros/view.h>` (issue 0346 renamed the header
+    // `borrowed.h` -> `view.h`); this stub kept the old NAME, so the test had
+    // been failing on a missing include ever since — invisibly, because it is
+    // `#[ignore]`d and no lane runs `--ignored` (issue 0328, the same blind
+    // spot the DHEADER note above records).
+    fs::write(nros.join("view.h"), BORROWED_H).unwrap();
     fs::write(tmp.path().join(&pkg.header_name), &pkg.header).unwrap();
     let c_path = tmp.path().join(&pkg.source_name);
     fs::write(&c_path, &pkg.source).unwrap();

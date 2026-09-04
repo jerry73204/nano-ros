@@ -15,8 +15,9 @@ use super::{
     triple_buffer::TripleBuffer,
     types::{
         InvocationMode, NodeError, RawAcceptedCallback, RawCancelCallback, RawFeedbackCallback,
-        RawGoalCallback, RawGoalResponseCallback, RawResponseCallback, RawResultCallback,
-        RawServiceCallback, RawSubscriptionCallback, RawSubscriptionInfoCallback,
+        RawGoalCallback, RawGoalResponseCallback, RawMessageDeserializeFn, RawResponseCallback,
+        RawResultCallback, RawServiceCallback, RawSubscriptionCallback,
+        RawSubscriptionInfoCallback, TypedSubscriptionCallback,
     },
 };
 use crate::session;
@@ -1583,6 +1584,184 @@ pub(crate) unsafe fn sub_buffered_raw_c_try_process(
 /// `ptr` must point to a valid `SubBufferedRawCEntry`.
 pub(crate) unsafe fn sub_buffered_raw_c_has_data(ptr: *const u8) -> bool {
     let entry = unsafe { &*(ptr as *const SubBufferedRawCEntry) };
+    entry.handle.has_data() || entry.buffer.has_data()
+}
+
+// ============================================================================
+// phase-417 W5.a — TYPED C subscription delivery (caller-owned storage)
+// ============================================================================
+
+/// Buffered subscription entry that deserialises into CALLER-OWNED storage
+/// before dispatching (phase-417 W5.a, RFC-0087 stage 5).
+///
+/// Structurally [`SubBufferedRawCEntry`] plus two words: the caller's `msg`
+/// pointer and the erased deserialiser for its type. Deliberately the same
+/// buffering machinery — a typed subscription is a raw one with one extra step
+/// between the ring and the callback, not a second arena and not a second
+/// receive path.
+///
+/// `msg` is not owned here and is not dropped: it is the caller's storage,
+/// which is exactly what makes typed delivery possible with no allocator (the
+/// property rclc has and the C ledger wrongly claimed rclc lacked).
+#[repr(C)]
+pub(crate) struct SubBufferedTypedCEntry {
+    pub(crate) handle: session::RmwSubscriber,
+    pub(crate) buffer: BufferStrategy,
+    /// Caller-owned message storage. Overwritten on every dispatch.
+    pub(crate) msg: *mut core::ffi::c_void,
+    pub(crate) deserialize: RawMessageDeserializeFn,
+    pub(crate) callback: TypedSubscriptionCallback,
+    pub(crate) context: *mut core::ffi::c_void,
+}
+
+/// Drain helper for typed buffered entries — the raw one, over the typed entry.
+///
+/// Issue 0737's rule applies unchanged: a transport ERROR is not "no data", so
+/// it propagates instead of being flattened into an empty take.
+unsafe fn drain_into_buffer_typed_c(
+    entry: &mut SubBufferedTypedCEntry,
+) -> Result<(), TransportError> {
+    match &entry.buffer {
+        BufferStrategy::Triple(tb) => {
+            let slot = tb.write_slot();
+            if let Some(len) = entry.handle.take_serialized(slot)? {
+                tb.writer_publish(len);
+            }
+        }
+        BufferStrategy::Ring(ring) => {
+            while let Some(slot) = ring.try_push() {
+                match entry.handle.take_serialized(slot)? {
+                    Some(len) => ring.commit_push(len),
+                    None => break,
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Deserialise one sample into the caller's storage and dispatch.
+///
+/// Returns `false` when the deserialiser refused the sample. The callback is
+/// NOT invoked in that case — a caller that read `msg` after a failed decode
+/// would be reading the previous message, or an `_init` default, under the
+/// impression it was the one that just arrived. That is precisely the
+/// "compile and differ" RFC-0087 forbids, so the failure costs the dispatch.
+///
+/// # Safety
+/// `entry` must be a live typed entry; `data`/`len` a readable CDR sample.
+unsafe fn typed_dispatch_one(
+    entry: &SubBufferedTypedCEntry,
+    data: *const u8,
+    len: usize,
+    desc_idx: u8,
+) -> bool {
+    let rc = unsafe { (entry.deserialize)(entry.msg, data, len) };
+    if rc != 0 {
+        report_typed_deserialize_failure(rc, len);
+        return false;
+    }
+    trace_cb_start(desc_idx);
+    unsafe { (entry.callback)(entry.msg as *const core::ffi::c_void, entry.context) };
+    trace_cb_end(desc_idx);
+    true
+}
+
+/// Count of samples dropped because the caller's deserialiser refused them.
+/// A static for the reason [`DROPPED_TAKES`] is one.
+static TYPED_DESERIALIZE_FAILURES: portable_atomic::AtomicU32 = portable_atomic::AtomicU32::new(0);
+
+/// Report a refused decode: first, then every 64th.
+///
+/// Rate-limited for the reason [`report_dropped_take`] is — a 40-participant
+/// graph must not turn one type mismatch into a log flood (issue 0371's shape).
+/// `nros_log`, never stdio (issue 0589), so this reaches a `no_std` image.
+///
+/// The single most likely cause is the one this message names first: the
+/// generated struct's inline capacity is smaller than the sample. Both
+/// `nros_cdr_read_string` (`str_len > max_len`) and the bounded-sequence arm
+/// (`len > capacity`) FAIL rather than truncate, so an oversized message
+/// arrives here as a refusal and never as a short message the callback cannot
+/// tell from a real one.
+#[cold]
+fn report_typed_deserialize_failure(rc: i32, len: usize) {
+    let n = TYPED_DESERIALIZE_FAILURES.fetch_add(1, portable_atomic::Ordering::Relaxed);
+    if n != 0 && !n.is_multiple_of(64) {
+        return;
+    }
+    nros_log::nros_error!(
+        nros_log::get_logger("nros"),
+        "typed subscription DROPPED a {len}-byte sample: deserialize returned \
+         {rc}. The callback was NOT invoked and the storage still holds the \
+         previous message. Usual cause: the sample does not fit the message \
+         struct (a string/sequence longer than its declared bound) or the topic \
+         carries a different type. Dropped {} so far (phase-417 W5.a)",
+        n + 1
+    );
+}
+
+/// Test-only accessor for [`TYPED_DESERIALIZE_FAILURES`].
+///
+/// The cfg MATCHES `mod tests`' own (`executor/mod.rs:95`), not a bare
+/// `#[cfg(test)]`: the test module is `not(feature = "rmw-cffi")` too, so under
+/// `test + rmw-cffi` a bare gate leaves this compiled with its only caller
+/// gone, and `-D warnings` turns that into a build failure rather than a lint.
+/// An accessor's gate has to be the gate of the thing that reads it.
+#[cfg(all(test, not(feature = "rmw-cffi")))]
+pub(crate) fn typed_deserialize_failures() -> u32 {
+    TYPED_DESERIALIZE_FAILURES.load(portable_atomic::Ordering::Relaxed)
+}
+
+/// Dispatch for typed C subscriptions.
+///
+/// # Safety
+/// `ptr` must point to a valid, aligned [`SubBufferedTypedCEntry`].
+pub(crate) unsafe fn sub_buffered_typed_c_try_process(
+    ptr: *mut u8,
+    _delta_us: u64,
+    desc_idx: u8,
+) -> Result<bool, TransportError> {
+    let entry = unsafe { &mut *(ptr as *mut SubBufferedTypedCEntry) };
+
+    unsafe { drain_into_buffer_typed_c(entry)? };
+
+    match &entry.buffer {
+        BufferStrategy::Triple(tb) => match tb.reader_acquire() {
+            Some((data, len)) => {
+                if unsafe { typed_dispatch_one(entry, data.as_ptr(), len, desc_idx) } {
+                    Ok(true)
+                } else {
+                    Err(TransportError::DeserializationError)
+                }
+            }
+            None => Ok(false),
+        },
+        // A refused sample ENDS the drain and is reported, rather than being
+        // skipped so the loop can keep going: `try_process` carries one verdict
+        // per call, and a `Ok(true)` that also swallowed a decode failure would
+        // never reach `subscription_errors`. The samples still queued behind it
+        // are dispatched on the next spin — the ring is not cleared.
+        BufferStrategy::Ring(ring) => {
+            let mut did_work = false;
+            while let Some((data, len)) = ring.try_pop() {
+                let ok = unsafe { typed_dispatch_one(entry, data.as_ptr(), len, desc_idx) };
+                ring.commit_pop();
+                if !ok {
+                    return Err(TransportError::DeserializationError);
+                }
+                did_work = true;
+            }
+            Ok(did_work)
+        }
+    }
+}
+
+/// Readiness check for typed C subscriptions.
+///
+/// # Safety
+/// `ptr` must point to a valid [`SubBufferedTypedCEntry`].
+pub(crate) unsafe fn sub_buffered_typed_c_has_data(ptr: *const u8) -> bool {
+    let entry = unsafe { &*(ptr as *const SubBufferedTypedCEntry) };
     entry.handle.has_data() || entry.buffer.has_data()
 }
 

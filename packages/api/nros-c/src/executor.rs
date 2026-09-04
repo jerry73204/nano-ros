@@ -1495,6 +1495,251 @@ pub unsafe extern "C" fn nros_executor_add_subscription(
     }
 }
 
+/// phase-417 W5.a — the deserialiser handed to
+/// [`nros_executor_add_subscription_typed`].
+///
+/// Writes the CDR bytes at `buffer[..buffer_size]` into `msg`, which is storage
+/// the CALLER owns. Returns `0` on success, non-zero on failure. This is the
+/// type-erased form of the generated `<Msg>_deserialize`, which already has
+/// exactly this contract; generated headers emit a `<Msg>_deserialize_erased`
+/// with this signature so no call goes through a cast function pointer.
+pub type nros_message_deserialize_fn_t = Option<
+    unsafe extern "C" fn(msg: *mut core::ffi::c_void, buffer: *const u8, buffer_size: usize) -> i32,
+>;
+
+/// phase-417 W5.a — a subscription callback that receives the DESERIALISED
+/// message, the shape rclc delivers
+/// (`rclc_subscription_callback_with_context_t`).
+///
+/// `msg` is the caller's own storage, populated by this subscription's
+/// [`nros_message_deserialize_fn_t`] immediately before the call. It is valid
+/// for the duration of the call and is overwritten by the next dispatch — copy
+/// out anything retained.
+///
+/// The `context` parameter is why this is the analog of rclc's
+/// *with-context* callback rather than its bare `void (*)(const void *)`: C has
+/// no closures and every other callback in this API already carries one.
+pub type nros_typed_subscription_callback_t =
+    Option<unsafe extern "C" fn(msg: *const core::ffi::c_void, context: *mut core::ffi::c_void)>;
+
+/// phase-417 W5.a (RFC-0087 stage 5) — add a subscription that delivers a
+/// **deserialised message** into storage the CALLER owns.
+///
+/// The rclc-shaped registration:
+///
+/// ```c
+/// rclc_executor_add_subscription(&exec, &sub, &msg, &cb, ON_NEW_DATA);
+/// rclc_executor_add_subscription_with_context(&exec, &sub, &msg, &cb, &ctx, ON_NEW_DATA);
+/// nros_executor_add_subscription_typed(&exec, &sub, &msg, MyMsg_deserialize_erased,
+///                                      &cb, &ctx, NROS_EXECUTOR_ON_NEW_DATA);
+/// ```
+///
+/// One argument more than rclc's, and it is the only one: `nros_message_type_t`
+/// carries a type NAME and a type HASH and no deserialiser, so the function
+/// that writes this type into `msg` has to arrive from somewhere. Generated
+/// headers collapse it away, so a ported line is rclc's six arguments in rclc's
+/// order:
+/// `MyMsg_executor_add_subscription(&exec, &sub, &msg, &cb, &ctx, NROS_EXECUTOR_ON_NEW_DATA)`.
+///
+/// The CONTEXT-LESS `rclc_executor_add_subscription` (a `void (*)(const void*)`
+/// callback) is deliberately absent: adapting it needs a trampoline that
+/// remembers the original function pointer, and state in the wrapper is
+/// RFC-0019/0020's violation rather than an ergonomic. `nros/rcl_compat.h`
+/// records the same refusal.
+///
+/// **No allocator is involved, and none is needed.** The caller owning the
+/// storage IS the mechanism — the same one rclc uses. The C ledger recorded our
+/// byte-oriented delivery as forced by "no allocator"; the compared surface
+/// operates under the same constraint, so the stated reason was refuted by the
+/// thing it was compared against (issue 1022, W-C3).
+///
+/// The byte-oriented [`nros_executor_add_subscription`] is untouched and stays.
+/// This is additive; a raw subscriber is a legitimate thing to want.
+///
+/// # What the callback sees when decoding fails
+/// **Nothing — it is not called.** A non-zero return from `deserialize` drops
+/// the sample, leaves `msg` as it was, counts a `subscription_errors` in the
+/// spin result, and emits a rate-limited `nros_log` error naming the sample
+/// length and the return code. Dispatching anyway would hand the callback the
+/// PREVIOUS message under the impression it was the new one, which is exactly
+/// the "compile and differ" RFC-0087 forbids.
+///
+/// A message too large for the caller's storage arrives here as that same
+/// failure and never as a truncation: a bounded string whose wire length
+/// exceeds its declared capacity fails in `nros_cdr_read_string`
+/// (`str_len > max_len`), and a bounded sequence fails on
+/// `len > capacity` — both return `-1` rather than writing a short value.
+///
+/// # The subscription's own callback and context are not used on this path
+/// `subscription->callback` and `subscription->context` (given to
+/// `nros_subscription_init`) belong to the RAW registration and are **not read
+/// here**: the typed callback and its `context` are supplied at registration,
+/// exactly as rclc's `rclc_executor_add_subscription_with_context` does. Taking
+/// the context from two places would be two sources for one value and therefore
+/// a place for them to disagree.
+///
+/// What IS read from the subscription is what describes the ENTITY — topic,
+/// type name, type hash, QoS, node binding, and the scheduling context
+/// requested via `nros_subscription_init_with_options`.
+///
+/// `nros_subscription_init` currently rejects a NULL callback, so a typed-only
+/// user must still pass one that never fires. That belongs to
+/// `nros/subscription.h`'s owner, not here; see the W5.a report.
+///
+/// # Safety
+/// * `executor` and `subscription` must be valid, initialised objects.
+/// * `msg` must point to writable storage of the type `deserialize` writes, and
+///   must stay valid for as long as the subscription is registered. Nothing
+///   here allocates it, copies it, or frees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_executor_add_subscription_typed(
+    executor: *mut nros_executor_t,
+    subscription: *mut nros_subscription_t,
+    msg: *mut core::ffi::c_void,
+    deserialize: nros_message_deserialize_fn_t,
+    callback: nros_typed_subscription_callback_t,
+    context: *mut core::ffi::c_void,
+    invocation: nros_executor_handle_invocation_t,
+) -> nros_ret_t {
+    nros_executor_add_subscription_typed_sized(
+        executor,
+        subscription,
+        msg,
+        deserialize,
+        callback,
+        context,
+        invocation,
+        0,
+    )
+}
+
+/// phase-417 W5.a — [`nros_executor_add_subscription_typed`] with the
+/// receive-buffer hint stated by the caller.
+///
+/// `rx_bytes` is the same hint the raw path takes (issue 0896 / phase-403 W5):
+/// the bytes this subscription expects to receive, sizing BOTH the backend's
+/// payload size class and the executor's arena slot. `0` means "this caller
+/// states nothing" and falls back to the image default — never a claim of zero
+/// bytes. A typed caller normally HAS the number, because its message type
+/// computes one (`<Msg>_RX_MAX_SERIALIZED_SIZE`), which is why the generated
+/// macro passes it and the plain form above exists only for a type with no
+/// bound.
+///
+/// # Safety
+/// See [`nros_executor_add_subscription_typed`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_executor_add_subscription_typed_sized(
+    executor: *mut nros_executor_t,
+    subscription: *mut nros_subscription_t,
+    msg: *mut core::ffi::c_void,
+    deserialize: nros_message_deserialize_fn_t,
+    callback: nros_typed_subscription_callback_t,
+    context: *mut core::ffi::c_void,
+    invocation: nros_executor_handle_invocation_t,
+    rx_bytes: u32,
+) -> nros_ret_t {
+    validate_not_null!(executor, subscription, msg);
+
+    let (Some(deserialize_fn), Some(callback_fn)) = (deserialize, callback) else {
+        return NROS_RET_INVALID_ARGUMENT;
+    };
+    let Some(msg_nn) = core::ptr::NonNull::new(msg) else {
+        return NROS_RET_INVALID_ARGUMENT;
+    };
+
+    let executor = &mut *executor;
+    let subscription_ref = &*subscription;
+
+    validate_state!(
+        executor,
+        nros_executor_state_t::NROS_EXECUTOR_STATE_INITIALIZED
+    );
+    validate_state!(
+        subscription_ref,
+        nros_subscription_state_t::NROS_SUBSCRIPTION_STATE_INITIALIZED
+    );
+
+    if executor.handle_count >= executor.max_handles {
+        return NROS_RET_FULL;
+    }
+
+    {
+        let rust_exec = get_executor(&mut executor._opaque);
+
+        let topic_str = core::str::from_utf8_unchecked(
+            &subscription_ref.topic_name[..subscription_ref.topic_name_len],
+        );
+        let type_str = core::str::from_utf8_unchecked(
+            &subscription_ref.type_name[..subscription_ref.type_name_len],
+        );
+        let type_hash_str = core::str::from_utf8_unchecked(
+            &subscription_ref.type_hash[..subscription_ref.type_hash_len],
+        );
+
+        let qos = subscription_ref.get_qos_settings();
+
+        set_executor_node_identity(rust_exec, subscription_ref.node);
+        // Phase 305 W3 (issue 0255) — `~`/relative names + launch remaps, the
+        // same resolution the raw path does. Doing it here rather than letting
+        // the typed path skip it is what keeps the two registrations from being
+        // two different name-resolution answers.
+        let __resolved_name = match rust_exec.resolve_entity_name(topic_str) {
+            Ok(r) => r,
+            Err(()) => return NROS_RET_INVALID_ARGUMENT,
+        };
+        let topic_str = __resolved_name.as_str();
+
+        let node_raw_id = if !subscription_ref.node.is_bound() {
+            0
+        } else {
+            subscription_ref.node.node_id
+        };
+        let node_id =
+            (node_raw_id != 0).then(|| nros_node::executor::NodeId::from_raw(node_raw_id));
+
+        let result = rust_exec.add_arena_subscription_c_typed_callback::<MESSAGE_BUFFER_SIZE>(
+            node_id,
+            topic_str,
+            type_str,
+            type_hash_str,
+            qos,
+            msg_nn,
+            deserialize_fn,
+            callback_fn,
+            context,
+            None,
+            rx_bytes as usize,
+        );
+
+        match result {
+            Ok(handle_id) => {
+                let sub_mut = &mut *subscription;
+                sub_mut.set_handle_id(handle_id);
+
+                if invocation == nros_executor_handle_invocation_t::NROS_EXECUTOR_ALWAYS {
+                    rust_exec.set_invocation(handle_id, nros_node::InvocationMode::Always);
+                }
+
+                let requested_sc = sub_mut.sched_context_id;
+                if requested_sc != 0 {
+                    let sc_id = nros_node::executor::sched_context::SchedContextId(requested_sc);
+                    if rust_exec
+                        .bind_handle_to_sched_context(handle_id, sc_id)
+                        .is_err()
+                    {
+                        return NROS_RET_INVALID_ARGUMENT;
+                    }
+                }
+
+                executor.handle_count += 1;
+                executor.subscription_count += 1;
+                NROS_RET_OK
+            }
+            Err(_) => NROS_RET_ERROR,
+        }
+    }
+}
+
 /// Phase 189.M3.4 — register a raw subscription whose callback also receives
 /// the sample's wire **attachment** (the C analog of the Rust
 /// `node.subscription(t).generic(..).message_info()` builder; rclc's

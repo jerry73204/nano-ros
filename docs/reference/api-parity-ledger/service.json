@@ -1222,5 +1222,9 @@
     "verdict": "declined",
     "disposition": "refuse-loud",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0087 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+  },
+  "c:service_typed_report_error": {
+    "verdict": "extension",
+    "why": "phase-417 W5.e — the loud half of typed service delivery. A handler returning `false` makes the executor send nothing (`arena.rs:2559`), which the peer cannot distinguish from a reply that has not arrived -- it just times out. So the refusal has to say so, and the diagnostic lives in Rust because the logger is Rust's: a second formatter in a generated header would be a second implementation (RFC-0019). rclc has no counterpart because its service callback returns void and cannot refuse at all."
   }
 }

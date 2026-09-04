@@ -11,10 +11,16 @@
  * take requests with nros_service_take_request_raw(), and send responses
  * with nros_service_send_response_raw().
  *
- * (nros_service_take_request() is the unimplemented twin of
- * nros_service_take_request_raw() and returns `NROS_RET_NOT_INIT`; which
- * of the two spellings survives is the `c:take_request` question in the
- * phase-379 parity ledger.)
+ * For a TYPED handler — a deserialised request in, a typed response out,
+ * with no hand-written CDR — the generated per-service header emits
+ * `<Srv>_service_handler_t`, `<Srv>_service_handler_init()` and
+ * `<Srv>_service_init()`; see `packs/c/service.h.jinja` (phase-417 W5.e).
+ * Those are `static inline` glue over the same entry points documented
+ * here, so the two paths cannot diverge.
+ *
+ * (The `c:take_request` question in the phase-379 parity ledger is
+ * ANSWERED: `nros_service_take_request()` is now a deprecated forwarder
+ * onto `nros_service_take_request_raw()` — see below.)
  */
 
 #ifndef NROS_SERVICE_H
@@ -82,6 +88,46 @@ static inline int32_t nros_service_try_recv_request_raw(struct nros_service_t* s
                                                         uint8_t* buf, size_t buf_len,
                                                         int64_t* sequence_number) {
     return nros_service_take_request_raw(service, buf, buf_len, sequence_number);
+}
+
+/* phase-417 W5.e (2026-09-04): `nros_service_take_request()` was a
+ * PERMANENT `NROS_RET_NOT_INIT` stub — `validate_not_null!` then an
+ * unconditional error return, with no code path that could ever succeed and
+ * a doc comment that said so ("Currently not supported"). It read as
+ * coverage: it is the name rcl uses (`rcl_take_request`) and the name a
+ * porting user reaches for first, and it sat one screen from the working
+ * `_raw` twin.
+ *
+ * It is not deleted, because deleting an exported symbol breaks a consumer
+ * who did nothing wrong. It takes the shape this file already established
+ * for exactly this case one entry down — `nros_service_send_response()` was
+ * the same kind of stub and became a forwarder — so the un-suffixed name
+ * now WORKS rather than merely existing, and forwarding is strictly an
+ * improvement on what it did.
+ *
+ * The signatures differ, so this adapts rather than aliases: `_raw` returns
+ * a byte count (`>= 0`, `0` = nothing pending) where this returns an
+ * `nros_ret_t` plus an out-parameter. `NROS_RET_OK` with `*request_len == 0`
+ * means "no request pending", which is what the `_raw` `0` means.
+ */
+
+NROS_DEPRECATED_MSG("nros_service_take_request() is deprecated; use "
+                    "nros_service_take_request_raw(), whose return value "
+                    "distinguishes 'no request' from 'error'")
+static inline nros_ret_t nros_service_take_request(struct nros_service_t* service,
+                                                   uint8_t* request_data, size_t request_capacity,
+                                                   size_t* request_len, int64_t* sequence_number) {
+    int32_t n;
+    if (request_len == NULL) {
+        return NROS_RET_INVALID_ARGUMENT;
+    }
+    *request_len = 0;
+    n = nros_service_take_request_raw(service, request_data, request_capacity, sequence_number);
+    if (n < 0) {
+        return (nros_ret_t)n;
+    }
+    *request_len = (size_t)n;
+    return NROS_RET_OK;
 }
 
 NROS_DEPRECATED_MSG("nros_service_send_response() is deprecated; use "
