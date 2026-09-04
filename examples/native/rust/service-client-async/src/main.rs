@@ -28,7 +28,7 @@
 
 use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest};
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("service-client-async");
@@ -83,17 +83,17 @@ async fn main() {
                 Ok(promise) => match promise.await {
                     Ok(reply) => reply,
                     Err(e) => {
-                        nros_error!(&LOGGER, "Service call failed: {:?}", e);
+                        log_error!(&LOGGER, "Service call failed: {:?}", e);
                         std::process::exit(1);
                     }
                 },
                 Err(e) => {
-                    nros_error!(&LOGGER, "Failed to send request: {:?}", e);
+                    log_error!(&LOGGER, "Failed to send request: {:?}", e);
                     std::process::exit(1);
                 }
             };
 
-            nros_info!(&LOGGER, "Result of add_two_ints: {}", reply.sum);
+            log_info!(&LOGGER, "Result of add_two_ints: {}", reply.sum);
         })
         .await;
 }

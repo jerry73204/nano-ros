@@ -288,7 +288,7 @@ impl ZenohSession {
             // Kept under nros-log's 256-byte buffer: a message that overflows is
             // replaced by "…", and a diagnostic nobody can read is the failure
             // this guard exists to prevent.
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_zenoh"),
                 "peer mode unsupported: shim built without multicast transport/scouting \
                  (issue 0682). Use client mode with a router, or rebuild with \

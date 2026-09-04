@@ -358,7 +358,7 @@ impl ZephyrBoard {
     {
         // Wire the default nros_log sink (platform console) at the boot
         // funnel, as nros-board-linux does in its `run`/`run_tiers` —
-        // idempotent, and without it Node-pkg `nros_info!` output is
+        // idempotent, and without it Node-pkg `log_info!` output is
         // silently dropped on Zephyr multi-tier entries.
         ::nros_platform_cffi::log::init_default();
 

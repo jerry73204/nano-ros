@@ -17,7 +17,7 @@ namespace cpp_lifecycle_talker_pkg {
 /// (Configure→Activate, firing the overrides below). Publishing is GATED on the
 /// active state by `on_activate`/`on_deactivate` — proof the overrides run.
 class ManagedTalker : public ::nros::LifecycleNode {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int32_t counter_ = 0;
     bool active_ = false;
@@ -33,7 +33,7 @@ class ManagedTalker : public ::nros::LifecycleNode {
     ::nros::CallbackReturn on_deactivate(::nros::LifecycleState previous) override;
 
     // Component install hook.
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_lifecycle_talker_pkg

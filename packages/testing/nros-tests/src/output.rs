@@ -320,7 +320,7 @@ pub const WS_CUSTOM_MSG_READING_PREFIX: &str = "reading seq=";
 /// proves the full CDR layout, not just a counter, survives the trip.
 pub const WS_CUSTOM_MSG_TEMP_FIELD: &str = "temp=";
 
-/// The Rust workspace `talker_pkg`'s per-tick `nros_info!` line marker
+/// The Rust workspace `talker_pkg`'s per-tick `log_info!` line marker
 /// (`"talker publishing chatter seq=N"` — phase-263 A5 logging demo).
 pub const WS_RUST_LOGGING_MARKER: &str = "talker publishing chatter";
 

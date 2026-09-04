@@ -55,7 +55,7 @@ class FibClient {
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace action_client_pkg

@@ -131,8 +131,8 @@ class NrosUorbBridge : public ModuleBase<NrosUorbBridge>, public px4::ScheduledW
 
     nros::Node _in_node{};
     nros::Node _out_node{};
-    nros::Subscription<px4_msgs::msg::DebugKeyValue> _in_sub{};
-    nros::Publisher<px4_msgs::msg::DebugKeyValue> _out_pub{};
+    rclcpp::Subscription<px4_msgs::msg::DebugKeyValue> _in_sub{};
+    rclcpp::Publisher<px4_msgs::msg::DebugKeyValue> _out_pub{};
 
     uint32_t _forwarded{0};
     uint32_t _drops{0};

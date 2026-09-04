@@ -19,7 +19,7 @@ class Listener {
     void on_msg(const ::std_msgs::msg::Int32& msg); // typed member callback
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_listener_pkg

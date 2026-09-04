@@ -26,7 +26,7 @@ class AddTwoIntsClient {
     void on_tick(); // send / poll driver, bound by identity
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace zephyr_cpp_service_client

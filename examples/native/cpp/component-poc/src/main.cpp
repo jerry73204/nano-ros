@@ -21,7 +21,7 @@ using Int32 = std_msgs::msg::Int32;
 
 // ---- Talker: a timer member callback publishes a real counter --------------
 class Talker {
-    nros::Publisher<Int32> pub_;
+    rclcpp::Publisher<Int32> pub_;
     nros::Timer timer_;
     int count_ = 0;
 
@@ -34,8 +34,8 @@ class Talker {
     }
 
   public:
-    nros::Result configure(nros::Node& node) {
-        nros::Result r = node.create_publisher(pub_, "/chatter");
+    rclcpp::Result configure(nros::Node& node) {
+        rclcpp::Result r = node.create_publisher(pub_, "/chatter");
         if (!r.ok()) return r;
         return nros::bind_timer<Talker, &Talker::on_tick>(node, timer_, 500, this);
     }
@@ -57,7 +57,7 @@ class Listener {
     }
 
   public:
-    nros::Result configure(nros::Node& node) {
+    rclcpp::Result configure(nros::Node& node) {
         // NB: the wire keyexpr uses the DDS-mangled type name the typed
         // `Publisher<Int32>` registers (`std_msgs::msg::dds_::Int32_`), not the
         // ROS slash form — so the raw sub must pass `Int32::TYPE_NAME` to match.
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     // driving the REAL executor (no synthesizing interpreter). `setup`
     // constructs the topology + binds the real member callbacks.
     return ::nros::board::LinuxBoard::run_components([&]() -> int32_t {
-        nros::Result r = nros::create_node(node, "component_poc");
+        rclcpp::Result r = nros::create_node(node, "component_poc");
         if (!r.ok()) return static_cast<int32_t>(r.raw());
         if (std::strcmp(role, "listener") != 0) {
             r = talker.configure(node);

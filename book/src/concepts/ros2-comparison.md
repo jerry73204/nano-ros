@@ -206,7 +206,7 @@ zenoh endpoints communicate intent through the topic-key encoding.
 `MANUAL_BY_TOPIC` / `MANUAL_BY_NODE` liveliness call
 `assert_liveliness()` explicitly to refresh the lease. Available on
 every language surface (Rust `Publisher<M>::assert_liveliness()`, C
-`nros_publisher_assert_liveliness(&pub)`, C++
+`rcl_publisher_assert_liveliness(&pub)`, C++
 `pub.assert_liveliness()`). The zenoh backend wires it: a shim-side
 keepalive lease that `assert_liveliness()` refreshes, with
 `LivelinessLost` fired on expiry. Backends without manual-assertion
@@ -343,9 +343,10 @@ If you are coming from `rclrs`:
 
 If you are coming from `rclc`:
 
-- Same C names where they map (`nros_node_init`, `nros_publisher_init`,
-  `nros_subscription_init`). Memory ownership rules are the same — the
-  caller owns storage, the API initialises it.
+- The C entry points carry rclc's own names (`rclc_node_init_default`,
+  `rclc_publisher_init_default`, `rclc_subscription_init_default`), in
+  rclc's argument order and at rclc's arity. Memory ownership rules are
+  the same — the caller owns storage, the API initialises it.
 - See the [C API reference](../reference/c-api.md) for the full
   surface.
 

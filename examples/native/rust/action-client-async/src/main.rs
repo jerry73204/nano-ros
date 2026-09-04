@@ -23,7 +23,7 @@
 use example_interfaces::action::{Fibonacci, FibonacciGoal};
 use futures::StreamExt;
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info, nros_warn};
+use nros_log::{Logger, log_error, log_info, log_warn};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("action-client-async");
@@ -55,7 +55,7 @@ async fn main() {
 
     let goal = FibonacciGoal { order: 10 };
     let order = goal.order;
-    nros_info!(&LOGGER, "Sending goal");
+    log_info!(&LOGGER, "Sending goal");
 
     // LocalSet enables spawn_local (single-threaded, no Send bound needed)
     let local = tokio::task::LocalSet::new();
@@ -71,7 +71,7 @@ async fn main() {
             let (goal_id, promise) = match client.send_goal(&goal) {
                 Ok(pair) => pair,
                 Err(e) => {
-                    nros_error!(&LOGGER, "Failed to send goal: {:?}", e);
+                    log_error!(&LOGGER, "Failed to send goal: {:?}", e);
                     return;
                 }
             };
@@ -79,16 +79,16 @@ async fn main() {
             let accepted = match promise.await {
                 Ok(accepted) => accepted,
                 Err(e) => {
-                    nros_error!(&LOGGER, "Goal acceptance failed: {:?}", e);
+                    log_error!(&LOGGER, "Goal acceptance failed: {:?}", e);
                     return;
                 }
             };
 
             if !accepted {
-                nros_warn!(&LOGGER, "Goal was rejected by the server");
+                log_warn!(&LOGGER, "Goal was rejected by the server");
                 return;
             }
-            nros_info!(&LOGGER, "Goal accepted by server, waiting for result");
+            log_info!(&LOGGER, "Goal accepted by server, waiting for result");
 
             // ── Step 2: Stream feedback with StreamExt ──────────────
             {
@@ -99,7 +99,7 @@ async fn main() {
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(feedback) => {
-                            nros_info!(
+                            log_info!(
                                 &LOGGER,
                                 "Next number in sequence received: {:?}",
                                 feedback.sequence
@@ -110,7 +110,7 @@ async fn main() {
                             }
                         }
                         Err(e) => {
-                            nros_error!(&LOGGER, "Feedback error: {:?}", e);
+                            log_error!(&LOGGER, "Feedback error: {:?}", e);
                             break;
                         }
                     }
@@ -122,13 +122,13 @@ async fn main() {
                 Ok(promise) => match promise.await {
                     Ok((status, result)) => {
                         if status != GoalStatus::Succeeded {
-                            nros_warn!(&LOGGER, "Goal finished with status {:?}", status);
+                            log_warn!(&LOGGER, "Goal finished with status {:?}", status);
                         }
-                        nros_info!(&LOGGER, "Result received: {:?}", result.sequence);
+                        log_info!(&LOGGER, "Result received: {:?}", result.sequence);
                     }
-                    Err(e) => nros_error!(&LOGGER, "get_result failed: {:?}", e),
+                    Err(e) => log_error!(&LOGGER, "get_result failed: {:?}", e),
                 },
-                Err(e) => nros_error!(&LOGGER, "get_result failed: {:?}", e),
+                Err(e) => log_error!(&LOGGER, "get_result failed: {:?}", e),
             }
         })
         .await;

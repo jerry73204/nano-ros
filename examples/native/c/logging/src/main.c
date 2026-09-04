@@ -40,18 +40,18 @@ int main(void) {
         return 1;
     }
 
-    nros_node_t node = nros_node_get_zero_initialized();
-    if (nros_node_init(&node, &support, "demo", "/") != 0) {
-        fprintf(stderr, "nros_node_init failed\n");
-        nros_support_fini(&support);
+    nros_node_t node = rcl_get_zero_initialized_node();
+    if (rclc_node_init_default(&node, "demo", "/", &support) != 0) {
+        fprintf(stderr, "rclc_node_init_default failed\n");
+        rclc_support_fini(&support);
         return 1;
     }
 
     nros_logger_t logger = nros_node_get_logger(&node);
     if (logger == NULL) {
         fprintf(stderr, "nros_node_get_logger returned NULL\n");
-        nros_node_fini(&node);
-        nros_support_fini(&support);
+        rcl_node_fini(&node);
+        rclc_support_fini(&support);
         return 1;
     }
 
@@ -65,7 +65,7 @@ int main(void) {
     NROS_LOG_ERROR(logger, "round 1: error=%d", 1);
     NROS_LOG_FATAL(logger, "round 1: fatal=%d", 1);
 
-    nros_node_fini(&node);
-    nros_support_fini(&support);
+    rcl_node_fini(&node);
+    rclc_support_fini(&support);
     return 0;
 }

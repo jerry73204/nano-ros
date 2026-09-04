@@ -36,9 +36,9 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "fibonacci_action_client"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::ActionClient<example_interfaces::action::Fibonacci> client;
+    rclcpp_action::Client<example_interfaces::action::Fibonacci> client;
     NROS_TRY_RET(node.create_action_client(client, "/fibonacci"), 1);
-    nros::Result ret;
+    rclcpp::Result ret;
 
     // Default order=10; override via NROS_TEST_GOAL_ORDER for tests that
     // want to exercise server-side rejection (order >= 64) or other edges.
@@ -66,7 +66,7 @@ int nros_app_main(int argc, char** argv) {
     ret = client.wait_for_action_server(10000);
     if (!ret.ok()) {
         fprintf(stderr, "Action server did not appear within 10s (ret=%d)\n", ret.raw());
-        nros::shutdown();
+        rclcpp::shutdown();
         return 2;
     }
 
@@ -100,7 +100,7 @@ int nros_app_main(int argc, char** argv) {
         } else {
             fprintf(stderr, "Failed to send goal (order=%d, ret=%d)\n", order, ret.raw());
         }
-        nros::shutdown();
+        rclcpp::shutdown();
         return 2;
     }
 
@@ -138,13 +138,13 @@ int nros_app_main(int argc, char** argv) {
         printf("]\n");
     } else {
         fprintf(stderr, "Failed to get result: %d\n", ret.raw());
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
     // Cleanup
     printf("\nShutting down...\n");
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return 0;

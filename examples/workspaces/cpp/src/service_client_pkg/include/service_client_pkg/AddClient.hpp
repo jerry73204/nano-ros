@@ -32,7 +32,7 @@ class AddClient {
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace service_client_pkg

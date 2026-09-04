@@ -1,5 +1,5 @@
 // QosListener — typed component (RFC-0043), the C++ projection of ws-qos-c's
-// QosListener. `configure` builds the SAME non-default `nros::QoS`
+// QosListener. `configure` builds the SAME non-default `rclcpp::QoS`
 // (`.reliable().transient_local().keep_last(10)`) the talker declares and passes
 // it to the raw subscription bind. Matching the per-entity QoS contract is what
 // lets the QoS-tagged endpoints connect; a mismatch makes the listener receive
@@ -16,13 +16,13 @@ void QosListener::on_msg(const ::std_msgs::msg::Int32& msg) {
     ++recv_;
 }
 
-::nros::Result QosListener::configure(::nros::Node& node) {
+::rclcpp::Result QosListener::configure(::nros::Node& node) {
     // `::setvbuf` (C global): line-buffer stdout so each `Received:` flushes live.
     ::setvbuf(stdout, nullptr, _IOLBF, 0);
     // Byte-identical to the talker's profile — both endpoints must declare the same
     // RELIABLE + TRANSIENT_LOCAL + KEEP_LAST(10) contract to connect.
-    const ::nros::QoS qos =
-        ::nros::QoS::default_profile().reliable().transient_local().keep_last(10);
+    const ::rclcpp::QoS qos =
+        ::rclcpp::QoS::default_profile().reliable().transient_local().keep_last(10);
     // Typed member binding (RFC-0044): keyexpr + deserialize come from the
     // generated `std_msgs::msg::Int32` (issue #218 — hand-decode retired).
     return ::nros::bind_subscription<::std_msgs::msg::Int32, QosListener, &QosListener::on_msg>(

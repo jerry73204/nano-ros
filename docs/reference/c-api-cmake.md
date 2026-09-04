@@ -86,10 +86,10 @@ Action and service client entrypoints split into two families:
 - `nros_action_send_goal_async()`, `nros_action_get_result_async()`,
   `nros_action_cancel_goal()`, `nros_client_send_request_async()` — non-blocking,
   return immediately. Replies arrive via callbacks invoked from
-  `nros_executor_spin_some()`.
+  `rclc_executor_spin_some()`.
 - `nros_action_send_goal()`, `nros_action_get_result()`, `nros_client_call()` —
   blocking convenience wrappers. They call the async variant and then drive the
-  executor (`nros_executor_spin_some` internally in a wall-clock budgeted loop)
+  executor (`rclc_executor_spin_some` internally in a wall-clock budgeted loop)
   until the reply lands or timeout. They never call `zpico_get` directly — all
   I/O still flows through the registered executor. Calling any of them from
   inside a dispatch callback returns `NROS_RET_REENTRANT`.
@@ -109,7 +109,7 @@ Canonical call pattern (C):
 
 ```c
 nros_support_init(&support, locator, domain_id);
-nros_node_init(&node, &support, "c_action_client", "/");
+rclc_node_init_default(&node, "c_action_client", "/", &support);
 nros_action_client_init(&client, &node, "/fibonacci", &type_info);
 nros_action_client_set_feedback_callback(&client, on_feedback, NULL);
 nros_action_client_set_result_callback(&client, on_result, NULL);
@@ -119,14 +119,14 @@ nros_executor_register_action_client(&executor, &client);
 
 /* Warm-up: let zenoh discover the action server. */
 for (int i = 0; i < 300; ++i) {
-    nros_executor_spin_some(&executor, 10000000ULL); /* 10 ms */
+    rclc_executor_spin_some(&executor, 10000000ULL); /* 10 ms */
 }
 
 /* Async path: returns immediately; goal_response_callback fires during spin. */
 nros_goal_uuid_t goal_uuid;
 nros_action_send_goal_async(&client, goal_buf, goal_len, &goal_uuid);
 while (!state.goal_responded) {
-    nros_executor_spin_some(&executor, 10000000ULL);
+    rclc_executor_spin_some(&executor, 10000000ULL);
 }
 
 /* Blocking convenience: same async-then-spin pattern, packaged. */

@@ -22,7 +22,7 @@ class Listener {
     void on_msg(const ::std_msgs::msg::Int32& msg); // real body; bound by identity
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace pkg_cpp_listener

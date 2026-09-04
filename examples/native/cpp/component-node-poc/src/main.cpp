@@ -25,7 +25,7 @@ using Int32 = std_msgs::msg::Int32;
 
 // ---- Talker: IS-A node; ctor creates a publisher + a typed member timer ----
 class Talker : public nros::ComponentNode {
-    nros::Publisher<Int32> pub_;
+    rclcpp::Publisher<Int32> pub_;
     int count_ = 0;
 
   public:

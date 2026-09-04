@@ -2833,9 +2833,17 @@ pub trait ClientTrait {
     /// Returns `Ok(true)` if at least one matching server has been
     /// discovered, `Ok(false)` if none yet, or `Err(_)` if the
     /// backend cannot answer (e.g. XRCE — micro-XRCE-DDS-Client has
-    /// no participant enumeration). Distinct from
-    /// [`is_server_ready`](Self::is_server_ready), which collapses
-    /// "don't know" and "no server" into the same `false` answer.
+    /// no participant enumeration).
+    ///
+    /// This USED to be contrasted with an `is_server_ready` that collapsed
+    /// "don't know" and "no server" into one `false`. That method is gone
+    /// (issue 1008, W6 decision 2): its trait DEFAULT was `true`, only zenoh
+    /// overrode it, and `wait_for_service`'s fast path read it — so on every
+    /// cffi-reached backend the wait returned `Ok(true)` immediately, without
+    /// probing, whether or not any server existed. The two-channel form here is
+    /// what replaced it; there is no longer a collapsing sibling to contrast
+    /// with. (The rustdoc link to the deleted method is what kept `just book`
+    /// red from 2026-09-03 until phase-417 W-B4 tripped over it.)
     ///
     /// User-facing surface: `Client<S>::server_available()` in Rust,
     /// `nros_client_server_available()` in C/C++. Clients use this

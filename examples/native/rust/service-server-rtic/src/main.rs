@@ -9,7 +9,7 @@
 
 use example_interfaces::srv::{AddTwoInts, AddTwoIntsResponse};
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("service-server-rtic");
@@ -24,7 +24,7 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
-    nros_info!(&LOGGER, "nros RTIC-pattern Service Server (native)");
+    log_info!(&LOGGER, "nros RTIC-pattern Service Server (native)");
 
     let config = ExecutorConfig::from_env().node_name("add_two_ints_server");
     let mut executor = Executor::open(&config).expect("Failed to open session");
@@ -36,8 +36,8 @@ fn main() {
         .create_service::<AddTwoInts>("/add_two_ints")
         .expect("Failed to create service");
 
-    nros_info!(&LOGGER, "Service server ready: /add_two_ints");
-    nros_info!(&LOGGER, "Waiting for service requests (RTIC pattern)...");
+    log_info!(&LOGGER, "Service server ready: /add_two_ints");
+    log_info!(&LOGGER, "Waiting for service requests (RTIC pattern)...");
 
     let mut handled = 0u32;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -46,17 +46,17 @@ fn main() {
         executor.spin_once(core::time::Duration::from_millis(0));
 
         match service.handle_request(|req| {
-            nros_info!(&LOGGER, "Incoming request");
-            nros_info!(&LOGGER, "a: {} b: {}", req.a, req.b);
+            log_info!(&LOGGER, "Incoming request");
+            log_info!(&LOGGER, "a: {} b: {}", req.a, req.b);
             AddTwoIntsResponse { sum: req.a + req.b }
         }) {
             Ok(true) => handled += 1,
             Ok(false) => {}
-            Err(e) => nros_error!(&LOGGER, "Service error: {:?}", e),
+            Err(e) => log_error!(&LOGGER, "Service error: {:?}", e),
         }
 
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    nros_info!(&LOGGER, "Done. Handled {} requests", handled);
+    log_info!(&LOGGER, "Done. Handled {} requests", handled);
 }

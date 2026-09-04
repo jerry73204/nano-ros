@@ -292,7 +292,7 @@ lists which `<plat> × <lang>` combinations ship a bridge today
 |---------|--------------|
 | `Transport(ConnectionFailed)` on `open_with_rmw("X", ...)` | Backend X's rlib not pulled into the link line. Rust: add a `register()` call. C / C++: confirm `--whole-archive` wraps the staticlib. |
 | Second node's `.rmw("zenoh")` returns `Transport(...)` | Both nodes try to open against the same singleton-state backend. Set `NROS_RMW=zenoh` so the primary lands on zenoh + the second Node hits the session-cache (slot 0) instead of double-opening. |
-| `nros_publisher_init -> -7` after `nros_executor_node_init` | Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild `nros-c` after updating. |
+| `rclc_publisher_init_default -> -7` after `nros_executor_node_init` | Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild `nros-c` after updating. |
 | `Bridge spinning` marker never reaches piped test harness | Add `setvbuf(stdout, NULL, _IOLBF, 0)` at the top of `nros_app_main`. glibc full-buffers piped stdout; line-buffering surfaces readiness markers before the long-lived `spin_period` loop. |
 
 ## See also

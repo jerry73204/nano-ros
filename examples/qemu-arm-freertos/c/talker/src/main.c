@@ -49,7 +49,7 @@ static void signal_handler(int signum) {
     (void)signum;
     g_running = 0;
     if (g_executor) {
-        nros_executor_stop(g_executor);
+        nros_executor_cancel(g_executor);
     }
 }
 
@@ -100,10 +100,10 @@ int nros_app_main(int argc, char** argv) {
 
     // Initialize support context
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "talker", "/"), 1);
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "talker", "/", &app.support), 1);
 
-    NROS_CHECK_RET(nros_publisher_init(&app.publisher, &app.node,
-                                       std_msgs_msg_string_get_type_support(), "/chatter"),
+    NROS_CHECK_RET(rclc_publisher_init_default(&app.publisher, &app.node,
+                                               std_msgs_msg_string_get_type_support(), "/chatter"),
                    1);
 
     // Create application context
@@ -119,24 +119,24 @@ int nros_app_main(int argc, char** argv) {
         1);
     NROS_CHECK_RET(nros_executor_init(&app.executor, &app.support, 4), 1);
     g_executor = &app.executor;
-    NROS_CHECK_RET(nros_executor_add_timer(&app.executor, &app.timer), 1);
+    NROS_CHECK_RET(rclc_executor_add_timer(&app.executor, &app.timer), 1);
 
     // Set up signal handler
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
     // Spin with 100ms period
-    nros_ret_t ret = nros_executor_spin_period(&app.executor, 100000000ULL);
+    nros_ret_t ret = rclc_executor_spin_period(&app.executor, 100000000ULL);
     if (ret != NROS_RET_OK && g_running) {
         fprintf(stderr, "Executor spin failed: %d\n", ret);
     }
 
     // Cleanup
-    nros_executor_fini(&app.executor);
-    nros_timer_fini(&app.timer);
+    rclc_executor_fini(&app.executor);
+    rcl_timer_fini(&app.timer);
     nros_publisher_fini(&app.publisher);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     return 0;
 }

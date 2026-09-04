@@ -132,8 +132,9 @@ int nros_app_main(int argc, char** argv) {
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
     printf("Support initialized\n");
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "fibonacci_action_client", "/"), 1);
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "fibonacci_action_client", "/", &app.support),
+                   1);
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
 
     NROS_CHECK_RET(
         nros_action_client_init(&app.action_client, &app.node, "/fibonacci", &fibonacci_type), 1);
@@ -150,7 +151,7 @@ int nros_app_main(int argc, char** argv) {
 
     // Warm-up: spin to allow Zenoh to discover the server's queryables
     for (int i = 0; i < 300; i++) {
-        nros_executor_spin_some(&app.executor, 10000000ULL); // 10ms
+        rclc_executor_spin_some(&app.executor, 10000000ULL); // 10ms
     }
 
     // Send goal: compute Fibonacci sequence of order 10
@@ -243,10 +244,10 @@ int nros_app_main(int argc, char** argv) {
 cleanup:
     // Cleanup
     printf("\nShutting down...\n");
-    nros_executor_fini(&app.executor);
+    rclc_executor_fini(&app.executor);
     nros_action_client_fini(&app.action_client);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     printf("Goodbye!\n");
     return (ret == NROS_RET_OK) ? 0 : 1;

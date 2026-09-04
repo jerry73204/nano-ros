@@ -30,7 +30,7 @@ static int32_t read_i32_le(const uint8_t* p) {
 
 // ---- Source: timer publishes a counter on /in -----------------------------
 class Source {
-    nros::Publisher<Int32> pub_;
+    rclcpp::Publisher<Int32> pub_;
     nros::Timer timer_;
     int count_ = 0;
 
@@ -43,9 +43,9 @@ class Source {
     }
 
   public:
-    nros::Result configure(nros::Node& node) {
+    rclcpp::Result configure(nros::Node& node) {
         std::setvbuf(stdout, nullptr, _IONBF, 0);
-        nros::Result r = node.create_publisher(pub_, "/in");
+        rclcpp::Result r = node.create_publisher(pub_, "/in");
         if (!r.ok()) return r;
         return nros::bind_timer<Source, &Source::on_tick>(node, timer_, 500, this);
     }
@@ -53,7 +53,7 @@ class Source {
 
 // ---- Relay: the TRANSFORM — sub /in → callback doubles → pub /out ----------
 class Relay {
-    nros::Publisher<Int32> out_;
+    rclcpp::Publisher<Int32> out_;
 
     void on_in(const uint8_t* data, size_t len) {
         int32_t v = (len >= 8) ? read_i32_le(data + 4) : 0;
@@ -65,9 +65,9 @@ class Relay {
     }
 
   public:
-    nros::Result configure(nros::Node& node) {
+    rclcpp::Result configure(nros::Node& node) {
         std::setvbuf(stdout, nullptr, _IONBF, 0);
-        nros::Result r = node.create_publisher(out_, "/out");
+        rclcpp::Result r = node.create_publisher(out_, "/out");
         if (!r.ok()) return r;
         return nros::bind_subscription_raw<Relay, &Relay::on_in>(node, "/in", Int32::TYPE_NAME,
                                                                  this);
@@ -82,9 +82,9 @@ class Sink {
     }
 
   public:
-    nros::Result configure(nros::Node& node) {
+    rclcpp::Result configure(nros::Node& node) {
         std::setvbuf(stdout, nullptr, _IONBF, 0);
-        nros::Result r =
+        rclcpp::Result r =
             nros::bind_subscription_raw<Sink, &Sink::on_out>(node, "/out", Int32::TYPE_NAME, this);
         if (r.ok()) std::printf("Waiting for messages\n");
         return r;
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     Sink sink;
 
     return ::nros::board::LinuxBoard::run_components([&]() -> int32_t {
-        nros::Result r = nros::create_node(node, "transform_poc");
+        rclcpp::Result r = nros::create_node(node, "transform_poc");
         if (!r.ok()) return static_cast<int32_t>(r.raw());
         if (std::strcmp(role, "source") == 0) {
             r = source.configure(node);

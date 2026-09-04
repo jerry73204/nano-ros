@@ -82,12 +82,12 @@ int nros_app_main(int argc, char** argv) {
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
     printf("Support initialized\n");
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "add_two_ints_client", "/"), 1);
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "add_two_ints_client", "/", &app.support), 1);
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
 
-    NROS_CHECK_RET(nros_client_init(&app.client, &app.node, &add_two_ints_type, "/add_two_ints"),
-                   1);
-    printf("Client created for service: %s\n", nros_client_get_service_name(&app.client));
+    NROS_CHECK_RET(
+        rclc_client_init_default(&app.client, &app.node, &add_two_ints_type, "/add_two_ints"), 1);
+    printf("Client created for service: %s\n", rcl_client_get_service_name(&app.client));
 
     // Clients must be registered with an executor before use.
     NROS_CHECK_RET(nros_executor_init(&app.executor, &app.support, 4), 1);
@@ -137,10 +137,10 @@ int nros_app_main(int argc, char** argv) {
 
     // Cleanup
     printf("\nShutting down...\n");
-    nros_executor_fini(&app.executor);
+    rclc_executor_fini(&app.executor);
     nros_client_fini(&app.client);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     printf("Goodbye!\n");
     return exit_code;

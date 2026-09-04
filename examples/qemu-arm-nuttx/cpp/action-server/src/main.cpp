@@ -29,7 +29,7 @@ static volatile sig_atomic_t g_running = 1;
 /// globals; `_with_ctx` lets us pass a `void*` through each invocation
 /// so the callback reaches the server and counter without any globals.
 struct ServerState {
-    nros::ActionServer<Fibonacci>* srv;
+    rclcpp_action::Server<Fibonacci>* srv;
     int goal_count;
 };
 
@@ -113,7 +113,7 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "fibonacci_action_server"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::ActionServer<Fibonacci> srv;
+    rclcpp_action::Server<Fibonacci> srv;
     NROS_TRY_RET(node.create_action_server(srv, "/fibonacci"), 1);
 
     // Register the goal callback with a ServerState context — no globals
@@ -126,13 +126,13 @@ int nros_app_main(int argc, char** argv) {
 
     printf("\nWaiting for action goals (Ctrl+C to exit)...\n\n");
 
-    while (g_running && nros::ok()) {
+    while (g_running && rclcpp::ok()) {
         nros::spin_once(100);
     }
 
     printf("\nShutting down...\n");
     printf("Total goals handled: %d\n", state.goal_count);
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return 0;

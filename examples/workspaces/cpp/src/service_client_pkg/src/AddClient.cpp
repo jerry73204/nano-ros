@@ -41,9 +41,9 @@ void AddClient::on_tick() {
     }
 }
 
-::nros::Result AddClient::configure(::nros::Node& node) {
+::rclcpp::Result AddClient::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r =
+    ::rclcpp::Result r =
         ::nros::create_service_client_raw(node, client_.bytes, "/add_two_ints", Svc::TYPE_NAME);
     if (!r.ok()) {
         return r;

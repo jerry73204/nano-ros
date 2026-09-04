@@ -26,8 +26,8 @@
 use std::sync::Mutex;
 
 use nros_log::{
-    LogSink, Logger, Record, Severity, init, nros_debug, nros_error, nros_fatal, nros_info,
-    nros_trace, nros_warn, register_logger, severity_enabled_at_compile_time,
+    LogSink, Logger, Record, Severity, init, log_debug, log_error, log_fatal, log_info, log_warn,
+    nros_trace, register_logger, severity_enabled_at_compile_time,
 };
 
 /// Process-wide serialization for tests that mutate the global
@@ -115,14 +115,14 @@ fn per_logger_runtime_threshold_filters_below() {
     loud.set_level(Severity::Info);
 
     nros_trace!(quiet, "drop-trace");
-    nros_debug!(quiet, "drop-debug");
-    nros_info!(quiet, "drop-info");
-    nros_warn!(quiet, "keep-warn");
-    nros_error!(quiet, "keep-error");
-    nros_fatal!(quiet, "keep-fatal");
+    log_debug!(quiet, "drop-debug");
+    log_info!(quiet, "drop-info");
+    log_warn!(quiet, "keep-warn");
+    log_error!(quiet, "keep-error");
+    log_fatal!(quiet, "keep-fatal");
 
-    nros_info!(loud, "loud-info");
-    nros_warn!(loud, "loud-warn");
+    log_info!(loud, "loud-info");
+    log_warn!(loud, "loud-warn");
 
     let records = drain(&SINK_A_BUF);
     let quiet_records: Vec<_> = records
@@ -169,9 +169,9 @@ fn every_sink_receives_each_record_in_order() {
     let l = register_logger(&FANOUT_LOGGER);
     l.set_level(Severity::Trace);
 
-    nros_info!(l, "first");
-    nros_warn!(l, "second {}", 2);
-    nros_error!(l, "third");
+    log_info!(l, "first");
+    log_warn!(l, "second {}", 2);
+    log_error!(l, "third");
 
     let a = drain(&SINK_A_BUF);
     let b = drain(&SINK_B_BUF);
@@ -216,9 +216,9 @@ fn dropped_records_reach_no_sink() {
     let l = register_logger(&DROP_LOGGER);
     l.set_level(Severity::Error);
 
-    nros_info!(l, "should-be-dropped");
-    nros_warn!(l, "should-also-be-dropped");
-    nros_error!(l, "kept");
+    log_info!(l, "should-be-dropped");
+    log_warn!(l, "should-also-be-dropped");
+    log_error!(l, "kept");
 
     for buf in [&SINK_A_BUF, &SINK_B_BUF] {
         let records: Vec<_> = drain(buf)

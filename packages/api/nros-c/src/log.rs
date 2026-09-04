@@ -229,7 +229,7 @@ pub unsafe extern "C" fn nros_log_get_logger(name: *const c_char) -> *const c_vo
         Some(logger) => (logger as *const nros_log::Logger).cast(),
         None => {
             let (used, total) = nros_log::dynamic_logger_name_arena();
-            nros_log::nros_warn!(
+            nros_log::log_warn!(
                 &nros_log::DEFAULT_LOGGER,
                 "nros_log_get_logger(\"{name}\"): no logger created — {} of {} slots and {used} \
                  of {total} name bytes are spent, or the name is over {} bytes. Returning the \
@@ -544,7 +544,7 @@ fn warn_once_if_no_clock() {
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_ok()
     {
-        nros_log::nros_warn!(
+        nros_log::log_warn!(
             &nros_log::DEFAULT_LOGGER,
             "NROS_LOG_*_THROTTLE has no monotonic clock (nros-log's `platform-clock` feature is \
              off), so every timestamp is 0 and the window can never elapse: throttled sites will \

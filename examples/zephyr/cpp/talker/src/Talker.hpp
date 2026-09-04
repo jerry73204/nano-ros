@@ -14,14 +14,14 @@
 namespace zephyr_cpp_talker {
 
 class Talker {
-    ::nros::Publisher<std_msgs::msg::String> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::String> pub_;
     ::nros::Timer timer_;
     int count_ = 0;
 
     void on_tick(); // real body, bound by identity
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace zephyr_cpp_talker

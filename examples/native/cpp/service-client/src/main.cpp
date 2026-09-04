@@ -56,13 +56,13 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "add_two_ints_client"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::Client<example_interfaces::srv::AddTwoInts> client;
+    rclcpp::Client<example_interfaces::srv::AddTwoInts> client;
     NROS_TRY_RET(node.create_client(client, "/add_two_ints"), 1);
 
     example_interfaces::srv::AddTwoInts::Request req;
     req.a = a;
     req.b = b;
-    nros::Result ret;
+    rclcpp::Result ret;
 
     // phase-338 W8 — wait for the service, then call ONCE.
     //
@@ -80,7 +80,7 @@ int nros_app_main(int argc, char** argv) {
     ret = client.wait_for_service(10000);
     if (!ret.ok()) {
         fprintf(stderr, "Service did not appear within 10s (ret=%d)\n", ret.raw());
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
@@ -88,7 +88,7 @@ int nros_app_main(int argc, char** argv) {
     auto fut = client.send_request(req);
     if (fut.is_consumed()) {
         fprintf(stderr, "send_request failed\n");
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
     ret = fut.wait(nros::global_handle(), 5000, resp);
@@ -103,7 +103,7 @@ int nros_app_main(int argc, char** argv) {
 
     // Cleanup
     printf("\nShutting down...\n");
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return exit_code;

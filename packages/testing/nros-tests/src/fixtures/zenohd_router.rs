@@ -121,7 +121,7 @@ fn router_command(overrides: &[String]) -> TestResult<std::process::Command> {
     // the user is testing; what must not happen is it being SILENT.
     let provenance = crate::process::ros_zenohd_provenance(&path);
     if !provenance.is_ros_shipped() {
-        nros_log::nros_warn!(
+        nros_log::log_warn!(
             nros_log::get_logger("nros_tests"),
             "zenoh router {} — {}. Interop results from this run say nothing \
              about the paired configuration (RFC-0075).",

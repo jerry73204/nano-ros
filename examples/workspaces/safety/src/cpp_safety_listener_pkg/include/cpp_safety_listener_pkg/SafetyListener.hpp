@@ -20,15 +20,15 @@ namespace cpp_safety_listener_pkg {
 /// CRC-valid messages increment the counter and republish the count on /safe_ok.
 /// Requires NANO_ROS_SAFETY_E2E=ON (lowered from [system].features = ["safety"]).
 class SafetyListener {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_ok_;
-    ::nros::Subscription<std_msgs::msg::Int32> sub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_ok_;
+    ::rclcpp::Subscription<std_msgs::msg::Int32> sub_;
     int32_t received_ = 0;
     int32_t integrity_faults_ = 0;
 
     void on_chatter(const std_msgs::msg::Int32& msg, const nros_cpp_integrity_status_t& status);
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_safety_listener_pkg

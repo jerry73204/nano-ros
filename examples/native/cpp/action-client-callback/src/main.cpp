@@ -101,12 +101,12 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "fibonacci_action_client_cb"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::ActionClient<example_interfaces::action::Fibonacci> client;
+    rclcpp_action::Client<example_interfaces::action::Fibonacci> client;
     NROS_TRY_RET(node.create_action_client(client, "/fibonacci"), 1);
     printf("Callback action client created for: /fibonacci\n");
 
     // Register the three callbacks before sending the goal.
-    nros::ActionClient<example_interfaces::action::Fibonacci>::SendGoalOptions options;
+    rclcpp_action::Client<example_interfaces::action::Fibonacci>::SendGoalOptions options;
     options.goal_response = &on_goal_response;
     options.feedback = &on_feedback;
     options.result = &on_result;
@@ -133,7 +133,7 @@ int nros_app_main(int argc, char** argv) {
     goal.order = order;
     if (!client.send_goal_async(goal, g_goal_id).ok()) {
         fprintf(stderr, "send_goal_async failed\n");
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
@@ -145,12 +145,12 @@ int nros_app_main(int argc, char** argv) {
     }
     if (g_accepted == 0) {
         fprintf(stderr, "Goal rejected\n");
-        nros::shutdown();
+        rclcpp::shutdown();
         return 2;
     }
     if (g_accepted < 0) {
         fprintf(stderr, "No goal response\n");
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
@@ -179,7 +179,7 @@ int nros_app_main(int argc, char** argv) {
     }
 
     printf("\nShutting down...\n");
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return rc;

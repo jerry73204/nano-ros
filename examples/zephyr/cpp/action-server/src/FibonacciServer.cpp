@@ -89,15 +89,15 @@ void FibonacciServer::on_tick() {
     }
 }
 
-::nros::Result FibonacciServer::configure(::nros::Node& node) {
+::rclcpp::Result FibonacciServer::configure(::nros::Node& node) {
     // Unbuffered stdout — a full-buffered console can swallow the final
     // line(s) when the harness kills the QEMU before a flush.
     // `::setvbuf` (global) not `std::setvbuf` — Zephyr's minimal libcpp/picolibc
     // `<cstdio>` declares it in the global namespace only.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     executor_ = node.executor_handle();
-    ::nros::Result r = ::nros::bind_action_server_raw<FibonacciServer, &FibonacciServer::on_goal,
-                                                      &FibonacciServer::on_cancel>(
+    ::rclcpp::Result r = ::nros::bind_action_server_raw<FibonacciServer, &FibonacciServer::on_goal,
+                                                        &FibonacciServer::on_cancel>(
         node, storage_.bytes, "/fibonacci", "example_interfaces/action/Fibonacci", this);
     if (!r.ok()) {
         return r;

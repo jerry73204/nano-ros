@@ -14,7 +14,7 @@
 ///     bring-up invoked the transport's open callback).
 ///  3. `write_count >= 1` after publishing a frame.
 ///  4. `read_count >= 1` after the executor's spin tick.
-///  5. `close_count >= 1` after `nros_support_fini` /
+///  5. `close_count >= 1` after `rclc_support_fini` /
 ///     `nros_set_custom_transport(NULL)`.
 
 #include <pthread.h>
@@ -158,7 +158,7 @@ static void signal_handler(int signum) {
     (void)signum;
     g_running = 0;
     if (g_executor != NULL) {
-        nros_executor_stop(g_executor);
+        nros_executor_cancel(g_executor);
     }
 }
 
@@ -211,10 +211,11 @@ int nros_app_main(int argc, char** argv) {
     (void)nros_clock_init(&app.clock, NROS_CLOCK_SYSTEM_TIME);
     (void)nros_parameter_server_init(&app.params, app.param_storage, 4);
     NROS_CHECK_RET(nros_support_init(&app.support, "custom://loopback", 0), 1);
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "loopback_demo", "/"), 1);
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "loopback_demo", "/", &app.support), 1);
 
-    NROS_CHECK_RET(nros_publisher_init(&app.publisher, &app.node,
-                                       std_msgs_msg_int32_get_type_support(), "/loopback_chatter"),
+    NROS_CHECK_RET(rclc_publisher_init_default(&app.publisher, &app.node,
+                                               std_msgs_msg_int32_get_type_support(),
+                                               "/loopback_chatter"),
                    1);
 
     app.demo_ctx.publisher = &app.publisher;
@@ -225,7 +226,7 @@ int nros_app_main(int argc, char** argv) {
                                    timer_callback, &app.demo_ctx),
                    1);
     NROS_CHECK_RET(nros_executor_init(&app.executor, &app.support, 4), 1);
-    NROS_CHECK_RET(nros_executor_add_timer(&app.executor, &app.timer), 1);
+    NROS_CHECK_RET(rclc_executor_add_timer(&app.executor, &app.timer), 1);
     g_executor = &app.executor;
 
     signal(SIGINT, signal_handler);
@@ -242,15 +243,15 @@ int nros_app_main(int argc, char** argv) {
             (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
             break;
         }
-        (void)nros_executor_spin_some(&app.executor, 100ULL * 1000 * 1000 /* 100ms */);
+        (void)rclc_executor_spin_some(&app.executor, 100ULL * 1000 * 1000 /* 100ms */);
     }
 
     /* 3. Teardown — exercises the transport's close callback. */
-    (void)nros_timer_fini(&app.timer);
+    (void)rcl_timer_fini(&app.timer);
     (void)nros_publisher_fini(&app.publisher);
-    (void)nros_node_fini(&app.node);
-    (void)nros_executor_fini(&app.executor);
-    (void)nros_support_fini(&app.support);
+    (void)rcl_node_fini(&app.node);
+    (void)rclc_executor_fini(&app.executor);
+    (void)rclc_support_fini(&app.support);
 
     /* Drop the registered transport explicitly so `close` fires
      * even on backends that don't tear it down at session-end. */

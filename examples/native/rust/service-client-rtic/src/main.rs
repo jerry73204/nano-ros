@@ -12,7 +12,7 @@
 
 use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest};
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("service-client-rtic");
@@ -27,7 +27,7 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
-    nros_info!(&LOGGER, "nros RTIC-pattern Service Client (native)");
+    log_info!(&LOGGER, "nros RTIC-pattern Service Client (native)");
 
     let config = ExecutorConfig::from_env().node_name("add_two_ints_client");
     let mut executor = Executor::open(&config).expect("Failed to open session");
@@ -39,7 +39,7 @@ fn main() {
         .create_client::<AddTwoInts>("/add_two_ints")
         .expect("Failed to create client");
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "Service client created for /add_two_ints (RTIC pattern)"
     );
@@ -56,7 +56,7 @@ fn main() {
     let mut promise = match client.call(&request) {
         Ok(p) => p,
         Err(e) => {
-            nros_error!(&LOGGER, "Failed to send request: {:?}", e);
+            log_error!(&LOGGER, "Failed to send request: {:?}", e);
             std::process::exit(1);
         }
     };
@@ -69,7 +69,7 @@ fn main() {
         executor.spin_once(core::time::Duration::from_millis(0));
 
         if let Ok(Some(reply)) = promise.take() {
-            nros_info!(&LOGGER, "Result of add_two_ints: {}", reply.sum);
+            log_info!(&LOGGER, "Result of add_two_ints: {}", reply.sum);
             got_reply = true;
             break;
         }
@@ -78,7 +78,7 @@ fn main() {
     }
 
     if !got_reply {
-        nros_error!(&LOGGER, "Timeout waiting for reply");
+        log_error!(&LOGGER, "Timeout waiting for reply");
         std::process::exit(1);
     }
 }

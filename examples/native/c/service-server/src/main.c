@@ -45,7 +45,7 @@ static void signal_handler(int signum) {
     (void)signum;
     g_running = 0;
     if (g_executor) {
-        nros_executor_stop(g_executor);
+        nros_executor_cancel(g_executor);
     }
 }
 
@@ -131,17 +131,19 @@ int nros_app_main(int argc, char** argv) {
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
     printf("Support initialized\n");
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "add_two_ints_server", "/"), 1);
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "add_two_ints_server", "/", &app.support), 1);
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
 
-    NROS_CHECK_RET(nros_service_init(&app.service, &app.node, &add_two_ints_type, "/add_two_ints",
-                                     service_callback, &app.ctx),
-                   1);
-    printf("Service created: %s\n", nros_service_get_service_name(&app.service));
+    NROS_CHECK_RET(
+        rclc_service_init_default(&app.service, &app.node, &add_two_ints_type, "/add_two_ints"), 1);
+    printf("Service created: %s\n", rcl_service_get_service_name(&app.service));
 
     NROS_CHECK_RET(nros_executor_init(&app.executor, &app.support, 4), 1);
     g_executor = &app.executor;
-    NROS_CHECK_RET(nros_executor_add_service(&app.executor, &app.service), 1);
+    /* phase-417 stage 6 — rclc arity: the request handler is supplied at
+     * REGISTRATION, not at `*_init`. */
+    NROS_CHECK_RET(
+        nros_executor_add_service_raw(&app.executor, &app.service, service_callback, &app.ctx), 1);
     printf("Executor created with %d handle(s)\n", nros_executor_get_handle_count(&app.executor));
 
     // Set up signal handler
@@ -151,7 +153,7 @@ int nros_app_main(int argc, char** argv) {
     printf("\nWaiting for service requests (Ctrl+C to exit)...\n\n");
 
     // Spin with 100ms period
-    nros_ret_t ret = nros_executor_spin_period(&app.executor, 100000000ULL);
+    nros_ret_t ret = rclc_executor_spin_period(&app.executor, 100000000ULL);
     if (ret != NROS_RET_OK && g_running) {
         fprintf(stderr, "Executor spin failed: %d\n", ret);
     }
@@ -159,10 +161,10 @@ int nros_app_main(int argc, char** argv) {
     // Cleanup
     printf("\nShutting down...\n");
     printf("Total requests handled: %d\n", app.ctx.request_count);
-    nros_executor_fini(&app.executor);
+    rclc_executor_fini(&app.executor);
     nros_service_fini(&app.service);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     printf("Goodbye!\n");
     return 0;

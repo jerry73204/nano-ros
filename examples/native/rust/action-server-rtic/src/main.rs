@@ -10,7 +10,7 @@
 
 use example_interfaces::action::{Fibonacci, FibonacciFeedback, FibonacciGoal, FibonacciResult};
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("action-server-rtic");
@@ -25,7 +25,7 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
-    nros_info!(&LOGGER, "nros RTIC-pattern Action Server (native)");
+    log_info!(&LOGGER, "nros RTIC-pattern Action Server (native)");
 
     let config = ExecutorConfig::from_env().node_name("fibonacci_action_server");
     let mut executor = Executor::open(&config).expect("Failed to open session");
@@ -37,8 +37,8 @@ fn main() {
         .create_action_server::<Fibonacci>("/fibonacci")
         .expect("Failed to create action server");
 
-    nros_info!(&LOGGER, "Action server ready: /fibonacci");
-    nros_info!(&LOGGER, "Waiting for action goals (RTIC pattern)...");
+    log_info!(&LOGGER, "Action server ready: /fibonacci");
+    log_info!(&LOGGER, "Waiting for action goals (RTIC pattern)...");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
 
@@ -47,7 +47,7 @@ fn main() {
 
         // Try to accept new goals
         match server.try_accept_goal(|_goal_id, goal: &FibonacciGoal| {
-            nros_info!(&LOGGER, "Received goal request with order {}", goal.order);
+            log_info!(&LOGGER, "Received goal request with order {}", goal.order);
             GoalResponse::AcceptAndExecute
         }) {
             Ok(Some(goal_id)) => {
@@ -55,7 +55,7 @@ fn main() {
                     let order = active_goal.goal.order;
 
                     server.set_goal_status(&goal_id, GoalStatus::Executing);
-                    nros_info!(&LOGGER, "Executing goal");
+                    log_info!(&LOGGER, "Executing goal");
 
                     // Compute Fibonacci with feedback
                     let mut sequence: heapless::Vec<i32, 64> = heapless::Vec::new();
@@ -75,9 +75,9 @@ fn main() {
                             sequence: sequence.clone(),
                         };
                         if let Err(e) = server.publish_feedback(&goal_id, &feedback) {
-                            nros_error!(&LOGGER, "Feedback error: {:?}", e);
+                            log_error!(&LOGGER, "Feedback error: {:?}", e);
                         } else {
-                            nros_info!(&LOGGER, "Publish feedback");
+                            log_info!(&LOGGER, "Publish feedback");
                         }
 
                         // Drive I/O between feedback publishes
@@ -88,11 +88,11 @@ fn main() {
                     }
 
                     let result = FibonacciResult { sequence };
-                    nros_info!(&LOGGER, "Goal succeeded");
+                    log_info!(&LOGGER, "Goal succeeded");
                     // Issue 0796 — `complete_goal` reports a result the
                     // server could not retain for a later `get_result`.
                     if let Err(e) = server.complete_goal(&goal_id, GoalStatus::Succeeded, result) {
-                        nros_error!(&LOGGER, "complete_goal failed: {:?}", e);
+                        log_error!(&LOGGER, "complete_goal failed: {:?}", e);
                     }
                 }
 
@@ -104,7 +104,7 @@ fn main() {
                 }
             }
             Ok(None) => {}
-            Err(e) => nros_error!(&LOGGER, "Accept error: {:?}", e),
+            Err(e) => log_error!(&LOGGER, "Accept error: {:?}", e),
         }
 
         // Handle cancel requests
@@ -113,5 +113,5 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    nros_info!(&LOGGER, "Done");
+    log_info!(&LOGGER, "Done");
 }

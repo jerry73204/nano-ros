@@ -29,7 +29,7 @@
 
 use heapless::String as HString;
 use nros::{CdrReader, CdrWriter, DeserError, Deserialize, RosMessage, SerError, Serialize};
-use nros_log::{Logger, nros_info};
+use nros_log::{Logger, log_info};
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("custom-msg");
@@ -228,7 +228,7 @@ fn main() {
                 return;
             }
         };
-        nros_info!(&LOGGER, "Session created");
+        log_info!(&LOGGER, "Session created");
 
         // Create publisher
         let nid = executor
@@ -239,7 +239,7 @@ fn main() {
             .node_mut(nid)
             .create_publisher::<SensorReading>("/sensor_data")
             .expect("Failed to create publisher");
-        nros_info!(&LOGGER, "Publisher created for: /sensor_data");
+        log_info!(&LOGGER, "Publisher created for: /sensor_data");
 
         // Register subscription callback
         executor
@@ -251,7 +251,7 @@ fn main() {
                 );
             })
             .expect("Failed to add subscription");
-        nros_info!(&LOGGER, "Subscriber created for: /sensor_data");
+        log_info!(&LOGGER, "Subscriber created for: /sensor_data");
 
         println!();
         println!("Publishing sensor readings...");

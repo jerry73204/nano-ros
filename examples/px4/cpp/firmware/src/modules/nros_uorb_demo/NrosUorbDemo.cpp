@@ -97,8 +97,8 @@ class NrosUorbDemo : public ModuleBase<NrosUorbDemo>, public px4::ScheduledWorkI
     void Run() override;
 
     nros::Node _node{};
-    nros::Publisher<DebugKeyValueTag> _debug_pub{};
-    nros::Subscription<VehicleStatusTag> _status_sub{};
+    rclcpp::Publisher<DebugKeyValueTag> _debug_pub{};
+    rclcpp::Subscription<VehicleStatusTag> _status_sub{};
 
     uint32_t _published{0};
     uint32_t _received{0};

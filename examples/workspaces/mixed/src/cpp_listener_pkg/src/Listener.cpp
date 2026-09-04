@@ -12,7 +12,7 @@ void Listener::on_msg(const ::std_msgs::msg::Int32& msg) {
     ++recv_;
 }
 
-::nros::Result Listener::configure(::nros::Node& node) {
+::rclcpp::Result Listener::configure(::nros::Node& node) {
     // `::setvbuf`, not `std::setvbuf` — Zephyr picolibc declares it only at global scope
     // (phase-263 C2c-zephyr; same fix as the cpp workspace listener).
     ::setvbuf(stdout, nullptr, _IONBF, 0);

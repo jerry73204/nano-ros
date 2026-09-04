@@ -67,7 +67,7 @@ int run() {
     if (params.has_parameter("missing")) return 5;
 
     bool tmp = false;
-    nros::Result missing = params.get_parameter<bool>("missing", tmp);
+    rclcpp::Result missing = params.get_parameter<bool>("missing", tmp);
     if (missing.ok()) return 5;
 
     // ---- Sequence parameters (Phase 242.3) ----

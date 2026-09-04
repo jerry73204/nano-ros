@@ -66,21 +66,27 @@ timeout)`.
 
 ### C surface (`nros-c`)
 
-~120 `nros_*` functions (cbindgen → `nros_generated.h` + hand-written
-`visibility.h`/`platform.h`/`types.h`), mirroring rclc:
+~120 functions (cbindgen → `nros_generated.h` + hand-written
+`visibility.h`/`platform.h`/`types.h`). Where rclc/rcl has a counterpart the
+entry point carries **rclc's own name**, in rclc's argument order and arity
+(RFC-0087, settled 2026-09-04); everything with no counterpart keeps the
+`nros_` prefix:
 
-- init: `nros_executor_init`, `nros_node_init`, `nros_support_init`.
-- pub/sub: `nros_publisher_init[_with_qos|_with_options]`, `nros_publish_raw`,
-  `nros_subscription_init[_with_qos|_polling]`.
-- services/clients: `nros_service_init[_polling]`, `nros_service_send_response_raw`,
-  `nros_client_init`, `nros_client_send_request_raw`, `nros_client_call`;
+- init: `nros_executor_init`, `rclc_node_init_default`, `nros_support_init`.
+- pub/sub: `rclc_publisher_init_default`,
+  `nros_publisher_init_{with_qos,with_options}`, `nros_publish_raw`,
+  `rclc_subscription_init_default`,
+  `nros_subscription_init_{with_qos,polling}`.
+- services/clients: `rclc_service_init_default`, `nros_service_init_polling`,
+  `nros_service_send_response_raw`,
+  `rclc_client_init_default`, `nros_client_send_request_raw`, `nros_client_call`;
   callback receive (RFC-0041): `nros_client_set_response_callback` +
-  `nros_client_send_request_async` (reply dispatched at `nros_executor_spin_some`).
+  `nros_client_send_request_async` (reply dispatched at `rclc_executor_spin_some`).
 - actions: `nros_action_{server,client}_init`, `nros_action_send_goal`,
   `nros_action_get_result`; callback receive (RFC-0041):
   `nros_action_client_set_{goal_response,feedback,result}_callback`.
-- executor: `nros_executor_register_{subscription,timer}`,
-  `nros_executor_spin[_some]`.
+- executor: `nros_executor_add_subscription*`, `rclc_executor_add_timer`,
+  `rclc_executor_spin[_some]`.
 - guard/lifecycle/params: `nros_guard_condition_*`, `nros_lifecycle_*`,
   `nros_param_*`.
 

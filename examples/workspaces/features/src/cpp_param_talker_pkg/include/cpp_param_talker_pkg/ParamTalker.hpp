@@ -11,14 +11,14 @@ namespace cpp_param_talker_pkg {
 /// executor-backed parameter store via `nros_cpp_get_param_integer` and publishes
 /// the value on /chatter.
 class ParamTalker {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     void* executor_handle_ = nullptr; /* saved at configure for live reads in on_tick */
 
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_param_talker_pkg

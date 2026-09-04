@@ -26,9 +26,7 @@
 //! [FATAL] demo: round 2: hello with fatal=true
 //! ```
 
-use nros_log::{
-    Logger, Severity, nros_debug, nros_error, nros_fatal, nros_info, nros_trace, nros_warn,
-};
+use nros_log::{Logger, Severity, log_debug, log_error, log_fatal, log_info, log_warn, nros_trace};
 
 // Pre-register a Logger so `get_logger("demo")` / `Node::logger()`
 // resolve to the same instance.
@@ -56,11 +54,11 @@ fn main() {
             LOGGER.set_level(Severity::Warn);
         }
         nros_trace!(&LOGGER, "round {}: hello with trace={}", round, true);
-        nros_debug!(&LOGGER, "round {}: hello with debug={}", round, true);
-        nros_info!(&LOGGER, "round {}: hello with info={}", round, true);
-        nros_warn!(&LOGGER, "round {}: hello with warn={}", round, true);
-        nros_error!(&LOGGER, "round {}: hello with error={}", round, true);
-        nros_fatal!(&LOGGER, "round {}: hello with fatal={}", round, true);
+        log_debug!(&LOGGER, "round {}: hello with debug={}", round, true);
+        log_info!(&LOGGER, "round {}: hello with info={}", round, true);
+        log_warn!(&LOGGER, "round {}: hello with warn={}", round, true);
+        log_error!(&LOGGER, "round {}: hello with error={}", round, true);
+        log_fatal!(&LOGGER, "round {}: hello with fatal={}", round, true);
     }
 
     nros_log::flush();

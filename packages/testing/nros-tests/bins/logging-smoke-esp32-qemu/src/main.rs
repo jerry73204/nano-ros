@@ -13,7 +13,7 @@
 
 use esp_backtrace as _;
 use nros_board_esp32_qemu::{Config, entry, run_bare};
-use nros_log::{Logger, Severity, nros_debug, nros_error, nros_fatal, nros_info, nros_trace, nros_warn, register_logger};
+use nros_log::{Logger, Severity, log_debug, log_error, log_fatal, log_info, nros_trace, log_warn, register_logger};
 
 nros_board_esp32_qemu::esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -36,11 +36,11 @@ fn main() -> ! {
         logger.set_level(Severity::Trace);
 
         nros_trace!(logger, "trace payload");
-        nros_debug!(logger, "debug payload");
-        nros_info!(logger, "info payload");
-        nros_warn!(logger, "warn payload");
-        nros_error!(logger, "error payload");
-        nros_fatal!(logger, "fatal payload");
+        log_debug!(logger, "debug payload");
+        log_info!(logger, "info payload");
+        log_warn!(logger, "warn payload");
+        log_error!(logger, "error payload");
+        log_fatal!(logger, "fatal payload");
         nros_log::flush();
 
         Ok::<(), &'static str>(())
