@@ -111,7 +111,7 @@ POOL_CLASSES = {5, 12, 14, 15, 17}
 # way and a call would be a cycle. See SubscriberAllocReport's own doc comment.
 ALLOC_SYMBOL = "NROS_SUBSCRIBER_ALLOC_REPORT"
 ALLOC_MAGIC = 0x53554241  # "SUBA"
-ALLOC_VERSION = 1
+ALLOC_VERSION = 3
 ALLOC_FIELDS = (
     "magic",
     "version",
@@ -125,12 +125,27 @@ ALLOC_FIELDS = (
     "subscriber_buffer_size",
     "small_taken",
     "large_taken",
+    "keyexpr_len",
+    "keyexpr_cap",
+    "zpico_err",
+    "buffer_taken",
 )
+# Assigned by `zpico_err_class` in the zenoh shim. The variant is recorded on
+# the NEAR side of the C ABI because crossing it collapses Generic and Session
+# into one ConnectionFailed and then into an indistinguishable
+# Backend("rmw_ret error") -- issues 0870 and 0465.
+ZPICO_ERR = {
+    0: "(none -- the declare succeeded)",
+    1: "Generic", 2: "Config", 3: "Session", 4: "Task", 5: "KeyExpr",
+    6: "Full", 7: "Invalid", 8: "Publish", 9: "NotOpen", 10: "Timeout",
+}
+
 ALLOC_REFUSAL = {
     0: "none -- every subscription got a payload block",
     1: "the hint is above EVERY class, so it has nowhere legal to go",
     2: "the LARGE class is full (MAX_LARGE_SUBSCRIBERS)",
     3: "the SMALL class is full (ZPICO_MAX_SUBSCRIBERS)",
+    4: "the METADATA slots are full (ZPICO_MAX_SUBSCRIBERS) -- guarded FIRST",
 }
 
 
@@ -346,14 +361,40 @@ def report_alloc(rec: dict[str, int]) -> int:
         )
     print()
     print("measured on the board:")
+    print(f"  metadata slots taken            {rec['buffer_taken']}")
     print(f"  small blocks taken              {rec['small_taken']}")
     print(f"  large blocks taken              {rec['large_taken']}")
     print(f"  last hint seen                  {rec['rx_hint']}")
     print()
+    kl, kc = rec["keyexpr_len"], rec["keyexpr_cap"]
+    print(f"  last keyexpr length             {kl} of {kc}")
+    if kc and kl >= kc:
+        print(
+            "  TRUNCATED: the keyexpr filled its buffer exactly. `to_key_wildcard`\n"
+            "  discards the overflow, so this is a silently shortened key, and the\n"
+            "  length guard cannot see it -- a truncated string always fits.\n"
+            "  Raise NROS_KEYEXPR_STRING_SIZE (note: currently fails to compile,\n"
+            "  service.rs hardcodes 257)."
+        )
+    ze = rec["zpico_err"]
+    if ze:
+        print(f"  zpico declare returned          {ZPICO_ERR.get(ze, f'unknown {ze}')}")
+        if ze == 3:
+            print(
+                "  Session -- the zenoh session was NOT OPEN when the declare ran.\n"
+                "  Nothing about sizing; the transport went away mid-registration.\n"
+                "  This exit has no printk, which is why the console showed nothing."
+            )
+        elif ze == 1:
+            print("  Generic -- z_declare_subscriber itself failed; zpico printk carries the code.")
+        elif ze == 6:
+            print("  Full -- the zpico subscriber table is exhausted (ZPICO_MAX_SUBSCRIBERS).")
+    print()
+
     r = rec["refusal"]
     print(f"refusal    {r}  {ALLOC_REFUSAL.get(r, 'unknown')}")
     if r == 0:
-        return 0
+        return 1 if ze else 0
     print()
     if r == 1:
         print(
@@ -365,6 +406,14 @@ def report_alloc(rec: dict[str, int]) -> int:
         print(
             f"  {rec['large_taken']} large blocks were taken and MAX_LARGE_SUBSCRIBERS is\n"
             f"  {rec['max_large_subscribers']}. Raise NROS_MAX_LARGE_SUBSCRIBERS."
+        )
+    elif r == 4:
+        print(
+            f"  {rec['buffer_taken']} metadata slots were taken and the pool is that size.\n"
+            "  Compare against the number of subscriptions the image DECLARES: if\n"
+            "  the image needed MORE, something other than the application is\n"
+            "  taking slots, and the derivation of NROS_RMW_SUBSCRIBER_SLOTS from\n"
+            "  COUNT_SUBSCRIPTION is short by that many."
         )
     else:
         print(
