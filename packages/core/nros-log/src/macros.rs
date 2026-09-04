@@ -23,9 +23,11 @@
 //! There is no single "ROS 2 spelling", so each of our languages follows ITS
 //! OWN upstream. For Rust that is rclrs, and rclrs's five severity macros are
 //! [`log_debug!`], [`log_info!`], [`log_warn!`], [`log_error!`],
-//! [`log_fatal!`] — which is what this module now exports. The former
-//! `nros_*!` spellings survive as `#[deprecated]` forwarders (see the
-//! "migration forwarders" section below); removal is a later batch.
+//! [`log_fatal!`] — which is what this module now exports. The pre-rename
+//! `nros_debug!` .. `nros_fatal!` forwarders, and the
+//! `deprecate-legacy-names` feature that armed their `#[deprecated]`, were
+//! removed in phase-417 W-B5 once every in-tree call site had moved. There is
+//! no `log_trace!`: see below.
 //!
 //! **A name takes rclrs's spelling exactly when rclrs HAS that name.** Two
 //! families deliberately keep the `nros_` prefix, because inventing a name
@@ -90,8 +92,8 @@ macro_rules! nros_trace {
 /// Emit at [`crate::Severity::Debug`].
 ///
 /// `rclrs::log_debug!`'s spelling — see the module note on RFC-0089's
-/// "each language follows its own upstream" rule. [`nros_debug!`] is the
-/// deprecated former name.
+/// "each language follows its own upstream" rule. The pre-rename
+/// `nros_debug!` forwarder was removed in phase-417 W-B5.
 #[macro_export]
 macro_rules! log_debug {
     ($logger:expr, $($arg:tt)+) => {
@@ -104,8 +106,8 @@ macro_rules! log_debug {
 /// Emit at [`crate::Severity::Info`].
 ///
 /// `rclrs::log_info!`'s spelling — see the module note on RFC-0089's
-/// "each language follows its own upstream" rule. [`nros_info!`] is the
-/// deprecated former name.
+/// "each language follows its own upstream" rule. The pre-rename
+/// `nros_info!` forwarder was removed in phase-417 W-B5.
 #[macro_export]
 macro_rules! log_info {
     ($logger:expr, $($arg:tt)+) => {
@@ -118,8 +120,8 @@ macro_rules! log_info {
 /// Emit at [`crate::Severity::Warn`].
 ///
 /// `rclrs::log_warn!`'s spelling — see the module note on RFC-0089's
-/// "each language follows its own upstream" rule. [`nros_warn!`] is the
-/// deprecated former name.
+/// "each language follows its own upstream" rule. The pre-rename
+/// `nros_warn!` forwarder was removed in phase-417 W-B5.
 #[macro_export]
 macro_rules! log_warn {
     ($logger:expr, $($arg:tt)+) => {
@@ -132,8 +134,8 @@ macro_rules! log_warn {
 /// Emit at [`crate::Severity::Error`].
 ///
 /// `rclrs::log_error!`'s spelling — see the module note on RFC-0089's
-/// "each language follows its own upstream" rule. [`nros_error!`] is the
-/// deprecated former name.
+/// "each language follows its own upstream" rule. The pre-rename
+/// `nros_error!` forwarder was removed in phase-417 W-B5.
 #[macro_export]
 macro_rules! log_error {
     ($logger:expr, $($arg:tt)+) => {
@@ -146,128 +148,14 @@ macro_rules! log_error {
 /// Emit at [`crate::Severity::Fatal`].
 ///
 /// `rclrs::log_fatal!`'s spelling — see the module note on RFC-0089's
-/// "each language follows its own upstream" rule. [`nros_fatal!`] is the
-/// deprecated former name.
+/// "each language follows its own upstream" rule. The pre-rename
+/// `nros_fatal!` forwarder was removed in phase-417 W-B5.
 #[macro_export]
 macro_rules! log_fatal {
     ($logger:expr, $($arg:tt)+) => {
         if $crate::severity_enabled_at_compile_time($crate::Severity::Fatal) {
             $crate::__nros_log_emit!($logger, $crate::Severity::Fatal, $($arg)+);
         }
-    };
-}
-
-// -----------------------------------------------------------------------------
-// Migration forwarders — the pre-rename `nros_*!` spellings.
-//
-// RFC-0089 "Naming: replace, with alias as the migration step": the ROS 2
-// spelling becomes the first-class name, ours remains, both work, and the old
-// one is removed in a later deliberate batch with a changelog entry.
-//
-// These forward TOKEN-FOR-TOKEN to the new macros, so a forwarded record is
-// byte-identical to a direct one — same severity, same logger, same
-// `file!()`/`line!()` (both resolve at the OUTERMOST invocation, which is the
-// user's call site however many expansions deep the emit sits), same
-// dispatcher. `deprecated_forwarders.rs` asserts that rather than asserting it
-// merely compiles.
-//
-// WHY THE `#[deprecated]` IS BEHIND A FEATURE. This workspace sets
-// `warnings = "deny"` (root `Cargo.toml`, `[workspace.lints.rust]`). An
-// always-armed deprecation there is not a warning a migrating author sees and
-// schedules — it is a COMPILE ERROR in every crate that still writes the old
-// name, which is the flag day the two-step alias exists to prevent. Measured
-// when this rename landed: arming it stopped the workspace build with 9 errors
-// in `nros-rmw-cffi` alone, before reaching `nros-node`, the boards, or
-// `nros-tests`.
-//
-// So the attribute is written and inert, and `deprecate-legacy-names` is the
-// migration batch's switch: turn it on, fix everything it names, delete these
-// five macros. A `#[deprecated]` nobody can compile against is not a softer
-// deprecation than none — it is a rename pretending to be one.
-// -----------------------------------------------------------------------------
-
-/// Deprecated spelling of [`log_debug!`].
-#[cfg_attr(
-    feature = "deprecate-legacy-names",
-    deprecated(
-        since = "0.5.0",
-        note = "renamed to `log_debug!`, rclrs's spelling (RFC-0089: each language follows its \
-                own upstream). The forwarder emits an identical record; it is removed in a \
-                later batch."
-    )
-)]
-#[macro_export]
-macro_rules! nros_debug {
-    ($logger:expr, $($arg:tt)+) => {
-        $crate::log_debug!($logger, $($arg)+)
-    };
-}
-
-/// Deprecated spelling of [`log_info!`].
-#[cfg_attr(
-    feature = "deprecate-legacy-names",
-    deprecated(
-        since = "0.5.0",
-        note = "renamed to `log_info!`, rclrs's spelling (RFC-0089: each language follows its \
-                own upstream). The forwarder emits an identical record; it is removed in a \
-                later batch."
-    )
-)]
-#[macro_export]
-macro_rules! nros_info {
-    ($logger:expr, $($arg:tt)+) => {
-        $crate::log_info!($logger, $($arg)+)
-    };
-}
-
-/// Deprecated spelling of [`log_warn!`].
-#[cfg_attr(
-    feature = "deprecate-legacy-names",
-    deprecated(
-        since = "0.5.0",
-        note = "renamed to `log_warn!`, rclrs's spelling (RFC-0089: each language follows its \
-                own upstream). The forwarder emits an identical record; it is removed in a \
-                later batch."
-    )
-)]
-#[macro_export]
-macro_rules! nros_warn {
-    ($logger:expr, $($arg:tt)+) => {
-        $crate::log_warn!($logger, $($arg)+)
-    };
-}
-
-/// Deprecated spelling of [`log_error!`].
-#[cfg_attr(
-    feature = "deprecate-legacy-names",
-    deprecated(
-        since = "0.5.0",
-        note = "renamed to `log_error!`, rclrs's spelling (RFC-0089: each language follows its \
-                own upstream). The forwarder emits an identical record; it is removed in a \
-                later batch."
-    )
-)]
-#[macro_export]
-macro_rules! nros_error {
-    ($logger:expr, $($arg:tt)+) => {
-        $crate::log_error!($logger, $($arg)+)
-    };
-}
-
-/// Deprecated spelling of [`log_fatal!`].
-#[cfg_attr(
-    feature = "deprecate-legacy-names",
-    deprecated(
-        since = "0.5.0",
-        note = "renamed to `log_fatal!`, rclrs's spelling (RFC-0089: each language follows its \
-                own upstream). The forwarder emits an identical record; it is removed in a \
-                later batch."
-    )
-)]
-#[macro_export]
-macro_rules! nros_fatal {
-    ($logger:expr, $($arg:tt)+) => {
-        $crate::log_fatal!($logger, $($arg)+)
     };
 }
 

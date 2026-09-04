@@ -35,9 +35,6 @@ fn main() {
   beside (RFC-0089, settled 2026-09-04).
 - `nros_trace!` — kept under OUR prefix: rclrs stops at `debug`, so TRACE has
   no upstream twin and must not borrow a name that implies one.
-- `nros_debug!` / `nros_info!` / `nros_warn!` / `nros_error!` / `nros_fatal!`
-  still work as `#[deprecated]` forwarders and emit an identical record.
-  They are removed in a later batch.
 - All take `(logger, fmt, args…)`.
 - Below-ceiling macros expand to `()` (the format call is
   dead-code-eliminated).

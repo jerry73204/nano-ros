@@ -65,7 +65,7 @@ nros-platform-cffi = { version = "0.5.0", path = "../../platform/nros-platform-c
 # build that never asked for it (ARCHITECTURE §2, clause (a)).
 nros = { version = "0.5.0", path = "../../api/nros", default-features = false, features = ["alloc", "std", "env", "rmw-cffi", "macros"] }
 # Phase 264 W3 — the family driver inits the default log sink at boot so a Node
-# pkg's `nros_info!` reaches stdout/stderr without per-app `nros_log::init`
+# pkg's `log_info!` reaches stdout/stderr without per-app `nros_log::init`
 # (board-agnostic Node pkgs can't pick the sink). Host → the platform sink.
 # issue 0710 follow-up — a board IS the platform console, so it turns on the
 # dispatch auto-install. Cargo unifies the feature into any image holding this

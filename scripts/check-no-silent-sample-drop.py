@@ -36,7 +36,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SCOPE = ["examples"]
 # The arm opener: any `_deserialize(...)` used as a failure test.
 OPENER = re.compile(r"_deserialize\s*\(.*\)\s*!=\s*0\s*\)\s*\{")
-SAYS_SOMETHING = re.compile(r"\b(printf|fprintf|puts|nros_error|nros_warn|NROS_LOG|std::cerr)\b")
+# `log_error`/`log_warn` are the post-phase-417 Rust spellings; `nros_error`/
+# `nros_warn` stay listed because the C API and older prose still use them.
+SAYS_SOMETHING = re.compile(
+    r"\b(printf|fprintf|puts|log_error|log_warn|nros_error|nros_warn|NROS_LOG|std::cerr)\b"
+)
 
 
 def offenders(path: Path):

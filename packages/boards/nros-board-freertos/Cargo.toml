@@ -26,7 +26,7 @@ name = "nros_board_freertos"
 # `install_uart_logger` wiring.
 log = { version = "0.4", default-features = false }
 # run_tiers_entry wires the nros_log dispatcher at boot (mirrors the
-# nros-board-linux/zephyr funnels); without it a Node pkg's `nros_info!`
+# nros-board-linux/zephyr funnels); without it a Node pkg's `log_info!`
 # is silently dropped on FreeRTOS multi-tier entries.
 # issue 0710 follow-up — a board IS the platform console, so it turns on the
 # dispatch auto-install. Cargo unifies the feature into any image holding this
