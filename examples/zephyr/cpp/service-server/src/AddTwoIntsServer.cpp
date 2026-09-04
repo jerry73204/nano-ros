@@ -44,13 +44,13 @@ bool AddTwoIntsServer::handle_add(const uint8_t* req, size_t req_len, uint8_t* r
     return true;
 }
 
-::nros::Result AddTwoIntsServer::configure(::nros::Node& node) {
+::rclcpp::Result AddTwoIntsServer::configure(::nros::Node& node) {
     // Unbuffered stdout — a full-buffered console can swallow the final
     // line(s) when the harness kills the QEMU before a flush.
     // `::setvbuf` (global) not `std::setvbuf` — Zephyr's minimal libcpp/picolibc
     // `<cstdio>` declares it in the global namespace only.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = ::nros::bind_service_raw<AddTwoIntsServer, &AddTwoIntsServer::handle_add>(
+    ::rclcpp::Result r = ::nros::bind_service_raw<AddTwoIntsServer, &AddTwoIntsServer::handle_add>(
         node, "/add_two_ints", "example_interfaces/srv/AddTwoInts", this);
     if (r.ok()) {
         // Readiness marker the e2e harness greps before driving the client.

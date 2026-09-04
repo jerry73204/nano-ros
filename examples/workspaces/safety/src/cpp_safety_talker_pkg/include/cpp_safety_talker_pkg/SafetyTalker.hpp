@@ -11,14 +11,14 @@ namespace cpp_safety_talker_pkg {
 /// When built with NANO_ROS_SAFETY_E2E=ON the zenoh backend automatically
 /// attaches a CRC-32 + sequence number on every publish — no code change needed.
 class SafetyTalker {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int32_t counter_ = 0;
 
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace cpp_safety_talker_pkg

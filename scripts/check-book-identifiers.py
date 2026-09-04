@@ -49,11 +49,27 @@ EXEMPT = {
     "nros_platform_myrtos": "porting/overview scaffold output name",
     "nros_board_stm32f4_freertos": "vendor-overlay worked example (out-of-tree crate)",
     "my_stm32f4_board": "stm32f4-out-of-tree worked example",
+    # phase-417 widened this gate to `rcl_*`/`rclc_*`, and a MIGRATION table
+    # names upstream's identifier on the left of the arrow. `rcl_node_init` is
+    # micro-ROS's, not ours -- ours is `rclc_node_init_default`. The gate reads
+    # backtick spans and cannot see arrow direction, so the "from" side of a
+    # port table needs naming here rather than being silently accepted.
+    "rcl_node_init": "comparison-vs-microros names it as micro-ROS's spelling, the FROM side of the port table",
 }
 
 SPAN = re.compile(r"`([^`\n]+)`")
 RUST_PATH = re.compile(r"^nros(::[A-Za-z_][A-Za-z0-9_]*!?)+(\(\))?$")
-C_IDENT = re.compile(r"^nros_[a-z0-9_]+$")
+# phase-417 stage 6 — `rcl_*` / `rclc_*` too, not only `nros_*`.
+#
+# The book now teaches rcl/rclc spellings, because the C API took them
+# (RFC-0087). Before this, every `rcl_get_zero_initialized_node` a doc author
+# typed was INVISIBLE to this gate: it validated `nros_*` only, so a typo in the
+# new vocabulary shipped green while the old vocabulary was checked. W-B4
+# grep-verified its 22 new identifiers by hand for exactly that reason.
+#
+# `rmw_*` is deliberately NOT here: the book names upstream `rmw_qos_profile_*`
+# constants we do not declare, and they would all read as unknown.
+C_IDENT = re.compile(r"^(nros|rcl|rclc)_[a-z0-9_]+$")
 CMAKE_CALL = re.compile(r"^(nros_[a-z0-9_]+|nano_ros_[a-z0-9_]+)\(")
 
 

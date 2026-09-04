@@ -113,7 +113,7 @@ where
     init_hardware(&cfg);
 
     // Phase 244.D1 — install the agnostic `nros_log` dispatcher so declarative
-    // nodes can `nros_info!` (the mps2-an385 semihosting `PlatformLog` already
+    // nodes can `log_info!` (the mps2-an385 semihosting `PlatformLog` already
     // ships; this only wires the dispatcher to the default sinks). Replaces the
     // per-example `nros_log::init(...)` that used to live in each talker's boot
     // closure. Nodes still `register_logger(&LOGGER)` in their `register()`.
@@ -121,7 +121,7 @@ where
 
     // phase-338 W7 — bridge the `log` facade too, so BOTH work here.
     //
-    // This board was the last one whose node bodies had to use `nros_info!`:
+    // This board was the last one whose node bodies had to use `log_info!`:
     // every other platform bridges `log`, so a body written against `log`
     // compiled here and printed nothing. That made the logging facade a board
     // property leaking into user source, which is the defect class this phase

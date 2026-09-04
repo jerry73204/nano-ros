@@ -470,7 +470,7 @@ impl QemuProcess {
         // Phase 88.16.A — drain stderr alongside stdout so logging
         // records (which route through `hstderr()` on bare-metal
         // semihosting) reach the captured string. Examples that
-        // emit via `nros_info!` would otherwise look silent to the
+        // emit via `log_info!` would otherwise look silent to the
         // harness.
         let mut stdout = self
             .handle

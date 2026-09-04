@@ -13,7 +13,7 @@
 
 use example_interfaces::action::{Fibonacci, FibonacciGoal};
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 
 // Diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("action-client-rtic");
@@ -28,7 +28,7 @@ fn main() {
     nros_log::register_logger(&LOGGER);
     nros_log::init(nros_platform_cffi::log::default_sinks());
 
-    nros_info!(&LOGGER, "nros RTIC-pattern Action Client (native)");
+    log_info!(&LOGGER, "nros RTIC-pattern Action Client (native)");
 
     let config = ExecutorConfig::from_env().node_name("fibonacci_action_client");
     let mut executor = Executor::open(&config).expect("Failed to open session");
@@ -40,7 +40,7 @@ fn main() {
         .create_action_client::<Fibonacci>("/fibonacci")
         .expect("Failed to create action client");
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "Action client created for /fibonacci (RTIC pattern)"
     );
@@ -52,7 +52,7 @@ fn main() {
     }
 
     let goal = FibonacciGoal { order: 10 };
-    nros_info!(&LOGGER, "Sending goal");
+    log_info!(&LOGGER, "Sending goal");
 
     let (goal_id, mut promise) = client.send_goal(&goal).expect("Failed to send goal");
 
@@ -68,10 +68,10 @@ fn main() {
     }
 
     if !accepted {
-        nros_error!(&LOGGER, "Goal not accepted (timeout)");
+        log_error!(&LOGGER, "Goal not accepted (timeout)");
         std::process::exit(1);
     }
-    nros_info!(&LOGGER, "Goal accepted by server, waiting for result");
+    log_info!(&LOGGER, "Goal accepted by server, waiting for result");
 
     // Receive feedback via try_recv_feedback() loop; this client is
     // feedback-stream-only, so the final/full sequence doubles as the result.
@@ -82,13 +82,13 @@ fn main() {
         if let Ok(Some((id, feedback))) = client.try_recv_feedback()
             && id.uuid == goal_id.uuid
         {
-            nros_info!(
+            log_info!(
                 &LOGGER,
                 "Next number in sequence received: {:?}",
                 &feedback.sequence[..]
             );
             if feedback.sequence.len() as i32 > goal.order {
-                nros_info!(&LOGGER, "Result received: {:?}", &feedback.sequence[..]);
+                log_info!(&LOGGER, "Result received: {:?}", &feedback.sequence[..]);
                 got_result = true;
                 break;
             }
@@ -98,7 +98,7 @@ fn main() {
     }
 
     if !got_result {
-        nros_error!(&LOGGER, "Timeout waiting for the full sequence");
+        log_error!(&LOGGER, "Timeout waiting for the full sequence");
         std::process::exit(1);
     }
 }

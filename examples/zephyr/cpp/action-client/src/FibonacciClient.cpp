@@ -53,14 +53,14 @@ void FibonacciClient::on_result(const uint8_t* /*goal_id*/, int32_t /*status*/, 
     print_sequence("Result received: ", data, len);
 }
 
-::nros::Result FibonacciClient::configure(::nros::Node& node) {
+::rclcpp::Result FibonacciClient::configure(::nros::Node& node) {
     // Unbuffered stdout — the callback prints only on transitions, so a
     // full-buffered console would swallow them when the harness kills the QEMU.
     // `::setvbuf` (global) not `std::setvbuf` — Zephyr's minimal libcpp/picolibc
     // `<cstdio>` declares it in the global namespace only.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
 
-    ::nros::Result r =
+    ::rclcpp::Result r =
         ::nros::bind_action_client<FibonacciClient, &FibonacciClient::on_goal_response,
                                    &FibonacciClient::on_feedback, &FibonacciClient::on_result>(
             node, client_, poll_timer_, "/fibonacci", "example_interfaces/action/Fibonacci", this);
@@ -76,7 +76,7 @@ void FibonacciClient::on_result(const uint8_t* /*goal_id*/, int32_t /*status*/, 
     uint8_t goal_id[16];
     std::printf("Sending goal\n");
     nros_cpp_action_client_send_goal_async(client_.bytes, goal, sizeof(goal), &goal_id);
-    return ::nros::Result();
+    return ::rclcpp::Result();
 }
 
 } // namespace zephyr_cpp_action_client

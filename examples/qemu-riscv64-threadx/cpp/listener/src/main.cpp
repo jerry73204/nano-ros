@@ -53,7 +53,7 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "listener"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::Subscription<std_msgs::msg::String> sub;
+    rclcpp::Subscription<std_msgs::msg::String> sub;
     NROS_TRY_RET(node.create_subscription(sub, "/chatter"), 1);
     // phase-342 W7 — the READINESS marker the test harness waits on
     // (`nros_tests::output::LISTENER_READY_MARKER`, via `expect_ready`). Every
@@ -74,7 +74,7 @@ int nros_app_main(int argc, char** argv) {
     // sub.stream().wait_next(nros::global_handle(), 1000, msg);
 
     // Spin + poll loop
-    while (g_running && nros::ok()) {
+    while (g_running && rclcpp::ok()) {
         nros::spin_once(100);
 
         std_msgs::msg::String msg;
@@ -87,7 +87,7 @@ int nros_app_main(int argc, char** argv) {
     // Cleanup
     printf("\nShutting down...\n");
     printf("Total messages received: %d\n", message_count);
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return 0;

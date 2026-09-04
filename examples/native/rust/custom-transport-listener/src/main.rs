@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use nros::prelude::*;
-use nros_log::{Logger, nros_error, nros_info};
+use nros_log::{Logger, log_error, log_info};
 use std_msgs::msg::String as StringMsg;
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
@@ -26,7 +26,7 @@ fn main() {
     let target =
         std::env::var("NROS_CUSTOM_TCP_TARGET").unwrap_or_else(|_| "127.0.0.1:7447".to_string());
 
-    nros_info!(
+    log_info!(
         &LOGGER,
         "nros Custom-Transport Listener — bridging to TCP {target}"
     );
@@ -38,13 +38,13 @@ fn main() {
     let ops = match nros_transport_callbacks::tcp_transport_ops(&target) {
         Ok(ops) => ops,
         Err(e) => {
-            nros_error!(&LOGGER, "TCP connect to {target} failed: {e}");
+            log_error!(&LOGGER, "TCP connect to {target} failed: {e}");
             std::process::exit(1);
         }
     };
     // SAFETY: the factory leaks its backing state, so it lives until process exit.
     unsafe { nros_rmw::set_custom_transport(Some(ops)).expect("abi v1 ok") };
-    nros_info!(&LOGGER, "Custom transport vtable registered");
+    log_info!(&LOGGER, "Custom transport vtable registered");
 
     // Phase 115.L.5-custom-transport — install zenoh-pico C-vtable
     // backend after staging the custom-transport slot (zenoh-pico
@@ -60,13 +60,13 @@ fn main() {
     executor
         .node_mut(nid)
         .create_subscription::<StringMsg, _>("/chatter", |msg: &StringMsg| {
-            nros_info!(&LOGGER, "I heard: [{}]", msg.data);
+            log_info!(&LOGGER, "I heard: [{}]", msg.data);
         })
         .expect("Failed to add subscription");
     // Issue 0480 — the shared readiness spelling (`output::LISTENER_READY_MARKER`).
     // This bin and `serial-listener` were the only two saying "created on", a
     // second spelling of the same fact that no shared constant could cover.
-    nros_info!(&LOGGER, "Subscriber created for topic: /chatter");
+    log_info!(&LOGGER, "Subscriber created for topic: /chatter");
 
     let max_secs: u64 = std::env::var("NROS_LISTENER_SECS")
         .ok()
@@ -78,5 +78,5 @@ fn main() {
         let _ = executor.spin_once(Duration::from_millis(50));
     }
 
-    nros_info!(&LOGGER, "Listener done");
+    log_info!(&LOGGER, "Listener done");
 }

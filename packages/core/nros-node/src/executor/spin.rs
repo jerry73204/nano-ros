@@ -153,7 +153,7 @@ impl<'s> Executor<'s> {
                         }
                         nros_rmw_cffi::BackendResolution::Single(_) => unreachable!(),
                     };
-                    nros_log::nros_error!(
+                    nros_log::log_error!(
                         nros_log::get_logger("nros"),
                         "cannot select an RMW backend — {why}"
                     );
@@ -185,7 +185,7 @@ impl<'s> Executor<'s> {
             // exhausted session pool (`InvalidConfig`) and a router that is not
             // there produced the same sentence. Same lesson as the selection
             // arm above: say which failure happened.
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros"),
                 "RMW session open failed — {e:?}"
             );
@@ -2311,7 +2311,7 @@ impl<'s> Executor<'s> {
             // The two periods the timer will actually alternate between.
             let early_us = (period_us / spin_us) * spin_us;
             let late_us = early_us.saturating_add(spin_us);
-            nros_log::nros_warn!(
+            nros_log::log_warn!(
                 nros_log::get_logger("nros"),
                 "timer period {} us is not a multiple of the {} us spin period: activations will alternate between {} us and {} us (mean cadence preserved)",
                 period_us,
@@ -6802,7 +6802,7 @@ impl<'s> Executor<'s> {
                         .and_then(|st| st.as_mut())
                         .and_then(|st| st.take_budget_window())
                     {
-                        nros_log::nros_warn!(
+                        nros_log::log_warn!(
                             nros_log::get_logger("nros"),
                             "sporadic budget throttled sched context {}: {} of the last {} dispatch opportunities were skipped for want of budget. The declared budget_us/period_us cannot sustain this tier's callbacks on this target.",
                             sc_idx,
@@ -6816,7 +6816,7 @@ impl<'s> Executor<'s> {
                         .and_then(|st| st.as_mut())
                         .and_then(|st| st.note_budget_skip())
                     {
-                        nros_log::nros_warn!(
+                        nros_log::log_warn!(
                             nros_log::get_logger("nros"),
                             "sporadic budget exhausted for {} consecutive spins (sched context {}): its callbacks are not being dispatched. Either the callback runtime exceeds the declared budget_us per period_us, or the declaration is unsatisfiable on this target.",
                             streak,
@@ -8167,7 +8167,7 @@ impl<'s> Executor<'s> {
         // is a promise this build can keep.
         let start_us = self.now_us();
         if opts.timeout.is_some() && start_us.is_none() {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros"),
                 "spin_blocking: a timeout was requested but this build has no clock \
                  — install one with `ExecutorConfig::clock_us` (issue 0709)"
@@ -8271,7 +8271,7 @@ impl<'s> Executor<'s> {
         // this build cannot honour is a configuration error, not a silent
         // busy-loop.
         let Some(start_us) = self.now_us() else {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros"),
                 "spin_period: a period was requested but this build has no clock \
                  — install one with `ExecutorConfig::clock_us` (issue 0709)"

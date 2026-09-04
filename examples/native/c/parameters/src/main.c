@@ -25,7 +25,7 @@ static int run(void) {
         if (nros_clock_get_now(&clock, &now) == NROS_RET_OK) {
             printf("System time: %d.%09u sec\n", now.sec, now.nanosec);
         }
-        (void)nros_clock_fini(&clock);
+        (void)rcl_clock_fini(&clock);
     }
 
     // Parameter server backed by static storage (no heap). The server struct

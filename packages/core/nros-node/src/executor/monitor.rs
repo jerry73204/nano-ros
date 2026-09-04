@@ -477,7 +477,7 @@ mod tests {
 /// site sits inside a loop that already borrows the executor's spec
 /// tables.
 pub(crate) fn log_violation(v: &Violation) {
-    nros_log::nros_warn!(
+    nros_log::log_warn!(
         nros_log::get_logger("nros"),
         "contract violation: {} {} measured={} declared={}",
         v.rule,

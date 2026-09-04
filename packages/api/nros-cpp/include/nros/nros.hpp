@@ -248,14 +248,25 @@ inline Result spin(uint32_t duration_ms, int32_t poll_ms = 10) {
 #include <cstdlib>     // std::abort -- the runtime half of RFC-0089 W3.b
 #include <type_traits> // the SFINAE guards on create_service / create_client
 
+// `<chrono>` requires the EXPLICIT opt-in, not `__has_include`, and that is
+// measured rather than stylistic.
+//
+// `__has_include(<chrono>)` is TRUE on the Zephyr arm-none-eabi toolchain --
+// the file exists -- but under `-ffreestanding` libstdc++ ships it INCOMPLETE:
+// `std::chrono::duration_cast` is absent, so `create_wall_timer` and `Rate`
+// failed to compile on every Zephyr C++ image with
+// `'duration_cast' is not a member of 'std::chrono'`. Replayed from that build
+// dir's own recorded compile command, not inferred.
+//
+// So the idiom has a boundary worth stating: `__has_include` answers "does the
+// header exist", which is the right question for `<memory>` (present or absent
+// as a unit) and the WRONG one for `<chrono>` (present but hollowed out). Where
+// a freestanding toolchain ships a partial header, only the consumer's own
+// `NROS_CPP_STD` opt-in is a reliable signal. Issue 0112's class, one layer past
+// where step A caught it.
 #if defined(NROS_CPP_STD)
 #include <chrono>
 #define NROS_CPP_HAS_STD_CHRONO 1
-#elif defined(__has_include)
-#if __has_include(<chrono>)
-#include <chrono>
-#define NROS_CPP_HAS_STD_CHRONO 1
-#endif
 #endif
 
 namespace rclcpp {

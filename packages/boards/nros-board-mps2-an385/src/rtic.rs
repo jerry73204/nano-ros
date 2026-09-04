@@ -207,7 +207,7 @@ fn init_with_config(config: Config, deploy: Option<&DeployOverlay>) -> (RticBoot
     crate::init_hardware(&config);
 
     // Phase 289 (#191 class) — install the agnostic `nros_log` dispatcher so
-    // the Node pkgs' `nros_info!` marker lines (`Publishing:` / `I heard:`)
+    // the Node pkgs' `log_info!` marker lines (`Publishing:` / `I heard:`)
     // reach the semihosting console. The direct-exec entry does this in its
     // `BoardEntry` boot (`crate::entry`); the RTIC entry never did — nodes
     // registered their `Logger` against an uninitialized dispatcher and every

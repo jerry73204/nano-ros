@@ -2,9 +2,13 @@
 
 Goal: take a normal ROS 2 C++ node (one that compiles + runs under
 `colcon build` against `ros-humble-*`) and run it under nano-ros — without
-rewriting the source. The rclcpp source-compat layer (`nros/rclcpp_compat.hpp` +
-`cmake/compat/NrosRclcppCompat.cmake` + `nros-diagnostic-updater`) is built for
-this; the only delta is **build-script glue**.
+rewriting the source. The `rclcpp::` names are declared by nano-ros's own C++
+headers — `#include <rclcpp/rclcpp.hpp>` resolves through
+`cmake/compat/include/rclcpp/rclcpp.hpp` straight to `<nros/nros.hpp>`, with no
+compat header in between (phase-417 stage 6 deleted `nros/rclcpp_compat.hpp`).
+What remains of the compat layer is build glue —
+`cmake/compat/NrosRclcppCompat.cmake` plus `nros-diagnostic-updater` — so the
+only delta is **build-script glue**.
 
 The canonical proof lives at
 [`examples/templates/cpp-port-minimal-publisher/`](https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher) —
@@ -33,8 +37,10 @@ ament_target_dependencies(my_node rclcpp std_msgs)
 ament_package()
 ```
 
-`find_package(rclcpp)` resolves through the rclcpp Find-stub (which
-auto-applies the `rclcpp_compat.hpp` force-include); `find_package(std_msgs)`
+`find_package(rclcpp)` resolves through the rclcpp Find-stub (which puts
+`cmake/compat/include/` on the include path so `<rclcpp/rclcpp.hpp>` lands on
+nano-ros's headers, and force-includes `nros/rclcpp_components_compat.hpp` for
+the components macros); `find_package(std_msgs)`
 resolves through the smart Find-stub (it walks
 `NROS_INTERFACE_SEARCH_PATH > AMENT_PREFIX_PATH > bundled`); the
 `ament_target_dependencies` compat shim wires both link targets.

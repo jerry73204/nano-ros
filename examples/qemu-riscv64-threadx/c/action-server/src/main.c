@@ -52,7 +52,7 @@ static void signal_handler(int signum) {
     (void)signum;
     g_running = 0;
     if (g_executor) {
-        nros_executor_stop(g_executor);
+        nros_executor_cancel(g_executor);
     }
 }
 
@@ -221,8 +221,9 @@ int nros_app_main(int argc, char** argv) {
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
     printf("Support initialized\n");
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "fibonacci_action_server", "/"), 1);
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "fibonacci_action_server", "/", &app.support),
+                   1);
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
 
     NROS_CHECK_RET(nros_action_server_init(&app.action_server, &app.node, "/fibonacci",
                                            &fibonacci_type, goal_callback, cancel_callback,
@@ -241,7 +242,7 @@ int nros_app_main(int argc, char** argv) {
     printf("\nWaiting for action goals (Ctrl+C to exit)...\n\n");
 
     // Spin with 100ms period
-    nros_ret_t ret = nros_executor_spin_period(&app.executor, 100000000ULL);
+    nros_ret_t ret = rclc_executor_spin_period(&app.executor, 100000000ULL);
     if (ret != NROS_RET_OK && g_running) {
         fprintf(stderr, "Executor spin failed: %d\n", ret);
     }
@@ -249,10 +250,10 @@ int nros_app_main(int argc, char** argv) {
     // Cleanup
     printf("\nShutting down...\n");
     printf("Total goals handled: %d\n", app.ctx.goal_count);
-    nros_executor_fini(&app.executor);
+    rclc_executor_fini(&app.executor);
     nros_action_server_fini(&app.action_server);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
 
     printf("Goodbye!\n");
     return 0;

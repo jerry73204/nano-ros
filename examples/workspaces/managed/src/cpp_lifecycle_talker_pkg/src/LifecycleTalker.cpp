@@ -18,12 +18,11 @@ void LifecycleTalker::on_tick() {
     }
 }
 
-::nros::Result LifecycleTalker::configure(::nros::Node& node) {
+::rclcpp::Result LifecycleTalker::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
-    return ::nros::bind_timer<LifecycleTalker, &LifecycleTalker::on_tick>(
-        node, timer_, 1000, this);
+    return ::nros::bind_timer<LifecycleTalker, &LifecycleTalker::on_tick>(node, timer_, 1000, this);
 }
 
 } // namespace cpp_lifecycle_talker_pkg

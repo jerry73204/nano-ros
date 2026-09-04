@@ -18,7 +18,7 @@ class AddServer {
     Svc::Response on_request(const Svc::Request& req);
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace service_server_pkg

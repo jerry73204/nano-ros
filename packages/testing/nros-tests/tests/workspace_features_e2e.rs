@@ -19,7 +19,7 @@
 //!   the listener prints ≥3 decoded `reading seq=` lines AND the `temp=`
 //!   second field (full CDR layout, not just a counter).
 //! - **Logging** (phase-263 A5 / phase-264 W3): a Node pkg's
-//!   `nros_info!` / `NROS_LOG_INFO(nros_log_default_logger(), …)` reaches
+//!   `log_info!` / `NROS_LOG_INFO(nros_log_default_logger(), …)` reaches
 //!   the entry's OWN stdout — process-local, no subscriber (issue 0096
 //!   does not apply to logging). Per-lang markers differ (the mixed ws
 //!   reuses the C talker).
@@ -105,7 +105,7 @@ enum Proof {
     /// `printf("<marker> seq=%d")` would satisfy it: the proof could not tell
     /// the facade from a direct write, nor notice the level/logger metadata
     /// being lost. Every one of these nodes logs through
-    /// `nros_info!` / `NROS_LOG_INFO` → the default sink → the posix writer,
+    /// `log_info!` / `NROS_LOG_INFO` → the default sink → the posix writer,
     /// whose output is `[INFO] nros: <marker> seq=N`, so requiring the tag on
     /// the SAME line makes the assertion about the facade rather than about
     /// stdout.
@@ -209,7 +209,7 @@ fn exec_for(lang: ML, workload: MW) -> Exec {
             note: "phase-338 W7: talker_pkg logs through the `log` facade like every other \
                    example body, and nros-board-linux's stdout bridge carries it — no \
                    per-app logging init. This cell USED to prove the same for the \
-                   nros_log chain (`nros_info!` + the board's boot-time platform sink); \
+                   nros_log chain (`log_info!` + the board's boot-time platform sink); \
                    that property now rests on the C and C++ siblings below, which reach \
                    the identical board mechanism through their projections",
         },

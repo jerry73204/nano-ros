@@ -12,7 +12,7 @@ void Listener::on_msg(const ::std_msgs::msg::Int32& msg) {
     ++recv_;
 }
 
-::nros::Result Listener::configure(::nros::Node& node) {
+::rclcpp::Result Listener::configure(::nros::Node& node) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     // The typed `Publisher<Int32>` registers the DDS-mangled keyexpr, so the
     // raw sub must match on `Int32::TYPE_NAME` (240.1 finding; raw↔typed

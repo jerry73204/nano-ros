@@ -21,11 +21,11 @@ void Talker::on_tick() {
     NROS_LOG_INFO(nros_log_default_logger(), "cpp_talker logging seq=%d", m.data);
 }
 
-::nros::Result Talker::configure(::nros::Node& node) {
+::rclcpp::Result Talker::configure(::nros::Node& node) {
     // `::setvbuf` (C global), not `std::setvbuf` — Zephyr's picolibc <cstdio> does not put
     // setvbuf in namespace std; the C global is available on every platform.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
     // Member-fn-pointer-as-template-param → no-alloc trampoline; `this` is ctx.
     return ::nros::bind_timer<Talker, &Talker::on_tick>(node, timer_, 1000, this);

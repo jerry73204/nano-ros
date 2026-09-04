@@ -60,7 +60,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 // `CONFIG_INIT_ENTRYPOINT`) and its build.rs's propagating image-link
 // directives are the whole point of the dependency.
 use nros_board_nuttx_qemu as _;
-use nros_log::{Logger, Severity, nros_debug, nros_error, nros_fatal, nros_info, nros_trace, nros_warn, register_logger};
+use nros_log::{Logger, Severity, log_debug, log_error, log_fatal, log_info, nros_trace, log_warn, register_logger};
 
 static LOGGER: Logger = Logger::new("smoke");
 
@@ -75,11 +75,11 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const core::ffi::c_char) -> i3
     LOGGER.set_level(Severity::Trace);
 
     nros_trace!(&LOGGER, "trace payload");
-    nros_debug!(&LOGGER, "debug payload");
-    nros_info!(&LOGGER, "info payload");
-    nros_warn!(&LOGGER, "warn payload");
-    nros_error!(&LOGGER, "error payload");
-    nros_fatal!(&LOGGER, "fatal payload");
+    log_debug!(&LOGGER, "debug payload");
+    log_info!(&LOGGER, "info payload");
+    log_warn!(&LOGGER, "warn payload");
+    log_error!(&LOGGER, "error payload");
+    log_fatal!(&LOGGER, "fatal payload");
     nros_log::flush();
     0
 }

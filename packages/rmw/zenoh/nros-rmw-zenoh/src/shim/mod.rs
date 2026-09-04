@@ -298,7 +298,7 @@ impl From<ZpicoError> for TransportError {
         // `ConnectionFailed`, and they are the only ones whose identity is
         // lost here; every other variant maps 1:1 and needs no announcement.
         if matches!(err, ZpicoError::Generic | ZpicoError::Session) {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_zenoh"),
                 "zpico {:?} -> ConnectionFailed (the two are indistinguishable downstream)",
                 err

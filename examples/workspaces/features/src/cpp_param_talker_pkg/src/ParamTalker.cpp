@@ -24,10 +24,10 @@ void ParamTalker::on_tick() {
     }
 }
 
-::nros::Result ParamTalker::configure(::nros::Node& node) {
+::rclcpp::Result ParamTalker::configure(::nros::Node& node) {
     ::setvbuf(stdout, nullptr, _IONBF, 0);
     executor_handle_ = node.executor_handle();
-    ::nros::Result r = node.create_publisher(pub_, "/chatter");
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
     return ::nros::bind_timer<ParamTalker, &ParamTalker::on_tick>(node, timer_, 500, this);
 }

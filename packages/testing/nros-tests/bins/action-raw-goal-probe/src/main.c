@@ -127,7 +127,7 @@ int nros_app_main(int argc, char** argv) {
     };
 
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "raw_goal_probe", "/"), 1);
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "raw_goal_probe", "/", &app.support), 1);
     // The RAW arms live on the polling (L1) core — `polling_client_core()`
     // returns NULL for an executor-mode client, so this must be init_polling.
     NROS_CHECK_RET(nros_action_client_init_polling(&app.action_client, &app.node, &fibonacci_type,
@@ -247,8 +247,8 @@ int nros_app_main(int argc, char** argv) {
     printf("raw goal shipped exactly one encapsulation header\n");
 
     nros_action_client_fini(&app.action_client);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
     return 0;
 }
 

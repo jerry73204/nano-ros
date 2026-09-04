@@ -18,7 +18,7 @@ use std::{
 };
 use std_msgs::msg::String as StringMsg;
 
-use nros_log::{Logger, nros_info, nros_warn};
+use nros_log::{Logger, log_info, log_warn};
 
 // Phase 88.16.B — diagnostics route through `nros-log`.
 static LOGGER: Logger = Logger::new("serial-listener");
@@ -43,7 +43,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(5);
 
-    nros_warn!(
+    log_warn!(
         &LOGGER,
         "XRCE Serial Listener: pty={}, domain={}, count={}",
         pty_path,
@@ -69,7 +69,7 @@ fn main() {
         .domain_id(domain_id)
         .node_name("xrce_serial_listener");
     let mut executor: Executor = Executor::open(&config).expect("Failed to open XRCE session");
-    nros_warn!(&LOGGER, "Session created");
+    log_warn!(&LOGGER, "Session created");
 
     // Register subscription callback
     let received = Arc::new(AtomicUsize::new(0));
@@ -82,16 +82,16 @@ fn main() {
         .node_mut(nid)
         .create_subscription::<StringMsg, _>("/chatter", move |msg: &StringMsg| {
             let n = received_cb.fetch_add(1, Ordering::SeqCst) + 1;
-            nros_info!(&LOGGER, "[{}] I heard: [{}]", n, msg.data);
+            log_info!(&LOGGER, "[{}] I heard: [{}]", n, msg.data);
         })
         .expect("Failed to add subscription");
     // Issue 0480 — the shared readiness spelling (`output::LISTENER_READY_MARKER`).
     // Was "Subscriber created on /chatter", the second of two spellings for one
     // fact; the XRCE suites waited on the ambiguous "Waiting for" instead.
-    nros_warn!(&LOGGER, "Subscriber created for topic: /chatter");
+    log_warn!(&LOGGER, "Subscriber created for topic: /chatter");
 
     // Spin loop with timeout
-    nros_info!(&LOGGER, "Waiting for messages...");
+    log_info!(&LOGGER, "Waiting for messages...");
     let start = Instant::now();
     let timeout = std::time::Duration::from_secs(30);
 
@@ -101,9 +101,9 @@ fn main() {
 
     let final_count = received.load(Ordering::SeqCst);
     if final_count >= msg_count {
-        nros_info!(&LOGGER, "Received {} messages, exiting", final_count);
+        log_info!(&LOGGER, "Received {} messages, exiting", final_count);
     } else {
-        nros_warn!(
+        log_warn!(
             &LOGGER,
             "Timeout: received only {}/{} messages",
             final_count,

@@ -51,7 +51,7 @@ fn main() {
         // of the program — never released, which is the point.
         let held = unsafe { zpico_sys::zpico_session_acquire() };
         if held.is_null() {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("pool-exhaustion"),
                 "could not take the FIRST slot of a pool of {} — the precondition \
                  does not hold and this run proves nothing",
@@ -63,12 +63,12 @@ fn main() {
         // The pool is now full. This is the call under test.
         match Context::new(b"tcp/127.0.0.1:7447") {
             Err(nros_rmw_zenoh::ZpicoError::Full) => {
-                nros_log::nros_info!(nros_log::get_logger("pool-exhaustion"), "{}", VERDICT_OK);
+                nros_log::log_info!(nros_log::get_logger("pool-exhaustion"), "{}", VERDICT_OK);
                 nros_log::flush();
                 Ok(())
             }
             Err(other) => {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("pool-exhaustion"),
                     "second session failed with {other:?}, not Full — an exhausted \
                      pool must stay distinguishable from a transport failure (issue 0465)"
@@ -76,7 +76,7 @@ fn main() {
                 Err("wrong error")
             }
             Ok(_) => {
-                nros_log::nros_error!(
+                nros_log::log_error!(
                     nros_log::get_logger("pool-exhaustion"),
                     "a session opened with the pool already full — the bound is not \
                      being enforced"

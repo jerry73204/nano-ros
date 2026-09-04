@@ -12,7 +12,7 @@ void Listener::on_msg(const ::std_msgs::msg::Int32& msg) {
     ++recv_;
 }
 
-::nros::Result Listener::configure(::nros::Node& node) {
+::rclcpp::Result Listener::configure(::nros::Node& node) {
     // `::setvbuf` (C global), not `std::setvbuf` — Zephyr's picolibc <cstdio> does not put
     // setvbuf in namespace std; the C global is available on every platform.
     ::setvbuf(stdout, nullptr, _IONBF, 0);

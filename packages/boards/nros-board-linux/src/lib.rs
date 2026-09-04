@@ -286,7 +286,7 @@ impl LinuxBoard {
         register_linked_rmw();
         <Self as BoardInit>::init_hardware();
         // Phase 264 W3 — wire the default log sink (host → stdout/stderr) so a Node
-        // pkg's `nros_info!` produces output without per-app `nros_log::init`.
+        // pkg's `log_info!` produces output without per-app `nros_log::init`.
         // Idempotent (swaps the sink list atomically).
         ::nros_platform_cffi::log::init_default();
         // phase-338 W3 — and the `log` facade's host sink, for the same reason.

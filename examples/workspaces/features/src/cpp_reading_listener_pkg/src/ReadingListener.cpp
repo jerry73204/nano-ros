@@ -14,7 +14,7 @@ void ReadingListener::on_reading(const ::custom_msgs::msg::Reading& msg) {
     ++recv_;
 }
 
-::nros::Result ReadingListener::configure(::nros::Node& node) {
+::rclcpp::Result ReadingListener::configure(::nros::Node& node) {
     // `::setvbuf` (C global): line-buffer stdout so each `reading seq=` flushes live.
     ::setvbuf(stdout, nullptr, _IOLBF, 0);
     // Typed member binding (RFC-0044 §242.2): keyexpr + deserialize come from

@@ -12,14 +12,14 @@ namespace telem_pkg {
 /// (NodeBuilder::sched). Runs at 1/10 the cadence of ctrl_pkg; the e2e test
 /// asserts ctrl publishes ≥3× as many messages as telem.
 class Telem {
-    ::nros::Publisher<std_msgs::msg::Int32> pub_;
+    ::rclcpp::Publisher<std_msgs::msg::Int32> pub_;
     ::nros::Timer timer_;
     int count_ = 0;
 
     void on_tick();
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace telem_pkg

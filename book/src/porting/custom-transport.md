@@ -146,7 +146,7 @@ int main(void) {
     };
     nros_set_custom_transport(&ops);
 
-    // ... continue with nros_support_init, nros_node_init, etc.
+    // ... continue with nros_support_init, rclc_node_init_default, etc.
 }
 ```
 

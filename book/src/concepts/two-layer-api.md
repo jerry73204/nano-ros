@@ -21,7 +21,7 @@ The two layers are deliberately **separate verb sets** so the choice is explicit
 - `node.create_subscription::<M>("/topic")` — caller polls. No executor magic.
 - `executor.register_subscription::<M, _>("/topic", |m| { ... })` — executor dispatches.
 
-The C / C++ FFI mirrors this split: `nros_subscription_init` (L1) vs `nros_executor_register_subscription` (L2); `nros_subscription_init_polling` (L1, inline-storage) vs `register_subscription_*` (L2, executor arena).
+The C / C++ FFI mirrors this split: `nros_subscription_init_polling` + `nros_subscription_take_serialized` (L1, inline storage — the caller takes from the entity) vs `rclc_subscription_init_default` + `nros_executor_add_subscription*` (L2, executor arena, callback supplied at registration).
 
 ## What goes where
 
@@ -79,7 +79,7 @@ Service clients and action clients **stay on L1** in the current code — they h
 Both layers cross the FFI cleanly:
 
 - **C, L1 polling** — `nros_subscription_init_polling` writes a `RawSubscription` inline in `nros_subscription_t._opaque`. `nros_subscription_take_serialized` reads from the inline buffer. Same shape for service / service-client / action server / action client.
-- **C, L2 callback** — `nros_subscription_init` records the C callback pointer; `nros_executor_register_subscription` allocates the executor-arena entry.
+- **C, L2 callback** — `rclc_subscription_init_default` creates the entity; the callback is supplied at registration (`nros_executor_add_subscription_typed` for the typed path, `nros_executor_add_subscription_raw` for the byte path), which also allocates the executor-arena entry.
 - **C++** — typed templates wrap each FFI surface: `nros::Subscription<M>` + `take` for L1, `nros::PollingActionServer<A>` for the L1 action path (122.3.d.b), the L2 executor-registered callback model via the existing `nros::ActionServer<A>` API.
 
 For the per-FFI-function spec, see the [Doxygen reference](../api/platform-cffi/index.html). For the example migration tally (32 examples on L2, 16 intentionally L1), see the [unify-api-paths roadmap doc](https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-122-unify-api-paths.md).

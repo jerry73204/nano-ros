@@ -85,7 +85,7 @@ static struct {
 // Serialization buffer (statically allocated)
 static uint8_t g_serialize_buffer[64];
 
-// Phase 88.16.B — set after `nros_node_init`; used by post-init
+// Phase 88.16.B — set after `rclc_node_init_default`; used by post-init
 // diagnostics + the timer callback. NULL before init = `NROS_LOG_*`
 // silently drops. Moved here from after `main` (Phase 212.M native/c
 // sweep) so the C compiler sees the declaration before the callback's
@@ -133,7 +133,7 @@ static void shutdown_callback(void* context) {
     (void)context;
     printf("[Guard] Shutdown signal received!\n");
     app.running = false;
-    (void)nros_executor_stop(&app.executor);
+    (void)nros_executor_cancel(&app.executor);
 }
 
 // ============================================================================
@@ -146,7 +146,7 @@ static void signal_handler(int signum) {
 
     // This is how you would signal from an interrupt handler:
     // The guard condition trigger is thread-safe and can be called from any context
-    (void)nros_guard_condition_trigger(&app.shutdown_guard);
+    (void)rcl_trigger_guard_condition(&app.shutdown_guard);
 }
 
 // ============================================================================
@@ -176,7 +176,7 @@ static void demo_platform_time(void) {
     int64_t elapsed_ns = nros_time_to_nanoseconds(&t2) - nros_time_to_nanoseconds(&t1);
     printf("Elapsed time: %.3f ms\n", (double)elapsed_ns / 1000000.0);
 
-    (void)nros_clock_fini(&clock);
+    (void)rcl_clock_fini(&clock);
 }
 
 // ============================================================================
@@ -187,7 +187,7 @@ static void demo_guard_condition(void) {
     printf("\n=== Guard Condition Demo ===\n");
 
     // Initialize guard condition with callback
-    app.shutdown_guard = nros_guard_condition_get_zero_initialized();
+    app.shutdown_guard = rcl_get_zero_initialized_guard_condition();
     nros_ret_t ret = nros_guard_condition_init(&app.shutdown_guard, &app.support);
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to init guard condition: %d\n", ret);
@@ -208,7 +208,7 @@ static void demo_guard_condition(void) {
 
     // Demonstrate trigger/clear cycle
     printf("Triggering guard condition...\n");
-    (void)nros_guard_condition_trigger(&app.shutdown_guard);
+    (void)rcl_trigger_guard_condition(&app.shutdown_guard);
     printf("  Is triggered: %s\n",
            nros_guard_condition_is_triggered(&app.shutdown_guard) ? "yes" : "no");
 
@@ -277,13 +277,13 @@ int nros_app_main(int argc, char** argv) {
     printf("Support initialized\n");
 
     // Initialize node
-    app.node = nros_node_get_zero_initialized();
-    ret = nros_node_init(&app.node, &app.support, "baremetal_demo", "/");
+    app.node = rcl_get_zero_initialized_node();
+    ret = rclc_node_init_default(&app.node, "baremetal_demo", "/", &app.support);
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to init node: %d\n", ret);
         goto cleanup_support;
     }
-    printf("Node created: %s\n", nros_node_get_name(&app.node));
+    printf("Node created: %s\n", rcl_node_get_name(&app.node));
 
     // Fetch the node's logger so NROS_LOG_* in the timer callback emits.
     // Without this g_logger stays NULL and every log call silently drops
@@ -292,17 +292,17 @@ int nros_app_main(int argc, char** argv) {
     g_logger = nros_node_get_logger(&app.node);
 
     // Initialize publisher
-    app.publisher = nros_publisher_get_zero_initialized();
-    ret = nros_publisher_init(&app.publisher, &app.node, &std_msgs_Int32_type,
-                              "/baremetal_demo/counter");
+    app.publisher = rcl_get_zero_initialized_publisher();
+    ret = rclc_publisher_init_default(&app.publisher, &app.node, &std_msgs_Int32_type,
+                                      "/baremetal_demo/counter");
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to init publisher: %d\n", ret);
         goto cleanup_node;
     }
-    printf("Publisher created: %s\n", nros_publisher_get_topic_name(&app.publisher));
+    printf("Publisher created: %s\n", rcl_publisher_get_topic_name(&app.publisher));
 
     // Initialize timer (500ms period)
-    app.timer = nros_timer_get_zero_initialized();
+    app.timer = rcl_get_zero_initialized_timer();
     ret = nros_timer_init(&app.timer, &app.support, 500000000ULL, timer_callback, NULL);
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to init timer: %d\n", ret);
@@ -311,7 +311,7 @@ int nros_app_main(int argc, char** argv) {
     printf("Timer created (500ms period)\n");
 
     // Initialize executor
-    app.executor = nros_executor_get_zero_initialized();
+    app.executor = rclc_executor_get_zero_initialized_executor();
     ret = nros_executor_init(&app.executor, &app.support, 4);
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to init executor: %d\n", ret);
@@ -319,7 +319,7 @@ int nros_app_main(int argc, char** argv) {
     }
 
     // Add timer to executor
-    ret = nros_executor_add_timer(&app.executor, &app.timer);
+    ret = rclc_executor_add_timer(&app.executor, &app.timer);
     if (ret != NROS_RET_OK) {
         fprintf(stderr, "Failed to add timer: %d\n", ret);
         goto cleanup_executor;
@@ -340,20 +340,20 @@ int nros_app_main(int argc, char** argv) {
     // The executor handles all callbacks including:
     // - Timer callbacks (periodic publishing)
     // - Guard condition callbacks (shutdown signal)
-    ret = nros_executor_spin_period(&app.executor, 50000000ULL); // 50ms spin period
+    ret = rclc_executor_spin_period(&app.executor, 50000000ULL); // 50ms spin period
 
     // Cleanup (in reverse order of initialization)
     printf("\n=== Cleanup ===\n");
 
-    (void)nros_guard_condition_fini(&app.shutdown_guard);
+    (void)rcl_guard_condition_fini(&app.shutdown_guard);
     printf("Guard condition finalized\n");
 
 cleanup_executor:
-    (void)nros_executor_fini(&app.executor);
+    (void)rclc_executor_fini(&app.executor);
     printf("Executor finalized\n");
 
 cleanup_timer:
-    (void)nros_timer_fini(&app.timer);
+    (void)rcl_timer_fini(&app.timer);
     printf("Timer finalized\n");
 
 cleanup_publisher:
@@ -361,11 +361,11 @@ cleanup_publisher:
     printf("Publisher finalized\n");
 
 cleanup_node:
-    (void)nros_node_fini(&app.node);
+    (void)rcl_node_fini(&app.node);
     printf("Node finalized\n");
 
 cleanup_support:
-    (void)nros_support_fini(&app.support);
+    (void)rclc_support_fini(&app.support);
     printf("Support finalized\n");
 
     printf("\n");

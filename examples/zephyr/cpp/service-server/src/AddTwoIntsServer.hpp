@@ -21,7 +21,7 @@ class AddTwoIntsServer {
                     size_t* resp_len);
 
   public:
-    ::nros::Result configure(::nros::Node& node);
+    ::rclcpp::Result configure(::nros::Node& node);
 };
 
 } // namespace zephyr_cpp_service_server

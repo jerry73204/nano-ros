@@ -40,14 +40,14 @@ int nros_app_main(int argc, char** argv) {
     auto created = nros::create_node(node, "demo");
     if (!created.ok()) {
         fprintf(stderr, "create_node failed: %d\n", created.raw());
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
     auto logger = node.get_logger();
     if (logger == nullptr) {
         fprintf(stderr, "node.get_logger() returned NULL\n");
-        nros::shutdown();
+        rclcpp::shutdown();
         return 1;
     }
 
@@ -59,7 +59,7 @@ int nros_app_main(int argc, char** argv) {
     NROS_LOG_ERROR(logger, "round 1: error=%d", 1);
     NROS_LOG_FATAL(logger, "round 1: fatal=%d", 1);
 
-    nros::shutdown();
+    rclcpp::shutdown();
     return 0;
 }
 

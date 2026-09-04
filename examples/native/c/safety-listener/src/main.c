@@ -45,7 +45,7 @@ int nros_app_main(int argc, char** argv) {
     printf("nros C Safety Listener\n");
     memset(&app, 0, sizeof(app));
     NROS_CHECK_RET(nros_support_init(&app.support, locator, domain_id), 1);
-    NROS_CHECK_RET(nros_node_init(&app.node, &app.support, "c_safety_listener", "/"), 1);
+    NROS_CHECK_RET(rclc_node_init_default(&app.node, "c_safety_listener", "/", &app.support), 1);
 
     // Polling-mode subscription — the validated receive path is poll-only.
     NROS_CHECK_RET(nros_subscription_init_polling(&app.subscription, &app.node,
@@ -79,8 +79,8 @@ int nros_app_main(int argc, char** argv) {
     }
 
     nros_subscription_fini(&app.subscription);
-    nros_node_fini(&app.node);
-    nros_support_fini(&app.support);
+    rcl_node_fini(&app.node);
+    rclc_support_fini(&app.support);
     return 0;
 }
 

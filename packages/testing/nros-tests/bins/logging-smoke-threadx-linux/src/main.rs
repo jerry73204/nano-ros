@@ -5,7 +5,7 @@
 
 use nros_board_threadx_linux::ThreadxLinux;
 use nros_log::{
-    Logger, Severity, init, nros_debug, nros_error, nros_fatal, nros_info, nros_trace, nros_warn,
+    Logger, Severity, init, log_debug, log_error, log_fatal, log_info, nros_trace, log_warn,
     register_logger, sinks,
 };
 
@@ -23,7 +23,7 @@ fn main() {
         // This fixture used to publish its own sink list, which made it prove
         // that the platform's `nros_platform_log_write` works (issue 0420's
         // question) and nothing about whether a BOARD publishes one. It did
-        // not, and library records — `nros_error!` raised inside a crate whose
+        // not, and library records — `log_error!` raised inside a crate whose
         // author cannot know what the board did — were dropped on this whole
         // family. Relying on the board is what makes this an assertion about
         // the board.
@@ -34,11 +34,11 @@ fn main() {
         LOGGER.set_level(Severity::Trace);
 
         nros_trace!(&LOGGER, "trace payload");
-        nros_debug!(&LOGGER, "debug payload");
-        nros_info!(&LOGGER, "info payload");
-        nros_warn!(&LOGGER, "warn payload");
-        nros_error!(&LOGGER, "error payload");
-        nros_fatal!(&LOGGER, "fatal payload");
+        log_debug!(&LOGGER, "debug payload");
+        log_info!(&LOGGER, "info payload");
+        log_warn!(&LOGGER, "warn payload");
+        log_error!(&LOGGER, "error payload");
+        log_fatal!(&LOGGER, "fatal payload");
         nros_log::flush();
 
         Ok::<(), &'static str>(())

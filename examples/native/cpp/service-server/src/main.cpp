@@ -50,9 +50,9 @@ int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::create_node(node, "add_two_ints_server"), 1);
     printf("Node created: %s\n", node.get_name());
 
-    nros::Service<example_interfaces::srv::AddTwoInts> srv;
+    rclcpp::Service<example_interfaces::srv::AddTwoInts> srv;
     NROS_TRY_RET(node.create_service(srv, "/add_two_ints"), 1);
-    nros::Result ret;
+    rclcpp::Result ret;
 
     // Set up signal handler
     signal(SIGINT, signal_handler);
@@ -63,7 +63,7 @@ int nros_app_main(int argc, char** argv) {
     int request_count = 0;
 
     // Spin + poll loop
-    while (g_running && nros::ok()) {
+    while (g_running && rclcpp::ok()) {
         nros::spin_once(100);
 
         example_interfaces::srv::AddTwoInts::Request req;
@@ -87,7 +87,7 @@ int nros_app_main(int argc, char** argv) {
     // Cleanup
     printf("\nShutting down...\n");
     printf("Total requests handled: %d\n", request_count);
-    nros::shutdown();
+    rclcpp::shutdown();
 
     printf("Goodbye!\n");
     return 0;

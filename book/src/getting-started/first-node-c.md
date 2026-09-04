@@ -113,10 +113,10 @@ stub that wires signal handling and forwards to your function.
 
 int nros_app_main(int argc, char** argv) {
     // 1. nros_support_init() — opens the zenoh session
-    // 2. nros_executor_init() / nros_node_init()
+    // 2. nros_executor_init() / rclc_node_init_default()
     // 3. std_msgs_msg_int32_publisher_init() — typed publisher
     // 4. nros_timer_init() with a 1 Hz period + publish callback
-    // 5. nros_executor_spin() until SIGINT
+    // 5. rclc_executor_spin() until SIGINT
 }
 ```
 

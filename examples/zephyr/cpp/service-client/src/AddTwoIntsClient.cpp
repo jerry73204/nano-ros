@@ -50,14 +50,14 @@ void AddTwoIntsClient::on_tick() {
     }
 }
 
-::nros::Result AddTwoIntsClient::configure(::nros::Node& node) {
+::rclcpp::Result AddTwoIntsClient::configure(::nros::Node& node) {
     // Unbuffered stdout — a full-buffered console can swallow the final
     // line(s) when the harness kills the QEMU before a flush.
     // `::setvbuf` (global) not `std::setvbuf` — Zephyr's minimal libcpp/picolibc
     // `<cstdio>` declares it in the global namespace only.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
-    ::nros::Result r = ::nros::create_service_client_raw(node, client_.bytes, "/add_two_ints",
-                                                         "example_interfaces/srv/AddTwoInts");
+    ::rclcpp::Result r = ::nros::create_service_client_raw(node, client_.bytes, "/add_two_ints",
+                                                           "example_interfaces/srv/AddTwoInts");
     if (!r.ok()) return r;
     r = ::nros::bind_timer<AddTwoIntsClient, &AddTwoIntsClient::on_tick>(node, timer_, 1000, this);
     if (r.ok()) {

@@ -152,7 +152,7 @@ pub unsafe extern "C" fn nros_init_multi(
         // reaches `no_std` targets, which the old `cfg(feature = "std")` arm
         // never did.
         Err(e) => {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_bridge"),
                 "nros_init_multi failed — {e:?}"
             );
@@ -249,7 +249,7 @@ pub unsafe extern "C" fn nros_pubsub_bridge_create(
     let mut src = match eb.executor.create_node_on(src_node, src_rmw) {
         Ok(n) => n,
         Err(nros_node::executor::NodeError::NodeTableFull) => {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_bridge"),
                 "nros_pubsub_bridge_create: node table FULL creating the source \
                  node -- raise NROS_EXECUTOR_MAX_NODES. A bridge creates TWO \
@@ -270,7 +270,7 @@ pub unsafe extern "C" fn nros_pubsub_bridge_create(
     let mut dst = match eb.executor.create_node_on(dst_node, dst_rmw) {
         Ok(n) => n,
         Err(nros_node::executor::NodeError::NodeTableFull) => {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_bridge"),
                 "nros_pubsub_bridge_create: node table FULL creating the \
                  destination node -- raise NROS_EXECUTOR_MAX_NODES (phase-412 W2)."

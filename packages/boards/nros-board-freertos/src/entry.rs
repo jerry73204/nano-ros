@@ -777,7 +777,7 @@ where
     B::init_hardware();
     // Wire the default nros_log sink (platform console) at the boot funnel,
     // as the linux/zephyr run_tiers do — idempotent; without it Node-pkg
-    // `nros_info!` output is silently dropped on multi-tier entries.
+    // `log_info!` output is silently dropped on multi-tier entries.
     ::nros_platform_cffi::log::init_default();
 
     report_tiers_above_transport::<B>(&config, tiers);
