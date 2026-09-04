@@ -33,7 +33,7 @@ SYMBOL = "NROS_BOOT_REPORT"
 # "NRSR". Must match boot_report.rs MAGIC.
 MAGIC = 0x4E525352
 # Layout this script knows how to decode. Must match boot_report.rs VERSION.
-KNOWN_VERSION = 1
+KNOWN_VERSION = 2
 
 # Field order, matching `BootReport` and `Snapshot` in boot_report.rs. Every
 # field is a u32; the record is all `AtomicU32`, which is repr(transparent).
@@ -53,15 +53,17 @@ FIELDS = (
     "last_alloc_size",
     "failed_alloc_size",
     "failed_alloc_shortfall",
+    "cpp_init_ret",
 )
 
 STAGES = {
-    0: "Untouched -- the image never reached boot_report::init()",
-    1: "ReportReady -- record stamped; executor not constructed",
-    2: "ExecutorReady -- arena bound",
-    3: "RegisteringEntities -- entity creation begun, NOT finished",
-    4: "EntitiesReady -- every declared entity registered",
-    5: "FirstSpin -- registration complete and spinning",
+    0: "Untouched -- the image never entered nros_cpp_init",
+    1: "ReportReady -- entered nros_cpp_init; arguments NOT yet validated",
+    2: "BootConfigResolved -- arguments accepted; executor not yet open",
+    3: "ExecutorReady -- arena bound",
+    4: "RegisteringEntities (NOT YET WIRED -- no call site emits this)",
+    5: "EntitiesReady (NOT YET WIRED -- registration has no single end; see issue 0900)",
+    6: "FirstSpin -- registration complete and spinning",
 }
 
 
@@ -185,13 +187,38 @@ def report(rec: dict[str, int]) -> int:
         )
         return 1
 
-    if stage < 4:
+    ret = rec["cpp_init_ret"]
+    if ret:
+        signed = ret - (1 << 32) if ret >= (1 << 31) else ret
         print()
         print(
-            "Registration did NOT complete, and the arena is not why.\n"
-            "Look for a pool count instead: a full pool fails at registration\n"
-            "with ExecutorFull rather than in the arena."
+            f"nros_cpp_init RETURNED {signed} (nros_cpp_ret_t).\n"
+            "The stage above says how far it got; this says why it stopped.\n"
+            "Stage 1 with a return code means an argument was rejected before\n"
+            "anything was opened; stage 2 means the backend refused."
         )
+        return 1
+
+    if stage < 6:
+        print()
+        if rec["failed_alloc_size"]:
+            pass  # already reported above
+        elif rec["alloc_count"]:
+            print(
+                f"Never reached the first spin, and the arena is NOT why: all\n"
+                f"{rec['alloc_count']} allocations succeeded and "
+                f"{rec['arena_used']} of {cap} bytes are claimed.\n"
+                "The executor was built and its entities took their arena; what\n"
+                "did not happen is the spin. Look at what the application does\n"
+                "between registering and spinning -- a blocking wait there\n"
+                "presents exactly like this, and no knob is involved."
+            )
+        else:
+            print(
+                "The executor was built but claimed NO arena, so registration\n"
+                "never started. That is earlier than any sizing knob can\n"
+                "explain."
+            )
         return 1
 
     return 0

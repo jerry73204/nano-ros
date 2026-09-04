@@ -70,14 +70,17 @@ pub const MAGIC: u32 = 0x4e52_5352;
 
 /// Layout version. Bump on any field change; a reader refuses what it does not
 /// know rather than decoding a record it would misread.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// How far boot got. Monotonic, and the single most useful field: an arena
 /// failure halts during entity creation, so the stage that was NOT reached
 /// names the phase to look at.
 ///
-/// Values are stable across versions -- a new stage is appended, never
-/// inserted, so a stage number in an old dump keeps its meaning.
+/// Numbers follow EXECUTION ORDER, because `checkpoint` keeps the maximum
+/// and a stage that runs earlier but numbers higher would make the record
+/// claim less progress than was made. Inserting one therefore renumbers the
+/// rest and bumps [`VERSION`]; the decoder refuses a version it does not
+/// know rather than misreading it, which is what makes that safe.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum Stage {
@@ -85,19 +88,30 @@ pub enum Stage {
     /// valid magic has found a record that was reset but not re-entered.
     Untouched = 0,
     /// The record itself is initialised and the compile-time knobs are in it.
-    /// Reaching only here means the image died before the executor existed.
+    ///
+    /// Stamped at the TOP of the C++ entry point, before any argument is
+    /// validated, so "the image never entered nano-ros" is distinguishable
+    /// from "it entered and died before the executor". Version 1 stamped this
+    /// inside the executor constructor instead, which made those two cases
+    /// identical -- both read magic 0 -- and cost a disassembly walk to tell
+    /// apart on the first board run.
     ReportReady = 1,
+    /// The boot config resolved: node name, namespace, locator and domain id
+    /// all parsed. Everything between here and [`Stage::ReportReady`] is
+    /// argument validation, and [`BootReport::cpp_init_ret`] says which check
+    /// rejected it.
+    BootConfigResolved = 2,
     /// An `Executor` has bound its arena, so [`BootReport::arena_capacity`]
     /// is the real slice length rather than the compiled constant.
-    ExecutorReady = 2,
+    ExecutorReady = 3,
     /// Entity registration has begun. The interval between this and
     /// [`Stage::EntitiesReady`] is where an under-sized arena halts.
-    RegisteringEntities = 3,
+    RegisteringEntities = 4,
     /// Every entity the image declares was registered successfully.
-    EntitiesReady = 4,
+    EntitiesReady = 5,
     /// The first `spin_once` was entered, which is where issue 0900's
     /// headroom advisory would have printed had a sink existed.
-    FirstSpin = 5,
+    FirstSpin = 6,
 }
 
 #[cfg(nros_boot_report)]
@@ -149,6 +163,14 @@ mod enabled {
         /// number to add to `NROS_EXECUTOR_ARENA_SIZE`, which is why it is
         /// stored rather than left to be recomputed from the two above.
         failed_alloc_shortfall: AtomicU32,
+        /// `nros_cpp_init`'s return code, as the two's-complement bits of an
+        /// `i32`, or 0 (`NROS_CPP_RET_OK`) if it has not returned yet.
+        ///
+        /// The stage says HOW FAR init got; this says why it stopped. Without
+        /// it, every early return in that function -- a null argument, a
+        /// non-UTF-8 name, a bad domain id, a backend that refused to open --
+        /// is one indistinguishable "did not reach the executor".
+        cpp_init_ret: AtomicU32,
     }
 
     impl BootReport {
@@ -169,6 +191,7 @@ mod enabled {
                 last_alloc_size: AtomicU32::new(0),
                 failed_alloc_size: AtomicU32::new(0),
                 failed_alloc_shortfall: AtomicU32::new(0),
+                cpp_init_ret: AtomicU32::new(0),
             }
         }
 
@@ -210,6 +233,7 @@ mod enabled {
         pub last_alloc_size: u32,
         pub failed_alloc_size: u32,
         pub failed_alloc_shortfall: u32,
+        pub cpp_init_ret: u32,
     }
 
     /// Read the record.
@@ -233,6 +257,7 @@ mod enabled {
             last_alloc_size: g(&r.last_alloc_size),
             failed_alloc_size: g(&r.failed_alloc_size),
             failed_alloc_shortfall: g(&r.failed_alloc_shortfall),
+            cpp_init_ret: g(&r.cpp_init_ret),
         }
     }
 
@@ -328,6 +353,18 @@ mod enabled {
         }
     }
 
+    /// Record `nros_cpp_init`'s return code.
+    ///
+    /// LAST writer wins, unlike [`note_alloc_failed`]: an image may call
+    /// `nros_cpp_init` more than once (per component, per tier), and the
+    /// interesting one is the call that did not get through, which is the one
+    /// that leaves the stage where it stopped.
+    pub fn note_cpp_init_ret(ret: i32) {
+        NROS_BOOT_REPORT
+            .cpp_init_ret
+            .store(ret as u32, Ordering::Relaxed);
+    }
+
     /// `usize` -> `u32`, saturating.
     ///
     /// Every field is a `u32` so the record's layout does not change between a
@@ -363,24 +400,27 @@ mod disabled {
 
     #[inline(always)]
     pub fn note_alloc_failed(_size: usize, _shortfall: usize) {}
+
+    #[inline(always)]
+    pub fn note_cpp_init_ret(_ret: i32) {}
 }
 
 #[cfg(all(test, nros_boot_report))]
 mod tests {
     use super::*;
 
-    /// The reader decodes fifteen u32s positionally, so the record must be
+    /// The reader decodes sixteen u32s positionally, so the record must be
     /// exactly that and nothing else -- no padding, no reordering.
     ///
     /// `size_of` on the TARGET, which is the half `check-boot-report-layout.py`
     /// cannot see: that gate compares two source files, and this compares the
     /// source against what the compiler actually laid out.
     #[test]
-    fn the_record_is_fifteen_packed_u32s() {
-        assert_eq!(BootReport::struct_size(), 15 * 4);
+    fn the_record_is_sixteen_packed_u32s() {
+        assert_eq!(BootReport::struct_size(), 16 * 4);
         assert_eq!(
             core::mem::size_of::<BootReport>(),
-            15 * core::mem::size_of::<u32>(),
+            16 * core::mem::size_of::<u32>(),
             "the record grew padding; the reader decodes positionally"
         );
         assert_eq!(core::mem::align_of::<BootReport>(), 4);

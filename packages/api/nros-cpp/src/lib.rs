@@ -639,7 +639,19 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
     namespace: *const c_char,
     storage: *mut c_void,
 ) -> nros_cpp_ret_t {
+    // phase-412 -- stamp the self-report BEFORE anything can reject an
+    // argument. This is the first nano-ros code an image runs, so a record that
+    // is still zero after this point means the image never got here at all.
+    //
+    // Version 1 stamped it inside the executor constructor instead. On the
+    // first board run that made "never entered nano-ros" and "entered and died
+    // before the executor" the same observation -- both read magic 0 -- and
+    // telling them apart took a walk through the disassembly to prove the call
+    // chain existed. That is the manual work the record exists to remove.
+    nros_node::boot_report::init();
+
     if node_name.is_null() || storage.is_null() {
+        nros_node::boot_report::note_cpp_init_ret(NROS_CPP_RET_INVALID_ARGUMENT);
         return NROS_CPP_RET_INVALID_ARGUMENT;
     }
 
@@ -657,7 +669,10 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
     // longer deps directly).
     let node_name_str = match unsafe { cstr_to_str(node_name) } {
         Some(s) => s,
-        None => return NROS_CPP_RET_INVALID_ARGUMENT,
+        None => {
+            nros_node::boot_report::note_cpp_init_ret(NROS_CPP_RET_INVALID_ARGUMENT);
+            return NROS_CPP_RET_INVALID_ARGUMENT;
+        }
     };
 
     let ns_str = if namespace.is_null() {
@@ -665,7 +680,10 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
     } else {
         match unsafe { cstr_to_str(namespace) } {
             Some(s) => s,
-            None => return NROS_CPP_RET_INVALID_ARGUMENT,
+            None => {
+                nros_node::boot_report::note_cpp_init_ret(NROS_CPP_RET_INVALID_ARGUMENT);
+                return NROS_CPP_RET_INVALID_ARGUMENT;
+            }
         }
     };
 
@@ -674,7 +692,10 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
     } else {
         match unsafe { cstr_to_str(locator) } {
             Some(s) => Some(s),
-            None => return NROS_CPP_RET_INVALID_ARGUMENT,
+            None => {
+                nros_node::boot_report::note_cpp_init_ret(NROS_CPP_RET_INVALID_ARGUMENT);
+                return NROS_CPP_RET_INVALID_ARGUMENT;
+            }
         }
     };
 
@@ -715,8 +736,15 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
     // edge's to supply, so the capability cfg sits at the call site.
     let config = match resolve_boot(baked) {
         Ok(cfg) => cfg,
-        Err(_) => return NROS_CPP_RET_INVALID_ARGUMENT,
+        Err(_) => {
+            nros_node::boot_report::note_cpp_init_ret(NROS_CPP_RET_INVALID_ARGUMENT);
+            return NROS_CPP_RET_INVALID_ARGUMENT;
+        }
     };
+    // Everything above this line is argument validation; everything below is
+    // the executor. A record stopping here says the inputs were rejected, and
+    // `cpp_init_ret` says by which check.
+    nros_node::boot_report::checkpoint(nros_node::boot_report::Stage::BootConfigResolved);
     let domain_id = config.domain_id as u8;
 
     // phase-271 — construct in place: carve the executor's per-entry backing from
@@ -755,7 +783,11 @@ pub unsafe extern "C" fn nros_cpp_init_rmw(
         // next `nros::init -> -X` log line in the FreeRTOS / RV64
         // C++ tests identifies which precondition the backend
         // rejected.
-        Err(e) => node_error_to_cpp_ret(e),
+        Err(e) => {
+            let ret = node_error_to_cpp_ret(e);
+            nros_node::boot_report::note_cpp_init_ret(ret);
+            ret
+        }
     }
 }
 
