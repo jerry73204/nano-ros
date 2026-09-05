@@ -1548,3 +1548,137 @@ edit, which the governing principle requires be made loud by other means:
 2. `Node::ok()` needs a story for the standalone `main` that never calls it.
    The generated entry already checks; a hand-written `main` does not, and a
    node that failed to create currently proceeds silently.
+
+## Review of the invented parts (2026-09-05)
+
+Four items were listed as inventions. Reviewed against the governing principle,
+**two of the four are not inventions at all** and one of my stated risks was
+overstated. Evidence is the recorded upstream surface
+(`docs/reference/api-surface/rclcpp.json`) and our own headers.
+
+### 1. `Timer` — do NOT adopt upstream's hierarchy; DO adopt its names
+
+Upstream has `TimerBase`, `WallTimer`, `GenericTimer`, `TimerCallbackType`,
+`create_timer`, `create_wall_timer`. `TimerBase` is a POLYMORPHIC base;
+`WallTimer`/`GenericTimer` are templates over clock and callback;
+`create_wall_timer` returns `shared_ptr<WallTimer<...>>`, conventionally stored
+as `rclcpp::TimerBase::SharedPtr`.
+
+**Refactoring ours into that hierarchy is refused by clause 1.** A polymorphic
+base puts a vtable in every image that holds a timer, on targets chosen for
+having no allocator and a fixed arena. The benefit would be that a ported file
+could DERIVE from `TimerBase`, which is rare; the cost is paid by every image.
+
+**But the common ported line is not derivation — it is a member declaration:**
+
+```cpp
+rclcpp::TimerBase::SharedPtr timer_;      // idiomatic upstream member
+```
+
+That is a name, not a hierarchy, and clause 2 says port it. So on hosted
+targets:
+
+```cpp
+namespace rclcpp {
+using TimerBase = ::rclcpp::Timer;        // [2] the ported name
+}                                          //     Timer gains a SharedPtr typedef
+```
+
+A ported file's member declaration then compiles unchanged, and a file that
+tries to DERIVE from `TimerBase` fails to compile — mechanical, and honest,
+because we do not have the hierarchy.
+
+**Net: `Timer` stops being a pure invention.** `rclcpp::Timer` remains the
+freestanding spelling and the thing that actually exists; `TimerBase` is a
+ported alias. `WallTimer`/`GenericTimer` stay absent — they are templates over a
+clock type we do not have, and aliasing them would claim a genericity we cannot
+deliver.
+
+### 2. `spin_once` — keep it, and my collision risk was overstated
+
+**Upstream's verb is already ported.** `rclcpp::spin_some(node)` exists here
+(`nros.hpp:988`) with upstream's semantics — drain what is ready, no wait — as a
+0-timeout `spin_once`. So the question is not "should we adopt `spin_some`"; we
+already did.
+
+`spin_once(timeout_ms) -> Result` is a *blocking wait with a budget*, which
+rclcpp has no verb for. That is a real capability on an RTOS: a task that must
+not spin-poll needs to sleep until work arrives or the budget expires.
+
+**Correcting myself on the risk.** I flagged `rclpy.spin_once` as a live
+collision hazard. It is weaker than I said: rclpy's signature is
+`spin_once(node, timeout_sec=None)`, so a user carrying that habit writes
+`spin_once(node, 0.1)` in C++ and gets **no matching overload** — mechanical,
+not silent. The two names live in different languages, and the C++ compiler
+separates them for us. The ledger row should record the rclpy sibling for the
+reader's benefit; it is not an argument for renaming.
+
+**Keep `rclcpp::spin_once`.** It stays a genuine invention, with the collision
+gate watching in case rclcpp ever adds one.
+
+### 3. `Node::init` / `Node::ok` — and the error-channel rule they exposed
+
+Both stay, and neither is exotic: `ok()` is a state query and matches
+`rclcpp::ok()`'s own spelling; `init()` is the checked construction form a
+`-fno-exceptions` target needs in place of a throwing constructor.
+
+The review's real finding is that we have **two error channels and no stated
+rule** for choosing between them. `Result` (no value) and `Expected<T>` (value
+or error) both exist in `result.hpp`, and — measured, not assumed — `result.hpp`
+carries **zero capability gates** and parses under the ThreadX `-nostdinc++`
+shim, so both are available on every target.
+
+**The rule, stated:**
+
+| the operation | channel |
+| --- | --- |
+| ours-only, can fail, produces nothing | `Result` |
+| ours-only, can fail, produces a value | `Expected<T>` |
+| a state query that cannot fail | `bool` |
+| **a PORTED API** | **upstream's channel, even when that is `bool`** |
+
+The last row is clause 2 outranking local consistency, and it is load-bearing:
+`rclcpp::Node::get_parameter` returns `bool` upstream, so ours does too. A
+tidier all-`Expected` surface would be a preference recorded as a divergence,
+which RFC-0036 forbids.
+
+**What this makes outstanding:** `Result` and `Expected<T>` both need
+`[[nodiscard]]` (`NROS_NODISCARD` on C++14 targets). Without it,
+`rclcpp::init(argc, argv);` as a bare statement is a signature change the
+compiler does not point at — the exact case the governing principle says must
+be made loud by other means. `grep -n nodiscard` over `result.hpp` returns
+nothing today.
+
+### 4. The out-ref `create_*` family — forced by the arena, not a style
+
+Not an invention: it shares upstream's NAME and changes the signature, which is
+clause 2.
+
+And the signature is not a preference. **The executor arena stores `&entity` as
+its dispatch context and has no unregister path** (`nros.hpp:625-641`,
+`:806-812`). So the entity's address must be stable for the node's lifetime and
+owned by someone who outlives it. A value-returning
+`Expected<Publisher<M>> create_publisher(...)` would MOVE the object out of the
+function, changing the address the arena has already recorded — a dangling
+dispatch context, silently, on the first callback.
+
+That is why the hosted `shared_ptr` overload also keeps `owned_entities_`: the
+returned pointer is a co-owner, never the only owner. The allocation is
+inherent to the arena contract, not to the spelling — and the out-ref form is
+the shape that needs no allocation at all.
+
+`Expected<T>::make()` already exists as the hosted-friendly value-returning
+form (`result.hpp:190`), and its own doc comment says the out-param remains the
+canonical zero-cost API. That stands.
+
+### Revised inventory
+
+| item | verdict |
+| --- | --- |
+| `rclcpp::Timer` | ported name `TimerBase` added (hosted alias); `Timer` remains ours as the concrete type |
+| `rclcpp::spin_once` | **invention, kept** — upstream has no blocking-with-budget verb; `spin_some` already ported |
+| `Node::init` / `Node::ok` | kept; `ok()` matches upstream's spelling, `init()` is the no-exception channel |
+| out-ref `create_*` | **not an invention** — ported name, changed signature, forced by the arena |
+
+Two of four were mislabelled. What remains genuinely invented is `spin_once`
+and `Node::init`, plus `Timer` as a concrete type behind a ported alias.
