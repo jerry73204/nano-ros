@@ -87,7 +87,27 @@ static_assert(static_cast<int32_t>(ErrorCode::NotFound) == -4 &&
 ///
 /// This replaces exceptions in freestanding C++. Use the NROS_TRY macro
 /// for early return on error.
-class Result {
+// `[[nodiscard]]` — phase-428 W6, and the reason is a specific defect rather
+// than hygiene.
+//
+// RFC-0089's governing principle says a signature change is permitted when the
+// COMPILER FORCES THE EDIT, and must be made loud by other means when it does
+// not. Widening a return type at a discarding call site is the case it does
+// not: `rclcpp::init(argc, argv);` as a bare statement compiles whether the
+// return is `void` (upstream) or `Result` (ours), and the ported program
+// silently stops checking an error.
+//
+// The sweep found the same shape on hotter paths — `Publisher::publish()`
+// widened `void` -> `Result` and is the most-executed line in a ported node;
+// seven `create_*` verbs discard their `Result` and hand back a pointer to a
+// dead entity. This attribute turns each into a `-D warnings` error at the
+// call site that drops the value.
+//
+// Measured before landing: `just check c` and `just check cpp` are both green
+// with it applied, so the in-tree surface already consumes its Results. The
+// blast radius is on PORTED code and on anything added later, which is where
+// it is wanted.
+class [[nodiscard]] Result {
   public:
     /// Default-construct a success.
     constexpr Result() : code_(ErrorCode::Ok) {}
