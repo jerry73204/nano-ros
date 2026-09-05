@@ -1,7 +1,7 @@
 ---
 id: 1061
 title: Entity budgets are derived for CMake consumers only, so pure-cargo leaves hand-set them
-status: open
+status: resolved
 area: build
 severity: medium
 related: [1052, 0827, 0832, 0190]
@@ -160,3 +160,73 @@ into the leaf does NOT rest on copy-out. It rests on the measured in-tree fact
 that a direct `cargo build` in the leaf overflowed DRAM by 11,184 B, because the
 numbers lived in a fixture manifest that a plain cargo build never reads — and
 that one I measured both before and after.
+
+
+## FIXED (2026-09-06): the leaf DECLARES what the probe cannot read
+
+The fix section above offered two shapes — "a host stub behind a feature, or a
+declaration channel that does not require compiling the component at all". The
+second one, because the first makes a target-only board crate pretend to build
+for a host and the pretence has to be maintained forever.
+
+```toml
+[package.metadata.nros.component]
+entities = ["publisher:std_msgs/msg/String:/chatter", "timer"]
+```
+
+Same grammar as `nano_ros_node_register(... ENTITIES ...)`, parsed by the same
+`EntityDecl::parse`. Nothing is compiled to read it. `nros sync` turns it into
+the same inventory the probe would have produced, so the budgets come out of one
+derivation whatever the source.
+
+**Measured on the leaf this issue is about** — `qemu-esp32-baremetal/rust/talker`,
+whose metadata is `talker.json.unprobeable`:
+
+```
+[env]
+NROS_EXECUTOR_ACTION_CLIENTS = "0"
+NROS_EXECUTOR_MAX_CBS        = "1"
+NROS_RMW_SUBSCRIBER_SLOTS    = "1"
+ZPICO_MAX_PUBLISHERS         = "1"
+ZPICO_MAX_SUBSCRIBERS        = "1"
+```
+
+### It cannot become a way to disagree with the code
+
+Where the probe CAN run, the declaration is cross-checked against it per kind
+and a mismatch REFUSES. Verified by breaking one on purpose:
+
+```
+sync: examples/native/rust/talker: cannot derive pool budgets
+  (talker: the manifest declares timerx1 but the code creates publisherx1, timerx1.
+   Refusing rather than choosing one: ...)
+```
+
+Compared by kind COUNT, not by row — a declaration may state a topic loosely and
+the budget is computed from counts.
+
+### `ZPICO_MAX_QUERYABLES` is deliberately NOT derived, and that was found by measuring
+
+`DerivedEntityKnobs::max_queryables` says of itself that it excludes the
+parameter and lifecycle families (6 and 5 queryables) because "those are per-image
+infrastructure enabled by a feature this inventory cannot see", concluding that
+"an image carrying them must still state the knob". The CMake path completes it
+with `NROS_DECLARED_INFRA_QUERYABLES`; a cargo leaf has no such channel.
+
+So issue 0827's sidecar was emitting a number that is SHORT for any image with
+param services, and a short queryable table is a registration failure at boot,
+not a smaller pool. It is dropped from the derived set, with the reason written
+into every generated sidecar.
+
+This surfaced from a measurement rather than a reading: the esp32 talker
+hand-sets the knob to 2, the derivation offered 1, and the build came out
+correct **only** because the leaf's own `[env]` wins over an included file
+(confirmed: `ZPICO_MAX_QUERYABLES: usize = 2` in the generated shim constants).
+A leaf that had not hand-set it would have taken the 1.
+
+### Also fixed
+
+`check-cargo-config-tracked` rejected the new sidecar's `include` — its
+allow-list of generated targets named only the patch and board files. That gate
+exists precisely to catch an include no generator writes, so it was right to
+fire; the fix is to teach it the fourth name, not to weaken it.

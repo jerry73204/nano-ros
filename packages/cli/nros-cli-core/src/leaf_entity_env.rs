@@ -20,10 +20,27 @@
 //! this renders. A fresh clone has neither and gets both from `nros sync` — the
 //! contract `generated/` already has.
 //!
-//! What this does NOT reach: a leaf whose metadata is `<component>.json
-//! .unprobeable`. The probe cannot run for a foreign `[build] target` with
-//! `[unstable] build-std`, nor for a component whose board crate has no host
-//! build. Those leaves state their budgets by hand and that is issue 1061.
+//! A leaf whose metadata is `<component>.json.unprobeable` cannot be probed at
+//! all — the probe compiles the component for the HOST, and neither a foreign
+//! `[build] target` with `[unstable] build-std` nor a board crate with no host
+//! build allows that. Issue 1061.
+//!
+//! For those, the leaf DECLARES instead, in its own manifest:
+//!
+//! ```toml
+//! [package.metadata.nros.component]
+//! entities = ["publisher:std_msgs/msg/String:/chatter", "timer"]
+//! ```
+//!
+//! Same grammar as `nano_ros_node_register(... ENTITIES ...)`, parsed by the
+//! same [`EntityDecl::parse`], because a second spelling of one declaration is
+//! how the two drift. Nothing is compiled to read it.
+//!
+//! **A declaration is CROSS-CHECKED against the probe wherever the probe can
+//! run.** That is what keeps a hand-written list from quietly going stale: on a
+//! probeable leaf the two must agree, and a mismatch REFUSES rather than
+//! picking one. The declaration exists for leaves where there is nothing to
+//! check it against; it does not become a way to override what the code says.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -135,6 +152,95 @@ pub fn declaration_from_probe(doc_json: &str) -> Result<(String, String, Declara
     Ok((pkg, comp, declaration))
 }
 
+/// Issue 1061 — the entities a leaf DECLARES in its own manifest.
+///
+/// `[package.metadata.nros.component] entities = [...]`, each string in the
+/// `nano_ros_node_register(... ENTITIES ...)` grammar. `Ok(None)` means the key
+/// is absent, which is different from an empty list: an empty list is a leaf
+/// asserting it creates nothing.
+pub fn declared_entities(leaf: &Path) -> Result<Option<Vec<EntityDecl>>> {
+    let manifest = leaf.join("Cargo.toml");
+    let Ok(text) = std::fs::read_to_string(&manifest) else {
+        return Ok(None);
+    };
+    let doc: toml::Value =
+        toml::from_str(&text).wrap_err_with(|| format!("parsing {}", manifest.display()))?;
+    let Some(v) = doc
+        .get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("nros"))
+        .and_then(|n| n.get("component"))
+        .and_then(|c| c.get("entities"))
+    else {
+        return Ok(None);
+    };
+    let arr = v.as_array().ok_or_else(|| {
+        eyre::eyre!(
+            "{}: `[package.metadata.nros.component] entities` must be an ARRAY of \
+             declaration strings, e.g. [\"publisher:std_msgs/msg/String:/chatter\", \"timer\"]",
+            manifest.display()
+        )
+    })?;
+    let mut out = Vec::new();
+    for item in arr {
+        let spec = item.as_str().ok_or_else(|| {
+            eyre::eyre!(
+                "{}: every `entities` element must be a string; found {item}",
+                manifest.display()
+            )
+        })?;
+        // The SAME parser the CMake path uses. A private grammar here is how a
+        // declaration means one thing in a CMakeLists and another in a manifest.
+        let decls = EntityDecl::parse(spec)
+            .map_err(|e| eyre::eyre!("{}: entities entry `{spec}`: {e}", manifest.display()))?;
+        out.extend(decls);
+    }
+    Ok(Some(out))
+}
+
+/// Compare a declaration with what the probe found, as multisets of KIND.
+///
+/// Kind only, deliberately. The probe resolves topic names and interfaces that
+/// a hand-written declaration may legitimately state loosely (`timer` carries
+/// neither), so comparing the full row would refuse honest declarations. What a
+/// budget is computed from is the per-kind COUNT, so that is what has to agree —
+/// a mismatch there is a mismatch in the numbers this module exists to produce.
+fn kind_counts(decls: &[EntityDecl]) -> BTreeMap<&'static str, usize> {
+    let mut m = BTreeMap::new();
+    for d in decls {
+        *m.entry(d.kind.tag()).or_insert(0) += 1;
+    }
+    m
+}
+
+/// `Err` when a declaration and a successful probe disagree.
+pub fn reconcile(component: &str, declared: &[EntityDecl], probed: &[EntityDecl]) -> Result<()> {
+    let (d, p) = (kind_counts(declared), kind_counts(probed));
+    if d == p {
+        return Ok(());
+    }
+    let fmt = |m: &BTreeMap<&'static str, usize>| {
+        if m.is_empty() {
+            "nothing".to_string()
+        } else {
+            m.iter()
+                .map(|(k, v)| format!("{k}x{v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    };
+    Err(eyre::eyre!(
+        "{component}: the manifest declares {} but the code creates {}.\n  \
+         Refusing rather than choosing one: a budget from the declaration would be \
+         wrong for the image, and silently preferring the probe would let the \
+         declaration rot until it reaches a leaf where nothing can check it.\n  \
+         Fix the `[package.metadata.nros.component] entities` list, or drop it and \
+         let the probe answer.",
+        fmt(&d),
+        fmt(&p)
+    ))
+}
+
 /// Every probeable component under `<leaf>/metadata/`, as one image's inventory.
 ///
 /// `.json.unprobeable` files are skipped BY NAME and reported, because their
@@ -144,7 +250,29 @@ pub fn inventory_for_leaf(leaf: &Path) -> Result<(EntityInventory, Vec<String>)>
     let dir = leaf.join("metadata");
     let mut inv = EntityInventory::new(dir.display().to_string());
     let mut unprobeable = Vec::new();
+    // Kept beside the inventory so the reconcile below can read what was probed
+    // without `EntityInventory` growing an accessor for one caller.
+    let mut probed_rows: Vec<(String, Vec<EntityDecl>)> = Vec::new();
+    // Issue 1061 — what the leaf DECLARES, if anything. Read before the probe
+    // results so it can serve both roles: the answer where nothing was probed,
+    // and the cross-check where something was.
+    let declared = declared_entities(leaf)?;
+
     let Ok(rd) = std::fs::read_dir(&dir) else {
+        // No `metadata/` at all. A declaration still answers — that is the whole
+        // point for a leaf the probe cannot reach.
+        if let Some(d) = declared {
+            inv.insert(ComponentEntities {
+                pkg: leaf_name(leaf),
+                component: leaf_name(leaf),
+                class: leaf_name(leaf),
+                declaration: if d.is_empty() {
+                    Declaration::None
+                } else {
+                    Declaration::Stated(d)
+                },
+            });
+        }
         return Ok((inv, unprobeable));
     };
     let mut entries: Vec<_> = rd.filter_map(|e| e.ok()).map(|e| e.path()).collect();
@@ -165,6 +293,7 @@ pub fn inventory_for_leaf(leaf: &Path) -> Result<(EntityInventory, Vec<String>)>
             .wrap_err_with(|| format!("reading {}", path.display()))?;
         let (pkg, component, declaration) = declaration_from_probe(&text)
             .wrap_err_with(|| format!("parsing {}", path.display()))?;
+        probed_rows.push((component.clone(), declaration.entities().to_vec()));
         inv.insert(ComponentEntities {
             pkg,
             component: component.clone(),
@@ -172,7 +301,43 @@ pub fn inventory_for_leaf(leaf: &Path) -> Result<(EntityInventory, Vec<String>)>
             declaration,
         });
     }
+    // Issue 1061 — reconcile, or stand in.
+    match (&declared, inv.is_empty()) {
+        // Probed AND declared: they must agree. Checked per component only when
+        // there is exactly one, because a multi-component leaf's manifest states
+        // one list for the whole package and splitting it across components
+        // would be inventing an attribution.
+        (Some(d), false) => {
+            if let [(component, probed)] = probed_rows.as_slice() {
+                reconcile(component, d, probed)?;
+            }
+        }
+        // Declared with nothing probed: the declaration IS the answer. This is
+        // the unprobeable leaf, which is what issue 1061 is about.
+        (Some(d), true) => {
+            inv.insert(ComponentEntities {
+                pkg: leaf_name(leaf),
+                component: leaf_name(leaf),
+                class: leaf_name(leaf),
+                declaration: if d.is_empty() {
+                    Declaration::None
+                } else {
+                    Declaration::Stated(d.clone())
+                },
+            });
+        }
+        (None, _) => {}
+    }
     Ok((inv, unprobeable))
+}
+
+/// The leaf directory's own name, used as pkg/component when a declaration
+/// stands in for a probe that never ran and there is no probed name to use.
+fn leaf_name(leaf: &Path) -> String {
+    leaf.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("<leaf>")
+        .to_string()
 }
 
 /// The knobs a derived budget sets, and which field answers each.
@@ -185,9 +350,28 @@ pub const DERIVED_ENV_KEYS: &[&str] = &[
     "NROS_EXECUTOR_MAX_CBS",
     "NROS_RMW_SUBSCRIBER_SLOTS",
     "ZPICO_MAX_PUBLISHERS",
-    "ZPICO_MAX_QUERYABLES",
     "ZPICO_MAX_SUBSCRIBERS",
 ];
+
+/// `ZPICO_MAX_QUERYABLES` is DELIBERATELY NOT DERIVED.
+///
+/// `DerivedEntityKnobs::max_queryables` says so itself: it counts service
+/// servers and actions and "does NOT include the parameter or lifecycle service
+/// families (`PARAM_SERVICE_QUERYABLES` 6, `LIFECYCLE_SERVICE_QUERYABLES` 5):
+/// those are per-image infrastructure enabled by a feature this inventory
+/// cannot see". Its own conclusion is that "an image carrying them must still
+/// state the knob".
+///
+/// The CMake path completes it with `NROS_DECLARED_INFRA_QUERYABLES`. A cargo
+/// leaf has no such channel, so a sidecar emitting the bare count would state a
+/// number that is SHORT for any image with param services — and a short
+/// queryable table is not a smaller pool, it is a registration failure at boot.
+/// The crate default (8) is larger and safe, so the knob is left alone.
+///
+/// Found by measuring rather than by reading: the esp32 talker hand-sets it to
+/// 2, the derivation offered 1, and only the leaf's own `[env]` winning kept
+/// the image correct. A leaf that had not hand-set it would have taken the 1.
+const NOT_DERIVED_NEEDS_INFRA_COUNT: &str = "ZPICO_MAX_QUERYABLES";
 
 /// Render the gitignored `[env]` sidecar for a derived budget.
 pub fn render_env_sidecar(
@@ -214,13 +398,17 @@ pub fn render_env_sidecar(
          # this deliberately does not use. A number a human states beats a number\n\
          # derived on their behalf.\n\n",
     );
+    s.push_str(&format!(
+        "# `{NOT_DERIVED_NEEDS_INFRA_COUNT}` is not derived here — the inventory cannot\n"
+    ));
+    s.push_str("# see whether this image enables the parameter or lifecycle service\n");
+    s.push_str("# families, and a count short of them fails at registration.\n\n");
     s.push_str("[env]\n");
     let vals: BTreeMap<&str, usize> = BTreeMap::from([
         ("NROS_EXECUTOR_ACTION_CLIENTS", knobs.heavy_slots),
         ("NROS_EXECUTOR_MAX_CBS", knobs.max_cbs),
         ("NROS_RMW_SUBSCRIBER_SLOTS", knobs.max_subscribers),
         ("ZPICO_MAX_PUBLISHERS", knobs.max_publishers),
-        ("ZPICO_MAX_QUERYABLES", knobs.max_queryables),
         ("ZPICO_MAX_SUBSCRIBERS", knobs.max_subscribers),
     ]);
     for (k, v) in &vals {
@@ -328,6 +516,91 @@ mod tests {
         );
     }
 
+    // ---- issue 1061: the manifest declaration --------------------------
+
+    fn write_leaf(dir: &std::path::Path, manifest: &str) {
+        std::fs::write(dir.join("Cargo.toml"), manifest).unwrap();
+    }
+
+    #[test]
+    fn a_manifest_declaration_parses_with_the_shared_grammar() {
+        let td = tempfile::tempdir().unwrap();
+        write_leaf(
+            td.path(),
+            r#"
+[package]
+name = "p"
+[package.metadata.nros.component]
+entities = ["publisher:std_msgs/msg/String:/chatter", "timer", "sub*2"]
+"#,
+        );
+        let d = declared_entities(td.path()).unwrap().expect("declared");
+        // `sub*2` is the repeat suffix -- the SHARED grammar's, not a second one.
+        assert_eq!(d.len(), 4, "{d:?}");
+        assert_eq!(d[0].kind, EntityKind::Publisher);
+        assert_eq!(d[0].name.as_deref(), Some("/chatter"));
+        assert_eq!(d[1].kind, EntityKind::Timer);
+        assert_eq!(d[2].kind, EntityKind::Subscription);
+        assert_eq!(d[3].kind, EntityKind::Subscription);
+    }
+
+    /// Absent and empty are DIFFERENT: absent means the leaf said nothing, empty
+    /// means it asserted it creates nothing.
+    #[test]
+    fn an_absent_key_is_none_and_an_empty_list_is_some_empty() {
+        let td = tempfile::tempdir().unwrap();
+        write_leaf(td.path(), "[package]\nname = \"p\"\n");
+        assert!(declared_entities(td.path()).unwrap().is_none());
+
+        write_leaf(
+            td.path(),
+            "[package]\nname = \"p\"\n[package.metadata.nros.component]\nentities = []\n",
+        );
+        assert_eq!(declared_entities(td.path()).unwrap(), Some(vec![]));
+    }
+
+    #[test]
+    fn a_malformed_declaration_names_the_entry() {
+        let td = tempfile::tempdir().unwrap();
+        write_leaf(
+            td.path(),
+            "[package]\nname = \"p\"\n[package.metadata.nros.component]\nentities = [\"nonsense\"]\n",
+        );
+        let e = declared_entities(td.path()).unwrap_err().to_string();
+        assert!(e.contains("nonsense"), "{e}");
+
+        write_leaf(
+            td.path(),
+            "[package]\nname = \"p\"\n[package.metadata.nros.component]\nentities = \"timer\"\n",
+        );
+        let e = declared_entities(td.path()).unwrap_err().to_string();
+        assert!(e.contains("ARRAY"), "{e}");
+    }
+
+    /// The safety property: a declaration that disagrees with the code REFUSES.
+    /// Without this the manifest becomes a way to state a budget smaller than
+    /// the image, and short halts the board.
+    #[test]
+    fn a_declaration_that_disagrees_with_the_probe_refuses() {
+        let probed = EntityDecl::parse("publisher").unwrap();
+        let same = EntityDecl::parse("publisher").unwrap();
+        assert!(reconcile("c", &same, &probed).is_ok());
+
+        let fewer = EntityDecl::parse("timer").unwrap();
+        let e = reconcile("c", &fewer, &probed).unwrap_err().to_string();
+        assert!(e.contains("declares") && e.contains("creates"), "{e}");
+        assert!(e.contains("timerx1") && e.contains("publisherx1"), "{e}");
+    }
+
+    /// Compared by KIND COUNT, not by row: a declaration may legitimately state
+    /// a topic loosely, and the budget is computed from counts.
+    #[test]
+    fn reconcile_compares_counts_not_topic_names() {
+        let probed = EntityDecl::parse("sub:std_msgs/msg/String:/chatter").unwrap();
+        let declared = EntityDecl::parse("sub").unwrap();
+        assert!(reconcile("c", &declared, &probed).is_ok());
+    }
+
     #[test]
     fn the_sidecar_states_every_declared_key() {
         let (pkg, comp, d) = declaration_from_probe(TALKER).unwrap();
@@ -348,6 +621,11 @@ mod tests {
         }
         assert!(out.contains("ZPICO_MAX_SUBSCRIBERS = \"1\""), "{out}");
         assert!(out.contains("ZPICO_MAX_PUBLISHERS = \"1\""), "{out}");
+        // The infra-incomplete knob must NOT be stated as a value.
+        assert!(
+            !out.lines().any(|l| l.starts_with("ZPICO_MAX_QUERYABLES")),
+            "the sidecar states a queryable count it cannot complete:\n{out}"
+        );
         // No `force = true` KEY: a value the caller states must win. Checked
         // line-wise, because the header prose explains `force` and a substring
         // test would match the explanation rather than a setting.

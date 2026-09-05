@@ -80,3 +80,17 @@ codegen-units = 1
 # README's "standalone copy-out template" promise. Canonical in-tree builds
 # also pass via the root `exclude = [...]` list (belt-and-braces).
 [workspace]
+
+# Issue 1061 — what this component creates, stated because it cannot be PROBED.
+#
+# The probe compiles a component for the host to read its declarations; this
+# leaf sets `[unstable] build-std` for a foreign target AND depends on a board
+# crate with no host build, so its metadata is `.json.unprobeable` and there is
+# nothing to derive a budget from.
+#
+# Same grammar as `nano_ros_node_register(... ENTITIES ...)`, parsed by the same
+# code. `nros sync` reads it without compiling anything, and CROSS-CHECKS it
+# against the probe on any leaf where the probe does run — so this cannot
+# silently drift from `register()`: a publisher and the timer that drives it.
+[package.metadata.nros.component]
+entities = ["publisher:std_msgs/msg/String:/chatter", "timer"]

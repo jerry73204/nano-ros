@@ -199,7 +199,11 @@ has_orphan_include() {
         [ -n "$entry" ] || continue
         base="$(basename "$entry")"
         case "$base" in
-            nros-patch.toml | nros-managed-patch.toml | nros-board.toml) continue ;;
+            # `nros-managed-env.toml` is issue 0827's per-leaf derived `[env]`
+            # sidecar: same generator, same gitignore, same
+            # appear-and-disappear-together rule as the patch one.
+            nros-patch.toml | nros-managed-patch.toml | nros-board.toml \
+                | nros-managed-env.toml) continue ;;
         esac
         echo "    $cfg" >&2
         echo "      include -> '$entry' — no generator writes this" >&2

@@ -360,6 +360,37 @@ pub struct ComponentMetadata {
     /// [`publishes`](Self::publishes).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subscribes: Vec<TopicDecl>,
+    /// Issue 1061 — every entity this component creates, in the
+    /// `nano_ros_node_register(... ENTITIES ...)` grammar:
+    /// `["publisher:std_msgs/msg/String:/chatter", "timer", "sub*2"]`.
+    ///
+    /// # Why this is not `publishes` + `subscribes`
+    ///
+    /// Those two answer a DATA-FLOW question for the planner — which topics a
+    /// bridge can resolve pre-build. This answers a SLOT-DEMAND question: how
+    /// many callback entries, subscriber rings and queryables the image must
+    /// reserve. Timers, service servers and actions cost slots and carry no
+    /// topic, so they cannot be expressed there, and `MAX_CBS` /
+    /// `MAX_QUERYABLES` cannot be derived without them.
+    ///
+    /// # Why it exists at all
+    ///
+    /// The metadata PROBE normally answers this by compiling the component for
+    /// the host and reading what it declares. A leaf that sets
+    /// `[unstable] build-std` for a foreign target, or depends on a board crate
+    /// with no host build, cannot be probed — its metadata is
+    /// `<component>.json.unprobeable` — and before this it had no way to say
+    /// what it creates, so its pools kept the crate defaults. On a board where
+    /// `.bss` is subtracted from the stack that is not a footprint nicety
+    /// (issue 1052).
+    ///
+    /// # It does not become a way to disagree with the code
+    ///
+    /// Where the probe CAN run, `leaf_entity_env::reconcile` compares this list
+    /// against it per kind and REFUSES on a mismatch. The declaration is for
+    /// leaves with nothing to check it against; it is not an override.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<String>,
 }
 
 /// phase-267 W1c/C3a — one declared topic endpoint in node Cargo metadata:
