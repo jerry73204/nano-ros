@@ -1016,3 +1016,190 @@ capability on the single type.
 * **The 409 `nros::` call sites do not have to move.** The alias is
   unconditional and both spellings name one type, so migration becomes
   optional per file rather than a flag day.
+
+
+## The node API, revised (2026-09-05)
+
+Three constraints, settled: **`rclcpp::Node` is the name**, there is **one node
+type**, and it **compiles freestanding**. The third is what shapes the rest,
+because upstream's constructor takes `std::string` and its `create_publisher`
+returns `shared_ptr` — neither of which exists on a `-nostdinc++` target.
+
+### Layout — one pointer, never a probe
+
+The hosted-only state cannot be a set of conditional members: that is the
+capability-layout rule, and `timers_` already shipped a violation of it. So it
+goes out of line behind ONE unconditional pointer.
+
+```cpp
+namespace rclcpp {
+class Node {
+    // ... freestanding core, identical on every target ...
+    nros_cpp_node_t handle_;
+    bool             initialized_;
+    void*            executor_handle_;
+    ::nros::Clock    clock_;
+    // The hosted extras -- `NodeOptions`, the co-ownership vector, the
+    // shared_ptr bookkeeping -- live in `detail::NodeHosted`, allocated LAZILY
+    // on the first hosted-shape call and never on a freestanding target.
+    // One pointer, present in every configuration, so `sizeof(Node)` does not
+    // follow a capability probe (`check-cpp-capability-layout`).
+    void* hosted_ = nullptr;
+};
+} // namespace rclcpp
+
+namespace nros { using Node = ::rclcpp::Node; }   // transitional alias, deprecated later
+```
+
+Note the direction: **`rclcpp::Node` is the class and `nros::Node` is the
+alias**, the reverse of the shim we are retiring. That is what makes the rename
+a rename rather than a second name — and it means the 409 remaining `nros::`
+call sites keep compiling while they migrate, instead of needing a flag day.
+
+`ComponentNode` is deleted, not aliased. It had no distinction left once the
+handle became a constructor.
+
+### The API, by reach
+
+**Freestanding core — every target, no allocator, no vtable, no `std::`:**
+
+```cpp
+Node();                                            // caller-owned storage
+Result nros::create_node(Node&, const char* name, const char* ns = nullptr);
+Result nros::create_node_on(Node&, void* handle, const char* name, const char* ns = nullptr);
+
+Result create_publisher   (Publisher<M>&,    const char* topic, const QoS& = {});
+Result create_subscription(Subscription<M>&, const char* topic, void(*cb)(const M&), const QoS& = {});
+Result create_service     (Service<S>&,      const char* name, ..., const QoS& = ServicesQoS());
+Result create_client      (Client<S>&,       const char* name, ..., const QoS& = ServicesQoS());
+Result create_timer       (Timer&, uint64_t period_ms, nros_cpp_timer_callback_t, void* ctx);
+
+const char* get_name() const;
+const char* get_namespace() const;
+Logger      get_logger() const;      // named for THIS node (decision 1)
+Time        now() const;
+// the 13 graph queries, unchanged
+```
+
+The out-ref family keeps `nros::`-side free functions (`nros::create_node`)
+because they are **ours-only names for a capability upstream lacks** —
+caller-owned storage. Under this RFC that is a permanent divergence, not a
+transitional spelling, so it is correct for them to keep our namespace while the
+TYPE takes upstream's.
+
+**Hosted additions — methods only, gated, layout-neutral:**
+
+```cpp
+explicit Node(const std::string& name, const NodeOptions& = NodeOptions());
+Node(const std::string& name, const std::string& ns, const NodeOptions& = NodeOptions());
+
+std::shared_ptr<Publisher<M>>    create_publisher<M>(const std::string& topic, const QoS&);
+std::shared_ptr<Subscription<M>> create_subscription<M>(const std::string& topic, const QoS&, Cb);
+std::shared_ptr<TimerBase>       create_wall_timer(std::chrono::duration<...>, Cb);
+std::shared_ptr<Service<S>>      create_service<S>(const std::string& name, ...);
+std::shared_ptr<Client<S>>       create_client<S>(const std::string& name, ...);
+
+// parameters -- forwarders to the Rust store after phase-426, never a second store
+T    declare_parameter<T>(const std::string&, const T&);
+bool get_parameter<T>(const std::string&, T&) const;
+```
+
+Deriving (`class Talker : public rclcpp::Node`) needs the hosted constructor, so
+it is hosted-only. On a freestanding target the answer is the workspace
+component shape below, which needs no derivation at all.
+
+### Usage — standalone
+
+*Hosted, a ported file, unchanged from upstream:*
+
+```cpp
+#include <nros/nros.hpp>
+
+int main(int argc, char** argv) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<rclcpp::Node>("talker");
+    auto pub  = node->create_publisher<std_msgs::msg::String>("chatter", 10);
+    auto timer = node->create_wall_timer(std::chrono::seconds(1), [pub]{ /* ... */ });
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+}
+```
+
+*Freestanding, the same type, our names for our capabilities:*
+
+```cpp
+#include <nros/nros.hpp>
+
+int main() {
+    NROS_TRY_RET(rclcpp::init(), 1);            // returns Result, unlike upstream's void
+    rclcpp::Node node;                          // no allocation
+    NROS_TRY_RET(nros::create_node(node, "talker"), 1);
+
+    rclcpp::Publisher<std_msgs::msg::String> pub;   // inline storage
+    NROS_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
+
+    while (rclcpp::ok()) {
+        pub.publish(msg);
+        rclcpp::spin_once(100);
+    }
+}
+```
+
+Both name **one** `rclcpp::Node`. The difference is which capabilities the
+target has, and every difference fails to COMPILE rather than differing at
+runtime — `create_publisher<M>("chatter", 10)` is simply not declared where
+`<memory>` is not.
+
+### Usage — workspace
+
+The RFC-0043 typed component is unchanged except that the node's type is now
+spelled upstream's way. **This stays the recommendation for firmware**: no
+allocator, no derivation, no vtable, and it is the only one of the three shapes
+that compiles on every target we ship.
+
+```cpp
+// talker_pkg/include/talker_pkg/Talker.hpp
+class Talker {
+    rclcpp::Publisher<std_msgs::msg::Int32> pub_;   // inline
+    nros::Timer                             timer_; // ours-only: upstream has no `Timer`
+    int count_ = 0;
+
+    void on_tick();                                  // bound BY IDENTITY, no string name
+
+  public:
+    rclcpp::Result configure(rclcpp::Node& node);    // the one node type, by reference
+};
+
+// talker_pkg/src/Talker.cpp
+rclcpp::Result Talker::configure(rclcpp::Node& node) {
+    NROS_TRY(node.create_publisher(pub_, "/chatter"));
+    return nros::bind_timer<Talker, &Talker::on_tick>(node, timer_, 1000, this);
+}
+```
+
+The generated entry constructs each component and calls `configure(node)` —
+which is upstream's *manual composition* with the `main` generated instead of
+written.
+
+*Hosted workspaces may instead derive, which is what a ported component looks
+like:*
+
+```cpp
+class Talker : public rclcpp::Node {
+  public:
+    explicit Talker(const rclcpp::NodeOptions& opts) : Node("talker", opts) {
+        pub_ = create_publisher<std_msgs::msg::Int32>("chatter", 10);
+    }
+};
+```
+
+Both are the same type. Which one a package uses is a reach decision, and the
+one that reaches further is the one with no `std::` in it.
+
+### What still has no upstream spelling, deliberately
+
+`nros::create_node`, `nros::bind_timer`, `nros::Timer`, `nros::spin_once`,
+`rclcpp::init`'s `Result` return, and the out-ref `create_*` family. Each is a
+capability upstream does not have, so each keeps our namespace and a ledger row
+with a disposition. Giving them upstream spellings would be the compile-and-differ
+this RFC exists to forbid.
