@@ -56,10 +56,31 @@ impl Drop for SimTimeGuard {
     }
 }
 
+#[cfg(feature = "std")]
 fn test_clock_us() -> u64 {
     use std::{sync::OnceLock, time::Instant};
     static EPOCH: OnceLock<Instant> = OnceLock::new();
     EPOCH.get_or_init(Instant::now).elapsed().as_micros() as u64
+}
+
+/// Deterministic stand-in for the host clock on an `alloc`-only build.
+///
+/// The real one above reads `std::time::Instant`, which is what kept this
+/// whole module host-only: 98 tests reach it through `executor_with_clock`
+/// without needing real elapsed time, only a monotonic source. A counter is
+/// monotonic, needs no host, and is reproducible -- which is strictly better
+/// for those tests than wall time that varies run to run.
+///
+/// Tests that genuinely need real time to pass (they sleep, then assert that
+/// time moved) are marked `#[cfg(feature = "std")]` individually and do not
+/// run here.
+#[cfg(not(feature = "std"))]
+fn test_clock_us() -> u64 {
+    use portable_atomic::{AtomicU64, Ordering};
+    static NOW_US: AtomicU64 = AtomicU64::new(0);
+    // 1 ms per read: coarse enough that a spin loop sees progress, fine
+    // enough that nothing overflows in a test run.
+    NOW_US.fetch_add(1_000, Ordering::Relaxed)
 }
 
 fn executor_with_clock(session: MockSession) -> Executor<'static> {
@@ -624,22 +645,23 @@ fn test_add_subscription_and_spin_once_no_data() {
         .unwrap();
 
     // Register a subscription — callback should never fire
-    let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let called = alloc::sync::Arc::new(portable_atomic::AtomicBool::new(false));
     let called2 = called.clone();
     executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/test", move |_msg: &TestMsg| {
-            called2.store(true, std::sync::atomic::Ordering::SeqCst);
+            called2.store(true, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     let result = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(result.subscriptions_processed, 0);
     assert!(!result.any_work());
-    assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!called.load(portable_atomic::Ordering::SeqCst));
 }
 
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_add_subscription_and_spin_once_with_data() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -648,7 +670,7 @@ fn test_add_subscription_and_spin_once_with_data() {
         .node_builder("test_add_subscription_and_spin_once_with_data")
         .build()
         .unwrap();
-    let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let received = alloc::sync::Arc::new(std::sync::Mutex::new(None));
     let received2 = received.clone();
     executor
         .node_mut(nid)
@@ -688,6 +710,7 @@ fn test_add_subscription_and_spin_once_with_data() {
 
 /// Owned message — the publish side (matches codegen `Image`).
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // only the std-gated zero-copy tests construct these
 struct Image {
     width: u32,
     pixels: heapless::Vec<u8, 64>,
@@ -710,6 +733,7 @@ impl Serialize for Image {
 }
 
 /// Borrowed view — the zero-copy receive side (matches codegen `ImageView<'a>`).
+#[allow(dead_code)] // only the std-gated zero-copy tests construct these
 struct ImageView<'a> {
     width: u32,
     pixels: &'a [u8],
@@ -727,6 +751,7 @@ impl<'a> DeserializeView<'a> for ImageView<'a> {
 }
 
 /// ZST marker — matches codegen `ImageViewable`.
+#[allow(dead_code)] // only the std-gated zero-copy tests construct these
 struct ImageViewable;
 impl ViewableMessage for ImageViewable {
     type View<'a> = ImageView<'a>;
@@ -735,15 +760,16 @@ impl ViewableMessage for ImageViewable {
 }
 
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn borrowed_subscription_e2e_zero_copy_through_spin_once() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
     let nid = executor.node_builder("borrowed_e2e").build().unwrap();
 
     // Captured on the receive side: (width, pixels copy, ranges decoded).
-    type Captured = (u32, std::vec::Vec<u8>, std::vec::Vec<f32>);
-    let received: std::sync::Arc<std::sync::Mutex<Option<Captured>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
+    type Captured = (u32, alloc::vec::Vec<u8>, alloc::vec::Vec<f32>);
+    let received: alloc::sync::Arc<std::sync::Mutex<Option<Captured>>> =
+        alloc::sync::Arc::new(std::sync::Mutex::new(None));
     let received2 = received.clone();
 
     executor
@@ -784,8 +810,8 @@ fn borrowed_subscription_e2e_zero_copy_through_spin_once() {
 
     let got = received.lock().unwrap().take().expect("callback fired");
     assert_eq!(got.0, 7);
-    assert_eq!(got.1, std::vec![10, 20, 30, 40, 250]);
-    assert_eq!(got.2, std::vec![1.5f32, -2.25, 3.0e10]);
+    assert_eq!(got.1, alloc::vec![10, 20, 30, 40, 250]);
+    assert_eq!(got.2, alloc::vec![1.5f32, -2.25, 3.0e10]);
 }
 
 #[test]
@@ -797,21 +823,21 @@ fn test_multiple_subscriptions() {
         .node_builder("test_multiple_subscriptions")
         .build()
         .unwrap();
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count1 = count.clone();
     let count2 = count.clone();
 
     executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/topic1", move |_msg: &TestMsg| {
-            count1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count1.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/topic2", move |_msg: &TestMsg| {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -826,13 +852,14 @@ fn test_multiple_subscriptions() {
 
     let result = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(result.subscriptions_processed, 2);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 2);
 }
 
 /// Phase 110.B — when two subscriptions are bound to `Edf` SCs,
 /// the one with the earlier deadline dispatches first regardless of
 /// registration order.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_edf_dispatch_order() {
     use crate::executor::sched_context::{DeadlinePolicy, OptUs, SchedClass, SchedContext};
     let session = MockSession::new();
@@ -840,7 +867,7 @@ fn test_edf_dispatch_order() {
 
     // `firing_order` records the data field of every msg the callbacks
     // see, in dispatch order.
-    let firing_order = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let firing_order = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let order_late = firing_order.clone();
     let order_early = firing_order.clone();
 
@@ -905,7 +932,7 @@ fn test_edf_dispatch_order() {
 
     let order = firing_order.lock().unwrap();
     // Earlier-deadline (data=20) must precede later-deadline (data=10).
-    assert_eq!(*order, std::vec![20, 10]);
+    assert_eq!(*order, alloc::vec![20, 10]);
 }
 
 /// Phase 110.F — an `os_pri`-bound callback is dispatched.
@@ -926,6 +953,7 @@ fn test_edf_dispatch_order() {
 /// Uses a no-op `apply_policy` (non-root tests can't lift to SCHED_FIFO).
 #[cfg(feature = "scheduler-os-priority")]
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_os_priority_worker_dispatches_callback() {
     use crate::executor::sched_context::{SchedClass, SchedContext};
     use nros_platform_api::SchedPolicy;
@@ -940,12 +968,12 @@ fn test_os_priority_worker_dispatches_callback() {
         .build()
         .unwrap();
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count_cb = count.clone();
     let h = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/picas", move |_msg: &TestMsg| {
-            count_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count_cb.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -970,7 +998,7 @@ fn test_os_priority_worker_dispatches_callback() {
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     assert_eq!(
-        count.load(std::sync::atomic::Ordering::SeqCst),
+        count.load(portable_atomic::Ordering::SeqCst),
         1,
         "os_pri-bound callback must dispatch — via a worker where the platform \
          hosts one, cooperatively where it does not"
@@ -998,12 +1026,12 @@ fn test_tt_window_gate_suppresses_outside_window() {
         .build()
         .unwrap();
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count_cb = count.clone();
     let h = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/tt", move |_msg: &TestMsg| {
-            count_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count_cb.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -1025,7 +1053,7 @@ fn test_tt_window_gate_suppresses_outside_window() {
 
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(
-        count.load(std::sync::atomic::Ordering::SeqCst),
+        count.load(portable_atomic::Ordering::SeqCst),
         0,
         "TT window gate must suppress dispatch outside the active slot"
     );
@@ -1046,8 +1074,8 @@ fn test_time_triggered_dispatch_active_window() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count_w0 = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let count_w1 = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count_w0 = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
+    let count_w1 = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let cb0 = count_w0.clone();
     let cb1 = count_w1.clone();
     let nid = executor
@@ -1057,13 +1085,13 @@ fn test_time_triggered_dispatch_active_window() {
     let h0 = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/tt0", move |_msg: &TestMsg| {
-            cb0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            cb0.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
     let h1 = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/tt1", move |_msg: &TestMsg| {
-            cb1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            cb1.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -1093,12 +1121,12 @@ fn test_time_triggered_dispatch_active_window() {
     // Phase < 1s → only the entry bound to window-0 fires; the
     // entry bound to window-1 must stay suppressed.
     assert_eq!(
-        count_w0.load(std::sync::atomic::Ordering::SeqCst),
+        count_w0.load(portable_atomic::Ordering::SeqCst),
         1,
         "entry bound to window-0 should dispatch inside its active slot"
     );
     assert_eq!(
-        count_w1.load(std::sync::atomic::Ordering::SeqCst),
+        count_w1.load(portable_atomic::Ordering::SeqCst),
         0,
         "entry bound to window-1 must stay suppressed outside its slot"
     );
@@ -1143,6 +1171,7 @@ fn test_time_triggered_schedule_rejects_overlapping_windows() {
 /// callback no longer fires until the next period boundary refills
 /// the budget.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_sporadic_budget_exhaustion_suppresses_dispatch() {
     use crate::executor::sched_context::{OptUs, SchedClass, SchedContext};
     let session = MockSession::new();
@@ -1152,12 +1181,12 @@ fn test_sporadic_budget_exhaustion_suppresses_dispatch() {
         .node_builder("test_sporadic_budget_exhaustion")
         .build()
         .unwrap();
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count_cb = count.clone();
     let h = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/sporadic", move |_msg: &TestMsg| {
-            count_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count_cb.fetch_add(1, portable_atomic::Ordering::SeqCst);
             // issue 0736 — the callback must COST something, because callback
             // runtime is now the only thing that consumes budget. This test
             // used to exhaust the budget by sleeping BETWEEN spins, which
@@ -1192,17 +1221,17 @@ fn test_sporadic_budget_exhaustion_suppresses_dispatch() {
     unsafe { &*(arena_ptr.add(off) as *const MockSubscriber) }.load(d, n);
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(
-        count.load(std::sync::atomic::Ordering::SeqCst),
+        count.load(portable_atomic::Ordering::SeqCst),
         1,
         "cycle 1 must dispatch — otherwise cycle 2 proves nothing"
     );
 
     // Cycle 2 — budget is 0; dispatch must be suppressed.
-    let initial = count.load(std::sync::atomic::Ordering::SeqCst);
+    let initial = count.load(portable_atomic::Ordering::SeqCst);
     let (d, n) = encode_test_msg(2);
     unsafe { &*(arena_ptr.add(off) as *const MockSubscriber) }.load(d, n);
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
-    let after = count.load(std::sync::atomic::Ordering::SeqCst);
+    let after = count.load(portable_atomic::Ordering::SeqCst);
 
     // Strictly assert no new dispatch on cycle 2.
     assert_eq!(
@@ -1219,6 +1248,7 @@ fn test_sporadic_budget_exhaustion_suppresses_dispatch() {
 /// that previously charged the full cycle `delta_us` against every
 /// Sporadic SC regardless of which entries actually fired.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 #[cfg(feature = "alloc")]
 fn test_atomic_sporadic_per_callback_runtime_consumed() {
     use crate::executor::{
@@ -1299,6 +1329,7 @@ fn test_atomic_sporadic_per_callback_runtime_consumed() {
 /// (we can't preempt a running callback), so this is the
 /// diagnostic signal end-callers consume to tune budgets.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 #[cfg(feature = "alloc")]
 fn test_atomic_overrun_exceeds_budget() {
     use crate::executor::{
@@ -1380,6 +1411,7 @@ fn test_atomic_overrun_exceeds_budget() {
 /// works — full timing acceptance for S1 / S3 ships once the
 /// integration harness with privileged scheduling is in place.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_open_threaded_two_executors_independent_lifecycle() {
     use nros_platform_api::SchedPolicy;
     fn apply_noop(_p: SchedPolicy) -> Result<(), nros_platform_api::SchedError> {
@@ -1420,6 +1452,7 @@ fn test_open_threaded_two_executors_independent_lifecycle() {
 /// the executor onto a fresh OS thread, lets it spin, then halts via
 /// the returned `ThreadHandle`.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_open_threaded_spawn_and_halt() {
     use nros_platform_api::SchedPolicy;
     let session = MockSession::new();
@@ -1454,12 +1487,13 @@ fn test_open_threaded_spawn_and_halt() {
 /// `BestEffort`-bucket callback when both are ready in the same cycle,
 /// regardless of registration order.
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_bucketed_priority_dispatch_order() {
     use crate::executor::sched_context::{Priority, SchedClass, SchedContext};
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let firing_order = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let firing_order = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let o_be = firing_order.clone();
     let o_crit = firing_order.clone();
 
@@ -1515,18 +1549,19 @@ fn test_bucketed_priority_dispatch_order() {
 
     let order = firing_order.lock().unwrap();
     // Critical (data=2) drains before BestEffort (data=1).
-    assert_eq!(*order, std::vec![2, 1]);
+    assert_eq!(*order, alloc::vec![2, 1]);
 }
 
 /// Phase 110.B — default `Fifo` SC binding preserves registration
 /// order even when other entries are bound to `Edf` SCs.
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_fifo_default_binding_preserved_alongside_edf() {
     use crate::executor::sched_context::{OptUs, SchedClass, SchedContext};
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let firing_order = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let firing_order = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let o1 = firing_order.clone();
     let o2 = firing_order.clone();
 
@@ -1569,7 +1604,7 @@ fn test_fifo_default_binding_preserved_alongside_edf() {
 
     // EDF-bound entry (data=2) drains first; FIFO-bound (data=1) second.
     let order = firing_order.lock().unwrap();
-    assert_eq!(*order, std::vec![2, 1]);
+    assert_eq!(*order, alloc::vec![2, 1]);
 }
 
 #[test]
@@ -1740,27 +1775,28 @@ fn test_arena_alignment() {
 // ====================================================================
 
 #[test]
+#[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_add_timer_and_fire() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
     executor
         .register_timer(TimerDuration::from_millis(100), move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     // Not enough time elapsed — should not fire
     let result = elapse_then_spin_once(&mut executor, 50);
     assert_eq!(result.timers_fired, 0);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 0);
 
     // Now enough time elapsed (50 + 60 = 110 >= 100)
     let result = elapse_then_spin_once(&mut executor, 60);
     assert_eq!(result.timers_fired, 1);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 }
 
 /// phase-425 W4 — a `TimerClockSource::Ros` timer follows the SIMULATED clock,
@@ -2040,15 +2076,16 @@ fn arena_exhaustion_reaches_the_boot_record() {
 }
 
 #[test]
+#[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_timer_repeats() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
     executor
         .register_timer(TimerDuration::from_millis(100), move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -2056,7 +2093,7 @@ fn test_timer_repeats() {
     let _ = elapse_then_spin_once(&mut executor, 100);
     let _ = elapse_then_spin_once(&mut executor, 100);
     let _ = elapse_then_spin_once(&mut executor, 100);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 3);
 }
 
 #[test]
@@ -2064,23 +2101,23 @@ fn test_timer_oneshot_fires_once() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
     executor
         .register_timer_oneshot(TimerDuration::from_millis(50), move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     // First spin fires
     let result = elapse_then_spin_once(&mut executor, 60);
     assert_eq!(result.timers_fired, 1);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 
     // Second spin should NOT fire again
     let result = elapse_then_spin_once(&mut executor, 60);
     assert_eq!(result.timers_fired, 0);
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -2088,11 +2125,11 @@ fn test_timer_does_not_fire_at_zero_delta() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
     executor
         .register_timer(TimerDuration::from_millis(100), move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -2102,15 +2139,16 @@ fn test_timer_does_not_fire_at_zero_delta() {
 }
 
 #[test]
+#[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_timer_with_subscriptions() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let timer_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let timer_count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let timer_count2 = timer_count.clone();
     executor
         .register_timer(TimerDuration::from_millis(100), move || {
-            timer_count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            timer_count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -2118,12 +2156,12 @@ fn test_timer_with_subscriptions() {
         .node_builder("test_timer_with_subscriptions")
         .build()
         .unwrap();
-    let sub_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let sub_count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let sub_count2 = sub_count.clone();
     executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/test", move |_msg: &TestMsg| {
-            sub_count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            sub_count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -2136,8 +2174,8 @@ fn test_timer_with_subscriptions() {
     let result = elapse_then_spin_once(&mut executor, 100);
     assert_eq!(result.timers_fired, 1);
     assert_eq!(result.subscriptions_processed, 1);
-    assert_eq!(timer_count.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(sub_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(timer_count.load(portable_atomic::Ordering::SeqCst), 1);
+    assert_eq!(sub_count.load(portable_atomic::Ordering::SeqCst), 1);
 }
 
 // ====================================================================
@@ -2443,6 +2481,7 @@ fn test_spin_blocking_only_next() {
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_spin_blocking_halt() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -2455,7 +2494,7 @@ fn test_spin_blocking_halt() {
     let halt = executor.halt_flag();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        halt.store(true, std::sync::atomic::Ordering::SeqCst);
+        halt.store(true, portable_atomic::Ordering::SeqCst);
     });
     let result = executor.spin_blocking(SpinOptions::default());
     assert!(result.is_ok());
@@ -2488,6 +2527,7 @@ fn spin_blocking_with_a_timeout_and_no_clock_errors() {
 /// promise a clockless build can keep. Halted from a peer thread so the test
 /// cannot hang if the guard is ever widened by mistake.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn spin_blocking_without_a_timeout_still_runs_with_no_clock() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -2496,7 +2536,7 @@ fn spin_blocking_without_a_timeout_still_runs_with_no_clock() {
     let halt = executor.halt_flag();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        halt.store(true, std::sync::atomic::Ordering::SeqCst);
+        halt.store(true, portable_atomic::Ordering::SeqCst);
     });
     assert!(executor.spin_blocking(SpinOptions::new()).is_ok());
 }
@@ -2548,6 +2588,7 @@ fn from_session_with_installs_the_callers_clock() {
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_spin_blocking_timeout() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -2561,6 +2602,7 @@ fn test_spin_blocking_timeout() {
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_spin_one_period_timed_no_overrun() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -2580,11 +2622,12 @@ fn test_halt_flag_clone() {
     let flag = executor.halt_flag();
     assert!(!executor.is_halted());
 
-    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    flag.store(true, portable_atomic::Ordering::SeqCst);
     assert!(executor.is_halted());
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_spin_period_halts() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -2592,7 +2635,7 @@ fn test_spin_period_halts() {
     let halt = executor.halt_flag();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        halt.store(true, std::sync::atomic::Ordering::SeqCst);
+        halt.store(true, portable_atomic::Ordering::SeqCst);
     });
 
     let result = executor.spin_period(std::time::Duration::from_millis(10));
@@ -2605,10 +2648,10 @@ fn test_wake_handle_clone() {
     let executor: Executor = executor_with_clock(session);
 
     let wake = executor.wake_handle();
-    assert!(!wake.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!wake.load(portable_atomic::Ordering::SeqCst));
 
     executor.wake();
-    assert!(wake.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(wake.load(portable_atomic::Ordering::SeqCst));
 }
 
 #[test]
@@ -2619,11 +2662,11 @@ fn test_wake_cleared_each_spin() {
     // Pre-arm the flag — spin_once must swap-clear it.
     executor.wake();
     let wake = executor.wake_handle();
-    assert!(wake.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(wake.load(portable_atomic::Ordering::SeqCst));
 
     let _ = executor.spin_once(core::time::Duration::from_millis(1));
     assert!(
-        !wake.load(std::sync::atomic::Ordering::SeqCst),
+        !wake.load(portable_atomic::Ordering::SeqCst),
         "spin_once must consume the wake flag"
     );
 }
@@ -2634,18 +2677,19 @@ fn test_halt_raises_wake_flag() {
     let executor: Executor = executor_with_clock(session);
 
     let wake = executor.wake_handle();
-    assert!(!wake.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!wake.load(portable_atomic::Ordering::SeqCst));
 
     executor.halt();
     assert!(executor.is_halted());
     assert!(
-        wake.load(std::sync::atomic::Ordering::SeqCst),
+        wake.load(portable_atomic::Ordering::SeqCst),
         "halt() must also set the wake flag so an in-flight spin_once \
          falls through to the halt check on its next iteration"
     );
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_guard_handle_send_across_thread() {
     // Phase 124.B.7.d — GuardCondition must be Send (so a
     // worker thread / signal handler can own it and call trigger()).
@@ -2670,6 +2714,7 @@ fn test_guard_handle_send_across_thread() {
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn test_wake_short_circuits_drive_timeout() {
     // Pre-arming wake_flag should make spin_once skip its blocking
     // wait on drive_io (timeout collapses to 0) and return promptly,
@@ -2826,12 +2871,12 @@ fn test_trigger_always_fires_without_data() {
         .build()
         .unwrap();
 
-    let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let called = alloc::sync::Arc::new(portable_atomic::AtomicBool::new(false));
     let called2 = called.clone();
     let id = executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/test", move |_msg: &TestMsg| {
-            called2.store(true, std::sync::atomic::Ordering::SeqCst);
+            called2.store(true, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -2843,7 +2888,7 @@ fn test_trigger_always_fires_without_data() {
     // Subscription take returns None, so subscriptions_processed stays 0
     // but the callback IS invoked (Always invocation) — try_process returns Ok(false)
     // because there's no actual data
-    assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!called.load(portable_atomic::Ordering::SeqCst));
 }
 
 #[test]
@@ -2918,24 +2963,24 @@ fn test_guard_condition_trigger_fires_callback() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let called = alloc::sync::Arc::new(portable_atomic::AtomicBool::new(false));
     let called2 = called.clone();
 
     let (_id, handle) = executor
         .register_guard_condition(move || {
-            called2.store(true, std::sync::atomic::Ordering::SeqCst);
+            called2.store(true, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     // Not triggered yet
     let _result = executor.spin_once(core::time::Duration::from_millis(0));
-    assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!called.load(portable_atomic::Ordering::SeqCst));
 
     // Trigger the guard condition
     handle.trigger();
 
     let _result = executor.spin_once(core::time::Duration::from_millis(0));
-    assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(called.load(portable_atomic::Ordering::SeqCst));
 }
 
 #[test]
@@ -2943,28 +2988,28 @@ fn test_guard_condition_clears_after_trigger() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
 
     let (_id, handle) = executor
         .register_guard_condition(move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
     // Trigger once
     handle.trigger();
     executor.spin_once(core::time::Duration::from_millis(0));
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 
     // Without re-triggering, callback should not fire again
     executor.spin_once(core::time::Duration::from_millis(0));
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 
     // Trigger again
     handle.trigger();
     executor.spin_once(core::time::Duration::from_millis(0));
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 2);
 }
 
 // ====================================================================
@@ -2976,15 +3021,15 @@ fn test_raw_subscription_callback() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    static RAW_CALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    static RAW_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static RAW_CALLED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+    static RAW_LEN: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
 
     unsafe extern "C" fn raw_cb(_data: *const u8, len: usize, _context: *mut core::ffi::c_void) {
-        RAW_CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
-        RAW_LEN.store(len, std::sync::atomic::Ordering::SeqCst);
+        RAW_CALLED.store(true, portable_atomic::Ordering::SeqCst);
+        RAW_LEN.store(len, portable_atomic::Ordering::SeqCst);
     }
 
-    RAW_CALLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    RAW_CALLED.store(false, portable_atomic::Ordering::SeqCst);
 
     let _id = executor
         .add_arena_subscription_c_callback::<{ crate::config::DEFAULT_RX_BUF_SIZE }>(
@@ -3012,8 +3057,8 @@ fn test_raw_subscription_callback() {
 
     let result = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(result.subscriptions_processed, 1);
-    assert!(RAW_CALLED.load(std::sync::atomic::Ordering::SeqCst));
-    assert_eq!(RAW_LEN.load(std::sync::atomic::Ordering::SeqCst), len);
+    assert!(RAW_CALLED.load(portable_atomic::Ordering::SeqCst));
+    assert_eq!(RAW_LEN.load(portable_atomic::Ordering::SeqCst), len);
 }
 
 #[test]
@@ -3022,9 +3067,9 @@ fn test_raw_subscription_info_callback() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    static INFO_CALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    static INFO_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    static INFO_ATT_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static INFO_CALLED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+    static INFO_LEN: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
+    static INFO_ATT_LEN: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
 
     unsafe extern "C" fn info_cb(
         _data: *const u8,
@@ -3033,9 +3078,9 @@ fn test_raw_subscription_info_callback() {
         att_len: usize,
         _ctx: *mut core::ffi::c_void,
     ) {
-        INFO_CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
-        INFO_LEN.store(len, std::sync::atomic::Ordering::SeqCst);
-        INFO_ATT_LEN.store(att_len, std::sync::atomic::Ordering::SeqCst);
+        INFO_CALLED.store(true, portable_atomic::Ordering::SeqCst);
+        INFO_LEN.store(len, portable_atomic::Ordering::SeqCst);
+        INFO_ATT_LEN.store(att_len, portable_atomic::Ordering::SeqCst);
     }
 
     let _id = executor
@@ -3061,10 +3106,10 @@ fn test_raw_subscription_info_callback() {
 
     let result = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(result.subscriptions_processed, 1);
-    assert!(INFO_CALLED.load(std::sync::atomic::Ordering::SeqCst));
-    assert_eq!(INFO_LEN.load(std::sync::atomic::Ordering::SeqCst), len);
+    assert!(INFO_CALLED.load(portable_atomic::Ordering::SeqCst));
+    assert_eq!(INFO_LEN.load(portable_atomic::Ordering::SeqCst), len);
     // MockSubscriber has no native attachment ⇒ default 0-length attachment.
-    assert_eq!(INFO_ATT_LEN.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(INFO_ATT_LEN.load(portable_atomic::Ordering::SeqCst), 0);
 }
 
 // ====================================================================
@@ -3142,6 +3187,7 @@ fn test_set_semantics() {
 // ====================================================================
 
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_let_semantics_pre_samples_data() {
     // In LET mode, data is pre-sampled into the entry buffer before any
     // callback runs. This test verifies that the callback receives data
@@ -3155,7 +3201,7 @@ fn test_let_semantics_pre_samples_data() {
         .build()
         .unwrap();
 
-    let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let received = alloc::sync::Arc::new(std::sync::Mutex::new(None));
     let received2 = received.clone();
     executor
         .node_mut(nid)
@@ -3182,13 +3228,13 @@ fn test_let_semantics_raw_subscription() {
     let mut executor: Executor = executor_with_clock(session);
     executor.set_semantics(ExecutorSemantics::LogicalExecutionTime);
 
-    static RAW_LET_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static RAW_LET_LEN: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
 
     unsafe extern "C" fn raw_let_cb(_data: *const u8, len: usize, _ctx: *mut core::ffi::c_void) {
-        RAW_LET_LEN.store(len, std::sync::atomic::Ordering::SeqCst);
+        RAW_LET_LEN.store(len, portable_atomic::Ordering::SeqCst);
     }
 
-    RAW_LET_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+    RAW_LET_LEN.store(0, portable_atomic::Ordering::SeqCst);
 
     executor
         .add_arena_subscription_c_callback::<{ crate::config::DEFAULT_RX_BUF_SIZE }>(
@@ -3215,7 +3261,7 @@ fn test_let_semantics_raw_subscription() {
 
     let result = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(result.subscriptions_processed, 1);
-    assert_eq!(RAW_LET_LEN.load(std::sync::atomic::Ordering::SeqCst), len);
+    assert_eq!(RAW_LET_LEN.load(portable_atomic::Ordering::SeqCst), len);
 }
 
 // ====================================================================
@@ -3223,6 +3269,7 @@ fn test_let_semantics_raw_subscription() {
 // ====================================================================
 
 #[test]
+#[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_trigger_all_with_mixed_handles() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -3413,16 +3460,21 @@ fn test_trigger_anyof_empty_set_never_fires() {
 // ====================================================================
 
 #[test]
+// Needs time to advance INDEPENDENTLY of how often it is read: one waits
+// out RATE_CHECK_INTERVAL_US (5 s), the other a timer period. The
+// alloc-only clock is a per-read counter, so time only moves when someone
+// looks, and neither window can close.
+#[cfg(feature = "std")]
 fn test_timer_delta_accumulates_when_trigger_fails() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count2 = count.clone();
 
     executor
         .register_timer(TimerDuration::from_millis(100), move || {
-            count2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count2.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
     let nid = executor
@@ -3442,11 +3494,11 @@ fn test_timer_delta_accumulates_when_trigger_fails() {
     // IS invoked (timers always fire regardless of trigger), but the
     // SpinOnceResult is not propagated.
     let _result = elapse_then_spin_once(&mut executor, 50); // elapsed=50, not ready
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 0);
 
     let _result = elapse_then_spin_once(&mut executor, 60); // elapsed=110, fires!
     // Timer callback fired even though trigger didn't pass
-    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(count.load(portable_atomic::Ordering::SeqCst), 1);
 }
 
 // ====================================================================
@@ -3578,13 +3630,14 @@ fn test_node_service_client_with_qos() {
 /// `call` → inject-reply → dispatch → callback path through the executor with the
 /// mock transport.
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_service_client_callback_fires_at_spin() {
     use crate::executor::arena::ServiceClientSendHeader;
 
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let nid = executor.node_builder("svc_cb").build().unwrap();
 
-    let got = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let got = alloc::sync::Arc::new(std::sync::Mutex::new(None));
     let got2 = got.clone();
     let mut client = executor
         .node_mut(nid)
@@ -3628,6 +3681,7 @@ fn test_service_client_callback_fires_at_spin() {
 /// goal-response / feedback / result to typed closures at `spin_once`. Drives
 /// each receive by injecting into the entry's mock channels and spinning.
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_action_client_callbacks_fire_at_spin() {
     use crate::executor::action_core::ActionClientCore;
 
@@ -3657,9 +3711,9 @@ fn test_action_client_callbacks_fire_at_spin() {
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let nid = executor.node_builder("act_cb").build().unwrap();
 
-    let goal_resp = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let feedback = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let goal_resp = alloc::sync::Arc::new(std::sync::Mutex::new(None));
+    let feedback = alloc::sync::Arc::new(std::sync::Mutex::new(None));
+    let result = alloc::sync::Arc::new(std::sync::Mutex::new(None));
     let (gr2, fb2, rs2) = (goal_resp.clone(), feedback.clone(), result.clone());
 
     let mut client = executor
@@ -3735,6 +3789,7 @@ fn test_action_client_callbacks_fire_at_spin() {
 /// RFC-0041 / Phase 239.7 — two feedbacks arriving before a spin are **both**
 /// delivered via the QoS-depth ring (vs the pre-239 single-buffer overwrite).
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_action_client_feedback_burst_buffered() {
     use crate::executor::action_core::ActionClientCore;
 
@@ -3758,7 +3813,7 @@ fn test_action_client_feedback_burst_buffered() {
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let nid = executor.node_builder("act_burst").build().unwrap();
 
-    let feedbacks = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let feedbacks = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let fb2 = feedbacks.clone();
     let _client = executor
         .node_mut(nid)
@@ -3797,7 +3852,7 @@ fn test_action_client_feedback_burst_buffered() {
     executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(
         *feedbacks.lock().unwrap(),
-        std::vec![7, 8],
+        alloc::vec![7, 8],
         "both burst feedbacks delivered via the QoS ring"
     );
 }
@@ -3808,12 +3863,13 @@ fn test_action_client_feedback_burst_buffered() {
 /// services (now arena-registered + sched-bindable across C/C++) ride the same
 /// SC-ordered dispatch as subscriptions (mirrors `test_edf_dispatch_order`).
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn test_service_dispatch_respects_sched_context() {
     use crate::executor::sched_context::{DeadlinePolicy, OptUs, SchedClass, SchedContext};
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let firing_order = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let firing_order = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let order_late = firing_order.clone();
     let order_early = firing_order.clone();
 
@@ -3875,7 +3931,7 @@ fn test_service_dispatch_respects_sched_context() {
 
     let order = firing_order.lock().unwrap();
     // Earlier-deadline (req.a=20) must precede later-deadline (req.a=10).
-    assert_eq!(*order, std::vec![20, 10]);
+    assert_eq!(*order, alloc::vec![20, 10]);
 }
 
 // ====================================================================
@@ -3927,6 +3983,7 @@ fn test_promise_try_recv_returns_none_then_some() {
 // sub-ms remainder across calls. This test asserts a 50 ms timer does
 // NOT fire after a single 1 s `spin_once` against a no-op session.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 #[cfg(feature = "alloc")]
 fn test_spin_once_does_not_credit_timeout_to_timer_delta() {
     use core::{
@@ -4868,12 +4925,13 @@ fn test_callback_group_unmapped_group_falls_back_to_node_default() {
 /// the SAME SC's remaining callbacks for the rest of that spin cycle,
 /// and the miss lands on the violation drain.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn deadline_skip_masks_remaining_same_sc_callbacks() {
     use crate::executor::sched_context::{DeadlineAction, OptUs, SchedContext};
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let fired = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let fired = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let f_slow = fired.clone();
     let f_victim = fired.clone();
 
@@ -4917,8 +4975,8 @@ fn deadline_skip_masks_remaining_same_sc_callbacks() {
 
     // The slow callback ran 5 ms past a 1 ms deadline; its SC sibling
     // must NOT have fired in the same cycle.
-    assert_eq!(*fired.lock().unwrap(), std::vec![1], "victim skipped");
-    let mut rules = std::vec::Vec::new();
+    assert_eq!(*fired.lock().unwrap(), alloc::vec![1], "victim skipped");
+    let mut rules = alloc::vec::Vec::new();
     executor.drain_violations(|v| rules.push((v.rule, v.declared)));
     assert!(
         rules
@@ -4933,19 +4991,20 @@ fn deadline_skip_masks_remaining_same_sc_callbacks() {
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
     assert_eq!(
         *fired.lock().unwrap(),
-        std::vec![1, 3],
+        alloc::vec![1, 3],
         "mask cleared next cycle"
     );
 }
 
 /// `DeadlineAction::Warn`: reports the miss but never masks siblings.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn deadline_warn_reports_without_skipping() {
     use crate::executor::sched_context::{DeadlineAction, OptUs, SchedContext};
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    let fired = std::sync::Arc::new(std::sync::Mutex::new(std::vec::Vec::<i32>::new()));
+    let fired = alloc::sync::Arc::new(std::sync::Mutex::new(alloc::vec::Vec::<i32>::new()));
     let f_slow = fired.clone();
     let f_peer = fired.clone();
 
@@ -4985,7 +5044,11 @@ fn deadline_warn_reports_without_skipping() {
 
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
 
-    assert_eq!(*fired.lock().unwrap(), std::vec![1, 2], "peer still fires");
+    assert_eq!(
+        *fired.lock().unwrap(),
+        alloc::vec![1, 2],
+        "peer still fires"
+    );
     let mut misses = 0;
     executor.drain_violations(|v| {
         if v.rule == "deadline-miss-runtime" {
@@ -5004,10 +5067,11 @@ fn deadline_warn_reports_without_skipping() {
 /// turns its delta into a `timer-overrun-runtime` violation.
 #[cfg(feature = "alloc")]
 #[test]
+#[cfg(feature = "std")] // std::sync::Mutex has no no_std equivalent
 fn a_stalled_timer_reports_a_timer_overrun_violation() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
-    let fires = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let fires = alloc::sync::Arc::new(std::sync::Mutex::new(0u32));
     let f = fires.clone();
     let id = executor
         .register_timer(TimerDuration::from_millis(10), move || {
@@ -5021,9 +5085,9 @@ fn a_stalled_timer_reports_a_timer_overrun_violation() {
     let overruns = executor.timer_overruns(id).unwrap();
     assert!(overruns >= 10, "dropped periods counted: {overruns}");
 
-    let mut reported = std::vec::Vec::new();
+    let mut reported = alloc::vec::Vec::new();
     executor.drain_violations(|v| reported.push((v.rule, v.measured)));
-    let overrun_rows: std::vec::Vec<_> = reported
+    let overrun_rows: alloc::vec::Vec<_> = reported
         .iter()
         .filter(|(r, _)| *r == "timer-overrun-runtime")
         .collect();
@@ -5036,7 +5100,7 @@ fn a_stalled_timer_reports_a_timer_overrun_violation() {
     // A second check with no new stall must stay silent — the rule
     // reports newly dropped activations, not the running total.
     let _ = elapse_then_spin_once(&mut executor, 10);
-    let mut again = std::vec::Vec::new();
+    let mut again = alloc::vec::Vec::new();
     executor.drain_violations(|v| again.push(v.rule));
     assert!(
         !again.contains(&"timer-overrun-runtime"),
@@ -5054,6 +5118,11 @@ fn a_stalled_timer_reports_a_timer_overrun_violation() {
 /// is unaffected by the default.
 #[cfg(feature = "alloc")]
 #[test]
+// Needs time to advance INDEPENDENTLY of how often it is read: one waits
+// out RATE_CHECK_INTERVAL_US (5 s), the other a timer period. The
+// alloc-only clock is a per-read counter, so time only moves when someone
+// looks, and neither window can close.
+#[cfg(feature = "std")]
 fn a_violation_is_logged_and_still_drainable() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -5065,7 +5134,7 @@ fn a_violation_is_logged_and_still_drainable() {
     let _ = elapse_then_spin_once(&mut executor, 120);
 
     // Reporting is on by default...
-    let mut drained = std::vec::Vec::new();
+    let mut drained = alloc::vec::Vec::new();
     executor.drain_violations(|v| drained.push(v.rule));
     assert!(
         drained.contains(&"timer-overrun-runtime"),
@@ -5076,7 +5145,7 @@ fn a_violation_is_logged_and_still_drainable() {
     // ...and can be turned off by an application that reports its own way.
     executor.set_report_violations(false);
     let _ = elapse_then_spin_once(&mut executor, 120);
-    let mut again = std::vec::Vec::new();
+    let mut again = alloc::vec::Vec::new();
     executor.drain_violations(|v| again.push(v.rule));
     assert!(
         again.contains(&"timer-overrun-runtime"),
@@ -5090,6 +5159,7 @@ fn a_violation_is_logged_and_still_drainable() {
 /// of its faults and no indication that a prefix is all it is.
 #[cfg(feature = "alloc")]
 #[test]
+#[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn violations_beyond_the_ring_are_counted() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
@@ -5237,12 +5307,12 @@ fn failed_subscription_take_is_counted_not_swallowed() {
         .node_builder("failed_take_is_counted")
         .build()
         .unwrap();
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = alloc::sync::Arc::new(portable_atomic::AtomicUsize::new(0));
     let count_cb = count.clone();
     executor
         .node_mut(nid)
         .create_subscription::<TestMsg, _>("/lossy", move |_msg: &TestMsg| {
-            count_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            count_cb.fetch_add(1, portable_atomic::Ordering::SeqCst);
         })
         .unwrap();
 
@@ -5264,7 +5334,7 @@ fn failed_subscription_take_is_counted_not_swallowed() {
         "a spin that dropped a sample is not a clean spin"
     );
     assert_eq!(
-        count.load(std::sync::atomic::Ordering::SeqCst),
+        count.load(portable_atomic::Ordering::SeqCst),
         0,
         "no callback can run for a message that never arrived"
     );
@@ -5888,6 +5958,7 @@ fn a_service_server_costs_a_measurable_and_constant_arena_slice() {
 }
 
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn an_unbounded_subscription_costs_more_than_a_bounded_one() {
     // Measured 2316 bounded against 5356 unbounded on x86_64 -- 2.3x. This is
     // why step 3 must REFUSE when a subscribed type is unbounded rather than
@@ -6057,6 +6128,7 @@ fn a_zero_timeout_spin_claims_no_cadence() {
 /// `now_us()` were both in hand every cycle and the difference was discarded,
 /// so a loop that never met its period looked identical to one that always did.
 #[test]
+#[cfg(feature = "std")] // sleeps or reads wall time
 fn spin_period_counts_its_wakes_and_keeps_late_within_total() {
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let flag = executor.halt_flag();
