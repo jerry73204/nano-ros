@@ -35,7 +35,20 @@ made this worth a gate:
     `riscv-none-elf-gcc/*/` and took `list(GET … -1)`. Same class, other tools,
     both found by this rule rather than by a failure.
 
-Issue 0625; phase-365.
+WHAT IS NOT BANNED (phase-431 W3)
+
+`sdk_store::installed_versions` reads `<store>/<tool>/` and takes the newest.
+That is enumeration, and it is correct, because it answers a DIFFERENT question:
+not "where is the version I pinned" (constructible from two inputs) but "what is
+the newest thing installed here" (nothing but the store knows). It backs the
+`front` link — `$NROS_HOME/bin/nros` points at the newest installed CLI, which is
+the "one command" promise. It carries 0625's defence in the filter rather than in
+the sort: a candidate must begin with a digit AND carry a `.nros-provenance`
+marker, so `lib/` under a legacy flat prefix cannot win by sorting.
+
+The rule is unchanged for consumers: a PIN is constructed, never searched.
+
+Issue 0625; phase-365; phase-431 W3.
 """
 
 import re

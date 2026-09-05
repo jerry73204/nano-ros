@@ -34,13 +34,48 @@ build_sources = [
 
 # --- prebuilt host tools (target-agnostic) ---
 
-# The `nros` CLI is NOT an index tool. It lives in-tree at `packages/cli/`
-# and is built from source per checkout (`scripts/bootstrap.sh`, or the
-# internal alias `just setup-cli`) — nano-ros is a source distribution
-# (phase-288 D1/D2). The pre-288 `[tool.nros]` entry pointed at the ARCHIVED
-# standalone `NEWSLabNTU/nros-cli` repo's 0.3.6 binaries — 15 releases stale
-# and ABI-mismatched with the checkout; installing it via
-# `nros setup --tool nros` was a footgun and the entry is removed.
+# The `nros` CLI itself (phase-431). This entry was REMOVED by phase-288 D1/D2
+# and is back, because the reason it was removed has been answered rather than
+# waived. The pre-288 entry pointed at the archived standalone
+# `NEWSLabNTU/nros-cli` repo's 0.3.6 binaries — 15 releases stale and
+# ABI-mismatched with the checkout — so `nros setup --tool nros` installed a
+# binary that emitted code the runtime did not expect, silently. Three things
+# now stand between that and a user:
+#
+#   RFC-0090     the codegen version — an emitter incompatible with a runtime
+#                refuses, at `nros build` and at compile time in C/C++/Rust
+#   phase-431 W1 a binary from outside the checkout it is run against refuses,
+#                because "same version" is not "same bytes"
+#   phase-431 W2 `just doctor` FAILS when a store `nros` shadows a checkout's
+#
+# `front = ["bin/nros"]` is the "one command" promise: versions accumulate in
+# the store (nothing prunes it, issue 0500) and `$NROS_HOME/bin/nros` always
+# points at the NEWEST installed one. `nros` is deliberately absent from
+# `scripts/sdk-path-tools.txt` — that list puts a store `bin/` on PATH, which
+# in a contributor's shell would shadow the checkout's own CLI.
+#
+# `smoke` asks for `--codegen-version`, not `--version`. Both run the binary;
+# only one answers the question that makes this tool safe to install.
+#
+# No `dist.<host>` rows yet: phase-431 W5 cuts the first release, and until an
+# asset is seeded `nros setup --tool nros` falls back to the source recipe
+# below (the index's documented behaviour, top of file). Linux only for now —
+# the tree defers macOS support, and an asset for it would be a support claim
+# we do not make.
+[tool.nros]
+version = "0.5.0-nros1"
+front = ["bin/nros"]
+smoke = [
+    { run = "bin/nros --codegen-version", expect = "1" },
+]
+upstream = "32b0d2efe61ec66a1cb6c0ff4c780c0f0bc8f10c" # = source.ref
+[tool.nros.source]
+git = "https://github.com/NEWSLabNTU/nano-ros"
+# A COMMIT, not a branch or a tag — issue 1060. A ref on a server we do not
+# control moves what we build with no local diff and no review; releases here
+# are cut deliberately (phase-431: tag only when asked), so the pin is a sha.
+ref = "32b0d2efe61ec66a1cb6c0ff4c780c0f0bc8f10c"
+install = "cargo install --path packages/cli/nros-cli --root {prefix} --locked"
 
 # nros2: rebuilt with --enable-slirp (nano-ros QEMU tests use -netdev user;
 # nros1 lacked slirp and couldn't network).

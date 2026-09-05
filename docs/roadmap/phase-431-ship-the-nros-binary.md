@@ -1,6 +1,6 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** **W1 and W2 landed.** W3–W6 open — the distribution
+**Status (2026-09-06).** **W1, W2 and W3 landed.** W4–W6 open — the distribution
 mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
@@ -178,6 +178,68 @@ AHEAD of numeric ones — `lib` won 155 of 183 resolutions in one configure.
 Plus the `[tool.nros]` index entry, with a `smoke` check that runs
 `bin/nros --codegen-version` rather than `--version`: the interesting property of
 this particular tool is what it emits.
+
+**Landed 2026-09-06.**
+
+The store already wrote `<store>/<tool>/<version>/` — `tool_prefix` has been the
+one constructor since phase-365 — so W3 is the *front* half plus the entry.
+
+*Fronting.* `front = ["bin/nros"]` in `[tool.<name>]` names prefix-relative paths
+that must be reachable by bare name from `$NROS_HOME/bin`. `front_newest`
+recomputes from the store on every install and links the **newest installed**
+version, not the one just installed: versions accumulate, nothing prunes them
+(issue 0500), and installing an older one on purpose must not silently downgrade
+the command. It is a parameter of `execute` rather than a separate call, because
+three call sites reach that function and a fourth spelling of "and then link it"
+is how one of them ends up not doing it.
+
+`installed_versions` **enumerates** the store, which `check-sdk-store-not-
+enumerated` bans — and correctly, for the question that gate is about. These are
+two different questions: *where is the version I pinned* is constructible from
+two inputs; *what is the newest thing installed here* is not, and nothing but the
+store knows it. Issue 0625's defence moved into the filter rather than the sort:
+a candidate must begin with a digit **and** carry a `.nros-provenance` marker, so
+a legacy flat prefix's `lib/` cannot win by sorting. The comparator is
+natural-order on top of that (`nros2` < `nros10`, which a string compare gets
+backwards and the store's vocabulary already reaches — `qemu 11.0.0-nros6`).
+The gate's docstring now says all of this, so the next reader does not have to
+re-derive whether the two rules conflict.
+
+*The verb.* `nros sdk-front <tool>` exists for the one caller that cannot go
+through `nros setup`: W4's `bootstrap.sh`, which unpacks the CLI itself and has
+no `nros` to run `nros setup --tool nros` with until it has. One implementation,
+two callers — a second spelling in shell is how they would come to disagree about
+which version `nros` means.
+
+*The entry.* `[tool.nros]` was REMOVED by phase-288 D1/D2, and the index still
+carried the comment saying why: the archived standalone repo's 0.3.6 binaries
+were 15 releases stale and ABI-mismatched with the checkout, so installing one
+was a footgun. That reason is now **answered rather than waived**, and the index
+says which three things answer it (RFC-0090, W1, W2). No `dist` rows until W5
+seeds an asset; until then the source recipe builds it, pinned to a **commit**
+(issue 1060 — a tag is a ref on a server we do not control).
+
+`smoke` asserts the codegen version, which makes it an authored mirror of
+`NROS_CODEGEN_VERSION` — the shape that has drifted every time nothing bound it
+(`check-rmw-api-parity`, 25 symbols, reading green). A test binds it to
+`abi_guard::EMITTED_VERSION`.
+
+*And `nros` is deliberately absent from `scripts/sdk-path-tools.txt`.* That list
+puts a store `bin/` on PATH for binaries something we do not control invokes by
+bare name; the CLI is not one, and if it were on the list, sourcing `activate.sh`
+in a checkout would put a foreign emitter first — the exact state W1 refuses and
+W2 fails on. `check-activate-shells` now asserts the behaviour rather than the
+list: a store holding `nros/<version>/bin/nros` must not reach PATH. Verified by
+mutation (adding `nros` to the list turns it red).
+
+Observed, against a real binary in a scratch store:
+
+```
+install 0.5.0-nros1, front  -> ~/.nros/bin/nros -> …/0.5.0-nros1/bin/nros
+install 0.6.0-nros1, front  -> …/0.6.0-nros1/bin/nros    (newest wins)
+install an OLDER one, front -> unchanged                 (no silent downgrade)
+$NROS_HOME/bin/nros --codegen-version -> 1
+```
 
 ### W4 — `bootstrap.sh` downloads, and still builds from source
 

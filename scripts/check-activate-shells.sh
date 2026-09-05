@@ -193,6 +193,32 @@ for tool in espflash play_launch_parser; do
     fi
 done
 
+# phase-431 W3 — and a STORE-INSTALLED `nros` must NOT reach PATH.
+#
+# The store gained a `[tool.nros]` entry, so from now on a contributor's machine
+# can hold a released `nros` beside the checkout's own. `activate.sh` only adds a
+# store bin dir for the names in `scripts/sdk-path-tools.txt`, and `nros` is
+# deliberately absent from it: that list exists for binaries something we do not
+# control invokes by BARE NAME (an RTOS `make`, a cmake `find_program`), and the
+# CLI is not one of those. If it were on the list, sourcing activate.sh in a
+# checkout would put a foreign emitter first on PATH — which `nros build` now
+# refuses (W1) and `just doctor` now fails on (W2). Better that it never
+# happens than that two other checks catch it.
+#
+# The user reaches the released binary through `$NROS_HOME/bin` (the `front`
+# link), which is a directory THEY put on PATH, not one activate.sh adds.
+mkdir -p "$versioned_store/sdk/nros/0.5.0-nros1/bin"
+: >"$versioned_store/sdk/nros/0.5.0-nros1/bin/nros"
+chmod +x "$versioned_store/sdk/nros/0.5.0-nros1/bin/nros"
+path_out="$(NROS_HOME="$versioned_store" NROS_QUIET_ACTIVATE=1 bash -c \
+    ". '$REPO_ROOT/activate.sh'; printf '%s' \"\$PATH\"" 2>/dev/null)"
+if nros_grep_q "^$versioned_store/sdk/nros/" <<<"${path_out//:/$'\n'}"; then
+    fail "activate.sh: a STORE-installed nros reached PATH — it would shadow the checkout's CLI (phase-431 W2/W3)"
+else
+    echo "ok: bash/store-nros-does-not-shadow"
+fi
+RAN=$((RAN + 1))
+
 if [ "$RAN" -eq 0 ]; then
     fail "no shell was exercised"
 fi

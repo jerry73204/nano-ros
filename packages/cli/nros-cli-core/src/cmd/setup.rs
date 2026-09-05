@@ -354,7 +354,7 @@ pub fn run(args: Args) -> Result<()> {
                 );
             }
             other => {
-                let provenance = execute(&other, name, &tool.version, &prefix)
+                let provenance = execute(&other, name, &tool.version, &prefix, &tool.front)
                     .wrap_err_with(|| format!("install {name} {}", tool.version))?;
                 lock.record(name, &provenance);
                 installed = true;
@@ -781,7 +781,7 @@ fn install_single_tool(
             tool.version
         ),
         other => {
-            let prov = execute(&other, name, &tool.version, &prefix)
+            let prov = execute(&other, name, &tool.version, &prefix, &tool.front)
                 .wrap_err_with(|| format!("install {name} {}", tool.version))?;
             // Only the shared store is tracked by the lock; --prefix is local.
             if prefix_override.is_none() {
@@ -977,7 +977,7 @@ pub fn ensure_tools(board: &str, workspace: Option<&Path>) -> Result<Vec<PathBuf
                     "nros: auto-installing {name} {} (set NROS_NO_AUTO_SETUP to skip)",
                     tool.version
                 );
-                let prov = execute(&action, name, &tool.version, &prefix)
+                let prov = execute(&action, name, &tool.version, &prefix, &tool.front)
                     .wrap_err_with(|| format!("auto-setup {name} {}", tool.version))?;
                 lock.record(name, &prov);
                 installed = true;
