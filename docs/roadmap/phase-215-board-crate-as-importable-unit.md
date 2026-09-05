@@ -12,7 +12,9 @@ importable in one line by any Zephyr consumer, and 27 of the 30 boxes that are
 this repo's to tick are ticked. The ASI-specific half moved OUT (see 215.H),
 which is what this status used to be measuring against.
 
-**Three acceptance bullets remain, and none is code**:
+**Two acceptance bullets remain, and neither is code** (a third was withdrawn
+2026-09-06 — the 215.E fixture in CI, because FVP is on no tier the breadth
+ladder visits; see the bullet for what still holds):
 
 * a Zephyr app calling `nano_ros_use_board(<n>)` and *nothing else* of
   board-specific shape — `examples/workspaces/realtime-cpp/src/fvp_entry` and
@@ -20,9 +22,6 @@ which is what this status used to be measuring against.
   config over the board's counts as "nothing else" is a judgement the phase
   owner should make rather than a gate;
 * `west fvp run` launching `FVP_BaseR_AEMv8R` end to end — needs the simulator;
-* the 215.E fixture building in CI — the fixture and its build test landed and
-  the build is gated-pending-Zephyr-SDK here, so the test skips loudly rather
-  than passing vacuously.
 
 **Priority note.** The `P1` below rests on "unblocks ASI's actuation consumption
 story". ASI has consumed it since its phase 2.C and its FVP lane is green across
@@ -447,10 +446,38 @@ a board Kconfig overlay module, `docs/reference/board-cmake-schema.md`.
   repo's CI runs the FVP lane green across five variants (run 33961168979,
   2026-09-05). nano-ros's own acceptance for the same capability is the
   `board_import_fvp` fixture below.
-- [ ] Phase 215.E fixture builds in CI; the fixture's
-      `CMakeCache.txt` carries the expected `NROS_BOARD_*` keys.
-      _(fixture + build test landed; **build gated-pending-Zephyr-SDK**
-      in this environment — test skips loudly.)_
+- [~] Phase 215.E fixture builds in CI; the fixture's `CMakeCache.txt` carries
+      the expected `NROS_BOARD_*` keys. **WITHDRAWN as a CI acceptance
+      2026-09-06 — owner decision.** FVP is not a tier-1 or tier-2 platform, so
+      asking CI to prove this means provisioning an Arm Fast Models licence and
+      the Zephyr aarch64 SDK for a coordinate the breadth ladder does not
+      visit.
+
+      The manifest already says as much: `west_board_import` is a
+      `[[compile_check_fixture]]` with `builder = "west-configure"` and **no
+      `platform` / `lang` / `rmw` coordinate at all**, and both tiers narrow BY
+      coordinate — tier 1 by name (`NROS_TEST_SCOPE`), tier 2 in the fixture
+      resolver (`NROS_TEST_COORDS`). A row with no coordinate was never in
+      either lane; this bullet was asking for something the ladder is not
+      shaped to give.
+
+      **What still holds, and what it costs.** The fixture and its test are
+      real and stay: `board_import.rs` asserts the three things this phase is
+      about — `BOARD` propagating out of `board.cmake`, the board's default
+      `NANO_ROS_RMW=cyclonedds`, and `NROS_BOARD_RUNNER=armfvp` cached for
+      `west fvp run`. It reads a PREBUILT `CMakeCache.txt` rather than running
+      west at test time (issues 0034 / 0041), and on a machine without west +
+      the Zephyr/FVP SDK it takes the tier-aware skip and says so loudly rather
+      than passing vacuously. So it is a real check for whoever HAS the SDK,
+      and it is silent everywhere else — deliberately, now, rather than by
+      omission.
+
+      The residual risk, stated: the metadata path from `board.cmake` into a
+      downstream app's cache is verified only when someone runs it locally. The
+      nearest independent evidence is a different repo's — ASI's FVP lane is
+      green across five variants on the same board crate (run 33961168979,
+      2026-09-05) — which is not this assertion, but does mean a break here
+      would not be silent for long.
 - [x] Phase 215.F drift audit passes for every
       `packages/boards/nros-board-*` carrying a `board.cmake`.
       _(verified: `nros-board-fvp-aemv8r-smp` audited clean by both the
