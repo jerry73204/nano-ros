@@ -40,11 +40,11 @@ thiserror = { workspace = true }
 # depping nros-pkg-index / nros-launch-parser).
 # `[tiers.*]` duration keys accept both the canonical and the deprecated
 # `_us` spelling; the parser is rlm's own, never a second one here.
-ros-launch-manifest-types = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
-ros-launch-manifest-sched = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
+ros-launch-manifest-types = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
+ros-launch-manifest-sched = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
 # W5.13 follow-up — `mapper_input` adapts a resolved `SystemModel` into the
 # `MapperInput` the realizer ranks; the model types live in the sibling crate.
-ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
+ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
 # issue 0303 — `qos_override` lowers `qos_overrides.<topic>.<role>.<policy>`
 # params into the codes the entry bakes. The role/policy NUMBERING is
 # `nros-rmw`'s (it owns the decoder every runtime uses), so the lowering must

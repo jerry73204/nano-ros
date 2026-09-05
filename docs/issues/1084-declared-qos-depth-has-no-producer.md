@@ -7,7 +7,7 @@ status: open
 type: bug
 area: cli, codegen
 severity: low
-related: [phase-403, phase-412, issue-0965, issue-1083, issue-0196]
+related: [phase-403, phase-412, issue-0965, issue-0196]
 ---
 
 ## What happens

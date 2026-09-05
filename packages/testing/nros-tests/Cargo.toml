@@ -42,7 +42,7 @@ nros-orchestration-ir = { workspace = true }
 # `target/<triple>/<profile>/` from it instead of re-implementing the mapping
 # the builder used.
 nros-cargo-profile = { path = "../../tooling/nros-cargo-profile" }
-ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
+ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
 # Phase 212.M.11 + M.12 — TOML parsing for the example-canonical-shape
 # + pre-212-file regression tests. Reads
 # `[package.metadata.nros.{component,entry,deploy.*}]` out of each

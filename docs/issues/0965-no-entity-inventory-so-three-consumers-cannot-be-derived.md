@@ -273,8 +273,8 @@ to what the declaration produced, and 11 is the count the hardware measured. On
 the cpp workspace examples, likewise identical: talker+listener 3 entities /
 2 slots, action_server 2 entities / 2 slots.
 
-Still open, and why this issue is not resolved: one image cannot state itself.
-`service_client_pkg` has a service CLIENT and no server (the server is a
-separate image), and the contract schema has no `external:` mark for services
-the way it has for topics, so `dangling-entity` refuses. That image keeps its
-configured sizes. Issue 1083.
+Every image can state itself. `service_client_pkg` was briefly the exception
+-- a service CLIENT and no server, which `dangling-entity` refused because the
+schema had no `external:` mark for services the way it has for topics. Issue
+1083 added one (`ros-launch-manifest` v0.1.23), and that image now derives
+`service_client` 1 + `timer` 1, which is what its `ENTITIES` list said.

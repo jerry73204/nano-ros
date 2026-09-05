@@ -1,0 +1,36 @@
+# Node interface contract for service_client.launch.xml (phase-412).
+# Replaces `nano_ros_node_register(ENTITIES service_client:... timer)`.
+#
+# THE SERVER IS SOMEWHERE ELSE, AND THIS SAYS SO
+#
+# `add_client` and `add_server` are two IMAGES, run as two processes (issue
+# 0096), so this launch file has a client and no server. That used to be
+# unwritable: `dangling-entity` treats a service with clients and no server as
+# a hard ERROR, and unlike a topic there was no `external:` mark to excuse it.
+# The choices were a false claim (declare a server this image does not run,
+# which also over-counts a queryable slot) or no contract at all, and this
+# package took the second one -- it was the single image ENTITIES' retirement
+# could not move.
+#
+# `external: server` is that mark, added in ros-launch-manifest v0.1.23. It
+# names WHICH side is elsewhere: `external: client` would not excuse a missing
+# server, because it says nothing about one.
+
+version: 1
+
+nodes:
+  add_client:
+    # One request per tick. This is the callback slot `ENTITIES timer` used to
+    # declare; the model records a path with no `input` as the periodic one.
+    paths:
+      on_timer:
+        trigger: { timer: { rate_hz: 1 } }
+        output: []
+    cli:
+      add_two_ints: {}
+
+services:
+  /add_two_ints:
+    type: example_interfaces/srv/AddTwoInts
+    external: server
+    client: [add_client/add_two_ints]

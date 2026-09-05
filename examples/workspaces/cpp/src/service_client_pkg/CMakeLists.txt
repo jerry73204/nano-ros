@@ -15,14 +15,12 @@ nros_components_register_node(service_client_lib
     PLUGIN service_client_pkg::AddClient
     EXECUTABLE add_client
     SHAPE configure
-    # phase-412 -- `ENTITIES` is retired, and this component is the one
-    # case with no replacement yet: its service has a CLIENT and no
-    # server (the server is the separate add_server image), and the
-    # contract schema has no `external:` mark for services the way it
-    # has for topics -- `dangling-entity` makes a client-only service a
-    # hard resolve error. So this image authors no contract and keeps
-    # its CONFIGURED pool sizes, which is what every image had before
-    # phase-403. Issue 1083.
+    # phase-412 -- `ENTITIES` is retired. What this component creates is
+    # stated in demo_bringup/launch/service_client.contract.yaml, beside
+    # the launch file that runs it. That contract marks the service
+    # `external: server`, because the server is the separate add_server
+    # image; without that mark (ros-launch-manifest v0.1.23, issue 1083)
+    # a client-only tree could not be written at all.
 )
 
 if(TARGET example_interfaces__nano_ros_cpp)

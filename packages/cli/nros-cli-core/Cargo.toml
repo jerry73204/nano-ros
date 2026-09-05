@@ -59,10 +59,10 @@ cargo_metadata = "0.18"
 # built by `just setup-launch-resolve`, invoked by ABSOLUTE path from cmd/ws.rs —
 # never via $PATH, per issue 0285). It is NOT the external `play_launch_parser`
 # this comment used to name; nothing in packages/cli/ spawns that binary any more.
-ros-launch-manifest-types = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
+ros-launch-manifest-types = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
 # RFC-0052 / phase-296 W1 — SystemModel ingestion (shared schema, RFC-0050)
-ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
-ros-launch-manifest-sched = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.21" }
+ros-launch-manifest-model = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
+ros-launch-manifest-sched = { git = "https://github.com/NEWSLabNTU/ros-launch-manifest.git", tag = "v0.1.23" }
 
 # Phase 228.E — shared per-tier orchestration schema + resolver (RFC-0015),
 # from the runtime workspace at `packages/core/`. Same crate the
