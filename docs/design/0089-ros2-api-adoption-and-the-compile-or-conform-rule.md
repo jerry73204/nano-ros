@@ -902,6 +902,10 @@ RFC-0019/0020's rule, and the reason this is a Rust job rather than a C++ one.
 
 ## The proposed node shape (2026-09-05)
 
+**SUPERSEDED** by "The node API, proposed under the governing principle"
+below. Kept because its measurement of the three working shapes is still the
+evidence; its namespace decisions are not.
+
 Grounded in the three shapes that actually exist in the tree, not in the two the
 merge question implied.
 
@@ -1019,6 +1023,10 @@ capability on the single type.
 
 
 ## The node API, revised (2026-09-05)
+
+**SUPERSEDED** by "The node API, proposed under the governing principle"
+below. It predates the principle and kept four names in `nros::`, which is
+overturned.
 
 Three constraints, settled: **`rclcpp::Node` is the name**, there is **one node
 type**, and it **compiles freestanding**. The third is what shapes the rest,
