@@ -1,7 +1,7 @@
 ---
 id: 965
 title: "Nothing states which entities an image creates, so the arena, MAX_CBS and the payload classes stay hand-set"
-status: open
+status: resolved
 area: codegen, memory, build
 severity: high
 related: [0900, 0939, 0940, 0941, phase-403, phase-403-W4, phase-403-W5]
@@ -278,3 +278,63 @@ Every image can state itself. `service_client_pkg` was briefly the exception
 schema had no `external:` mark for services the way it has for topics. Issue
 1083 added one (`ros-launch-manifest` v0.1.23), and that image now derives
 `service_client` 1 + `timer` 1, which is what its `ENTITIES` list said.
+
+> **Read the section below with the one above in mind.** It measures images
+> configured BEFORE `ENTITIES` was retired, so it describes the register call
+> reaching the CMake reader — the path phase-412 replaced with the contract
+> sidecar. The NUMBERS stand (they are what those images derived), and so does
+> the conclusion they support; the mechanism they travelled through is now
+> history. Nothing in the measurement depends on which of the two sources
+> supplied the declaration, which is the point phase-412 makes above.
+
+
+## Both remaining items MEASURED on configured images (2026-09-06)
+
+The section above lists two things this issue "still does not do". Both are now
+read off real CMake configures rather than from the derivation verb.
+
+### 1. "Not configured or flashed" — it is configured, six times
+
+`zephyr-workspace/build-cpp-*` are Zephyr configures through the real seam
+(`BOARD=native_sim/native/64`), each with `nros/entity_inventory.cmake` written
+by the CMake reader. Six report `NROS_ENTITY_INVENTORY_STATUS "derived"`:
+
+| image | `MAX_CBS` | `ACTION_CLIENTS` | `MAX_SUBSCRIBERS` | `MAX_PUBLISHERS` |
+| --- | ---: | ---: | ---: | ---: |
+| `cpp-action-client-xrce` | 1 | 1 | 1 | 0 |
+| `cpp-action-server-xrce` | 2 | 1 | 0 | 2 |
+| `cpp-listener-xrce` | 1 | 0 | 1 | 0 |
+| `cpp-service-client-xrce` | 2 | 0 | 0 | 0 |
+| `cpp-service-server-xrce` | 1 | 0 | 0 | 0 |
+| `cpp-talker-xrce` | 1 | 0 | 0 | 1 |
+
+Each is a DECLARING image — the listener's metadata reads
+`entities: ['sub:std_msgs/msg/String:/chatter']` — so this is the register call
+reaching the reader reaching the knobs, on a configure, not the verb talking to
+itself. "The CMake reader is exercised by its own tests, not by this image yet"
+is no longer true.
+
+The rows also show the per-kind rules landing where they should: the action
+client budgets a HEAVY slot (`ACTION_CLIENTS 1`) and opens a feedback
+subscription it never declared; the action server takes two publishers for
+feedback and status; the service client claims two callback slots. None of that
+is stated in a `.msg`.
+
+### 2. "The received-type set is resolved but unspent" — spent, and it buys nothing HERE
+
+`cpp-listener-xrce` resolves `NROS_ENTITY_SUBSCRIBED_TYPES` to
+`std_msgs/msg/String`, which is what the `subscribed` basis wants. The answer is
+that it changes nothing, for a reason worth recording rather than the guess this
+issue left ("on a one-small-type image it may well be nothing"):
+
+**`std_msgs/msg/String` is itself `unbounded` in this image.** Its closure
+refuses with 15 of 32 types open, and `String` is one of them. So there is no
+bound to narrow TO — the payload classes cannot be derived from a receiving set
+whose only member has no bound, and issue 0963's join refuses exactly there, by
+design.
+
+That makes this image a live confirmation of 0963's guard rather than of its
+saving: the guard exists so a payload class is never sized from a blank `_RX`,
+and here it is the thing standing between a refused closure and a wrong number.
+An image that caps `String` (`nros-codegen.toml`, `inline`) would be the one
+that shows the saving; this one shows the refusal is right.

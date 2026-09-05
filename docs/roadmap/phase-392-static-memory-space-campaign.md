@@ -971,6 +971,37 @@ Net C/C++ API change: none. No function, no parameter, no generic in a header.
   the same time: `NROS_DECLARED_INFRA_QUERYABLES` must appear in the configure's
   `build.ninja`, where today it does not.
 
+  **MEASURED 2026-09-06 — on configured Zephyr images, which existed all
+  along.** The recipe's `lane=native` route does not work (below), but its
+  QUESTION is answered: `zephyr-workspace/build-cpp-*` are CMake configures
+  through the real seam, each carrying `nros/entity_inventory.cmake` from the
+  reader. Six report `derived`:
+
+  | image | `MAX_CBS` | `ACTION_CLIENTS` | `MAX_SUBSCRIBERS` | `MAX_PUBLISHERS` |
+  | --- | ---: | ---: | ---: | ---: |
+  | `cpp-action-client-xrce` | 1 | 1 | 1 | 0 |
+  | `cpp-action-server-xrce` | 2 | 1 | 0 | 2 |
+  | `cpp-listener-xrce` | 1 | 0 | 1 | 0 |
+  | `cpp-service-client-xrce` | 2 | 0 | 0 | 0 |
+  | `cpp-service-server-xrce` | 1 | 0 | 0 | 0 |
+  | `cpp-talker-xrce` | 1 | 0 | 0 | 1 |
+
+  Against the crate defaults these replace (`MAX_CBS` 4, and the session pools
+  at 8) that is the wave's saving on a real cmake workspace image, which is what
+  W5.g asked for.
+
+  **The queryable table specifically is NOT in that list, and that is the
+  finding.** `NROS_DERIVED_MAX_QUERYABLES` is absent from every one of the six.
+  The inventory declines it deliberately: it cannot see whether an image enables
+  the parameter or lifecycle service families (6 and 5 queryables), so it emits
+  the count only where something else states the infra addend. Measuring the
+  "queryable-table saving" therefore has no number to report on these images —
+  not because the wave failed, but because the knob is one the derivation
+  refuses to guess. Issue 1061 records the same refusal on the cargo side.
+
+  What follows is the earlier attempt, kept because the `lane=native` recipe is
+  still wrong and the next person will otherwise re-run it.
+
   **ATTEMPTED 2026-09-05, and the recipe above does not work as written.** Ran
   it; recording what it produced rather than an estimate, per this phase's own
   rule.
