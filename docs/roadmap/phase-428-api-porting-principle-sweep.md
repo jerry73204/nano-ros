@@ -115,7 +115,16 @@ The class RFC-0089 exists for, and a parity report correlates every one of these
   (`cyclonedds/src/qos.cpp:136-139` vs `rmw.h:669-671`). Because the one
   consumer compares requested against granted, echoing makes an unreportable
   field read as *granted* — the inverse of upstream's meaning.
-  `NROS_RMW_RELIABILITY_UNKNOWN` exists and is unused.
+  **CORRECTED 2026-09-05 by W1:** an earlier draft said
+  `NROS_RMW_RELIABILITY_UNKNOWN` "exists and is unused". False — it is written
+  at `rmw/cffi/src/rust_adapter.rs:1797` on every Rust backend and read by
+  `qos_has_unknown` (`cffi/src/lib.rs:4307`) to produce upstream's
+  `RMW_QOS_COMPATIBILITY_WARNING`, with tests either side. The true statement
+  is narrower and worse: **no `*_get_actual_qos` implementation anywhere in the
+  tree writes any `*_UNKNOWN` value** — the slots whose own documentation
+  defines the contract are exactly the ones that do not honour it. The
+  constant with genuinely zero uses is `NROS_RMW_QOS_PROFILE_UNKNOWN`, added by
+  W10, whose only occurrence is its own definition.
 
 ### F2 — a fix landed where the symptom was seen
 

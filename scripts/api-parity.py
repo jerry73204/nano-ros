@@ -330,7 +330,13 @@ def ours_c(tmpdir):
         extract_cxx.nros_c_include_args(),
         {""},
         tmpdir,
-        prefixes={"nros_", "NROS_"},
+        # phase-428 W2 — `rcl_`/`rclc_` too. Stage 6 adopted upstream's C
+        # spellings, and this set did not follow: all 62 renamed entry points
+        # were invisible to the extractor, so every one read `theirs-only`
+        # ("ROS 2 has it, we do not") and 19 ledger rows assert something false
+        # about HEAD. Adopting a name must not make the item disappear from the
+        # instrument that measures adoption.
+        prefixes={"nros_", "NROS_", "rcl_", "RCL_", "rclc_", "RCLC_"},
     )
 
 
