@@ -1,19 +1,32 @@
 # Phase 429 — the codegen version is enforced everywhere
 
-**Status (2026-09-05).** W1, W2, W3, W5 and W7 landed. W4 and W6 resolved as
-"already true" and "smaller than filed" — each records the measurement that
-settled it, because both were written from a guess I did not check first.
+**Status (2026-09-06). Every work item is landed or resolved.** W1, W2, W3, W5
+and W7 shipped; W4 and W6 closed as "already true" and "smaller than filed", each
+recording the measurement that settled it, because both were written from a guess
+I did not check first.
 
 The token exists and every generated artifact carries it. C and C++ refuse at
 COMPILE time through the preprocessor (the first implementation used a weak
 anchor symbol and was replaced: this project avoids those, and the check turned
 out to decompose into one new check plus `nros_config_variant_<slug>`, which
 already existed). Rust refuses under `cargo check`. The ratchet holds the
-authored integer to its surface. `check-codegen-version-refusal` is the negative
-control that proves every arm actually fires — C, C++ and Rust.
+authored integer to its surface.
 
-**Not done, and it is the point of all of it:** shipping a prebuilt binary. That
-is a release decision, now unblocked rather than taken.
+`check-codegen-version-refusal` proves all of it fires, in **seven arms across
+three languages** — in range compiles, out of range is refused, and a config
+header that defines neither bound is refused as MISSING rather than as
+out-of-range. The Rust arm arrived last and is a correction: this phase first
+recorded it as unreachable, citing CLAUDE.md's ban on compiling inside tests.
+That ban is on compiling at TEST RUNTIME and a negative control is a GATE —
+`check-c` has compiled an expected-failure probe for years. The option was never
+closed; the reason given for skipping it was wrong.
+
+**Not done, and it is the point of all of it:** shipping a prebuilt binary. The
+correctness question that blocked it since phase-287/288 — *can this binary's
+output work with this runtime?* — now has an answer asserted at every layer and a
+negative control proving each refusal fires. The remaining work is distribution,
+and it has its own home:
+[phase-431](phase-431-ship-the-nros-binary.md).
 
 **Implements:** [RFC-0090](../design/0090-codegen-version-is-the-compatibility-token.md).
 **Closes:** the residue of [#1018](../issues/1018-a-codegen-change-invalidates-generated-interfaces-and-only-a-manual-step-connects-them.md).
