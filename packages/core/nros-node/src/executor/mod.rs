@@ -104,7 +104,7 @@ pub mod action;
 // wall clock. Gating them is not hiding coverage, it is declaring what they
 // already required. `cargo test -p nros-node --features std` is unchanged and
 // remains the way to run them.
-#[cfg(all(test, feature = "std", not(feature = "rmw-cffi")))]
+#[cfg(all(test, feature = "alloc", not(feature = "rmw-cffi")))]
 mod tests;
 
 // Flat re-exports so users write `executor::Executor` etc.
