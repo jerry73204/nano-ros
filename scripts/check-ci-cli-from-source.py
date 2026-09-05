@@ -87,10 +87,28 @@ RELEASE_ACQUISITION = [
 # exemption matching nothing is a stale allow-list, which is how a gate quietly
 # stops covering what it names.
 #
-# EMPTY. A future entry needs a reason that is a property of the LANE -- "this
-# job tests the release itself" is the only shape that qualifies, and W5's
-# release workflow will be that entry when it lands.
+# EMPTY. A per-line entry needs a reason that is a property of the LANE.
 EXEMPT = {}
+
+# Workflows that PRODUCE the release rather than acquire it -- arm A does not
+# apply to them, arm B still does.
+#
+# The distinction is this gate's whole subject. `release-nros.yml` names the
+# asset a dozen times because it BUILDS one, and it runs `scripts/install.sh`
+# against what it just built -- the strongest check the release has, since the
+# installer's own refusals are gated against a synthetic tarball and only this
+# catches an asset that is well-formed and wrong. Banning that removes a check
+# rather than adding one.
+#
+# Arm B is what keeps this from being a hole: a producer must still build the
+# CLI from source and assert its source stamp, which matters most for the one
+# artifact nobody downstream can re-check.
+RELEASE_WORKFLOWS = {
+    "release-nros.yml": (
+        "phase-431 W5 -- it BUILDS the release, and installs its own asset as "
+        "a pre-publish check"
+    ),
+}
 
 
 def run_blocks(text):
@@ -290,6 +308,18 @@ def self_test():
     )
     assert release_sites(ok) == [], release_sites(ok)
 
+    # A producer is exempt from arm A and NOT from arm B -- the half that keeps
+    # the exemption from being a hole.
+    prod = "\n".join(
+        [
+            "        run: |",
+            "          gh release create v1 nros-linux-x86_64.tar.zst",
+            "          cargo build --release --bin nros",
+        ]
+    )
+    assert len(release_sites(prod)) == 1, release_sites(prod)
+    assert build_sites(prod)[0][2] is False, build_sites(prod)
+
     sys.stdout.write("check-ci-cli-from-source self-test: OK\n")
 
 
@@ -303,11 +333,20 @@ def main():
     seen_exempt = set()
     total_builds = 0
 
+    known = set(workflow_files())
+    for name, reason in RELEASE_WORKFLOWS.items():
+        if name not in known:
+            problems.append(
+                "STALE producer exemption %r (%s) -- no such workflow.\n"
+                "    Delete it; an allow-list checked one way stops covering\n"
+                "    what it claims to." % (name, reason)
+            )
+
     for fn in workflow_files():
         with open(os.path.join(WORKFLOWS, fn), encoding="utf8") as fh:
             text = fh.read()
 
-        for lineno, line, what in release_sites(text):
+        for lineno, line, what in ([] if fn in RELEASE_WORKFLOWS else release_sites(text)):
             if (fn, line) in EXEMPT:
                 seen_exempt.add((fn, line))
                 continue

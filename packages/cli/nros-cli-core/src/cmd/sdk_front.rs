@@ -45,7 +45,7 @@ pub struct Args {
 
 pub fn run(args: Args) -> Result<()> {
     let front = if args.front.is_empty() {
-        let index = SdkIndex::load(&args.index)?;
+        let index = SdkIndex::load(&crate::cmd::setup::resolve_index(&args.index))?;
         let Some(tool) = index.tool.get(&args.tool) else {
             let known: Vec<&str> = index.tool.keys().map(String::as_str).collect();
             bail!(

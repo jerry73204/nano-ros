@@ -1,0 +1,219 @@
+# Cut a release of the `nros` CLI — phase-431 W5.
+#
+# MANUAL DISPATCH ONLY, and with an explicit version. The CLI rolls rapidly
+# in-tree; a release is a deliberate act for USERS, not a consequence of a
+# version bump landing on main. Nothing here is scheduled and nothing triggers
+# on a tag: the tag is created BY this workflow, from the version you type.
+#
+# Never a local build. That is the `nano-ros-sdk` repo's own convention for the
+# assets it publishes, and the reason is reproducibility rather than
+# convenience — a binary built on somebody's laptop carries that laptop's
+# glibc, its toolchain and whatever was in its environment, and nothing
+# afterwards can tell you which.
+#
+# WHAT A RELEASE MUST ASSERT ABOUT ITSELF
+#
+# The last time nano-ros shipped a prebuilt `nros`, the binary emitted code
+# that had drifted from the runtime, and drifted generated code COMPILES — so
+# the failure was silent and the download was withdrawn (phase-288 D1/D2). The
+# checks below are what makes shipping safe again, and each one is here because
+# it is the property a user cannot verify for themselves:
+#
+#   source-stamp        the binary matches the checkout it was built from
+#   --codegen-version   it equals `NROS_CODEGEN_VERSION` in that same tree
+#   version agreement   the tag, the crate version and `[tool.nros].version`
+#                       in the index describe one artifact
+#
+# WHAT THE ASSET CONTAINS, and why each part is not optional
+#
+#   bin/nros                          the binary
+#   share/nros/VERSION                the STORE version (`0.5.0-nros1`), which
+#                                     `nros --version` does not print — without
+#                                     it `install.sh` cannot name the prefix the
+#                                     index pins, and a later
+#                                     `nros setup --tool nros` installs a second
+#                                     copy of the same binary
+#   share/nros/nros-sdk-index.toml    a released `nros` has no checkout to find
+#                                     an index in, so `nros setup <board>` fails
+#                                     outright without this (phase-431 W5,
+#                                     `setup::shipped_index`)
+#   <asset>.sha256                    `install.sh` REFUSES an asset it cannot
+#                                     verify, so a release without this is
+#                                     un-installable by design
+#
+# Linux x86_64 only for now. macOS is deferred by the tree, and linux-arm64
+# waits on a runner decision — it is one matrix row when that is made, and the
+# index already has the host key for it.
+name: release nros
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "store version to release, e.g. 0.5.0-nros1 (must equal [tool.nros].version)"
+        required: true
+        type: string
+      publish:
+        description: "create the tag + GitHub release (off = build and verify only)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-nros
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build + verify nros-linux-x86_64
+    # 22.04, not `latest`: the binary links the runner's glibc, and a newer one
+    # will not run on the LTS the book's install instructions target. The floor
+    # is a property of the release, so it is pinned rather than inherited.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The asset is `.tar.zst` and `tar` shells out to the `zstd` binary. The
+      # package NAME comes from the index, not from here: it carries the
+      # apt/dnf/pacman/brew spellings, and a copy in a workflow is the one that
+      # goes stale (`check-workflow-indexed-apt`, which caught this line).
+      - name: Install zstd
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2046
+          sudo apt-get install -y $(python3 scripts/sdk/prereq-packages.py --manager apt zstd)
+
+      - name: Build the CLI from source
+        run: |
+          git submodule update --init --depth 1 packages/cli/third-party/play_launch
+          cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+          # phase-429 W5 — the binary must match the checkout it was built from.
+          # A release is the one artifact where nobody downstream can re-check
+          # this, so it is asserted here rather than assumed.
+          "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
+
+      - name: Verify the release describes itself
+        run: |
+          set -euo pipefail
+          nros="$GITHUB_WORKSPACE/packages/cli/target/release/nros"
+          want_version='${{ inputs.version }}'
+
+          # 1. The codegen version the binary emits must be the one THIS TREE's
+          #    runtime accepts. A release claiming a compatibility it does not
+          #    have is the exact failure that withdrew the last one.
+          emitted="$("$nros" --codegen-version)"
+          declared="$(sed -n 's/^pub const NROS_CODEGEN_VERSION: u32 = \([0-9]\+\);.*/\1/p' \
+              packages/core/nros-core/src/codegen_version.rs)"
+          if [ "$emitted" != "$declared" ]; then
+              echo "::error::the binary emits codegen version $emitted, the tree declares $declared" >&2
+              exit 1
+          fi
+          echo "codegen version: $emitted (binary and tree agree)"
+
+          # 2. The index must already pin the version being released. The store
+          #    prefix is named from it, and `install.sh` reads it out of the
+          #    asset — three places, one string.
+          indexed="$(sed -n '/^\[tool\.nros\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' nros-sdk-index.toml)"
+          if [ "$indexed" != "$want_version" ]; then
+              echo "::error::releasing $want_version but [tool.nros].version is $indexed — bump the index first" >&2
+              exit 1
+          fi
+
+          # 3. The store version is the crate version plus a repackaging
+          #    counter, so the crate version must be its prefix. This catches
+          #    releasing `0.6.0-nros1` off a 0.5.0 tree, which would install
+          #    under a name that promises code the binary does not have.
+          crate="$("$nros" --version | awk '{print $NF}')"
+          case "$want_version" in
+              "$crate"-nros*) ;;
+              *)
+                  echo "::error::version $want_version is not <crate>-nrosN for crate version $crate" >&2
+                  exit 1
+                  ;;
+          esac
+          echo "version: $want_version (crate $crate, index agrees)"
+
+      - name: Stage the prefix
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/prefix"
+          mkdir -p "$stage/bin" "$stage/share/nros"
+          cp packages/cli/target/release/nros "$stage/bin/nros"
+          printf '%s\n' '${{ inputs.version }}' >"$stage/share/nros/VERSION"
+          cp nros-sdk-index.toml "$stage/share/nros/nros-sdk-index.toml"
+          # Prefix-rooted, the mirror shape every other dist in the index uses,
+          # so `sdk_store::execute`'s default unpack lands it unchanged.
+          tar --zstd -cf "$RUNNER_TEMP/nros-linux-x86_64.tar.zst" -C "$stage" bin share
+          cd "$RUNNER_TEMP"
+          sha256sum nros-linux-x86_64.tar.zst >nros-linux-x86_64.tar.zst.sha256
+          cat nros-linux-x86_64.tar.zst.sha256
+
+      - name: Prove the asset installs, before publishing it
+        run: |
+          set -euo pipefail
+          # The installer's own refusals are gated in `just check nros-installer`
+          # against a synthetic tarball. This runs the REAL one, which is the
+          # only way to catch an asset that is well-formed and wrong — a missing
+          # VERSION file, a prefix rooted one directory too deep, a binary that
+          # does not run on a clean runner.
+          python3 -m http.server 8422 --directory "$RUNNER_TEMP" &
+          server=$!
+          trap 'kill $server' EXIT
+          for _ in $(seq 1 50); do
+              curl -fsS -o /dev/null "http://127.0.0.1:8422/nros-linux-x86_64.tar.zst" && break
+              sleep 0.2
+          done
+          NROS_HOME="$RUNNER_TEMP/probe" \
+            NROS_INSTALL_URL="http://127.0.0.1:8422/nros-linux-x86_64.tar.zst" \
+            sh scripts/install.sh
+          installed="$RUNNER_TEMP/probe/bin/nros"
+          test -x "$installed"
+          test "$(readlink -f "$installed")" = "$RUNNER_TEMP/probe/sdk/nros/${{ inputs.version }}/bin/nros"
+          # The fronted binary must be able to do the thing a user installs it
+          # for, from a directory that is not a checkout.
+          cd "$RUNNER_TEMP"
+          "$installed" --codegen-version
+          "$installed" setup --list >/dev/null
+          echo "the asset installs, fronts, and finds its own index"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nros-linux-x86_64
+          path: |
+            ${{ runner.temp }}/nros-linux-x86_64.tar.zst
+            ${{ runner.temp }}/nros-linux-x86_64.tar.zst.sha256
+
+      - name: Publish the release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="nros-${{ inputs.version }}"
+          nros="$GITHUB_WORKSPACE/packages/cli/target/release/nros"
+          # The notes go through a FILE, one `printf` argument per line. A
+          # column-0 line inside a YAML `run:` block is parsed as syntax, not as
+          # text, so a heredoc is unusable here and its terminator would have to
+          # sit where YAML expects a key (CLAUDE.md's pitfall index).
+          printf '%s\n' \
+            "The \`nros\` CLI, codegen version $("$nros" --codegen-version)." \
+            "" \
+            "Install:" \
+            "" \
+            '```' \
+            "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.sh | sh" \
+            '```' \
+            "" \
+            "Contributors build from source instead: inside a checkout the tree's own" \
+            "build is the only correct binary (RFC-0090, phase-431 W1/W2)." \
+            >"$RUNNER_TEMP/notes.md"
+          # `--target` pins the release to the commit that was verified above,
+          # not to whatever the branch points at when this step runs.
+          gh release create "$tag" \
+              --target "$GITHUB_SHA" \
+              --title "nros ${{ inputs.version }}" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              "$RUNNER_TEMP/nros-linux-x86_64.tar.zst" \
+              "$RUNNER_TEMP/nros-linux-x86_64.tar.zst.sha256"
