@@ -1030,10 +1030,60 @@ jobs:
             sccache-${{ runner.os }}-check-
             sccache-${{ runner.os }}-
 
+      # The warm job must START sccache, and must name it as the compiler
+      # wrapper ITSELF. Both halves were missing and the job warmed nothing.
+      #
+      # The `check` job gets away without either because every build it runs
+      # goes through `just`, and `justfile:13` is
+      # `export RUSTC_WRAPPER := command -v sccache`. This job calls `cargo`
+      # DIRECTLY, so that export never applies: no wrapper ran, `/tmp/sccache`
+      # was never created, and the save step ended every run with
+      #
+      #   Path Validation Error: Path(s) specified in the action for caching
+      #   do(es) not exist, hence no cache is being saved.
+      #
+      # which is a warning, not a failure, so the job stayed green while
+      # producing nothing. Measured consequence: NO `sccache-*` entry has ever
+      # existed on `refs/heads/main`, and a `pull_request` run may restore only
+      # from its own ref or the default branch — so every PR compiled cold at a
+      # 1.55% hit rate (19 hits / 1210 misses on run 33991268794), which is
+      # most of `check cli-tests`' 311 s.
+      #
+      # Same shape as the `check` job's configure step and for the same reason
+      # (issue 0874): PROVE the backend in this step, publish to `$GITHUB_ENV`
+      # only if the server started. A broken sccache handed to `rustc` fails
+      # the COMPILER rather than losing a cache.
+      - name: Configure sccache
+        run: |
+          # Create the dir unconditionally: the cache path must exist at save
+          # time or the step warns and saves nothing, which is the failure this
+          # is fixing. An empty dir is a 0-byte entry, not a wrong one.
+          mkdir -p /tmp/sccache
+          if ! command -v sccache >/dev/null 2>&1; then
+            echo "::warning::sccache absent from the image — this job warms NOTHING."
+            exit 0
+          fi
+          sccache --version
+          export SCCACHE_DIR=/tmp/sccache
+          export SCCACHE_CACHE_SIZE=1G
+          export SCCACHE_ERROR_LOG=/tmp/sccache-server.log
+          export SCCACHE_LOG=warn
+          if sccache --start-server >/tmp/sccache-start.log 2>&1; then
+            {
+              echo "SCCACHE_DIR=/tmp/sccache"
+              echo "SCCACHE_ERROR_LOG=/tmp/sccache-server.log"
+              echo "SCCACHE_LOG=warn"
+              echo "SCCACHE_CACHE_SIZE=1G"
+              # The half the `check` job does not need. Without it the builds
+              # below are plain rustc and this job is decorative.
+              echo "RUSTC_WRAPPER=sccache"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache unavailable — this job warms NOTHING (issue 0874)."
+            sed 's/^/  /' /tmp/sccache-start.log || true
+          fi
+
       - name: Build nros CLI + the launch resolver
-        env:
-          SCCACHE_DIR: /tmp/sccache
-          SCCACHE_CACHE_SIZE: 1G
         run: |
           git submodule update --init --depth 1 packages/cli/third-party/play_launch
           cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
@@ -1045,6 +1095,22 @@ jobs:
           # compiles the test harnesses without executing them, which is exactly
           # the artifact that step waits on.
           cargo test --no-run --manifest-path packages/cli/Cargo.toml
+
+      # Say what was actually warmed. This job was green for its whole life
+      # while saving nothing, because the only evidence was a `::warning::` in
+      # the save step's log. A size of 0 here means the wrapper did not run and
+      # every PR after this one will compile cold — the one number that says
+      # whether the job did its job.
+      - name: Report what was warmed
+        if: always()
+        run: |
+          if command -v sccache >/dev/null 2>&1; then
+            sccache --show-stats || true
+          fi
+          echo "sccache dir: $(du -sh /tmp/sccache 2>/dev/null | cut -f1) in $(find /tmp/sccache -type f 2>/dev/null | wc -l) file(s)"
+          if [ -z "$(find /tmp/sccache -type f 2>/dev/null | head -1)" ]; then
+            echo "::warning::sccache dir is EMPTY — nothing to save, so every pull request will compile cold."
+          fi
 
   scaffold-journey:
     name: nros new -> sync -> resolve
