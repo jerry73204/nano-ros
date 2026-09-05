@@ -1057,53 +1057,62 @@ pub const QOS_PROFILE_CLOCK: QoSProfile = QoSProfile::QOS_PROFILE_CLOCK;
 pub const QOS_PROFILE_ACTION_STATUS_DEFAULT: QoSProfile =
     QoSProfile::QOS_PROFILE_ACTION_STATUS_DEFAULT;
 
+/// The five presets under their older, shorter names.
+///
+/// **Every one of these is an ALIAS.** phase-428 W10 — this module used to
+/// RESTATE four of the five as struct literals: `DEFAULT` spelled all ten fields
+/// out, `SENSOR_DATA` and `PARAMETERS` were `..DEFAULT` updates of it, and
+/// `SERVICES_DEFAULT` was `= DEFAULT` — a second, independent transcription of
+/// upstream's table living 40 lines below the first. Only `SYSTEM_DEFAULT` was a
+/// real alias, and the comment that made it one claimed it was joining "the
+/// other four", which was not true of any of them.
+///
+/// That is the mirror this work item removes: upstream's 7 profiles were
+/// hand-written in four places across the repo — here, the crate-level
+/// `QOS_PROFILE_*` consts above, `nros-rmw/src/traits.rs`, and
+/// `nros-rmw-abi/include/nros/rmw_entity.h` — about 26 constants for a 7-row
+/// table, with no gate binding them. `QOS_PROFILE_PARAMETER_EVENTS` is the proof
+/// that the arrangement does not hold: it is `KeepAll, 0` in `traits.rs` under a
+/// comment claiming it matched `rmw_qos_profile_parameter_events`, which is
+/// `KEEP_LAST, 1000`.
+///
+/// So this module now declares no values at all. The SSoT is
+/// [`QoSProfile`]'s associated consts, and a correction there — including the
+/// `PARAMETER_EVENTS` one — reaches these names without anyone remembering to
+/// come here. Note that the alias set is a SUBSET: `CLOCK`,
+/// `PARAMETER_EVENTS`, `ACTION_STATUS_DEFAULT` and `PX4` have no short spelling
+/// and are reached as `nros::QOS_PROFILE_*` or `QoSProfile::QOS_PROFILE_*`.
 pub mod qos {
-    use crate::{
-        QoSDurabilityPolicy, QoSHistoryPolicy, QoSLivelinessPolicy, QoSProfile,
-        QoSReliabilityPolicy,
-    };
+    use crate::QoSProfile;
 
-    /// `rmw_qos_profile_default`-equivalent: reliable + volatile +
-    /// keep-last(10), automatic liveliness, no deadline / lifespan.
-    pub const DEFAULT: QoSProfile = QoSProfile {
-        reliability: QoSReliabilityPolicy::Reliable,
-        durability: QoSDurabilityPolicy::Volatile,
-        history: QoSHistoryPolicy::KeepLast,
-        liveliness_kind: QoSLivelinessPolicy::Automatic,
-        depth: 10,
-        deadline_ms: 0,
-        lifespan_ms: 0,
-        liveliness_lease_ms: 0,
-        avoid_ros_namespace_conventions: false,
-        tx_express: false,
-    };
+    /// `rmw_qos_profile_default` — reliable + volatile + keep-last(10),
+    /// automatic liveliness, no deadline / lifespan.
+    pub const DEFAULT: QoSProfile = QoSProfile::QOS_PROFILE_DEFAULT;
 
-    /// `rmw_qos_profile_sensor_data`-equivalent: best-effort +
-    /// volatile + keep-last(5).
-    pub const SENSOR_DATA: QoSProfile = QoSProfile {
-        reliability: QoSReliabilityPolicy::BestEffort,
-        depth: 5,
-        ..DEFAULT
-    };
+    /// `rmw_qos_profile_sensor_data` — best-effort + volatile + keep-last(5).
+    pub const SENSOR_DATA: QoSProfile = QoSProfile::QOS_PROFILE_SENSOR_DATA;
 
-    /// `rmw_qos_profile_services_default`-equivalent.
-    pub const SERVICES_DEFAULT: QoSProfile = DEFAULT;
+    /// `rmw_qos_profile_services_default` — reliable + volatile +
+    /// keep-last(10).
+    ///
+    /// It aliases its OWN associated const, not `DEFAULT`. The two profiles
+    /// hold the same values upstream and are two upstream constants; writing
+    /// this one as `= DEFAULT`, which is what it said before W10, would make a
+    /// future divergence between them invisible here.
+    pub const SERVICES_DEFAULT: QoSProfile = QoSProfile::QOS_PROFILE_SERVICES_DEFAULT;
 
-    /// `rmw_qos_profile_parameters`-equivalent: depth = 1000.
-    pub const PARAMETERS: QoSProfile = QoSProfile {
-        depth: 1000,
-        ..DEFAULT
-    };
+    /// `rmw_qos_profile_parameters` — reliable + volatile + keep-last(**1000**).
+    pub const PARAMETERS: QoSProfile = QoSProfile::QOS_PROFILE_PARAMETERS;
 
-    /// `rmw_qos_profile_system_default`-equivalent — **an absence, not a
-    /// profile**: every policy is the SYSTEM_DEFAULT sentinel and the depth is
-    /// 0, resolved by whichever backend is linked.
+    /// `rmw_qos_profile_system_default` — **an absence, not a profile**: every
+    /// policy is the SYSTEM_DEFAULT sentinel and the depth is the depth
+    /// sentinel, resolved by whichever backend is linked.
     ///
     /// issue 0829 — this said `= DEFAULT` (depth 10) while
     /// `QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT` said depth 1, so one name
     /// shipped two queue depths depending on which spelling a caller reached.
-    /// It is now an ALIAS of the associated const, like the other four, and
-    /// neither number survives: see `QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT`.
+    /// It was the first of these to become an alias, and since W10 it is no
+    /// longer the only one: see `QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT`.
     pub const SYSTEM_DEFAULT: QoSProfile = QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT;
 }
 
@@ -1638,14 +1647,24 @@ compile_error!(
     "`env` reads the process environment, which needs the standard library: add \"std\" to this crate's features"
 );
 
-// phase-379 W5 — the crate-level `QOS_PROFILE_*` presets (rclrs parity) and the
-// older hand-written `nros::qos::*` module are two spellings of the same eight
-// profiles. The first ALIASES `QoSProfile`'s associated consts; the second
-// restates them as struct literals and predates them.
+// phase-379 W5, revised by phase-428 W10 — the crate-level `QOS_PROFILE_*`
+// presets (rclrs parity) and the older `nros::qos::*` module are two spellings
+// of the same profiles. BOTH now alias `QoSProfile`'s associated consts; until
+// W10 the second restated them as struct literals, and these tests were the only
+// thing holding the two copies together.
 //
-// They agree today. Nothing made them agree tomorrow, and a hand-mirrored
-// constant drifting silently is the class issues 0088 / 0160 / 0245 all record.
-// So assert it, at compile time where possible.
+// They are kept, and what they assert has changed meaning. They no longer catch
+// a hand-mirror drifting (there is no longer a hand mirror to drift — issues
+// 0088 / 0160 / 0245). They catch a REINTRODUCTION: the moment someone writes a
+// literal into either surface instead of aliasing, a value can differ and one of
+// these fails. That is cheap enough to keep and is the only mechanism standing
+// between this crate and the arrangement W10 removed.
+//
+// What they do NOT check, deliberately, is whether the SSoT matches UPSTREAM.
+// Two aliases of a wrong constant agree perfectly — which is exactly the state
+// `QOS_PROFILE_PARAMETER_EVENTS` was in (`KeepAll, 0` against upstream's
+// `KEEP_LAST, 1000`). That assertion belongs beside the associated consts in
+// `nros-rmw/src/traits.rs`, not here.
 #[cfg(test)]
 mod qos_preset_parity {
     use super::*;
@@ -1661,10 +1680,13 @@ mod qos_preset_parity {
         );
     }
 
-    /// The one that can actually rot: `qos::*` is a SEPARATE hand-written copy.
+    /// `qos::*` was a SEPARATE hand-written copy until phase-428 W10; all five
+    /// names alias the associated consts now, so this passes by construction.
+    /// It stays as the tripwire for re-introducing a literal — see the module
+    /// comment above.
     #[test]
     fn qos_module_agrees_with_the_presets() {
-        // issue 0829 FIXED — SYSTEM_DEFAULT joins the four that always agreed.
+        // issue 0829 FIXED — SYSTEM_DEFAULT was the first to become an alias.
         // It is here rather than in its own pinned test because the two copies
         // no longer say anything a copy could get wrong: both alias the one
         // associated const, which is all sentinel.

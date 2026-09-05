@@ -328,7 +328,10 @@ pub const NROS_RMW_QOS_PROFILE_DEFAULT: NrosRmwQos = NrosRmwQos {
     reliability: generated::NROS_RMW_RELIABILITY_RELIABLE as u8,
     durability: generated::NROS_RMW_DURABILITY_VOLATILE as u8,
     history: generated::NROS_RMW_HISTORY_KEEP_LAST as u8,
-    liveliness_kind: rmw_liveliness_kind_t::NROS_RMW_LIVELINESS_AUTOMATIC as u8,
+    // SYSTEM_DEFAULT, not AUTOMATIC: upstream's `rmw_qos_profile_default`
+    // and `_sensor_data` both leave liveliness at the sentinel. Issue 0829
+    // corrected this on SYSTEM_DEFAULT and left the siblings; phase-428 W10.
+    liveliness_kind: rmw_liveliness_kind_t::NROS_RMW_LIVELINESS_SYSTEM_DEFAULT as u8,
     depth: 10,
     _reserved0: 0,
     deadline_ms: 0,
@@ -343,7 +346,10 @@ pub const NROS_RMW_QOS_PROFILE_SENSOR_DATA: NrosRmwQos = NrosRmwQos {
     reliability: generated::NROS_RMW_RELIABILITY_BEST_EFFORT as u8,
     durability: generated::NROS_RMW_DURABILITY_VOLATILE as u8,
     history: generated::NROS_RMW_HISTORY_KEEP_LAST as u8,
-    liveliness_kind: rmw_liveliness_kind_t::NROS_RMW_LIVELINESS_AUTOMATIC as u8,
+    // SYSTEM_DEFAULT, not AUTOMATIC: upstream's `rmw_qos_profile_default`
+    // and `_sensor_data` both leave liveliness at the sentinel. Issue 0829
+    // corrected this on SYSTEM_DEFAULT and left the siblings; phase-428 W10.
+    liveliness_kind: rmw_liveliness_kind_t::NROS_RMW_LIVELINESS_SYSTEM_DEFAULT as u8,
     depth: 5,
     _reserved0: 0,
     deadline_ms: 0,
@@ -354,7 +360,14 @@ pub const NROS_RMW_QOS_PROFILE_SENSOR_DATA: NrosRmwQos = NrosRmwQos {
 };
 
 /// Standard `rmw_qos_profile_services_default`-equivalent.
-pub const NROS_RMW_QOS_PROFILE_SERVICES_DEFAULT: NrosRmwQos = NROS_RMW_QOS_PROFILE_DEFAULT;
+///
+/// Stated independently rather than aliased to `_DEFAULT`. Upstream states it
+/// as its own initialiser, and an alias makes a future divergence
+/// unrepresentable -- the two profiles happen to agree today, which is not the
+/// same as being the same profile.
+pub const NROS_RMW_QOS_PROFILE_SERVICES_DEFAULT: NrosRmwQos = NrosRmwQos {
+    ..NROS_RMW_QOS_PROFILE_DEFAULT
+};
 
 /// Standard `rmw_qos_profile_parameters`-equivalent.
 pub const NROS_RMW_QOS_PROFILE_PARAMETERS: NrosRmwQos = NrosRmwQos {

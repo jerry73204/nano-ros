@@ -87,6 +87,21 @@ declared-qos-header:
     fi
     ./tests/cmake-declared-qos-header-tests.sh
 
+# phase-428 W10 — the named QoS presets are upstream's, field by field.
+#
+# `QOS_PROFILE_PARAMETER_EVENTS` was KEEP_ALL/0 where upstream is
+# KEEP_LAST/1000, under a comment claiming parity and above a test asserting
+# the wrong value, in one of FOUR hand-transcribed copies of the same seven
+# profiles. This binds the SSoT table in `nros-rmw/src/traits.rs` to
+# `docs/reference/rmw-qos-profiles.txt`, which is extracted from a real ROS
+# install; where one is present it re-extracts and checks the record too.
+#
+# Buildless and 0.08 s, so it belongs on the fast line — no ROS, no cargo, no
+# fixtures, and it does NOT degrade to a pass when ROS is absent.
+[private]
+qos-profile-ssot:
+    @python3 scripts/check-qos-profile-ssot.py
+
 # phase-403 W9 (issue 0965) — the per-kind CALLBACK SLOT cost has ONE
 # definition, tied to the registration sites that actually claim a slot.
 #

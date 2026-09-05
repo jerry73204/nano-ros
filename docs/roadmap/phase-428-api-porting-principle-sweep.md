@@ -223,3 +223,51 @@ W1–W6 stand for the user-facing C/C++/Rust APIs. The RMW layer adds:
 * **W12 [rmw] — the prose.** Delete the retired sign contract, the two stale
   slot doc blocks and the fictional NULL-slot fallbacks; then gate what can be
   gated (a doc naming a slot that does not exist is mechanically checkable).
+
+
+## W10 outcome (2026-09-05) — one gate, and the sources it does not yet reach
+
+Landed: the SSoT is a `qos_profiles!` fence in `nros-rmw/src/traits.rs` stating
+all ten fields per row with the upstream symbol each mirrors;
+`check-qos-profile-ssot.py` binds it to a recorded upstream table and
+re-extracts that table from `qos_profiles.h` when a ROS install is resolvable.
+
+**Two gates were written and one was deleted.** The C-header agent and the Rust
+agent independently produced `check-qos-profile-table.py` and
+`check-qos-profile-ssot.py`, both parsing the same fence — the duplication this
+item exists to remove, reproduced in the fix for it. Kept the one with a
+working negative control (63 live mutations across 7 presets x 9 fields, self-
+test on the normal path); deleted the other rather than ship two parsers of one
+table, one of which was green by accident after its `QoSProfile::build` parser
+lost its target.
+
+**Not yet bound, carried forward rather than claimed:**
+
+* `packages/core/nros-rmw-abi/include/nros/rmw_entity.h` — corrected and
+  restructured to one line per profile, but the gate does not read it. The
+  deleted gate did; that coverage is the work item.
+* `packages/rmw/cffi/src/lib.rs` — the FIFTH transcription site, which the
+  original survey missed entirely. Corrected by hand.
+* `packages/api/nros-cpp/include/nros/qos.hpp` — now one in-file table
+  (`nros::detail::qos_table`) with all six `rclcpp::*QoS` classes delegating,
+  so it is parseable; it cannot consume the C macros, measured: they are C99
+  compound literals with designated initializers and the lane is `-std=c++14`.
+* `packages/api/nros/src/lib.rs` — `nros::qos` now declares no values at all;
+  all five are aliases, so the SSoT reaches it with no second edit.
+
+**The field that moved.** Upstream's `rmw_qos_profile_default` and its four
+siblings carry `RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT`; every one of our
+five sites carried `AUTOMATIC`. Issue 0829 corrected `SYSTEM_DEFAULT` alone and
+left the siblings — F2 for the third time in this sweep.
+
+Rust has no `SystemDefault` variant: `QoSLivelinessPolicy::None` occupies
+discriminant 0, which is the value the C ABI spells `SYSTEM_DEFAULT`. So the
+NAME diverges and the VALUE does not, and only the value crosses. The
+mirroring rows now carry `None`, with the divergence recorded at the enum.
+Renaming the variant is a separate question.
+
+Wire effect: none. Cyclone calls `dds_qset_liveliness` only for a non-sentinel
+kind and its own default is AUTOMATIC; XRCE lowers no liveliness field; zenoh
+emits empty liveliness and lease positions for every profile. A backend that
+starts honouring liveliness later now sees "the middleware's choice" instead of
+an unrequested AUTOMATIC.
