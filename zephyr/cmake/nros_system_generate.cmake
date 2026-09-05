@@ -35,6 +35,12 @@
 # activate.sh-wired in-tree CLI — the museum binary bakes the retired
 # pre-258 shape and every nros_system_generate fixture goes red).
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/NanoRosCodegenCore.cmake")
+
+# phase-206 W2 — the bringup's own RMW config. Included at FILE scope, not
+# inside `nros_system_generate`: `include()` in a function body pops the
+# file's normal vars with the frame (the `_NROS_ENTRY_DIR` class), and a
+# module included once per call is a module re-read once per call.
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/NanoRosRmwUserConfig.cmake")
 function(_nros_system_resolve_cli outvar)
     nros_resolve_cli(_cli OPTIONAL)
     if(_cli)
@@ -207,6 +213,39 @@ function(nros_system_generate bringup_pkg)
             "deferring include attach. Call after project().")
     endif()
     zephyr_include_directories("${_out_dir}")
+
+    # phase-206 W2 — bake `<bringup>/rmw/<backend>.<ext>` so the user's own
+    # middleware config reaches the backend's own parser.
+    #
+    # HERE, and not in `nros_rmw_cyclonedds.cmake`, for two reasons. This is the
+    # function that knows the bringup: `NROS_SYSTEM_BRINGUP_DIR` is set at the
+    # BOTTOM of it, while `zephyr/CMakeLists.txt` includes the backend module at
+    # line 162 -- long before any leaf calls this -- so the backend module could
+    # only ever read a value left in the cache by a PREVIOUS configure. And this
+    # is where the include attach already happens, so the generated header
+    # reaches the backend's TUs by the same route `system_config.h` does.
+    #
+    # `_rmw` is already the backend's own name here (the Kconfig mapping above),
+    # which is the vocabulary `nros_bake_rmw_user_config` takes -- no second
+    # spelling to keep in sync.
+    set(_rmw_cfg_dir "${_out_parent}/nros-rmw-user-config")
+    nros_bake_rmw_user_config(
+        BRINGUP "${_bringup_dir}"
+        BACKEND "${_rmw}"
+        OUT_DIR "${_rmw_cfg_dir}"
+        RESULT  _rmw_cfg_header)
+    if(_rmw_cfg_header)
+        # Only when a config exists: the consumer guards on `__has_include`, so
+        # an image with no config must see no directory and no header. Adding
+        # the dir unconditionally would be harmless today and a trap the first
+        # time a stale header survived in it.
+        zephyr_include_directories("${_rmw_cfg_dir}")
+        if(TARGET app)
+            target_include_directories(app PRIVATE "${_rmw_cfg_dir}")
+        endif()
+        message(STATUS
+            "nano-ros: ${_rmw} user config baked for bringup ${_bringup_dir}")
+    endif()
 
     # Re-export for downstream consumers (tests, follow-up cmake fns).
     set(NROS_SYSTEM_DIR        "${_out_dir}"   CACHE PATH "Phase 212.E baked system tree" FORCE)

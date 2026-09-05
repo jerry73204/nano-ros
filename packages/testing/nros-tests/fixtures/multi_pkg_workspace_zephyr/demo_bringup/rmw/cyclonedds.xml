@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- phase-206 W2 — the user's OWN CycloneDDS configuration.
+
+     This is the document ROS 2 documents. On a hosted system it would be
+     pointed at by CYCLONEDDS_URI; on this RTOS image there is no environment
+     to set and no filesystem to point at, so the build bakes its BYTES and
+     hands them to Cyclone's own parser. nano-ros does not read this file:
+     it copies it.
+
+     `<NetworkInterface>` is the multi-homing surface this phase set out to
+     invent and then deleted — the backend already had the word for it, so the
+     phase's acceptance is met by a user writing the backend's own spelling
+     rather than a nano-ros one. `autodetermine` keeps the fixture portable
+     across hosts; a real deployment names an address or a device here.
+
+     The baked baseline (64 KiB thread stacks and the rest) must SURVIVE this
+     file rather than be replaced by it — that composition is W1, and it is
+     what `nros_rmw_cyclonedds_user_config` asserts on the host lane. This
+     fixture is the same claim on an image. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface autodetermine="true" priority="default" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>default</AllowMulticast>
+    </General>
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+    </Tracing>
+  </Domain>
+</CycloneDDS>

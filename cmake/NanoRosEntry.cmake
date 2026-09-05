@@ -66,6 +66,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/NanoRosSupportLibrary.cmake")
 # CACHE INTERNAL precisely so they survive being included from inside a function
 # frame, which is how the node-register side reaches it.
 include("${CMAKE_CURRENT_LIST_DIR}/NanoRosEntryLocator.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/NanoRosRmwUserConfig.cmake")  # phase-206 W2
 
 # --------------------------------------------------------------------------
 # Platform-link wrappers (phase-287 W6). Defined HERE (not NanoRosBootstrap):
@@ -496,6 +497,70 @@ function(nano_ros_entry)
        AND COMMAND nros_platform_link_app
        AND ("native" IN_LIST _NRA_DEPLOY))
         nros_platform_link_app_deferred(${_NRA_NAME})
+    endif()
+
+    # phase-206 W2 — bake this bringup's own RMW config, on the ENTRY path.
+    #
+    # The sibling wiring is `nros_system_generate` (the Zephyr 212.H.1 shim).
+    # Both are needed and neither covers the other: NO in-tree example calls the
+    # shim -- its only callers are the `multi_pkg_workspace_zephyr` and
+    # `zephyr_self_pkg` test fixtures -- while a real workspace/west image comes
+    # through HERE. Wiring only the shim left the mechanism reachable from the
+    # fixtures and from nothing a user builds.
+    #
+    # THE INCLUDE GOES ON THE BACKEND TARGET, not on the entry. `session.cpp` is
+    # the TU that reads the generated header, and it compiles into
+    # `nros_rmw_<backend>` -- a different target from the executable. Attaching
+    # the directory to the entry alone would configure cleanly, compile cleanly,
+    # and bake nothing into the image; that is the failure mode this whole work
+    # item exists to stop being possible. The entry gets it too, for a C++ entry
+    # that includes the header itself.
+    #
+    # Guarded on the target EXISTING because a consumer that finds NanoRos as an
+    # installed package has an IMPORTED backend it cannot recompile. That case
+    # gets a warning rather than silence -- a config that does not apply must not
+    # look like one that did.
+    if(_NRA_BRINGUP)
+        # Same resolution ORDER as `nano_ros_link_rmw`'s fallback list
+        # ("NANO_ROS_DEFAULT_RMW;NANO_ROS_RMW"), not that function itself: it
+        # FATAL_ERRORs when nothing resolves, and an entry with no RMW chosen yet
+        # is a legitimate state here.
+        set(_nra_rmw "")
+        if(DEFINED NANO_ROS_DEFAULT_RMW AND NOT "${NANO_ROS_DEFAULT_RMW}" STREQUAL "")
+            set(_nra_rmw "${NANO_ROS_DEFAULT_RMW}")
+        elseif(DEFINED NANO_ROS_RMW AND NOT "${NANO_ROS_RMW}" STREQUAL "")
+            set(_nra_rmw "${NANO_ROS_RMW}")
+        endif()
+
+        if(_nra_rmw)
+            set(_nra_cfg_dir "${CMAKE_BINARY_DIR}/nros-rmw-user-config")
+            nros_bake_rmw_user_config(
+                BRINGUP "${_NRA_BRINGUP}"
+                BACKEND "${_nra_rmw}"
+                OUT_DIR "${_nra_cfg_dir}"
+                RESULT  _nra_cfg_header)
+            if(_nra_cfg_header)
+                if(TARGET nros_rmw_${_nra_rmw})
+                    target_include_directories(nros_rmw_${_nra_rmw}
+                        PRIVATE "${_nra_cfg_dir}")
+                    message(STATUS
+                        "nano-ros: ${_nra_rmw} user config reaches "
+                        "nros_rmw_${_nra_rmw} (entry ${_NRA_NAME})")
+                else()
+                    message(WARNING
+                        "nano_ros_entry(${_NRA_NAME}): ${_NRA_BRINGUP} ships an "
+                        "${_nra_rmw} config, but target nros_rmw_${_nra_rmw} is "
+                        "not in this build tree (an imported/installed backend "
+                        "cannot be recompiled), so the config CANNOT take "
+                        "effect. Build the backend from source, or set "
+                        "CYCLONEDDS_URI at run time on a hosted target.")
+                endif()
+                if(TARGET ${_NRA_NAME})
+                    target_include_directories(${_NRA_NAME}
+                        PRIVATE "${_nra_cfg_dir}")
+                endif()
+            endif()
+        endif()
     endif()
 
     # phase-263 C2b — bake the connect locator BEFORE the embedded link pass. On NuttX the

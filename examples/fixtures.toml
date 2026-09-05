@@ -4905,6 +4905,29 @@ west_board = "native_sim/native/64"
 west_extra = "-DCONF_FILE=prj.conf;prj-zenoh.conf"
 output = "zephyr/zephyr.exe"
 
+# phase-206 W2 — the RTOS half of the config-passthrough acceptance.
+#
+# W2's acceptance said "the same file, hosted and one RTOS build". The
+# byte-identity and composition halves were proven on the host lane by
+# `nros_rmw_cyclonedds_user_config`; NO RTOS IMAGE WAS EVER BUILT FOR IT, so
+# the embedded half rested on the shared `session.cpp` path rather than on a
+# measurement. This row is that measurement.
+#
+# Same dir and same bringup as the zenoh row above, deliberately. `demo_bringup/
+# rmw/` holds `cyclonedds.xml` and no `zenoh.conf`, so the zenoh image bakes
+# nothing and this one bakes the XML: the ACTIVE BACKEND decides which file is
+# read, and the pair proves that rather than asserting it. The zenoh row is also
+# the negative control -- an image whose bringup ships no config for its backend
+# must still build, with no cmake participation at all (`__has_include`).
+[[compile_check_fixture]]
+id = "west_bringup_zephyr_cyclone_user_config"
+builder = "west-build"
+dir = "packages/testing/nros-tests/fixtures/multi_pkg_workspace_zephyr"
+west_subdir = "zephyr_app"
+west_board = "native_sim/native/64"
+west_extra = "-DCONF_FILE=prj.conf;prj-cyclonedds.conf"
+output = "zephyr/zephyr.exe"
+
 [[compile_check_fixture]]
 id = "west_board_import"
 builder = "west-configure"

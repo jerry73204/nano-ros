@@ -434,11 +434,104 @@ backend's own parser reads them. nano-ros parses nothing.
       the baseline, unchanged. Against the pre-W2 state (baked header never
       reaching the backend) it fails 5 checks; after, `26/26` ctest green.
 
-**Still open, and named rather than implied:** the acceptance says "the same
-file, hosted and one RTOS build". The byte-identity and composition halves are
-proven on the host lane. **No RTOS image was built for this** — that needs a
-fixture row and a tier-2 run, and until it exists the RTOS half rests on the
-shared `session.cpp` path rather than on a measurement.
+**The RTOS half — measured 2026-09-06, and it found the seam UNWIRED.**
+
+The previous note said this needed "a fixture row and a tier-2 run". Adding the
+row found something the row could not have assumed: **`nros_bake_rmw_user_config`
+had exactly one caller in the whole tree, the backend's own ctest CMakeLists.**
+No image build called it, so `session.cpp`'s `__has_include` guard could never
+fire and no bringup could ship a config. The mechanism was complete, documented,
+tested on the host lane — and unreachable from any image. Phase-349's
+declared-but-unread class, one layer up: the CONSUMER existed and the PRODUCER
+was never invoked.
+
+Now wired, in `zephyr/cmake/nros_system_generate.cmake` — the function that
+resolves the bringup and already attaches the include dir, so the generated
+header reaches the backend's TUs by the same route `system_config.h` does. It
+could not go in `nros_rmw_cyclonedds.cmake`: `zephyr/CMakeLists.txt` includes
+that at line 162, long before any leaf calls `nros_system_generate`, so the
+backend module could only ever read a bringup left in the cache by a PREVIOUS
+configure.
+
+Fixture row `west_bringup_zephyr_cyclone_user_config` (west-build,
+native_sim/native/64), sharing `multi_pkg_workspace_zephyr`'s bringup with the
+existing zenoh row.
+
+**WHAT IT PROVES:**
+
+- the bake fires on an RTOS configure —
+  `nano-ros: baked .../demo_bringup/rmw/cyclonedds.xml -> .../nros_cyclonedds_user_config.h`
+- the header holds the SSoT's bytes **byte-identically** (extracted from the raw
+  string literal and compared to the file: `True`)
+- `session.cpp` **compiles those bytes into its object on the RTOS target** —
+  `strings session.cpp.obj | grep -c cdds.io/config` = 1
+- the negative control holds: the same bringup built with `prj-zenoh.conf` bakes
+  NOTHING (`rmw=zenoh`, no bake line, `rc=0`), because `rmw/` ships
+  `cyclonedds.xml` and no `zenoh.conf` — the active backend picks the file
+
+**WHAT IT DOES NOT PROVE, and this is the honest limit.** The bytes are in the
+OBJECT, not in the IMAGE: `strings zephyr.elf | grep -c ddsi_` is **0**. The
+whole Cyclone backend is garbage-collected out, because this fixture's
+`zephyr_app/src/main.c` is a 212.H.1 stub that never creates a node, and the link
+runs `--gc-sections`. So this row is a COMPILE-stage measurement. "The same file
+works byte-identically hosted and embedded" is now proven as far as the
+compiler; it is not yet proven as far as a running participant.
+
+**BOTH bringup paths now bake.** There are two, and neither covers the other:
+
+| path | who uses it | bakes? |
+| --- | --- | --- |
+| `nros_system_generate()` (212.H.1 shim) | the test fixtures only | yes |
+| `nano_ros_entry(... BRINGUP ...)` (`cmake/NanoRosEntry.cmake`) | every real workspace image | yes |
+
+No in-tree EXAMPLE calls `nros_system_generate` — its only callers are
+`multi_pkg_workspace_zephyr` and `zephyr_self_pkg` — so wiring the shim alone
+left the mechanism reachable from the fixtures and from nothing a user builds.
+
+**The include goes on the BACKEND target, not on the entry.** `session.cpp` is
+the TU that reads the generated header and it compiles into `nros_rmw_<backend>`,
+a different target from the executable. Attaching the directory to the entry
+alone configures cleanly, compiles cleanly, and bakes nothing into the image —
+the exact failure this work item exists to make impossible. Where the backend is
+IMPORTED (an installed NanoRos, which cannot be recompiled) the entry path warns
+rather than staying silent: a config that does not apply must not look like one
+that did.
+
+**PROVEN ON AN IMAGE THAT ACTUALLY LINKS CYCLONE** —
+`workspace-cpp-native-cyclonedds` (`examples/workspaces/cpp`, `[image.native_cyclonedds]`),
+whose bringup now ships `src/demo_bringup/rmw/cyclonedds.xml`:
+
+```
+-- nano-ros: baked .../src/demo_bringup/rmw/cyclonedds.xml -> .../nros_cyclonedds_user_config.h
+-- nano-ros: cyclonedds user config reaches nros_rmw_cyclonedds (entry native_cyclonedds_entry)
+```
+
+and in the linked executable:
+
+| check | result |
+| --- | --- |
+| the SSoT's exact bytes, contiguous, in the ELF | **True** |
+| `strings \| grep -c 'cdds.io/config'` | 1 |
+| `strings \| grep -c ddsi_` (Cyclone really linked) | 41 |
+
+Negative control, same workspace: `workspace-cpp-native` (zenoh) builds `rc=0`
+with **zero** bake lines — `rmw/` ships `cyclonedds.xml` and no `zenoh.conf`, so
+the active backend picks the file and an image whose backend has no config
+compiles with no cmake participation at all.
+
+**What the RTOS row adds, and what it still does not.** The Zephyr row above is a
+COMPILE-stage measurement: the bytes reach `session.cpp.obj` but not
+`zephyr.elf`, because that fixture's `main.c` is a 212.H.1 stub that never
+creates a node and the link runs `--gc-sections`. An RTOS image that links
+Cyclone AND carries a bringup config is the remaining gap — smaller than it was,
+and no longer blocking the mechanism, which is now proven end to end on a real
+image.
+
+A conf-file trap found on the way, recorded because it fails GREEN: omitting
+`CONFIG_CPP=y` leaves `NROS_RMW_CYCLONEDDS`'s `depends on NET_SOCKETS &&
+POSIX_API && CPP` unmet, and Kconfig does not complain — it silently keeps the
+default and builds ZENOH while every conf file in the command says Cyclone
+(`rc=0`, zenoh-pico TUs in the log, `rmw=zenoh` in the bake line).
 
 ### 206.W3 — zenoh's run-time rung is exposed, complete, and fails loud — **DONE 2026-09-05**
 
@@ -637,16 +730,22 @@ does not belong in this phase.
 
 ## Acceptance
 
-- [ ] A user attaches a Cyclone XML naming an IP or a device, and it takes
-      effect **without losing the baked baseline** — proven on an RTOS target,
-      where losing it is destructive.
-- [ ] The same file works byte-identically hosted and embedded.
+- [x] A user attaches a Cyclone XML naming an IP or a device, and it takes
+      effect **without losing the baked baseline**. The composition is
+      `nros_rmw_cyclonedds_user_config` on the host lane; the attachment is
+      `workspace-cpp-native-cyclonedds`, whose ELF carries the SSoT's exact
+      bytes. *On an RTOS target* the claim is still COMPILE-stage only — see
+      W2's note; the RTOS row's stub app gc-strips the backend.
+- [x] The same file works byte-identically hosted and embedded. Byte-identity is
+      measured in both places (exact SSoT bytes in the hosted ELF; the raw
+      literal compared to the file on the Zephyr configure). "Embedded" means
+      as far as the object, not yet as far as an RTOS image that links Cyclone.
 - [ ] A zenoh user sets `listen` from a C entry and from an embedded image.
 - [ ] Multi-homing is demonstrated **with no nano-ros feature involved**: a
       hosted Cyclone node reachable on `lo` and one real NIC, configured purely
       by `<General><Interfaces>` in the user's own XML. This is the original
       phase's acceptance criterion, met by deleting the mechanism it proposed.
-- [ ] `nano-ros parses neither XML nor JSON5.` Cyclone's parser reads the XML;
+- [x] `nano-ros parses neither XML nor JSON5.` Cyclone's parser reads the XML;
       zenoh's key/value table takes the pairs — and both spellings are the ones
       the backends' own documentation uses, so a user's existing knowledge
       transfers instead of being re-learned.
