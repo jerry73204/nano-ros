@@ -3434,11 +3434,15 @@ setup-cli:
         bin_real="$(readlink -f "$bin" 2>/dev/null || echo "$bin")"
         if [ "$resolved_real" != "$bin_real" ]; then
             echo "[setup-cli] WARNING: \`which nros\` -> $resolved" >&2
-            echo "[setup-cli]   This shadows the in-tree CLI we just built ($bin)." >&2
-            echo "[setup-cli]   Clean up the stale shadow so post-218 builds use this checkout:" >&2
-            echo "[setup-cli]       rm -f \"\$HOME/.cargo/bin/nros\" \"\$HOME/.nros/bin/nros\"" >&2
+            echo "[setup-cli]   This shadows the in-tree CLI we just built ($bin)," >&2
+            echo "[setup-cli]   and recipes resolve PATH first, so THAT binary is the" >&2
+            echo "[setup-cli]   one this tree would run." >&2
+            echo "[setup-cli]   Put the checkout first:" >&2
             echo "[setup-cli]       source ./activate.sh" >&2
-            echo "[setup-cli]   (\`just doctor\` will FAIL until this is resolved.)" >&2
+            echo "[setup-cli]   A pre-218 install that still wins is removable:" >&2
+            echo "[setup-cli]       rm -f \"\$HOME/.cargo/bin/nros\"" >&2
+            echo "[setup-cli]   (\`just doctor\` FAILS until this is resolved — phase-431 W2." >&2
+            echo "[setup-cli]    It said so from phase 220 and did not; now it does.)" >&2
         fi
     }
     # Up-to-date iff the binary exists and NO cli SOURCE (Cargo.toml/lock or any
@@ -4232,13 +4236,17 @@ doctor *scope:
     if [[ -z "$chosen_tier" ]]; then
         chosen_tier="${NROS_SETUP_TIER:-base}"
     fi
-    just _doctor-host
-    just _orchestrate doctor "$chosen_tier"
+    # `set -e` would stop here on a host FAIL, and doctor's job is the whole
+    # picture: a shadowing `nros` must not hide an absent Zephyr SDK.
+    host_rc=0
+    just _doctor-host || host_rc=1
+    just _orchestrate doctor "$chosen_tier" || host_rc=1
     # The DERIVED default scope — every platform probed, nothing recorded.
     # This is the line that makes an absent platform visible at the moment a
     # person is asking about readiness, instead of as a skip inside a green run.
     echo ""
     nros_scope_report doctor
+    exit "$host_rc"
 
 # One scope token's readiness. `native` is the host, so its readiness IS the
 # shared-tooling block — there is no `native` module `doctor` to call and there
@@ -4254,8 +4262,11 @@ _doctor-scope tok:
         echo ""
         echo "=== $tok ==="
         if [ "$tok" = "native" ]; then
-            nros_scope_exec just _doctor-host
-            exit 0
+            # Propagate: `just doctor native` and the default scope reach ONE
+            # block, so they must reach one verdict too (phase-431 W2).
+            rc=0
+            nros_scope_exec just _doctor-host || rc=$?
+            exit "$rc"
         fi
         nros_scope_require_module_verb "$tok" doctor
         nros_scope_exec just "$tok" doctor
@@ -4281,12 +4292,52 @@ _doctor-host:
     # uses the same resolver as every recipe that shells `nros …`, so a
     # skew between resolver and what doctor reports is impossible.
     # shellcheck disable=SC1091
+    host_rc=0
     if . "{{justfile_directory()}}/scripts/build/cargo.sh" 2>/dev/null && \
        cli_bin="$(nros_cli_bin 2>/dev/null)"; then
         cli_ver="$("$cli_bin" --version 2>/dev/null | head -1)"
         echo "  [OK] nros CLI: ${cli_ver:-unknown} ($cli_bin)"
     else
         echo "  [MISSING] nros CLI — run: just setup-cli"
+    fi
+    # phase-431 W2 — A SHADOWING `nros` IS A FAILURE, not a warning.
+    #
+    # `setup-cli` has warned about this since phase 220 and its own text said
+    # "`just doctor` will FAIL until this is resolved". It did not; the promise
+    # was the whole enforcement. That was survivable while no release existed —
+    # a non-checkout `nros` was then somebody's old `cargo install` — and stops
+    # being survivable the day phase-431 ships one, because the shadow becomes
+    # the NORMAL state of a user's machine and a contributor's PATH inherits it.
+    #
+    # What it costs is not hypothetical: `nros_cli_bin` resolves PATH BEFORE the
+    # per-checkout binary (cargo.sh, phase 218.D.3), so every recipe that shells
+    # `nros …` runs the shadow, and it emits ITS OWN codegen against this tree.
+    # RFC-0090's version does not catch that — a release at the same version is
+    # different, not incompatible. `refuse_if_foreign_to_workspace` (W1) refuses
+    # it at `nros build`; this is the same answer at the moment someone is
+    # asking whether their machine is ready, which is cheaper than at build time.
+    if command -v nros >/dev/null 2>&1; then
+        in_tree="{{justfile_directory()}}/packages/cli/target/release/nros"
+        shadow="$(command -v nros)"
+        shadow_real="$(readlink -f "$shadow" 2>/dev/null || echo "$shadow")"
+        in_tree_real="$(readlink -f "$in_tree" 2>/dev/null || echo "$in_tree")"
+        if [ "$shadow_real" != "$in_tree_real" ]; then
+            echo "  [FAIL] \`nros\` on PATH is not this checkout's binary."
+            echo "         on PATH:  $shadow_real"
+            echo "         expected: $in_tree_real"
+            echo "         Recipes resolve PATH first, so every \`nros …\` this tree"
+            echo "         runs would come from somewhere else and emit its own"
+            echo "         codegen (RFC-0090; \`nros build\` refuses it outright)."
+            echo "         Fix:  just setup-cli && source ./activate.sh"
+            echo "         A pre-218 install lingers at ~/.cargo/bin/nros or"
+            echo "         ~/.nros/bin/nros — remove it if activate.sh does not win."
+            host_rc=1
+        else
+            echo "  [OK] \`nros\` on PATH is this checkout's binary"
+        fi
+    else
+        echo "  [INFO] no \`nros\` on PATH — recipes fall back to the in-tree"
+        echo "         binary. \`source ./activate.sh\` to type \`nros\` yourself."
     fi
     # issue 0653 — a RETIRED SDK store entry that is still installed.
     #
@@ -4436,6 +4487,10 @@ _doctor-host:
         echo "         than as absent coverage."
         echo "         Install:  nros setup --system    (declared in nros-sdk-index.toml)"
     fi
+    # One verdict, at the END. doctor's contract is that it reports every unmet
+    # precondition in one run (the `check tier-preconditions` shape), so a FAIL
+    # above must not short-circuit the blocks below it.
+    exit "$host_rc"
 
 # Internal: walk every module in `tier` calling the requested recipe
 # (setup or doctor). `base` is the safe quick-start tier; `all` is the

@@ -148,6 +148,7 @@ fast-serial: \
     cbindgen-headers \
     cbindgen-pin \
     cc-build-policy \
+    ci-cli-from-source \
     ci-doc-workflow-refs \
     ci-image-python-deps \
     ci-no-fixture-tolerance \
@@ -1156,6 +1157,19 @@ config-knob-census:
 # scanned: they narrate what a command DID at a time, so gating them would be a
 # steady false-positive stream. The recipe keeps its `workflow-` name because
 # the workflow arm is still the one a red usually means.
+# phase-431 W2 — CI builds the CLI from source and PROVES it, and never
+# installs the release. Two directions: no workflow acquires a release asset
+# (a released binary emits its own codegen, so such a job stops testing this
+# tree while staying green — and RFC-0090's version does not catch it, because
+# a release at the same version is different, not incompatible), and every
+# from-source build asserts `nros source-stamp` in the SAME step (phase-429 W5;
+# the CLI cache key is narrower than the stamp's watch set). The second arm
+# found `gate.yml`'s CLI warm-up asserting nothing, four sites into a five-site
+# rule.
+[group("checks")]
+ci-cli-from-source:
+    @python3 scripts/check-ci-cli-from-source.py
+
 [group("checks")]
 workflow-setup-spelling:
     @python3 scripts/check-workflow-setup-spelling.py

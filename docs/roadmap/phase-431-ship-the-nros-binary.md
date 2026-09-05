@@ -1,6 +1,7 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** Opened. No code yet. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
+**Status (2026-09-06).** **W1 and W2 landed.** W3–W6 open — the distribution
+mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
 rather than after.
@@ -104,6 +105,58 @@ sources does not. Both observed, not reasoned.
   for. Contributors and CI build from source, always; the release is for users.
 
 **Acceptance.** The gate fails when a workflow is edited to fetch the asset.
+
+**Landed 2026-09-06.**
+
+*The doctor half.* `_doctor-host` now reports a shadow as `[FAIL]` and
+`_doctor-host` / `doctor` / `_doctor-scope native` carry the verdict out, so the
+phase-220 promise is true. Three things had to move together, and the second is
+the one worth recording: `doctor` had `set -e`, so a failing host block would
+have skipped every platform probe — doctor's contract is that it reports every
+unmet precondition in ONE run, so the verdict is aggregated and emitted at the
+end instead. `just doctor native` reaches the same block and now returns the
+same code, because one block with two verdicts is how a check stops meaning
+anything.
+
+Why a FAIL and not a WARN, stated in the recipe itself: `nros_cli_bin` resolves
+**PATH before the per-checkout binary** (cargo.sh, phase 218.D.3), so a shadow is
+not cosmetic — it is the binary every `nros …` in this tree actually runs. W1
+refuses it at `nros build`; this is the same answer at the moment someone is
+asking whether their machine is ready.
+
+Observed:
+
+```
+no `nros` on PATH            -> [INFO], rc 0   (recipes use the in-tree binary)
+a foreign `nros` on PATH     -> [FAIL], rc 1   (and the blocks below it still run)
+the checkout's own on PATH   -> [OK],   rc 0
+```
+
+`setup-cli`'s warning was rewritten with it. Its old remedy said to delete
+`~/.nros/bin/nros`, which W3/W4 make the *supported* user install — so the
+remedy is now `source ./activate.sh` (put the checkout first), with removing a
+pre-218 `~/.cargo/bin/nros` as the fallback.
+
+*The gate half.* `check-ci-cli-from-source` (fast lane, 232 gates) runs two arms:
+
+* **no workflow acquires the CLI as a release asset** — `gh release download`,
+  a `releases/download/` URL, the `nros-<host>.tar.zst` asset name,
+  `--tool nros`, or `bootstrap.sh` without `--from-source` (W4 makes download
+  its default, so an unflagged invocation *is* the release path).
+* **every from-source build asserts `nros source-stamp` in the same step** —
+  phase-429 W5's rule, which nothing enforced.
+
+The second arm found an offender immediately: `gate.yml`'s CLI warm-up for
+`check cli-tests` built the binary and asserted nothing, so **four of five sites
+carried the rule and the fifth read exactly like the other four**. Fixed in the
+same commit.
+
+Two false-positive lessons are in the script. Arm A first flagged `docs.yml`
+downloading **mdbook-mermaid** from a GitHub release — CI legitimately fetches
+other projects' releases, so a match now also has to name `nros` (with
+`bootstrap.sh` exempt from that filter, since it is the front door and spells
+the binary nowhere). And the name is often not on the line the verb is, so the
+scan joins backslash continuations into logical lines first.
 
 ### W3 — the store holds versions, `nros` means the newest
 
