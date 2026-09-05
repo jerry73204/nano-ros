@@ -1026,14 +1026,25 @@ qos_profiles! {
     };
 
     /// Clock QoS profile — sensor-data shaped with depth 1.
-    QOS_PROFILE_CLOCK: "nros: sensor-data shaped with depth 1; /clock has no rmw constant" = {
+    // phase-428 W4 — the provenance string said "/clock has no rmw constant",
+    // which is true and was read as "no upstream at all". `rclrs::QOS_PROFILE_CLOCK`
+    // EXISTS under this exact name (`rclrs/src/qos.rs:598`, it is rclcpp's
+    // `ClockQoS`), and Rust follows rclrs. So this row mirrors something after
+    // all, and the gate — which only compares upstream-MIRRORING rows — could
+    // not see it.
+    //
+    // That is why it kept `Automatic` when W10 moved the other five to the
+    // sentinel: F2's fourth instance, sitting inside the fix for F2's third.
+    // The one row the instrument does not reach is the one that kept the
+    // defect.
+    QOS_PROFILE_CLOCK: "nros: mirrors rclrs::QOS_PROFILE_CLOCK; no rmw constant exists, so the gate cannot bind it — phase-428 W4" = {
         history: KeepLast,
         depth: 1,
         reliability: BestEffort,
         durability: Volatile,
         deadline_ms: 0,
         lifespan_ms: 0,
-        liveliness_kind: Automatic,
+        liveliness_kind: None,
         liveliness_lease_ms: 0,
         avoid_ros_namespace_conventions: false,
         tx_express: false,
@@ -1101,8 +1112,16 @@ qos_profiles! {
 //   No nano-ros counterpart, deliberately. `rmw_qos_profile_unknown` is what an
 //   RMW returns from `*_get_actual_qos` when it cannot report a policy; it is
 //   not a profile an application constructs. Our enums have no `Unknown`
-//   variant to build it from on three of the four policies — the C ABI has
-//   `NROS_RMW_RELIABILITY_UNKNOWN` and nothing reads it (phase-428 F1).
+//   variant to build it from on three of the four policies.
+//
+//   CORRECTED 2026-09-05 (phase-428 W1): an earlier draft of this note said
+//   `NROS_RMW_RELIABILITY_UNKNOWN` "and nothing reads it". False — it is
+//   written at `rmw/cffi/src/rust_adapter.rs:1797` on every Rust backend and
+//   read by `qos_has_unknown` (`cffi/src/lib.rs:4307`) to produce upstream's
+//   `RMW_QOS_COMPATIBILITY_WARNING`. The true, narrower statement is that no
+//   `*_get_actual_qos` IMPLEMENTATION anywhere writes any `*_UNKNOWN` value —
+//   the slots whose documentation defines the contract are the ones that do
+//   not honour it.
 
 impl QoSProfile {
     /// Create new QoS settings with defaults (matches `QOS_PROFILE_DEFAULT`:
