@@ -512,3 +512,27 @@ middleware (~55, needs discovery), runtime type erasure (~45, needs a dynamic
 loader). The claim this phase can honestly reach is about PROGRAMS — the shapes
 a ROS 2 node is actually written in compile and behave, everything else fails
 loudly — and the in-tree ported templates are the measurement.
+
+
+## Where the remaining work lives (2026-09-05)
+
+Stage 6's rename is done for the call sites (step B) and the forwarders (W-B5).
+What is left was never a rename, and each piece now has its own phase rather
+than growing this one:
+
+* **phase-427 — one node type.** `rclcpp::Node` becomes the class, the three
+  C++ node shapes collapse, `ComponentNode` is deleted. Its preconditions were
+  cleared here: the `pump()` blocker is gone, `check-cpp-capability-layout`
+  measures the layout rule, and the `-nostdinc++` lane can see a freestanding
+  regression.
+* **phase-426 — parameters get a Rust SSoT.** The three stores become one and
+  `ros2 param list` enumerates the image's nodes rather than the executor.
+* **phase-428 — the porting-principle sweep.** All three user APIs audited
+  against RFC-0089's governing principle. This is the one that looks for the
+  class the parity instrument cannot see: a name we share with upstream whose
+  BEHAVIOUR differs, which correlates `same` because correlation compares names
+  and shapes.
+
+The `#3 batch` (34 `declined` rows the spelling decision flips to `adopt`) stays
+here, and W-B6's changelog entry now has phase-427's two loudness items to carry
+as well.
