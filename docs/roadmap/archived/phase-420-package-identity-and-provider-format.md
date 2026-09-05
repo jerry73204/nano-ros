@@ -1,9 +1,14 @@
 # Phase 420 — package identity and the provider format
 
-**Status (2026-09-05). W1–W8 landed. W9 is the only work item still open,
-and only its last step: its two source-list halves and its configuration
-half are in review, and the single compile is argued down rather than
-pending — see the item.** Implements
+**Status (2026-09-05). W1–W9 landed; the phase is complete.** W9's last step
+resolved differently for the two vendored trees, and both answers are
+measurements rather than preferences: XRCE now has one compile, in the lane that
+ships, and zenoh-pico turned out to have no duplicate compile to remove — its
+lanes are disjoint by platform, so what landed there is the gate that keeps them
+disjoint. Three issues were filed on the way and are NOT part of this phase:
+1096 (a third compiler of zenoh-pico, in a readiness script), 1097 (a debug
+recipe that cannot work) and 1078 (five XRCE pool knobs missing from the
+inventory). Implements
 [RFC-0087](../design/0087-package-identity-and-provider-format.md). Sequenced
 with [phase-421](phase-421-serialization-format-provider.md), which implements
 RFC-0088 and needs **W1 of this phase only** — the rest of this phase can land
@@ -448,8 +453,9 @@ is one road.
       The gate ships with no subject and says so on every run, which is the
       honest state for a rule whose first case has not arrived.
 
-- [~] **W9 — the in-tree vendored backends adopt the same shape.** (surveyed +
-      partially landed 2026-09-05) `zpico-sys` and `xrce-sys` currently vendor
+- [x] **W9 — the in-tree vendored backends adopt the same shape.** (landed
+      2026-09-05, in five waves; steps 1-3 for both trees, step 4 as one compile
+      for XRCE and as a measured refusal plus a gate for zenoh-pico) `zpico-sys` and `xrce-sys` currently vendor
       through a submodule plus `build.rs`, which is a third mechanism. Split each
       into a vendor package (fetch/build of the upstream tree) and a provider
       package (the backend), so ours and a user's differ in nothing but location.
