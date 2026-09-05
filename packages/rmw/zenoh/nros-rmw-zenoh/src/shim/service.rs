@@ -1050,11 +1050,41 @@ impl ClientTrait for ZenohServiceClient {
     // one inherited a default of `true` (issue 1008).
 
     fn service_is_ready(&self) -> Result<bool, TransportError> {
-        // Phase 124.C.2 — zenoh-pico tracks matched queryables via the
-        // session's liveliness subscription. `server_seen` already
-        // reflects "at least one matching queryable advertised", which
-        // is the answer this probe wants.
-        Ok(self.server_seen)
+        // issue 1087 — this returned the LATCH, and the latch has no
+        // invalidation: `server_seen` is set when a liveliness token is first
+        // observed and never cleared, so a server that died still read
+        // available for the rest of the client's lifetime.
+        //
+        // The justification used to be "rclcpp's `service_is_ready` snapshot
+        // semantic". There is no such semantic:
+        // `rclcpp::ClientBase::service_is_ready()` calls
+        // `rcl_service_server_is_available` on EVERY invocation, and upstream's
+        // `rmw.h` says the outcome reflects a QoS-compatibility CHANGE, in
+        // either direction — so it must be able to go from true back to false.
+        //
+        // A cheap re-query is not available here: the only probe zenoh-pico
+        // gives us is `z_liveliness_get`, which is asynchronous (start, then
+        // poll a handle) and therefore cannot be answered inside this
+        // synchronous `&self` method. So the honest answer for a caller that
+        // wants a CURRENT reading is "cannot say", and that is what this now
+        // returns unless the latch has never been set.
+        //
+        //   * `server_seen == false` -> `Ok(false)`: nothing has ever been
+        //     observed, which IS a current answer and the one that matters for
+        //     the startup race this exists to prevent.
+        //   * `server_seen == true`  -> `Err(Unsupported)`: we saw one once and
+        //     cannot confirm it is still there. Every caller in the tree reads
+        //     this through `matches!(..., Ok(true))` (issue 1008), so `Err`
+        //     falls through to the wait loop, which re-issues a real query.
+        //
+        // That is strictly better than a permanent yes and strictly worse than
+        // a synchronous probe; the synchronous probe needs a zenoh-pico API we
+        // do not have.
+        if self.server_seen {
+            Err(TransportError::Unsupported)
+        } else {
+            Ok(false)
+        }
     }
 }
 
