@@ -48,10 +48,18 @@ STAMP_RE = re.compile(r"\bsource-stamp\b")
 # downloads OTHER projects' releases, and `docs.yml` fetching `mdbook-mermaid`
 # from a GitHub release URL was this gate's first false positive.
 #
-# `bootstrap.sh` is here because phase-431 W4 makes DOWNLOAD its default: the
-# user front door stops building from source, and `--from-source` is the
-# contributor opt-in. A workflow invoking it without that flag is the release
-# path spelled differently.
+# `scripts/install.sh` is here because it IS the release path: phase-431 W4 made
+# it the user front door, downloading a release into the SDK store. A workflow
+# running it is a workflow testing the last release instead of this tree.
+#
+# `scripts/bootstrap.sh` is deliberately NOT here. W4 first planned to make
+# download ITS default with a `--from-source` opt-out, and that turned out not
+# to be implementable: bootstrap runs inside a checkout, and a released binary
+# cannot serve a checkout — `refuse_if_foreign_to_workspace` refuses it (W1),
+# `just doctor` fails on it (W2), and copying it into `packages/cli/target/`
+# does not help either, because `nros source-stamp` compares against the
+# sources it was built from. So the two front doors split by AUDIENCE, and
+# bootstrap building from source is exactly what this gate wants.
 RELEASE_ACQUISITION = [
     (
         re.compile(r"gh release download"),
@@ -69,9 +77,11 @@ RELEASE_ACQUISITION = [
         re.compile(r"--tool[= ]nros\b"),
         "installs the CLI through the SDK store",
     ),
+    (
+        re.compile(r"scripts/install\.sh"),
+        "runs the user installer, which downloads a release",
+    ),
 ]
-BOOTSTRAP_RE = re.compile(r"bootstrap\.sh")
-FROM_SOURCE_RE = re.compile(r"--from-source\b")
 
 # (workflow, exact stripped line) -> reason. Checked in BOTH directions: an
 # exemption matching nothing is a stale allow-list, which is how a gate quietly
@@ -134,6 +144,7 @@ def build_sites(text):
 
 
 NROS_RE = re.compile(r"\bnros\b")
+INSTALLER_RE = re.compile(r"scripts/install\.sh")
 
 
 def logical_lines(text):
@@ -167,19 +178,14 @@ def release_sites(text):
     for i, line in logical_lines(text):
         if not line or line.startswith("#"):
             continue
-        # `bootstrap.sh` is exempt from the name filter: it IS the nros front
-        # door, and it spells the binary nowhere on its own invocation line.
-        if not NROS_RE.search(line) and not BOOTSTRAP_RE.search(line):
+        # `scripts/install.sh` is exempt from the name filter: it is the nros
+        # installer and spells the binary nowhere on its own invocation line.
+        if not NROS_RE.search(line) and not INSTALLER_RE.search(line):
             continue
         for pattern, what in RELEASE_ACQUISITION:
             if pattern.search(line):
                 out.append((i, line, what))
                 break
-        else:
-            if BOOTSTRAP_RE.search(line) and not FROM_SOURCE_RE.search(line):
-                out.append(
-                    (i, line, "runs bootstrap.sh, whose default is the download")
-                )
     return out
 
 
@@ -241,13 +247,17 @@ def self_test():
             "          curl -L https://example/releases/download/v1/nros.tar.zst",
             "          tar xf nros-x86_64-linux.tar.zst",
             "          nros setup --tool nros",
-            "          ./scripts/bootstrap.sh",
+            "          sh scripts/install.sh",
             "          # gh release download in a comment is prose",
         ]
     )
     hits = release_sites(bad)
     assert [h[0] for h in hits] == [2, 3, 4, 5, 6], hits
-    assert "bootstrap.sh" in hits[4][2], hits[4]
+    assert "installer" in hits[4][2], hits[4]
+
+    # bootstrap builds from source, which is the point — never an offender.
+    boot = "        run: ./scripts/bootstrap.sh"
+    assert release_sites(boot) == [], release_sites(boot)
 
     # Another project's release is not ours. `docs.yml` fetching mdbook-mermaid
     # from a `releases/download/` URL was this gate's first false positive.
@@ -274,7 +284,7 @@ def self_test():
     ok = "\n".join(
         [
             "        run: |",
-            "          ./scripts/bootstrap.sh --from-source",
+            "          ./scripts/bootstrap.sh",
             "          cargo build --release --bin nros",
         ]
     )
