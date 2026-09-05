@@ -308,3 +308,23 @@ zenoh-source-manifest:
 [private]
 xrce-vendored-versions:
     @python3 scripts/check-xrce-vendored-versions.py
+
+# phase-348 W4 — build order derived from package.xml `<depend>`, not from the
+# order a SUBDIRS list happens to be written in. Every workspace CMakeLists
+# carries "Node pkgs BEFORE entries so the entry codegen sees their metadata";
+# the entry packages already state that as <exec_depend>. Covers the cycle and
+# bad-subdir rejections and the cmake seam. Needs `just setup-cli`.
+# phase-420 W9 — the sibling of `xrce-source-manifest`, one axis over: that one
+# keeps the two XRCE lanes from re-growing a source list each, this one keeps
+# them from re-growing a CONFIGURATION each. Every `@TOKEN@` in the two upstream
+# `config.h.in` templates was written twice, and the six `CONFIG_NROS_XRCE_*`
+# Kconfig options reached the Rust lane and NOT the CMake one (a `grep -c` of
+# zero), so a stated MTU compiled in one lane and the default in the other.
+#
+# It checks WIRING, not just shape: Kconfig's per-option `Maps to <SYMBOL>.`
+# line must name exactly the symbols `xrce-config.txt` binds that knob to, so a
+# row whose columns are perfect and whose env name points at the wrong knob
+# fails. Buildless, ~40 ms.
+[private]
+xrce-config-manifest:
+    @python3 scripts/check-xrce-config-manifest.py

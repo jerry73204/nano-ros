@@ -155,17 +155,154 @@ message(STATUS
 # of it instead of one per lane.
 # NROS-XRCE-VERSIONS-END
 
-# Generate `<uxr/client/config.h>` from the upstream template. Values
-# match the Rust lane's `posix_compat = true, mtu = 4096` defaults; further
-# tuning lands when 115.K.2.5 flips the C backend on under
-# `-DNROS_C_RMW=xrce`.
+# ---- Build configuration: DERIVED, never restated (phase-420 W9) -----------
+#
+# This file OWNS NO CONFIGURATION VALUE. Every `@TOKEN@` the two upstream
+# `config.h.in` templates take, every `#cmakedefine` toggle, and every knob's
+# minimum is read from `packages/rmw/xrce/xrce-config.txt`, which
+# `nros-rmw-xrce-cffi/build.rs` reads too.
+#
+# There used to be a `set(UCLIENT_…)` block here and a matching pile of
+# `.replace("@UCLIENT_…@", …)` calls there, with no gate between them, and they
+# had already stopped agreeing about more than the version: the six
+# `CONFIG_NROS_XRCE_*` Kconfig knobs reached the Rust lane and NOT this one
+# (`grep -c CONFIG_NROS_XRCE` on this file was 0), so a person who set
+# `CONFIG_NROS_XRCE_TRANSPORT_MTU=1024` got 1024 in one lane's TUs and 4096 in
+# the other's. Measured, phase-420 W9: that is not an issue-0135 ABI split,
+# because no single image holds TUs from both lanes (this project is configured
+# only by `just check rmw-xrce` and its archive reaches only its own two CTest
+# binaries) — it was a CTest harness validating values no image compiles.
+#
+# Gate: `just check xrce-config-manifest`.
+set(_xrce_config "${CMAKE_CURRENT_SOURCE_DIR}/../xrce-config.txt")
+if(NOT EXISTS "${_xrce_config}")
+    message(FATAL_ERROR
+        "nros-rmw-xrce: shared config manifest not found at '${_xrce_config}'. "
+        "It is tracked in-repo — a missing one means the checkout is incomplete.")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_xrce_config}")
+
+# The knob ladder, rungs 1, 2 and 4 — the twin of `KnobResolver` in
+# `nros-rmw-xrce-cffi/build.rs`. Rung 3 (`[knobs.xrce]`) is that lane's only,
+# and `xrce-config.txt` says why: it needs a TOML parser this lane does not
+# have, and it can only be delivered by a cargo build.
+#
+# `_out` is set to the empty string when NOTHING states a value and `_default`
+# is empty — that is how a `define` record leaves `internal.h`'s own `#ifndef`
+# default standing, in both lanes, rather than each lane picking one.
+function(_nros_xrce_knob _env _default _min _out)
+    set(_v "")
+    if(DEFINED ENV{${_env}} AND NOT "$ENV{${_env}}" STREQUAL "")
+        # Rung 1. A person typed this in this shell; a value that is not a
+        # number is an error, never a silent fall-through to a default that
+        # answers a question they did not ask. build.rs panics on the same input.
+        set(_v "$ENV{${_env}}")
+        if(NOT _v MATCHES "^[0-9]+$")
+            message(FATAL_ERROR "nros-rmw-xrce: ${_env}='${_v}' is not a number")
+        endif()
+    elseif(DEFINED ENV{DOTCONFIG} AND EXISTS "$ENV{DOTCONFIG}")
+        # Rung 2 — Kconfig, read the way `nros_zephyr_build::dotconfig_usize`
+        # reads it. A non-numeric value is ABSENT rather than an error: `-1` is
+        # the documented DERIVE sentinel (phase-403 W8), so a knob left on it
+        # means "nothing stated".
+        file(STRINGS "$ENV{DOTCONFIG}" _hits REGEX "^CONFIG_${_env}=")
+        if(_hits)
+            list(GET _hits 0 _hit)
+            string(REGEX REPLACE "^CONFIG_${_env}=" "" _hit "${_hit}")
+            if(_hit MATCHES "^[0-9]+$")
+                set(_v "${_hit}")
+            endif()
+        endif()
+    endif()
+    if("${_v}" STREQUAL "")
+        set(_v "${_default}")  # rung 4
+    endif()
+    if(NOT "${_v}" STREQUAL "" AND _v LESS _min)
+        message(FATAL_ERROR
+            "nros-rmw-xrce: ${_env}=${_v} is below the minimum ${_min} stated in "
+            "${_xrce_config}.")
+    endif()
+    set(${_out} "${_v}" PARENT_SCOPE)
+endfunction()
+
+# `value <template> <token> <literal>` and `knob <template> <token> <env>
+# <default> <min>` → a cmake variable named for the token, which is what
+# `configure_file @ONLY` substitutes. Both templates are filled from the same
+# records; `_xrce_config_apply` is called once per template.
+#
+# `flag <template> <token> <condition>` → the same variable, TRUE or unset, so
+# `#cmakedefine` writes `#define` or `/* #undef */`. The condition tokens are
+# the ones `xrce-sources.txt` uses and the `_xrce_cond_*` block below answers —
+# one vocabulary, because "which files" and "which profile defines" have to
+# agree or the header promises a profile whose TUs were not compiled.
+function(_xrce_config_apply _template)
+    file(STRINGS "${_xrce_config}" _lines REGEX "^[ \t]*(value|knob|flag)[ \t]")
+    foreach(_line IN LISTS _lines)
+        string(REGEX REPLACE "[ \t]*#.*$" "" _line "${_line}")
+        string(REGEX REPLACE "^[ \t]+" "" _line "${_line}")
+        string(REGEX REPLACE "[ \t]+$" "" _line "${_line}")
+        string(REGEX REPLACE "[ \t]+" ";" _f "${_line}")
+        list(GET _f 0 _kind)
+        list(GET _f 1 _tmpl)
+        list(GET _f 2 _token)
+        if(NOT _tmpl STREQUAL _template)
+            continue()
+        endif()
+        if(_kind STREQUAL "value")
+            list(GET _f 3 _lit)
+            set(${_token} "${_lit}" PARENT_SCOPE)
+        elseif(_kind STREQUAL "knob")
+            list(GET _f 3 _env)
+            list(GET _f 4 _def)
+            list(GET _f 5 _min)
+            _nros_xrce_knob("${_env}" "${_def}" "${_min}" _resolved)
+            set(${_token} "${_resolved}" PARENT_SCOPE)
+        else()
+            list(GET _f 3 _cond)
+            if(NOT DEFINED _xrce_cond_${_cond})
+                message(FATAL_ERROR
+                    "nros-rmw-xrce: ${_xrce_config} flag '${_token}' uses condition token "
+                    "'${_cond}', which this lane does not answer. Add a "
+                    "`set(_xrce_cond_${_cond} …)` here AND an arm in "
+                    "nros-rmw-xrce-cffi/build.rs — a token only one lane answers is issue "
+                    "1068 again.")
+            endif()
+            if(_xrce_cond_${_cond})
+                set(${_token} TRUE PARENT_SCOPE)
+            else()
+                # UNSET, not empty-string: `#cmakedefine` treats both as false,
+                # but a stale value from an earlier configure would not be.
+                unset(${_token} PARENT_SCOPE)
+            endif()
+        endif()
+    endforeach()
+endfunction()
+
+# NROS-XRCE-CONDITIONS-BEGIN — the boolean this lane supplies for each condition
+# token the two manifests use. `check-xrce-source-manifest` asserts the Rust lane
+# answers exactly this token set; a manifest, not this block, decides what a
+# token covers.
+#
+# `posix` is unconditionally TRUE here, and that is NOT the 1068 defect wearing
+# another hat: this project is POSIX-only BY CONSTRUCTION. It FATAL_ERRORs
+# without an `nros_platform_posix` target (below), defines
+# `_POSIX_C_SOURCE=200809L` unconditionally, and has no non-POSIX target for the
+# two lanes to disagree about. It is spelled out anyway so the notion exists by
+# name and a future cross-compiling CMake lane has one line to change.
+set(_xrce_cond_always   TRUE)
+set(_xrce_cond_posix    TRUE)
+set(_xrce_cond_posix_ip ${_xrce_ip})
+# phase-420 W9 — a toggle compiled off on every target. Stated rather than
+# omitted, because an omitted `#cmakedefine` is `/* #undef */` here and an
+# UNTOUCHED `#cmakedefine` line under build.rs's substitution: one silence, two
+# different headers.
+set(_xrce_cond_never    FALSE)
+# NROS-XRCE-CONDITIONS-END
+
+# Generate `<uxr/client/config.h>` from the upstream template.
 set(_uxr_config_in   "${MICROXRCEDDS_CLIENT_DIR}/include/uxr/client/config.h.in")
 set(_uxr_config_out  "${CMAKE_CURRENT_BINARY_DIR}/uxr_generated/uxr/client/config.h")
 
-# Map the @TOKEN@ placeholders the template expects to our chosen
-# values. `set(... PARENT_SCOPE)` not needed — configure_file reads
-# the current scope.
-#
 # `PROJECT_VERSION*` is a SHARED name: both templates take it, so it must be
 # re-pointed at the right tree before each `configure_file` and never left
 # standing. That is the 1069 bug — see the micro-CDR block below.
@@ -174,50 +311,7 @@ set(PROJECT_VERSION_MINOR  ${_uxr_VERSION_MINOR})
 set(PROJECT_VERSION_PATCH  ${_uxr_VERSION_PATCH})
 set(PROJECT_VERSION        ${_uxr_VERSION})
 
-set(UCLIENT_MAX_OUTPUT_BEST_EFFORT_STREAMS 1)
-set(UCLIENT_MAX_OUTPUT_RELIABLE_STREAMS    1)
-set(UCLIENT_MAX_INPUT_BEST_EFFORT_STREAMS  1)
-set(UCLIENT_MAX_INPUT_RELIABLE_STREAMS     1)
-set(UCLIENT_MAX_SESSION_CONNECTION_ATTEMPTS 10)
-set(UCLIENT_MIN_SESSION_CONNECTION_INTERVAL 1000)
-set(UCLIENT_MIN_HEARTBEAT_TIME_INTERVAL    100)
-set(UCLIENT_UDP_TRANSPORT_MTU              4096)
-set(UCLIENT_TCP_TRANSPORT_MTU              4096)
-set(UCLIENT_SERIAL_TRANSPORT_MTU           512)
-set(UCLIENT_CUSTOM_TRANSPORT_MTU           4096)
-set(UCLIENT_SHARED_MEMORY_MAX_ENTITIES     4)
-set(UCLIENT_SHARED_MEMORY_STATIC_MEM_SIZE  10)
-set(UCLIENT_HARD_LIVELINESS_CHECK_TIMEOUT  10000)
-set(UCLIENT_TWEAK_XRCE_WRITE_LIMIT         1)
-
-# Upstream template uses #cmakedefine — every feature toggle becomes
-# either `#define` or `/* #undef */`. Set vars to true/empty.
-set(UCLIENT_PROFILE_DISCOVERY              TRUE)
-# Paired with the `uxr_ip_udp` source group — see "The IP link knob" above.
-if(_xrce_ip)
-    set(UCLIENT_PROFILE_UDP                TRUE)
-    set(UCLIENT_PROFILE_TCP                TRUE)
-else()
-    set(UCLIENT_PROFILE_UDP)
-    set(UCLIENT_PROFILE_TCP)
-endif()
-set(UCLIENT_PROFILE_SERIAL                 TRUE)
-set(UCLIENT_PROFILE_CUSTOM_TRANSPORT       TRUE)
-set(UCLIENT_PROFILE_STREAM_FRAMING         TRUE)
-set(UCLIENT_PROFILE_MULTITHREAD)
-set(UCLIENT_PROFILE_SHARED_MEMORY)
-set(UCLIENT_PROFILE_MATCHING)
-set(UCLIENT_PROFILE_CAN)
-set(UCLIENT_BIG_ENDIANNESS)
-set(UCLIENT_HARD_LIVELINESS_CHECK)
-set(UCLIENT_TWEAK_XRCE_WRITE_LIMIT_FLAG    TRUE)
-set(UCLIENT_PLATFORM_POSIX                 TRUE)
-set(UCLIENT_PLATFORM_POSIX_NOPOLL)
-set(UCLIENT_PLATFORM_WINDOWS)
-set(UCLIENT_PLATFORM_FREERTOS_PLUS_TCP)
-set(UCLIENT_PLATFORM_RTEMS_BSD_NET)
-set(UCLIENT_PLATFORM_ZEPHYR)
-
+_xrce_config_apply(uxr)
 configure_file("${_uxr_config_in}" "${_uxr_config_out}" @ONLY)
 
 # micro-CDR config.h — same configure_file pattern, and the site issue 1069 was
@@ -230,7 +324,7 @@ set(PROJECT_VERSION_MAJOR  ${_ucdr_VERSION_MAJOR})
 set(PROJECT_VERSION_MINOR  ${_ucdr_VERSION_MINOR})
 set(PROJECT_VERSION_PATCH  ${_ucdr_VERSION_PATCH})
 set(PROJECT_VERSION        ${_ucdr_VERSION})
-set(CONFIG_MACHINE_ENDIANNESS 1)  # ucdrEndianness: BIG=0, LITTLE=1 (x86 / ARM common case)
+_xrce_config_apply(ucdr)
 configure_file(
     "${MICROCDR_DIR}/include/ucdr/config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ucdr_generated/ucdr/config.h"
@@ -264,22 +358,9 @@ endif()
 # leave a configured build dir compiling yesterday's set.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_xrce_manifest}")
 
-# NROS-XRCE-CONDITIONS-BEGIN — the boolean this lane supplies for each condition
-# token the manifest uses. `check-xrce-source-manifest` asserts the Rust lane
-# answers exactly this token set; the manifest, not this block, decides which
-# files a token covers.
-#
-# `posix` is unconditionally TRUE here, and that is NOT the 1068 defect wearing
-# another hat: this project is POSIX-only BY CONSTRUCTION. It FATAL_ERRORs
-# without an `nros_platform_posix` target (below), defines
-# `_POSIX_C_SOURCE=200809L` unconditionally, and configures
-# `UCLIENT_PLATFORM_POSIX TRUE` with no fanout. There is no non-POSIX target for
-# the two lanes to disagree about. It is spelled out anyway so the notion exists
-# by name and a future cross-compiling CMake lane has one line to change.
-set(_xrce_cond_always   TRUE)
-set(_xrce_cond_posix    TRUE)
-set(_xrce_cond_posix_ip ${_xrce_ip})
-# NROS-XRCE-CONDITIONS-END
+# The `_xrce_cond_*` block that answers these lives with the config manifest
+# above — ONE vocabulary for both manifests, because "which files" and "which
+# profile defines" have to agree.
 
 set(_xrce_tree_uxr     "${MICROXRCEDDS_CLIENT_DIR}/src/c")
 set(_xrce_tree_ucdr    "${MICROCDR_DIR}/src/c")
@@ -396,6 +477,28 @@ target_compile_definitions(nros_rmw_xrce PRIVATE
     _POSIX_C_SOURCE=200809L
     _DEFAULT_SOURCE
 )
+
+# phase-420 W9 — the backend's `-D` pool knobs, from the shared manifest's
+# `define` records. This lane used to set NONE of them, so
+# `CONFIG_NROS_XRCE_MAX_SUBSCRIBERS` and its four siblings shrank the session
+# struct on the Rust lane and did nothing here. A `define` row states no
+# default: nothing stated ⇒ nothing defined ⇒ `src/internal.h`'s own `#ifndef`
+# default stands, identically in both lanes.
+file(STRINGS "${_xrce_config}" _xrce_define_lines REGEX "^[ \t]*define[ \t]")
+foreach(_line IN LISTS _xrce_define_lines)
+    string(REGEX REPLACE "[ \t]*#.*$" "" _line "${_line}")
+    string(REGEX REPLACE "^[ \t]+" "" _line "${_line}")
+    string(REGEX REPLACE "[ \t]+$" "" _line "${_line}")
+    string(REGEX REPLACE "[ \t]+" ";" _f "${_line}")
+    list(GET _f 1 _macro)
+    list(GET _f 2 _env)
+    list(GET _f 3 _min)
+    _nros_xrce_knob("${_env}" "" "${_min}" _resolved)
+    if(NOT "${_resolved}" STREQUAL "")
+        target_compile_definitions(nros_rmw_xrce PRIVATE "${_macro}=${_resolved}")
+        message(STATUS "nano-ros: nros-rmw-xrce ${_macro}=${_resolved} (from ${_env})")
+    endif()
+endforeach()
 
 target_compile_options(nros_rmw_xrce PRIVATE
     -Wall -Wextra -Wpedantic

@@ -67,10 +67,15 @@ What it checks
    prefix. (5c) is the 1069 defect itself: both templates take the same
    `@PROJECT_VERSION*@` names, so a lane that sets them once and leaves them
    standing configures the second header from the first tree's numbers.
-6. CARGO WIRING. `let microcdr = xrce_sys.join("micro-cdr")`; `main` passes that
-   binding to `generate_ucdr_config`; and inside that function the template read
-   and the `vendored_project_version()` call use the SAME binding and name that
-   tree's project id. Three separate crosswire vectors, each silent on its own.
+6. CARGO WIRING. `let microcdr = xrce_sys.join("micro-cdr")`; `main`'s
+   `generate_config(...)` call for micro-CDR reads its template from that
+   binding AND derives its version from that same binding, naming that tree's
+   project id. Three separate crosswire vectors, each silent on its own.
+   phase-420 W9 collapsed the two per-tree generators into ONE
+   `generate_config`, which moved all three hops into a single call expression
+   — the pairing got easier to check, not looser: the template path and the
+   `vendored_project_version()` argument now sit three lines apart in the same
+   call, and this gate reads them as a pair.
 7. `nros-sdk-index.toml`'s `[source.micro-*] version` equals the vendored
    version. That row is AUTHORED on purpose — `nros setup --source micro-cdr`
    runs when the checkout is absent, so it cannot derive — but it is a factual
@@ -112,7 +117,6 @@ class Wiring:
     cmake_dir_var: str  # the CMake cache PATH var
     cmake_prefix: str  # `_uxr` / `_ucdr` — the derived-version var prefix
     rs_root: str  # the `let` binding in build.rs `main`
-    rs_generator: str  # the build.rs fn that configures this template
     sdk_row: str  # `[source.<name>]` in nros-sdk-index.toml
 
 
@@ -124,7 +128,6 @@ WIRING = {
         cmake_dir_var="MICROXRCEDDS_CLIENT_DIR",
         cmake_prefix="_uxr",
         rs_root="microxrce",
-        rs_generator="generate_uxr_config",
         sdk_row="micro-xrce-dds-client",
     ),
     "micro-cdr": Wiring(
@@ -134,7 +137,6 @@ WIRING = {
         cmake_dir_var="MICROCDR_DIR",
         cmake_prefix="_ucdr",
         rs_root="microcdr",
-        rs_generator="generate_ucdr_config",
         sdk_row="micro-cdr",
     ),
 }
@@ -196,8 +198,10 @@ _CM_CONFIGURE = re.compile(r"configure_file\(\s*\"([^\"]*)\"", re.S)
 
 # `let microcdr = xrce_sys.join("micro-cdr");`
 _RS_ROOT = re.compile(r"let\s+([A-Za-z0-9_]+)\s*=\s*xrce_sys\.join\(\"([^\"]+)\"\)")
-# `generate_ucdr_config(&out_dir, &microcdr);`
-_RS_CALL = re.compile(r"\b(generate_[a-z0-9_]+_config)\(\s*&out_dir\s*,\s*&([A-Za-z0-9_]+)")
+# `generate_config(` — the one generator, phase-420 W9. Its arguments are
+# extracted by balancing parens rather than by regex: the call spans lines and
+# nests `vendored_project_version(...)`, which no flat pattern can bound.
+_RS_CALL_HEAD = "generate_config("
 # `vendored_project_version(&microcdr.join("CMakeLists.txt"), "microcdr")`
 _RS_DERIVE = re.compile(
     r"vendored_project_version\(\s*&([A-Za-z0-9_]+)\.join\(\"CMakeLists\.txt\"\)\s*,\s*"
@@ -399,8 +403,33 @@ def cmake_wiring_problems(text: str) -> list[str]:
     return bad
 
 
+def rust_call_args(text: str, head: str) -> list[str]:
+    """Every `head…)` call in `text`, as the source between its parens.
+
+    Paren-balanced, not regex: the call spans lines and nests another call, so
+    a flat pattern would stop at the first `)` and pair the wrong arguments —
+    which is the failure this gate exists to catch, one level up.
+    """
+    out: list[str] = []
+    i = text.find(head)
+    while i >= 0:
+        depth = 0
+        j = i + len(head) - 1
+        while j < len(text):
+            if text[j] == "(":
+                depth += 1
+            elif text[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        out.append(text[i + len(head) : j])
+        i = text.find(head, j)
+    return out
+
+
 def rust_wiring_problems(text: str) -> list[str]:
-    """(6) — the cargo lane's let-binding → generator arg → in-body pair chain."""
+    """(6) — the cargo lane's let-binding → template arg → version arg chain."""
     bad: list[str] = []
     bodies = rust_fn_bodies(text)
     main = bodies.get("main", "")
@@ -420,51 +449,46 @@ def rust_wiring_problems(text: str) -> list[str]:
                 f"`\"{w.dirname}\"`. Every hop for {name} must name {name}."
             )
 
-    # (6b) `main` hands each generator its own tree.
-    calls = dict(_RS_CALL.findall(main))
-    for name, w in WIRING.items():
-        arg = calls.get(w.rs_generator)
-        if arg is None:
-            bad.append(f"build.rs `main` never calls `{w.rs_generator}(&out_dir, &…)`.")
-        elif arg != w.rs_root:
-            bad.append(
-                f"build.rs `main` calls `{w.rs_generator}(&out_dir, &{arg})` — that generator "
-                f"configures {name}'s template, so it must be handed `&{w.rs_root}`. "
-                "Crosswired: it would read the other tree's version."
-            )
-
-    # (6c) inside each generator, the template read and the derivation name the
-    #      SAME binding, and that binding's project id.
-    for name, w in WIRING.items():
-        body = bodies.get(w.rs_generator)
-        if body is None:
-            bad.append(f"build.rs has no `fn {w.rs_generator}` — the gate cannot check its wiring.")
-            continue
-        templates = [(b, t) for b, t in _RS_TEMPLATE.findall(body) if template_tree(t)]
-        derives = _RS_DERIVE.findall(body)
+    # (6b/6c) one `generate_config(...)` call per tree, and INSIDE that call the
+    # template read and the version derivation name the same binding and that
+    # tree's project id.
+    seen: dict[str, int] = {name: 0 for name in WIRING}
+    for call in rust_call_args(main, _RS_CALL_HEAD):
+        templates = [(b, t) for b, t in _RS_TEMPLATE.findall(call) if template_tree(t)]
+        derives = _RS_DERIVE.findall(call)
         if len(templates) != 1 or len(derives) != 1:
             bad.append(
-                f"build.rs `{w.rs_generator}` reads {len(templates)} vendored template(s) and "
+                f"build.rs `generate_config(…)` names {len(templates)} vendored template(s) and "
                 f"makes {len(derives)} `vendored_project_version(…)` call(s); expected exactly "
                 "one of each, so the two can be paired."
             )
             continue
         (tpl_binding, tpl_path), (der_binding, der_project) = templates[0], derives[0]
-        if template_tree(tpl_path) != name:
+        name = template_tree(tpl_path)
+        seen[name] += 1
+        w = WIRING[name]
+        if tpl_binding != w.rs_root:
             bad.append(
-                f"build.rs `{w.rs_generator}` reads template `{tpl_path}`, which belongs to "
-                f"{template_tree(tpl_path)}, not {name}."
+                f"build.rs configures `{tpl_path}` from binding `{tpl_binding}`, but that "
+                f"template belongs to {name}, whose binding is `{w.rs_root}`. Crosswired."
             )
         if der_binding != tpl_binding:
             bad.append(
-                f"build.rs `{w.rs_generator}` reads its template from `{tpl_binding}` but "
+                f"build.rs `generate_config` reads its template from `{tpl_binding}` but "
                 f"derives the version from `{der_binding}` — CROSSWIRED. The version written "
                 "into a template must come from that template's own tree (issue 1069)."
             )
         if der_project != w.project:
             bad.append(
-                f"build.rs `{w.rs_generator}` derives project `{der_project}`, but {name}'s "
-                f"upstream id is `{w.project}`. Crosswired."
+                f"build.rs configures {name}'s template but derives project `{der_project}`; "
+                f"{name}'s upstream id is `{w.project}`. Crosswired."
+            )
+    for name, n in sorted(seen.items()):
+        if n != 1:
+            bad.append(
+                f"build.rs `main` makes {n} `generate_config(…)` call(s) for {name}; expected "
+                "exactly one. A template configured twice, or not at all, has no version this "
+                "gate can pair."
             )
     return bad
 
@@ -554,22 +578,26 @@ def self_test() -> None:
     )
 
     # --- (6) cargo wiring, same three vectors --------------------------------
-    def rs(cdr_dir="micro-cdr", call_arg="microcdr", der_root="microcdr", der_proj="microcdr"):
+    def rs(cdr_dir="micro-cdr", tpl_root="microcdr", der_root="microcdr", der_proj="microcdr"):
         return (
             "fn main() {\n"
             f'    let microcdr = xrce_sys.join("{cdr_dir}");\n'
             '    let microxrce = xrce_sys.join("micro-xrce-dds-client");\n'
-            f"    generate_ucdr_config(&out_dir, &{call_arg});\n"
-            "    generate_uxr_config(&out_dir, &microxrce, a, b);\n"
-            "}\n"
-            "fn generate_ucdr_config(out_dir: &Path, microcdr: &Path) {\n"
-            '    let t = fs::read_to_string(microcdr.join("include/ucdr/config.h.in")).unwrap();\n'
-            f'    let [a, b, c] = vendored_project_version(&{der_root}.join("CMakeLists.txt"), "{der_proj}");\n'
-            "}\n"
-            "fn generate_uxr_config(out_dir: &Path, microxrce: &Path) {\n"
-            '    let t = fs::read_to_string(microxrce.join("include/uxr/client/config.h.in")).unwrap();\n'
-            '    let [a, b, c] =\n'
-            '        vendored_project_version(&microxrce.join("CMakeLists.txt"), "microxrcedds_client");\n'
+            "    generate_config(\n"
+            "        &out_dir,\n"
+            f'        &{tpl_root}.join("include/ucdr/config.h.in"),\n'
+            '        "include/ucdr/config.h",\n'
+            '        "ucdr",\n'
+            f'        vendored_project_version(&{der_root}.join("CMakeLists.txt"), "{der_proj}"),\n'
+            "    );\n"
+            "    generate_config(\n"
+            "        &out_dir,\n"
+            '        &microxrce.join("include/uxr/client/config.h.in"),\n'
+            '        "include/uxr/client/config.h",\n'
+            '        "uxr",\n'
+            '        vendored_project_version(&microxrce.join("CMakeLists.txt"),\n'
+            '            "microxrcedds_client"),\n'
+            "    );\n"
             "}\n"
         )
 
@@ -578,16 +606,25 @@ def self_test() -> None:
     assert any(
         'not `"micro-cdr"`' in p for p in rust_wiring_problems(rs(cdr_dir="micro-xrce-dds-client"))
     ), rust_wiring_problems(rs(cdr_dir="micro-xrce-dds-client"))
-    #     vector 2: `main` hands the ucdr generator the client tree.
+    #     vector 2: the call reads micro-CDR's template from the client binding.
     assert any(
-        "must be handed `&microcdr`" in p for p in rust_wiring_problems(rs(call_arg="microxrce"))
-    )
-    #     vector 3: the in-body derivation reads the other binding / other id.
+        "whose binding is `microcdr`" in p
+        for p in rust_wiring_problems(rs(tpl_root="microxrce"))
+    ), rust_wiring_problems(rs(tpl_root="microxrce"))
+    #     vector 3: the derivation in the same call reads the other binding / id.
     assert any("CROSSWIRED" in p for p in rust_wiring_problems(rs(der_root="microxrce")))
     assert any(
         "upstream id is `microcdr`" in p
         for p in rust_wiring_problems(rs(der_proj="microxrcedds_client"))
     )
+    #     ...and a template configured twice, or not at all, is reported.
+    assert any(
+        "expected exactly one" in p
+        for p in rust_wiring_problems(rs().replace("uxr/client/config.h.in", "ucdr/config.h.in"))
+    )
+    # The paren balancer must not stop at the NESTED call's `)`.
+    args = rust_call_args("f(a, g(b), c);", "f(")
+    assert args == ["a, g(b), c"], args
 
     # (7) sdk-index rows, and that a `[tool.*]` version cannot be mistaken for one.
     idx = (

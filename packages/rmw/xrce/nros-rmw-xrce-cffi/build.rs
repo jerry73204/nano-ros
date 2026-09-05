@@ -22,11 +22,14 @@
 
 use std::{env, fs, path::PathBuf};
 
-// Phase 214.C.2 — single source-of-truth for XRCE transport MTU defaults.
-// UDP/TCP/custom share a 4096-byte default; serial uses a smaller 512-byte
-// default (UART throughput floor).
-const XRCE_TRANSPORT_MTU_DEFAULT: &str = "4096";
-const XRCE_SERIAL_MTU_DEFAULT: &str = "512";
+// phase-420 W9 — this script OWNS NO CONFIGURATION VALUE either. The MTU
+// defaults that used to live here as `XRCE_TRANSPORT_MTU_DEFAULT` /
+// `XRCE_SERIAL_MTU_DEFAULT`, every other `@TOKEN@` the two upstream
+// `config.h.in` templates take, every `#cmakedefine` toggle, and every knob's
+// minimum are read from `packages/rmw/xrce/xrce-config.txt`, which
+// `nros-rmw-xrce/CMakeLists.txt` reads too. Same remedy as the source list one
+// file over (issue 1068): the values were restated in both lanes, and the
+// lanes had already stopped agreeing.
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -124,7 +127,12 @@ fn main() {
         target_os.as_str(),
         "linux" | "macos" | "freebsd" | "netbsd" | "openbsd"
     );
-    let feat_zephyr = false; // 129.C.1 — `transport_zephyr_udp` superseded by `transport_nros_udp`.
+    // 129.C.1 — `transport_zephyr_udp` was superseded by `transport_nros_udp`,
+    // so upstream's Zephyr platform is off everywhere. That used to be a
+    // `let feat_zephyr = false;` here feeding a dead `else if` branch in the
+    // header generator; phase-420 W9 moved it to `flag uxr
+    // UCLIENT_PLATFORM_ZEPHYR never` in the shared manifest, where the CMake
+    // lane makes the same claim from the same line.
     let is_posix = host_is_posix;
     let is_embedded = !host_is_posix;
     // Phase 204.7 — `NROS_LINK_IP=0` drops the IP (UDP/TCP) transport on a
@@ -138,9 +146,81 @@ fn main() {
         Some("0") | Some("false") | Some("off")
     );
 
+    // Issue 1068 — the source list is DERIVED, not mirrored. Both this build
+    // script and `nros-rmw-xrce/CMakeLists.txt` read
+    // `packages/rmw/xrce/xrce-sources.txt`; neither holds a source path of its
+    // own. See that file's header for the format and for why the conditions
+    // live there rather than here.
+    let manifest_path = workspace.join("packages/rmw/xrce/xrce-sources.txt");
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let manifest = SourceManifest::read(&manifest_path);
+
+    // phase-420 W9 — the same treatment for the VALUES. One statement of every
+    // template token, every profile toggle and every knob, read by both lanes.
+    let config_path = workspace.join("packages/rmw/xrce/xrce-config.txt");
+    println!("cargo:rerun-if-changed={}", config_path.display());
+    let config = ConfigManifest::read(&config_path);
+    let knobs = KnobResolver::new();
+
+    // NROS-XRCE-CONDITIONS-BEGIN — the boolean this lane supplies for each
+    // condition token. `check-xrce-source-manifest` asserts the CMake lane
+    // answers exactly this token set, and that it is exactly the set the two
+    // manifests use; a manifest, not this match, decides what a token covers.
+    //
+    // ONE vocabulary for both manifests on purpose: `xrce-sources.txt` selects
+    // FILES with these tokens and `xrce-config.txt` selects PROFILE DEFINES
+    // with them, and those two answers have to agree — a header promising
+    // `UCLIENT_PROFILE_UDP` whose `udp_transport.c` was not compiled is the
+    // 1068 failure wearing a link error.
+    let condition = |token: &str| -> bool {
+        match token {
+            "always" => true,
+            // `util/time.c` calls `clock_gettime` / `nanosleep`;
+            // `transport_posix_{udp,serial}.c` need <sys/socket.h> /
+            // <termios.h>. Embedded targets supply their own time and
+            // transport through the registry.
+            "posix" => is_posix,
+            // Phase 204.7 — `NROS_LINK_IP=0` sheds the IP link on a
+            // serial-only node. Embedded XRCE already excludes IP.
+            "posix_ip" => is_posix && ip,
+            // phase-420 W9 — a toggle compiled off on every target. Stated
+            // rather than omitted: an omitted `#cmakedefine` is `/* #undef */`
+            // under `configure_file` and an UNTOUCHED `#cmakedefine` line
+            // under a hand substitution, so silence is two different headers.
+            "never" => false,
+            other => panic!(
+                "nros-rmw-xrce-cffi: an xrce manifest uses condition token `{other}`, which \
+                 this build script does not answer. Add an arm here AND in \
+                 nros-rmw-xrce/CMakeLists.txt — a token only one lane answers is issue 1068 \
+                 again.",
+            ),
+        }
+    };
+    // NROS-XRCE-CONDITIONS-END
+
     // Generate config headers.
-    generate_ucdr_config(&out_dir, &microcdr);
-    generate_uxr_config(&out_dir, &microxrce, feat_zephyr, is_posix);
+    generate_config(
+        &out_dir,
+        &microcdr.join("include/ucdr/config.h.in"),
+        "include/ucdr/config.h",
+        "ucdr",
+        vendored_project_version(&microcdr.join("CMakeLists.txt"), "microcdr"),
+        &config,
+        &config_path,
+        &knobs,
+        &condition,
+    );
+    generate_config(
+        &out_dir,
+        &microxrce.join("include/uxr/client/config.h.in"),
+        "include/uxr/client/config.h",
+        "uxr",
+        vendored_project_version(&microxrce.join("CMakeLists.txt"), "microxrcedds_client"),
+        &config,
+        &config_path,
+        &knobs,
+        &condition,
+    );
 
     let mut build = cc::Build::new();
     // issue 0383 — implicit-function-declaration / int-conversion as errors
@@ -171,42 +251,6 @@ fn main() {
         // from pulling in headers it can't satisfy.
         build.define("_POSIX_C_SOURCE", Some("200809L"));
     }
-
-    // Issue 1068 — the source list is DERIVED, not mirrored. Both this build
-    // script and `nros-rmw-xrce/CMakeLists.txt` read
-    // `packages/rmw/xrce/xrce-sources.txt`; neither holds a source path of its
-    // own. See that file's header for the format and for why the conditions
-    // live there rather than here.
-    let manifest_path = workspace.join("packages/rmw/xrce/xrce-sources.txt");
-    println!("cargo:rerun-if-changed={}", manifest_path.display());
-    let manifest = SourceManifest::read(&manifest_path);
-
-    // NROS-XRCE-CONDITIONS-BEGIN — the boolean this lane supplies for each
-    // condition token. `check-xrce-source-manifest` asserts the CMake lane
-    // answers exactly this token set, and that it is exactly the set the
-    // manifest uses; the manifest, not this match, decides which files a token
-    // covers.
-    let condition = |token: &str| -> bool {
-        match token {
-            "always" => true,
-            // `util/time.c` calls `clock_gettime` / `nanosleep`;
-            // `transport_posix_{udp,serial}.c` need <sys/socket.h> /
-            // <termios.h>. Embedded targets supply their own time and
-            // transport through the registry.
-            "posix" => is_posix,
-            // Phase 204.7 — `NROS_LINK_IP=0` sheds the IP link on a
-            // serial-only node. Embedded XRCE already excludes IP.
-            "posix_ip" => is_posix && ip,
-            other => panic!(
-                "nros-rmw-xrce-cffi: {} uses condition token `{other}`, which this build \
-                 script does not answer. Add an arm here AND in \
-                 nros-rmw-xrce/CMakeLists.txt — a token only one lane answers is issue 1068 \
-                 again.",
-                manifest_path.display()
-            ),
-        }
-    };
-    // NROS-XRCE-CONDITIONS-END
 
     let tree_root = |tree: &str| -> PathBuf {
         match tree {
@@ -239,86 +283,20 @@ fn main() {
         build.define("UCLIENT_PLATFORM_NO_POSIX", None);
     }
 
-    // Phase 130.6 — tunable reliable-stream history. Tight-RAM
-    // targets that don't run server-side action callbacks can drop
-    // from the default 16 (= 64 KiB per-session output buffer) to 8
-    // or 4. `internal.h` enforces `>= 4`.
-    // phase-400 W6 — the `[knobs.xrce]` rungs sit under the env front-end and
-    // above the builtins below.
-    let xrce_rungs = nros_platform_config::platform_config::BuildRungs::from_build_env()
-        .map(|r| r.xrce_rungs())
-        .unwrap_or_default();
-    if let Some(v) = knob("NROS_XRCE_STREAM_HISTORY")
-        .or_else(|| xrce_rungs.stream_history.map(|n| n.to_string()))
-    {
-        let n: u32 = v
-            .parse()
-            .unwrap_or_else(|_| panic!("NROS_XRCE_STREAM_HISTORY='{}' is not a number", v));
-        if n < 4 {
-            panic!("NROS_XRCE_STREAM_HISTORY={} too small (minimum 4)", n);
+    // phase-420 W9 — the backend's `-D` pool knobs, from the shared manifest's
+    // `define` records. Phase 207.6 is why they exist: a pub-only bare-metal
+    // node drops subscribers/services to 1, the ring to 1 and the buffer to
+    // 256, and with `STREAM_HISTORY=4` plus a 512-byte MTU the session struct
+    // falls from ~390 KB to ~10–20 KB.
+    //
+    // A `define` row states NO default — `nros-rmw-xrce/src/internal.h` holds
+    // it in an `#ifndef`, and that is the one statement of it. Nothing stated
+    // ⇒ nothing defined ⇒ the header's default stands, identically in both
+    // lanes.
+    for row in &config.defines {
+        if let Some(n) = knobs.stated(&row.env, row.min, &config_path) {
+            build.define(&row.macro_name, n.to_string().as_str());
         }
-        build.define("XRCE_STREAM_HISTORY", n.to_string().as_str());
-    }
-    println!("cargo:rerun-if-env-changed=NROS_XRCE_STREAM_HISTORY");
-    println!("cargo:rerun-if-env-changed=NROS_XRCE_CUSTOM_TRANSPORT_MTU");
-    println!("cargo:rerun-if-env-changed=NROS_XRCE_TRANSPORT_MTU");
-
-    // Phase 207.6 — per-session pool sizes. A pub-only bare-metal node
-    // can drop `MAX_SUBSCRIBERS` to 0, `MAX_SERVICE_SERVERS` /
-    // `MAX_SERVICE_CLIENTS` to 0, `SUBSCRIBER_RING_DEPTH` to 1, and
-    // `BUFFER_SIZE` to 256. Combined with `STREAM_HISTORY=4` +
-    // `NROS_XRCE_CUSTOM_TRANSPORT_MTU=512` the session struct drops
-    // from ~390 KB to ~10–20 KB.
-    // issue 1033 — the entity caps admit ZERO, and that is the whole saving.
-    //
-    // The minimum used to be 1, justified as "zero-length arrays aren't
-    // standard C; 1 is the practical minimum". Measured, that is wrong in the
-    // way that mattered:
-    //
-    //  * these are PLAIN arrays MID-struct, not flexible array members, so the
-    //    `flexible array member not at end of struct` failure this repo has
-    //    seen came from an EMPTY define (`arr[]`), not a zero one (`arr[0]`) —
-    //    two different errors that read alike;
-    //  * `slot_t arr[0];` mid-struct compiles on gnu11, c11 AND gnu99; only
-    //    `-pedantic` rejects it, and nothing here passes `-pedantic`;
-    //  * nothing indexes slot 0 unconditionally — every walk is
-    //    `for (i = 0; i < MAX; ++i)`, which at 0 simply does not run.
-    //
-    // And clamping was the thing issue 0827 forbids in as many words: it
-    // "reserved the memory anyway while reading as though the knob had been
-    // honoured". A cap of 0 on an image that creates none of that entity is the
-    // honest answer, and on the zephyr cpp listener it is what takes
-    // `xrce_session_state_t` from 76,624 bytes to 54,928 — under its 66,048
-    // heap, so the image boots.
-    for (env_name, define_name, min) in [
-        ("NROS_XRCE_MAX_SUBSCRIBERS", "XRCE_MAX_SUBSCRIBERS", 0),
-        (
-            "NROS_XRCE_MAX_SERVICE_SERVERS",
-            "XRCE_MAX_SERVICE_SERVERS",
-            0,
-        ),
-        (
-            "NROS_XRCE_MAX_SERVICE_CLIENTS",
-            "XRCE_MAX_SERVICE_CLIENTS",
-            0,
-        ),
-        (
-            "NROS_XRCE_SUBSCRIBER_RING_DEPTH",
-            "XRCE_SUBSCRIBER_RING_DEPTH",
-            1,
-        ),
-        ("NROS_XRCE_BUFFER_SIZE", "XRCE_BUFFER_SIZE", 64),
-    ] {
-        if let Some(v) = knob(env_name) {
-            let n: u32 = v
-                .parse()
-                .unwrap_or_else(|_| panic!("{env_name}='{v}' is not a number"));
-            if n < min {
-                panic!("{env_name}={n} too small (minimum {min})");
-            }
-            build.define(define_name, n.to_string().as_str());
-        }
-        println!("cargo:rerun-if-env-changed={env_name}");
     }
 
     build.compile("nros_rmw_xrce_c_inline");
@@ -435,205 +413,167 @@ fn vendored_project_version(cmakelists: &std::path::Path, project: &str) -> [Str
 }
 // NROS-XRCE-VERSIONS-END
 
-fn generate_ucdr_config(out_dir: &std::path::Path, microcdr: &std::path::Path) {
-    let template = fs::read_to_string(microcdr.join("include/ucdr/config.h.in"))
-        .expect("read ucdr config.h.in");
-    // Issue 1069 — read out of the vendored tree, not restated here.
-    let [maj, min, pat] = vendored_project_version(&microcdr.join("CMakeLists.txt"), "microcdr");
-    let header = template
-        .replace("@PROJECT_VERSION_MAJOR@", &maj)
-        .replace("@PROJECT_VERSION_MINOR@", &min)
-        .replace("@PROJECT_VERSION_PATCH@", &pat)
-        .replace("@PROJECT_VERSION@", &format!("{maj}.{min}.{pat}"))
-        // ucdrEndianness enum: BIG=0, LITTLE=1. Set 1 for x86 / ARM.
-        .replace("@CONFIG_MACHINE_ENDIANNESS@", "1");
-    let dir = out_dir.join("include/ucdr");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("config.h"), header).unwrap();
-}
-
-fn generate_uxr_config(
-    out_dir: &std::path::Path,
-    microxrce: &std::path::Path,
-    is_zephyr: bool,
-    is_posix: bool,
-) {
-    let template = fs::read_to_string(microxrce.join("include/uxr/client/config.h.in"))
-        .expect("read uxr config.h.in");
-    // issue 0968 — the general transport MTU, min-guarded like CUSTOM's.
-    //
-    // `knob_usize`, NOT `env::var`: a Zephyr RUST image inherits none of cmake's
-    // `set(ENV{...})` exports, so a bare read yields the crate default whatever
-    // Kconfig says (issue 0460). `check-kconfig-knob-forwarding` caught exactly
-    // that in the first version of this fix, which would have repaired the C
-    // lane and left the Rust one on 4096 — half-fixing the thing this change is
-    // about.
-    let xrce_transport_mtu = nros_zephyr_build::knob_usize(
-        "NROS_XRCE_TRANSPORT_MTU",
-        "CONFIG_NROS_XRCE_TRANSPORT_MTU",
-        XRCE_TRANSPORT_MTU_DEFAULT
-            .parse()
-            .expect("XRCE_TRANSPORT_MTU_DEFAULT is a number"),
-    );
-    if xrce_transport_mtu < 128 {
-        panic!("NROS_XRCE_TRANSPORT_MTU={xrce_transport_mtu} too small (minimum 128)");
-    }
-    let xrce_transport_mtu = xrce_transport_mtu.to_string();
-
-    // Substitute @TOKEN@ placeholders.
-    //
-    // Issue 1069 — the version comes out of the vendored tree. It was `2.4.1`
-    // here against a 3.0.1 checkout, which also disarmed upstream's own
-    // `#if UXR_CLIENT_VERSION_MAJOR >= 4` tripwire by a whole major version.
-    let [maj, min, pat] =
-        vendored_project_version(&microxrce.join("CMakeLists.txt"), "microxrcedds_client");
-    let mut h = template
-        .replace("@PROJECT_VERSION_MAJOR@", &maj)
-        .replace("@PROJECT_VERSION_MINOR@", &min)
-        .replace("@PROJECT_VERSION_PATCH@", &pat)
-        .replace("@PROJECT_VERSION@", &format!("{maj}.{min}.{pat}"))
-        .replace("@UCLIENT_MAX_OUTPUT_BEST_EFFORT_STREAMS@", "1")
-        .replace("@UCLIENT_MAX_OUTPUT_RELIABLE_STREAMS@", "1")
-        .replace("@UCLIENT_MAX_INPUT_BEST_EFFORT_STREAMS@", "1")
-        .replace("@UCLIENT_MAX_INPUT_RELIABLE_STREAMS@", "1")
-        .replace("@UCLIENT_MAX_SESSION_CONNECTION_ATTEMPTS@", "10")
-        .replace("@UCLIENT_MIN_SESSION_CONNECTION_INTERVAL@", "1000")
-        .replace("@UCLIENT_MIN_HEARTBEAT_TIME_INTERVAL@", "100")
-        // Phase 214.C.2 — MTU defaults from named consts at file top.
-        // issue 0968 — UDP and TCP honour `NROS_XRCE_TRANSPORT_MTU` too. Only
-        // CUSTOM was tunable, so a UDP image (which every Zephyr XRCE example
-        // is — it dials an agent at `CONFIG_NROS_XRCE_AGENT_ADDR:PORT`) was
-        // pinned to 4096 whatever Kconfig said. `STREAM_BUFFER_SIZE = MTU x
-        // STREAM_HISTORY` twice per session, so the default cost 131072 bytes
-        // where the configured 512 costs 16384.
-        .replace("@UCLIENT_UDP_TRANSPORT_MTU@", &xrce_transport_mtu)
-        .replace("@UCLIENT_TCP_TRANSPORT_MTU@", &xrce_transport_mtu)
-        .replace("@UCLIENT_SERIAL_TRANSPORT_MTU@", XRCE_SERIAL_MTU_DEFAULT)
-        .replace(
-            "@UCLIENT_CUSTOM_TRANSPORT_MTU@",
-            // Phase 207.6 — env-tunable so RAM-tight bare-metal nodes can
-            // drop the per-session stream buffers (`STREAM_BUFFER_SIZE =
-            // CUSTOM_TRANSPORT_MTU × STREAM_HISTORY`) by an order of
-            // magnitude. Min 128 (smaller breaks the framing/header
-            // assumptions); default tracks XRCE_TRANSPORT_MTU_DEFAULT.
-            // phase-400 W6 — env, then the `[knobs.xrce]` rung, then the
-            // default. `knob` rather than a bare `env::var` so the Kconfig
-            // front-end reaches this the way it reaches the pool sizes above
-            // (issue 0460).
-            &knob("NROS_XRCE_CUSTOM_TRANSPORT_MTU")
-                .or_else(|| {
-                    nros_platform_config::platform_config::BuildRungs::from_build_env()
-                        .and_then(|r| r.xrce_rungs().custom_transport_mtu)
-                        .map(|n| n.to_string())
-                })
-                .unwrap_or_else(|| XRCE_TRANSPORT_MTU_DEFAULT.into()),
-        )
-        .replace("@UCLIENT_SHARED_MEMORY_MAX_ENTITIES@", "4")
-        .replace("@UCLIENT_SHARED_MEMORY_STATIC_MEM_SIZE@", "10")
-        .replace("@UCLIENT_HARD_LIVELINESS_CHECK_TIMEOUT@", "10000");
-
-    // #cmakedefine handling. The template uses `#cmakedefine NAME` —
-    // CMake replaces with `#define NAME` when var is set, `/* #undef
-    // NAME */` otherwise.
-    let mut enabled = vec![
-        "UCLIENT_PROFILE_DISCOVERY",
-        "UCLIENT_PROFILE_CUSTOM_TRANSPORT",
-        "UCLIENT_PROFILE_STREAM_FRAMING",
-        "UCLIENT_TWEAK_XRCE_WRITE_LIMIT",
-    ];
-    let mut disabled = vec![
-        "UCLIENT_PROFILE_MULTITHREAD",
-        "UCLIENT_PROFILE_SHARED_MEMORY",
-        "UCLIENT_PROFILE_CAN",
-        "UCLIENT_HARD_LIVELINESS_CHECK",
-    ];
-    // Platform fanout — POSIX gets the full UDP/TCP/SERIAL profile
-    // set; Zephyr emits its own platform define so any upstream
-    // `#ifdef UCLIENT_PLATFORM_ZEPHYR` branch picks the right path.
-    // Pure bare-metal / FreeRTOS / NuttX / ThreadX gets the
-    // freestanding core only — consumers wire their own transport
-    // via `nros_rmw_cffi_set_custom_transport(...)`.
-    // Phase 204.7 — recomputed here (separate fn from the source-file build);
-    // gates the UDP/TCP profile defines to match the gated source files.
-    let ip = !matches!(
-        env::var("NROS_LINK_IP").ok().as_deref(),
-        Some("0") | Some("false") | Some("off")
-    );
-    if is_posix {
-        if ip {
-            enabled.push("UCLIENT_PROFILE_UDP");
-            enabled.push("UCLIENT_PROFILE_TCP");
-        } else {
-            disabled.push("UCLIENT_PROFILE_UDP");
-            disabled.push("UCLIENT_PROFILE_TCP");
-        }
-        enabled.push("UCLIENT_PROFILE_SERIAL");
-        enabled.push("UCLIENT_PLATFORM_POSIX");
-        disabled.push("UCLIENT_PLATFORM_POSIX_NOPOLL");
-        disabled.push("UCLIENT_PLATFORM_WINDOWS");
-        disabled.push("UCLIENT_PLATFORM_FREERTOS_PLUS_TCP");
-        disabled.push("UCLIENT_PLATFORM_RTEMS_BSD_NET");
-        disabled.push("UCLIENT_PLATFORM_ZEPHYR");
-    } else if is_zephyr {
-        enabled.push("UCLIENT_PLATFORM_ZEPHYR");
-        // UDP / TCP / SERIAL profile defines stay off — Zephyr's
-        // transport is custom (CMake glue wires the callbacks).
-        disabled.push("UCLIENT_PROFILE_UDP");
-        disabled.push("UCLIENT_PROFILE_TCP");
-        disabled.push("UCLIENT_PROFILE_SERIAL");
-        disabled.push("UCLIENT_PLATFORM_POSIX");
-        disabled.push("UCLIENT_PLATFORM_POSIX_NOPOLL");
-        disabled.push("UCLIENT_PLATFORM_WINDOWS");
-        disabled.push("UCLIENT_PLATFORM_FREERTOS_PLUS_TCP");
-        disabled.push("UCLIENT_PLATFORM_RTEMS_BSD_NET");
-    } else {
-        // Bare-metal / FreeRTOS / NuttX / ThreadX.
-        disabled.push("UCLIENT_PROFILE_UDP");
-        disabled.push("UCLIENT_PROFILE_TCP");
-        disabled.push("UCLIENT_PROFILE_SERIAL");
-        disabled.push("UCLIENT_PLATFORM_POSIX");
-        disabled.push("UCLIENT_PLATFORM_POSIX_NOPOLL");
-        disabled.push("UCLIENT_PLATFORM_WINDOWS");
-        disabled.push("UCLIENT_PLATFORM_FREERTOS_PLUS_TCP");
-        disabled.push("UCLIENT_PLATFORM_RTEMS_BSD_NET");
-        disabled.push("UCLIENT_PLATFORM_ZEPHYR");
-    }
-    // Match the entire line (`\n` boundary) so e.g. the
-    // `UCLIENT_PLATFORM_POSIX` rule does not accidentally also
-    // match `UCLIENT_PLATFORM_POSIX_NOPOLL`.
-    for name in enabled {
-        h = h.replace(
-            &format!("#cmakedefine {name}\n"),
-            &format!("#define {name}\n"),
-        );
-    }
-    for name in disabled {
-        h = h.replace(
-            &format!("#cmakedefine {name}\n"),
-            &format!("/* #undef {name} */\n"),
-        );
-    }
-    let dir = out_dir.join("include/uxr/client");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("config.h"), h).unwrap();
-}
-
-/// A pool knob's value: explicit env var, else the Zephyr Kconfig it is
-/// resolved from, else `None` (the vendored header's own default stands).
+/// Fill in one upstream `config.h.in` from the shared manifest — phase-420 W9.
 ///
-/// issue 0460 — every one of these is forwarded by `_nros_resolve_knob()` in
+/// ONE implementation for both templates, and the CMake lane's `configure_file`
+/// calls are the twin. Before this there were four: a hand-written
+/// `generate_ucdr_config` and `generate_uxr_config` here, and two
+/// `configure_file`s there, each restating the token values. The two lanes
+/// already disagreed about the version (issue 1069) for exactly that reason.
+///
+/// `@PROJECT_VERSION*@` is the one thing NOT read from the manifest: it comes
+/// from the vendored tree's own `project(<name> VERSION …)` line, because a
+/// version stated in our manifest would be one more hand-written restatement
+/// of a fact upstream already holds.
+#[allow(clippy::too_many_arguments)]
+fn generate_config(
+    out_dir: &std::path::Path,
+    template_path: &std::path::Path,
+    out_rel: &str,
+    template: &str,
+    version: [String; 3],
+    config: &ConfigManifest,
+    config_path: &std::path::Path,
+    knobs: &KnobResolver,
+    condition: &dyn Fn(&str) -> bool,
+) {
+    let text = fs::read_to_string(template_path).unwrap_or_else(|e| {
+        panic!(
+            "nros-rmw-xrce-cffi: cannot read the upstream template {} ({e}) — the vendored \
+             checkout is missing. Run `nros setup --source micro-cdr --source \
+             micro-xrce-dds-client` (or `git submodule update --init`).",
+            template_path.display()
+        )
+    });
+    println!("cargo:rerun-if-changed={}", template_path.display());
+
+    let [maj, min, pat] = version;
+    let mut h = text
+        .replace("@PROJECT_VERSION_MAJOR@", &maj)
+        .replace("@PROJECT_VERSION_MINOR@", &min)
+        .replace("@PROJECT_VERSION_PATCH@", &pat)
+        .replace("@PROJECT_VERSION@", &format!("{maj}.{min}.{pat}"));
+
+    // `value` — a fixed substitution.
+    for row in config.values_for(template) {
+        h = h.replace(&format!("@{}@", row.token), &row.literal);
+    }
+
+    // `knob` — a substitution someone may choose. The ladder and the minimum
+    // both live in the manifest, so the CMake lane enforces the same floor on
+    // the same input.
+    for row in config.knobs_for(template) {
+        let v = knobs.value(&row.env, row.default, row.min, config_path);
+        h = h.replace(&format!("@{}@", row.token), &v.to_string());
+    }
+
+    // `flag` — a `#cmakedefine` toggle. CMake writes `#define NAME` when the
+    // variable is truthy and `/* #undef NAME */` when it is not; match that
+    // byte for byte, because these two headers are diffed as an acceptance
+    // criterion and a stylistic difference would read as a real one.
+    //
+    // Match the whole LINE (`\n` boundary) so the `UCLIENT_PLATFORM_POSIX`
+    // rule does not also fire on `UCLIENT_PLATFORM_POSIX_NOPOLL`.
+    for row in config.flags_for(template) {
+        let on = condition(&row.condition);
+        let line = if on {
+            format!("#define {}\n", row.token)
+        } else {
+            format!("/* #undef {} */\n", row.token)
+        };
+        h = h.replace(&format!("#cmakedefine {}\n", row.token), &line);
+    }
+
+    let out = out_dir.join(out_rel);
+    fs::create_dir_all(out.parent().expect("config.h has a parent dir")).unwrap();
+    fs::write(&out, h).unwrap();
+}
+
+/// The knob ladder — ONE implementation, shared by the template `knob` rows and
+/// the backend `define` rows. phase-420 W9.
+///
+/// Rungs, highest first:
+///
+///   1. the environment variable    — a person, right now
+///   2. `CONFIG_<env>` in `$DOTCONFIG` — a person, in the tree (Kconfig)
+///   3. the `[knobs.xrce]` rung     — this lane only; see below
+///   4. the manifest's `<default>`  — nobody stated one ([`Self::value`] only)
+///
+/// issue 0460 — rung 2 is why this is not a bare `env::var`. Every one of these
+/// knobs is forwarded by `_nros_resolve_knob()` in
 /// `zephyr/cmake/nros_cargo_build.cmake` with `set(ENV{...})`, which reaches
 /// the C lane's re-baked command and NOT the Rust lane's: zephyr-lang-rust's
 /// `rust_cargo_application` builds its own cargo invocation and inherits
-/// nothing. So a Zephyr Rust image read every one of these as unset whatever
-/// Kconfig said. The env name here is the Kconfig name minus `CONFIG_`, so the
-/// pair is derived; `check-kconfig-knob-forwarding` proves the cmake list and
-/// the readers agree.
-fn knob(env_name: &str) -> Option<String> {
-    if let Ok(v) = env::var(env_name) {
-        return Some(v);
+/// nothing, so a Zephyr Rust image read every one of them as unset whatever
+/// Kconfig said. The env name is the Kconfig name minus `CONFIG_`, so the pair
+/// is DERIVED rather than tabulated; `check-kconfig-knob-forwarding` proves the
+/// cmake list and the readers agree.
+///
+/// Rung 3 is the one asymmetry between the lanes, and it is stated in
+/// `xrce-config.txt` rather than left for a reader to discover: reading a
+/// `[knobs.xrce]` TOML needs a parser the CMake lane does not have, it covers
+/// exactly two knobs, and it can only be delivered by a cargo build — so it
+/// cannot fire in a lane with no cargo.
+struct KnobResolver {
+    rungs: nros_platform_config::platform_config::XrceKnobs,
+}
+
+impl KnobResolver {
+    fn new() -> Self {
+        // phase-400 W6 — the `[knobs.xrce]` rungs sit under the env front-end
+        // and above the manifest defaults.
+        Self {
+            rungs: nros_platform_config::platform_config::BuildRungs::from_build_env()
+                .map(|r| r.xrce_rungs())
+                .unwrap_or_default(),
+        }
     }
-    nros_zephyr_build::dotconfig_usize(&format!("CONFIG_{env_name}")).map(|v| v.to_string())
+
+    fn rung(&self, env_name: &str) -> Option<usize> {
+        match env_name {
+            "NROS_XRCE_CUSTOM_TRANSPORT_MTU" => self.rungs.custom_transport_mtu,
+            "NROS_XRCE_STREAM_HISTORY" => self.rungs.stream_history,
+            _ => None,
+        }
+    }
+
+    /// Rungs 1–3: what a person or a platform config STATED, or `None`.
+    ///
+    /// An environment value that is not a number PANICS — someone typed it in
+    /// this shell and falling through to a default would answer a question they
+    /// did not ask. A Kconfig value that is not a `usize` is ABSENT instead:
+    /// `-1` is the documented DERIVE sentinel (phase-403 W8), and a knob left
+    /// on it means "nothing stated", not "malformed".
+    fn stated(&self, env_name: &str, min: usize, config_path: &std::path::Path) -> Option<usize> {
+        println!("cargo:rerun-if-env-changed={env_name}");
+        let stated = match env::var(env_name) {
+            Ok(raw) if !raw.is_empty() => Some(raw.parse::<usize>().unwrap_or_else(|_| {
+                panic!("nros-rmw-xrce-cffi: {env_name}='{raw}' is not a number")
+            })),
+            _ => nros_zephyr_build::dotconfig_usize(&format!("CONFIG_{env_name}"))
+                .or_else(|| self.rung(env_name)),
+        };
+        if let Some(n) = stated {
+            if n < min {
+                panic!(
+                    "nros-rmw-xrce-cffi: {env_name}={n} is below the minimum {min} stated in {}",
+                    config_path.display()
+                );
+            }
+        }
+        stated
+    }
+
+    /// Rungs 1–4: the value to compile with.
+    fn value(
+        &self,
+        env_name: &str,
+        default: usize,
+        min: usize,
+        config_path: &std::path::Path,
+    ) -> usize {
+        self.stated(env_name, min, config_path).unwrap_or(default)
+    }
 }
 
 /// One `src <group> <tree> <path>` record from the shared source manifest.
@@ -716,5 +656,132 @@ impl SourceManifest {
                     path.display()
                 )
             })
+    }
+}
+
+/// `value <template> <token> <literal>` — a fixed `@token@` substitution.
+struct ValueRow {
+    template: String,
+    token: String,
+    literal: String,
+}
+
+/// `knob <template> <token> <env> <default> <min>` — a tunable substitution.
+struct KnobRow {
+    template: String,
+    token: String,
+    env: String,
+    default: usize,
+    min: usize,
+}
+
+/// `flag <template> <token> <condition>` — a `#cmakedefine` toggle.
+struct FlagRow {
+    template: String,
+    token: String,
+    condition: String,
+}
+
+/// `define <macro> <env> <min>` — a `-D` on the backend compile. No default
+/// column by design: `nros-rmw-xrce/src/internal.h` holds it in an `#ifndef`.
+struct DefineRow {
+    macro_name: String,
+    env: String,
+    min: usize,
+}
+
+/// `packages/rmw/xrce/xrce-config.txt`, parsed — phase-420 W9.
+///
+/// Sibling of [`SourceManifest`]: that one answers "which files", this one
+/// "with what values". Both lanes read both, and for the same reason — the
+/// values used to exist TWICE (here, and as `set(UCLIENT_…)` plus
+/// `configure_file` in `nros-rmw-xrce/CMakeLists.txt`) with nothing but
+/// proximity holding them together. See the file's own header for the format,
+/// the knob ladder, and the one rung this lane has that the other cannot.
+struct ConfigManifest {
+    values: Vec<ValueRow>,
+    knobs: Vec<KnobRow>,
+    flags: Vec<FlagRow>,
+    defines: Vec<DefineRow>,
+}
+
+impl ConfigManifest {
+    fn read(path: &std::path::Path) -> Self {
+        let text = fs::read_to_string(path).unwrap_or_else(|e| {
+            panic!(
+                "nros-rmw-xrce-cffi: cannot read the shared XRCE config manifest {} ({e}). It is \
+                 tracked in-repo; a missing one means the checkout is incomplete.",
+                path.display()
+            )
+        });
+        let mut m = Self {
+            values: Vec::new(),
+            knobs: Vec::new(),
+            flags: Vec::new(),
+            defines: Vec::new(),
+        };
+        let num = |field: &str, n: usize| -> usize {
+            field.parse().unwrap_or_else(|_| {
+                panic!("{}:{}: `{field}` is not a number", path.display(), n + 1)
+            })
+        };
+        for (n, raw) in text.lines().enumerate() {
+            let line = raw.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            let f: Vec<&str> = line.split_whitespace().collect();
+            match f.as_slice() {
+                ["value", template, token, literal] => m.values.push(ValueRow {
+                    template: (*template).to_string(),
+                    token: (*token).to_string(),
+                    literal: (*literal).to_string(),
+                }),
+                ["knob", template, token, env, default, min] => m.knobs.push(KnobRow {
+                    template: (*template).to_string(),
+                    token: (*token).to_string(),
+                    env: (*env).to_string(),
+                    default: num(default, n),
+                    min: num(min, n),
+                }),
+                ["flag", template, token, condition] => m.flags.push(FlagRow {
+                    template: (*template).to_string(),
+                    token: (*token).to_string(),
+                    condition: (*condition).to_string(),
+                }),
+                ["define", macro_name, env, min] => m.defines.push(DefineRow {
+                    macro_name: (*macro_name).to_string(),
+                    env: (*env).to_string(),
+                    min: num(min, n),
+                }),
+                _ => panic!(
+                    "{}:{}: expected `value <template> <token> <literal>`, \
+                     `knob <template> <token> <env> <default> <min>`, \
+                     `flag <template> <token> <condition>` or \
+                     `define <macro> <env> <min>`, got `{line}`",
+                    path.display(),
+                    n + 1
+                ),
+            }
+        }
+        if m.values.is_empty() && m.knobs.is_empty() && m.flags.is_empty() {
+            panic!(
+                "{}: no substitutions at all — manifest drift",
+                path.display()
+            );
+        }
+        m
+    }
+
+    fn values_for(&self, template: &str) -> impl Iterator<Item = &ValueRow> {
+        self.values.iter().filter(move |r| r.template == template)
+    }
+
+    fn knobs_for(&self, template: &str) -> impl Iterator<Item = &KnobRow> {
+        self.knobs.iter().filter(move |r| r.template == template)
+    }
+
+    fn flags_for(&self, template: &str) -> impl Iterator<Item = &FlagRow> {
+        self.flags.iter().filter(move |r| r.template == template)
     }
 }

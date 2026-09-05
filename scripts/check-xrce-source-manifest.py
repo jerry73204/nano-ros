@@ -51,6 +51,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 XRCE = REPO / "packages/rmw/xrce"
 MANIFEST = XRCE / "xrce-sources.txt"
+# phase-420 W9 — a SECOND manifest reads the same condition vocabulary. The
+# `NROS-XRCE-CONDITIONS` block in each lane answers tokens for both, because
+# "which files" (`xrce-sources.txt`) and "which profile defines"
+# (`xrce-config.txt`) have to agree: a header promising `UCLIENT_PROFILE_UDP`
+# whose `udp_transport.c` was not compiled is issue 1068 wearing a link error.
+# So check (4)'s "exactly the tokens the manifest uses" is over BOTH.
+CONFIG_MANIFEST = XRCE / "xrce-config.txt"
 BUILD_RS = XRCE / "nros-rmw-xrce-cffi/build.rs"
 CMAKE = XRCE / "nros-rmw-xrce/CMakeLists.txt"
 
@@ -182,6 +189,24 @@ def lane_tokens(text: str, pattern: re.Pattern) -> set[str]:
     return set(pattern.findall(text[start:end]))
 
 
+def config_conditions(path: Path) -> set[str]:
+    """Condition tokens `xrce-config.txt`'s `flag` records use — phase-420 W9.
+
+    Its own gate (`check-xrce-config-manifest`) validates that file; this reads
+    only the third column of its `flag` rows, so the two gates share a
+    vocabulary without sharing a parser. A missing file contributes nothing
+    rather than erroring: the config gate is what reports its absence.
+    """
+    if not path.exists():
+        return set()
+    out: set[str] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        f = raw.split("#", 1)[0].split()
+        if len(f) == 4 and f[0] == "flag":
+            out.add(f[3])
+    return out
+
+
 def self_test() -> None:
     """Runs on the NORMAL path — a negative control nobody runs decays into a
     comment (`check-gate-selftests`)."""
@@ -226,6 +251,15 @@ def self_test() -> None:
     assert lane_sources("# see udp_transport.c for why\n", "#", set()) == []
     assert lane_sources('posix.join("net.c");', "//", {"net.c"}) == []
     assert lane_sources("list(APPEND _x ${_tree}/${_path})\n", "#", set()) == []
+
+    # The second manifest contributes to the vocabulary (phase-420 W9).
+    assert config_conditions(CONFIG_MANIFEST) >= {"never"}, (
+        "xrce-config.txt must contribute its flag conditions, or a lane answering "
+        "`never` reads as dead selection logic"
+    )
+    assert (
+        config_conditions(Path("/nonexistent/xrce-config.txt")) == set()
+    ), "a missing config manifest must contribute nothing, not raise"
 
     # THE OTHER REGRESSION: the two lanes answer different token sets.
     rs = f'{_BEGIN}\n "always" => true,\n "posix" => p,\n{_END}'
@@ -297,7 +331,7 @@ def main() -> int:
     except ManifestError as e:
         print(f"check-xrce-source-manifest: {e}", file=sys.stderr)
         return 1
-    wanted = set(groups.values())
+    wanted = set(groups.values()) | config_conditions(CONFIG_MANIFEST)
     for label, got in (("build.rs", rs_tokens), ("CMakeLists.txt", cm_tokens)):
         for tok in sorted(wanted - got):
             bad.append(

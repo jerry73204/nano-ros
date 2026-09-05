@@ -603,7 +603,142 @@ is one road.
         **one build with one set of resolved knobs, consumed twice**. Sequence:
         settle the open question in (2) first, since a positive answer makes
         this urgent rather than tidy; then hoist the knob resolution to one
-        place; then the template substitution; then the compile.
+        place; then the template substitution; then the compile. (Followed:
+        the question came back NO, and 1 + 2 landed together — they are one
+        change, because the knob ladder's whole output is the template
+        substitution. See below.)
+
+        **Steps 1 and 2 LANDED 2026-09-05, and the open question is
+        SETTLED: NO.**
+
+        **The measurement.** One image cannot contain TUs from both lanes, so
+        this was never an issue-0135 ABI split. Evidence, read out of the build
+        graph rather than inferred from directory names:
+
+        - nothing in the tree `add_subdirectory()`s or `find_package()`s
+          `packages/rmw/xrce/nros-rmw-xrce`. The ONLY configure of it is
+          `just check rmw-xrce` (`just/check.just`), standalone;
+        - after that configure, `cmake --build … --target help` lists four
+          targets, and `tests/CMakeFiles/nros_rmw_xrce_c_smoke.dir/link.txt`
+          reads `… ../libnros_rmw_xrce.a ../nros_platform_impl_build/
+          libnros_platform_posix.a -lrt` — the archive reaches that project's
+          own two CTest binaries and nothing else;
+        - `zephyr/cmake/nros_rmw_xrce.cmake` is an explicit no-op ("Nothing to
+          compile here anymore"), so the Zephyr XRCE path compiles no C through
+          cmake at all;
+        - `cmake/NanoRosRmwDispatch.cmake` maps `xrce` to `NROS_RMW_RLIB_DEP
+          nros-rmw-xrce-cffi` — the CARGO lane — for every image, and
+          `CMakeLists.txt:268` bundles that Rust backend into the umbrella;
+        - the one file that names a CMake package for this backend,
+          `packages/api/nros-c/cmake/NanoRosLink.cmake`, is included by NOTHING
+          (the live `cmake/NanoRosLink.cmake` never mentions XRCE) and the
+          `NrosRmwXrceConfig.cmake` it would `find_dependency` does not exist —
+          phase-140 deleted the install rules.
+
+        So the severity is **test fidelity, not corruption**: the CMake lane's
+        CTest harness was validating the backend at values no image compiles
+        once a knob is set. It is also NARROWER than this item assumed — the
+        CMake lane never participates in a Zephyr build, so those six Kconfig
+        options were not merely ignored there, they were absent. **No issue
+        filed**: the divergence is fixed rather than tracked.
+
+        **What landed.**
+
+        - `packages/rmw/xrce/xrce-config.txt` — the sibling of
+          `xrce-sources.txt`. That one answers "which files"; this one answers
+          "with what values". Four record types (`value`, `knob`, `flag`,
+          `define`), the same line-oriented dependency-free format, and the
+          SAME condition vocabulary — because "which files" and "which profile
+          defines" have to agree or the header promises a profile whose TUs
+          were not compiled. `never` is its one added token, for a
+          `#cmakedefine` that is off on every target; stated rather than
+          omitted, because an omitted toggle is `/* #undef */` under
+          `configure_file` and an UNTOUCHED `#cmakedefine` line under a hand
+          substitution — one silence, two different headers.
+        - `build.rs` lost `generate_ucdr_config` / `generate_uxr_config` for a
+          single `generate_config`, and both MTU consts; `CMakeLists.txt` lost
+          its `set(UCLIENT_…)` block. Neither lane states a value now.
+        - ONE knob ladder, implemented twice against one statement:
+          `KnobResolver` in `build.rs` and `_nros_xrce_knob()` in the
+          CMakeLists. Rungs 1 (env), 2 (`CONFIG_<env>` in `$DOTCONFIG`) and 4
+          (the manifest default) are identical, including the treatment of the
+          `-1` DERIVE sentinel as "nothing stated". Rung 3 (`[knobs.xrce]`) is
+          cargo-only and SAID SO in the manifest header rather than left for a
+          reader to assume symmetry: it needs a TOML parser the CMake lane
+          cannot grow without the dependency the format exists to avoid, it
+          covers two knobs, and it cannot be delivered to a lane with no cargo.
+        - `zephyr/Kconfig` — two stale `Maps to` lines corrected.
+          `NROS_XRCE_TRANSPORT_MTU` said "Maps to XRCE_TRANSPORT_MTU", a macro
+          that does not exist; `NROS_XRCE_STREAM_HISTORY` named the environment
+          variable and said "read by nros-rmw-xrce-cffi/build.rs", naming one
+          lane. Those lines are now a CONTRACT (see the gate).
+
+        **Verified, not asserted.** Both lanes were configured/built and their
+        generated headers diffed, three ways: at defaults (byte-identical, AND
+        byte-identical to the pre-change baseline — no behaviour moved); with
+        `NROS_XRCE_TRANSPORT_MTU=1024 NROS_XRCE_MAX_SUBSCRIBERS=2
+        NROS_XRCE_STREAM_HISTORY=8` in the environment (identical, and both
+        lanes emit exactly `-DXRCE_MAX_SUBSCRIBERS=2 -DXRCE_STREAM_HISTORY=8`);
+        and with those stated in a `$DOTCONFIG` instead (identical, `768`
+        landing in both lanes' `UXR_CONFIG_UDP_TRANSPORT_MTU` where the CMake
+        lane previously compiled 4096 whatever Kconfig said). `just check
+        rmw-xrce` still passes 2/2.
+
+        **Gate: `just check xrce-config-manifest`**
+        (`scripts/check-xrce-config-manifest.py`). It checks the WIRING, not
+        only the shape, because a row whose columns are all valid and whose env
+        name points at the wrong knob is the failure a shape check cannot see:
+        each `CONFIG_NROS_XRCE_*` option's Kconfig `Maps to <SYMBOL>[,
+        <SYMBOL>]…` line must name EXACTLY the symbols the manifest binds that
+        knob to. It also asserts both upstream templates are fully covered in
+        both directions, that neither lane states a value of its own, and that
+        every knob `nros_cargo_build.cmake` forwards is bound — all six, not
+        the one in the example.
+
+        Three existing gates moved with it, each because this change broke
+        them: `check-xrce-source-manifest` now takes its condition vocabulary
+        from BOTH manifests (a lane answering `never` otherwise reads as dead
+        selection logic); `check-xrce-vendored-versions` learned the single
+        `generate_config`, and its three crosswire vectors survived the move —
+        the pairing got EASIER to check, since the template path and the
+        `vendored_project_version()` argument now sit in one call expression;
+        and `check-kconfig-knob-forwarding` gained a `MANIFEST_READERS` arm,
+        since a reader may now name its knobs in a shared manifest rather than
+        in its own source. That last one is load-bearing and is mutation-tested
+        both ways: dropping a `define` row reports the forwarded knob as
+        unread, and a reader that stops PARSING the manifest reports the
+        manifest as unconsumed.
+
+        **Step 3 (one compile) NOT attempted, and this item's sketch of it is
+        wrong in one respect.** It reads "a cargo `links` crate … consumed by
+        both `nros-rmw-xrce` and `nros-rmw-xrce-cffi`". `nros-rmw-xrce` is not
+        a cargo crate — it is a CMake project — so it cannot consume a cargo
+        `links` crate or its `DEP_<LINKS>_*` at all. "One compile consumed by
+        both" therefore has to be a CMake project plus a cargo crate that
+        drives it (Corrosion, or a build script that shells to cmake), which is
+        a different design from the one written here and needs deciding before
+        it is built. Three further reasons to leave it:
+
+        - it changes how every XRCE fixture builds, so it costs a tier-2 sweep
+          to believe, and steps 1-2 are worth landing on their own;
+        - the two compiles are not yet equivalent and nothing says which is the
+          contract: the cargo lane builds for six target families at `-Os` with
+          `-ffunction-sections` and `UCLIENT_PLATFORM_NO_POSIX`, the CMake lane
+          is POSIX-only at `-Wall -Wextra -Wpedantic`;
+        - the measurement above shrinks the prize. Since the CMake lane reaches
+          no image, one compile buys correctness for nothing that ships; its
+          value is that the CTest harness compiles what images compile, which
+          is real and much smaller than "the risky one" implies.
+
+        **Also found, not fixed (pre-existing).** The five XRCE pool knobs that
+        size ~86 % of `xrce_session_state_t` — `NROS_XRCE_MAX_SUBSCRIBERS`,
+        `MAX_SERVICE_SERVERS`, `MAX_SERVICE_CLIENTS`, `SUBSCRIBER_RING_DEPTH`,
+        `BUFFER_SIZE` — appear nowhere in
+        `book/src/reference/static-pool-inventory.md`, before this change or
+        after. That is issue 0271's own rule ("a knob nobody can enumerate is a
+        knob nobody sets") going unmet, and it is now cheap to fix, because
+        `xrce-config.txt` enumerates exactly those five with their minimums;
+        `gen-pool-inventory.py` would have to read it.
 
         **The zenoh invariant does NOT transfer here.** `check-zenoh-source-
         manifest` can say "only `src/system/<platform>/` paths may be
