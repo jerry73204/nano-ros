@@ -328,3 +328,57 @@ xrce-vendored-versions:
 [private]
 xrce-config-manifest:
     @python3 scripts/check-xrce-config-manifest.py
+
+# phase-420 W9 — EXACTLY ONE LANE COMPILES THE VENDORED ZENOH-PICO TREE PER
+# PLATFORM. Measured 2026-09-05, because W9's zenoh bullet asked and the answer
+# decided the work: can one Zephyr image hold zenoh-pico TUs from BOTH lanes?
+# NO. Zephyr's `nros-platform.toml` says `[build.zenoh] compiled_by =
+# "platform"` and `runner.rs` skips `build_zenoh_pico_unified` on it (issue
+# 0534/0541 — the cargo lane cannot compile those TUs on Zephyr at all, they
+# include a `version.h` only the west build generates). The one C TU cargo emits
+# into a Zephyr image is the in-repo alias TU, which includes no vendored
+# header. So the "duplicate compile" W9 names is a per-platform SPLIT, and
+# "one build consumed by both" is not the shape the evidence supports.
+#
+# What it does support is this gate. The split rests on three statements that
+# have to agree — a TOML field, a Rust guard, and which lane answers a manifest
+# condition token — and a Zephyr C/C++ image links with
+# `-Wl,--allow-multiple-definition`, so if both lanes ever did compile the tree
+# the duplicate symbols would NOT stop the link: one lane's objects would
+# silently win, with the two lanes' independently-resolved `Z_FEATURE_*`
+# deciding flag-gated struct layouts inside it (issue 0135).
+#
+# The check that is not about shape, since `check-zenoh-source-manifest` covers
+# shape: A PLATFORM TOKEN IS ANSWERED TRUE-CAPABLE BY EXACTLY ITS OWNER. That
+# gate asserts both lanes answer the same token SET and says nothing about which
+# WAY. `set(_zenoh_cond_zephyr FALSE)` keeps the set identical and drops
+# `system/zephyr/network.c` from every Zephyr image (phase 160.C —
+# `Transport(ConnectionFailed)` at session open); `"zephyr" => true` keeps it
+# identical and compiles that Zephyr-only TU into every other platform. Both are
+# reported here, as is a record whose group token names a DIFFERENT platform
+# than its `system/<dir>/` path.
+#
+# And check (7), which found something on its first run: the tree is compiled
+# THREE times, not two. `scripts/qemu/build-zenoh-pico.sh` has its own
+# nine-directory loop, its own config header and its own slot defaults (issue
+# 1096), so `check-zenoh-source-manifest`'s "neither lane names a vendored path"
+# was true of the two lanes it knows and false of the repository. Every tracked
+# file naming the vendored SOURCE root must now be a declared lane or carry a
+# TRACKED ISSUE ID — a fourth copy fails while the third is visible debt.
+#
+# Checks 8 and 9 close a hole review found after the first version: SWAPPING the
+# two groups' conditions (`zephyr_system zephyr` ⇄ `zephyr_isotp zephyr_isotp`)
+# leaves every token declared, used, answered and counted as before — sibling
+# green, checks 5 and 6 green, both tokens naming zephyr — while
+# `system/zephyr/network.c` starts compiling only under ISO-TP, which is the
+# phase-160.C ABI break on every non-ISO-TP Zephyr image. So: a group's NAME
+# must agree with its CONDITION on platform and feature (the name is what a
+# reader trusts, so `zephyr_system` gated on an ISO-TP feature is a lie in the
+# file), and its MIRROR — a feature-gated group holds the TUs that IMPLEMENT
+# that feature, which catches the records trading groups instead. Both rules are
+# stated in words in `zenoh-sources.txt`'s header too.
+# Buildless, ~1.1 s measured (check 7 reads every tracked build-ish file; the
+# other eight are a handful of files and are instant).
+[private]
+zenoh-lane-ownership:
+    @python3 scripts/check-zenoh-lane-ownership.py

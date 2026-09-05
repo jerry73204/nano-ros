@@ -42,7 +42,13 @@ What it checks
    submodule is not checked out.
 4. NEITHER LANE NAMES A PATH INSIDE THE VENDORED TREE. This is the check that
    makes the mirror unrecreatable, and it is pure text so it holds on a clone
-   with no submodules.
+   with no submodules. **"Neither lane" means the two lanes in `LANES` below,
+   NOT the repository** — a green here has been over-read once already: a THIRD
+   compiler of the vendored tree exists (`scripts/qemu/build-zenoh-pico.sh`,
+   issue 1096) with its own copy of the same nine directories, and this check
+   never looked at it. `check-zenoh-lane-ownership`'s check (7) is what
+   enumerates every tracked file that compiles the tree; this one stays scoped
+   to the two lanes it was written for.
 5. Both lanes answer EXACTLY the set of condition tokens the manifest uses — no
    more, no fewer. A token only one lane answers is the same defect one
    conditional over; a token the manifest never uses is dead selection logic.
@@ -604,7 +610,9 @@ def main() -> int:
     print(
         "check-zenoh-source-manifest: OK — "
         f"{kinds['dir']} directories + {kinds['src']} files in {len(groups)} groups, "
-        f"conditions {sorted(wanted)}, both lanes derive them"
+        f"conditions {sorted(wanted)}, both lanes derive them "
+        "(scope: the 2 lanes in LANES, and SHAPE only — who else compiles the tree is "
+        "check-zenoh-lane-ownership (7), which way a lane answers a token is its (5)/(8)/(9))"
     )
     return 0
 

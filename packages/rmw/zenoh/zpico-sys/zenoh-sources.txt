@@ -83,6 +83,40 @@
 # Tokens use `_` rather than `+` or `-` because CMake interpolates them into a
 # variable name (`_zenoh_cond_${cond}`).
 #
+# TWO NAMING RULES, AND WHY THEY ARE RULES AND NOT STYLE
+#
+# A `group` line and its records carry the same fact twice — once as a NAME a
+# reader trusts, once as a CONDITION the build obeys — and nothing about the
+# file's SHAPE notices when the two stop agreeing. Swapping the conditions of
+# two declared groups leaves every token declared, every token used, every token
+# answered by both lanes and every count identical; it also moves
+# `system/zephyr/network.c` behind the ISO-TP flag, which the group comment
+# below explains is a phase-160.C ABI break on every non-ISO-TP Zephyr image.
+# So:
+#
+#   1. A GROUP'S NAME MUST AGREE WITH ITS CONDITION, on the platform and on the
+#      feature. The name is what a reader uses to understand a record, so a
+#      group called `zephyr_system` gated on an ISO-TP feature is a lie in the
+#      file itself. Precisely: the platform in the name is the platform in the
+#      condition; if the condition narrows a platform by a feature
+#      (`<platform>_<feature>`), the name carries that same feature; if it does
+#      not narrow at all, the name does not claim a feature some other condition
+#      narrows by. (`zephyr_system` may be named `_system` because no condition
+#      narrows by `system` — it is a description, not a promise.)
+#
+#   2. A FEATURE-GATED GROUP HOLDS THE TUs THAT IMPLEMENT THAT FEATURE. Upstream
+#      names its TUs after what they implement — `system/zephyr/isotp.c` IS the
+#      ISO-TP binding, `system/zephyr/network.c` IS the socket backend — so a
+#      record in a `<platform>_<feature>` group names that feature in its path,
+#      and a record in a base-platform group names none that a condition narrows
+#      by. This is the mirror of rule 1: rule 1 catches the groups trading
+#      conditions, rule 2 catches the records trading groups.
+#
+# Both are enforced by `check-zenoh-lane-ownership` (checks 8 and 9), not by
+# `check-zenoh-source-manifest`, which is a shape check and is green on both.
+# Rule 2 is a property of upstream's layout rather than a law, so it has a
+# stated escape hatch: `FEATURE_TU_EXCEPTIONS` in that gate, empty today.
+#
 # HOW EACH LANE ANSWERS THEM
 #
 #   nros-zpico-build   always       → true
