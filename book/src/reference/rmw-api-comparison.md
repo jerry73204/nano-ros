@@ -29,6 +29,13 @@ Slot names drop the `rmw_` prefix because that is genuinely the name in
 `nros_rmw_vtable_t`; showing `rmw_count_publishers` on the right would flatter
 the comparison.
 
+**Each side is spelled the way its own headers spell it.** Upstream writes
+`const rmw_publisher_t * publisher`, we write `const rmw_publisher_t *publisher`,
+and the two columns keep their own convention rather than being normalised to
+a third that neither project uses. Parameter NAMES are shown on both sides;
+the comparison behind the highlighting is on TYPES only, because a renamed
+argument is not an ABI difference.
+
 **The chip says what we DID with the symbol**, which is a different question
 from what the signature shows:
 
