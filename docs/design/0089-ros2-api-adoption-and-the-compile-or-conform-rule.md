@@ -781,3 +781,120 @@ missing where the SSoT is, and adding it in C++ would have been the second
 implementation this rule exists to prevent.
 
 Resolves the C++ half of issue 0793.
+
+
+## The rclcpp node model, and what nano-ros actually needs from it (2026-09-05)
+
+Decision 2 above says "mirror rclcpp, which means one node type". That is the
+conclusion; this section is the reasoning, because the question it answers —
+*we don't build standalone node binaries, so doesn't that force a node type of
+our own?* — is a good one with a surprising answer.
+
+### What rclcpp actually has
+
+Four things that are easy to conflate:
+
+1. **`rclcpp::Node`** — an ordinary C++ object. Creating one does not create a
+   process, a thread, or a scheduler. It registers a node with the middleware
+   and owns the entities you create through it.
+2. **An executor** — a separate object that *drives* nodes. Nodes are added to
+   it (`add_node`), and it dispatches their callbacks. `rclcpp::spin(node)` is
+   sugar that constructs a `SingleThreadedExecutor`, adds the node, and spins.
+3. **Composition** — several nodes in ONE process, on one executor. Upstream
+   supports two ways to get there, and this is the crux:
+   * *dynamic composition*: `rclcpp_components` `dlopen`s a shared library and
+     instantiates a registered class into a running container process;
+   * **manual composition**: the components are LINKED into one executable
+     whose `main` constructs each of them and adds them to one executor.
+4. **`rclcpp_lifecycle::LifecycleNode`** — a genuinely distinct type, with a
+   state machine and its own interface set.
+
+### The answer to "we link, we don't spawn"
+
+**Manual composition is upstream's own answer to exactly our constraint, and it
+uses a plain `rclcpp::Node`.** A component in that model is a class that derives
+from (or holds) `rclcpp::Node`, with a constructor taking `NodeOptions`; the
+`RCLCPP_COMPONENTS_REGISTER_NODE` macro is what makes it *additionally*
+loadable, and omitting it costs nothing but that.
+
+So the constraint that motivated a nano-ros-specific node type — one image, no
+`dlopen`, no per-node binaries — is a constraint upstream already lives under
+whenever anyone does manual composition. It does not require a new node type. It
+requires the *component* shape, which is a class, not a node type.
+
+That is why the mapping collapses:
+
+| rclcpp | nano-ros |
+| --- | --- |
+| `rclcpp::Node` | the one node type |
+| manual composition (`main` constructs components, adds to one executor) | **exactly our model** — the generated entry constructs each component and the executor drives them |
+| `RCLCPP_COMPONENTS_REGISTER_NODE` + `dlopen` | absent, deliberately: no dynamic loading on firmware |
+| `NodeOptions` | `NodeOptions` |
+| `LifecycleNode` | our lifecycle set, a separate type as upstream has it |
+
+`nros::ComponentNode` was invented for the row that turns out not to need a new
+type. What it really carries is two things, and neither is a node kind:
+
+* **an entry-supplied `NodeHandle`** instead of the global executor. Upstream's
+  equivalent is that a manually-composed node is added to an executor the `main`
+  owns. This is a CONSTRUCTOR, and its nearest upstream spelling is passing
+  `NodeOptions` and letting the caller do `executor.add_node(...)`.
+* **RFC-0047's one-component-several-named-nodes.** This one IS ours-only: an
+  rclcpp component is one node, and a process wanting two makes two objects.
+  Ours exists because a fixed-arena image benefits from one object owning
+  several node identities. It stays — as a documented divergence with a
+  disposition, on the single node type, not as a second class.
+
+### What this means for the merge
+
+One node type, three constructors: the global-executor one (`rclcpp::Node`'s,
+what a ported file writes), the handle-taking one (what a generated entry
+writes), and the several-identities one (ours-only, RFC-0047). The RFC-0043
+typed component keeps taking a node by reference, which is unchanged — it was
+never a node type, only a `configure(Node&)` convention.
+
+The thing to NOT do is preserve two types because they have two construction
+paths. `rclcpp::Node` already has several constructors and remains one type;
+construction is not identity.
+
+## Parameters: feature-complete, Rust-side SSoT, and `ros2 param list` must work
+
+Decision 3 says the store lives in Rust. Stating what "feature complete" costs,
+because the gap is larger than the missing setter.
+
+**What exists.** The executor owns a `nros_params::ParameterTable` and
+registers all six ROS 2 parameter services — `GetParameters`, `SetParameters`,
+`SetParametersAtomically`, `ListParameters`, `DescribeParameters`,
+`GetParameterTypes` (`executor/spin.rs:7182`). Service-wise that is the
+complete upstream set.
+
+**The gap is not the service list; it is the KEYING.** Those services are
+registered under ONE FQN, built from the executor's own `node_name` and
+`namespace`. The store is likewise executor-global. But an image composes
+several nodes onto one executor — that is the whole point of the model above.
+So today:
+
+* `ros2 param list` shows the executor's node, not the image's nodes;
+* two nodes declaring the same parameter name collide in one flat table;
+* a parameter declared through a C++ node facade is invisible to the services
+  entirely, because the facade's store is a different store (issue 0793).
+
+Upstream's model is one store and one set of six services PER NODE. Matching it
+means:
+
+1. **Key the table by node**, not by executor.
+2. **Register the six services per node identity**, under each node's FQN, so
+   `ros2 param list` enumerates the image's nodes as a ROS 2 user expects. Note
+   the cost this lands on: a service server IS a zenoh queryable, six per node,
+   against `ZPICO_MAX_QUERYABLES` — the CLAUDE.md pitfall about
+   `[param_services]` claiming six slots becomes six PER NODE, which is a
+   sizing decision, not an oversight to discover at runtime.
+3. **Add the missing setter.** `grep -c nros_cpp_set_param` is 0 and there is no
+   `set_parameter` on the executor either, so `SetParameters` currently has a
+   service without a store-side writer for the wrapper path.
+4. **Delete the C++ stores**, both of them, once 1–3 land. Not before: deleting
+   a store that has no replacement is how a capability disappears quietly.
+
+That ordering matters. Steps 1–3 are Rust-side, and step 4 is what makes the
+C/C++ side a thin wrapper rather than a second implementation — which is
+RFC-0019/0020's rule, and the reason this is a Rust job rather than a C++ one.
