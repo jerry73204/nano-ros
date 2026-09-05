@@ -120,6 +120,151 @@ pub fn tool_dir_candidates(index: &super::sdk_index::SdkIndex, tool: &str) -> Ve
     out
 }
 
+/// The user-facing bin dir: `$NROS_HOME/bin`, else `~/.nros/bin`, else
+/// `./.nros/bin` — the sibling of [`store_root`], resolved the same way.
+///
+/// This is the ONE directory a user puts on PATH. The store itself never is:
+/// `activate.sh` only adds a store `bin/` for the tools named in
+/// `scripts/sdk-path-tools.txt`, which exists for binaries something we do not
+/// control invokes by bare name.
+pub fn front_dir() -> PathBuf {
+    if let Some(h) = std::env::var_os("NROS_HOME") {
+        return PathBuf::from(h).join("bin");
+    }
+    if let Some(h) = std::env::var_os("HOME") {
+        return PathBuf::from(h).join(".nros").join("bin");
+    }
+    PathBuf::from(".nros").join("bin")
+}
+
+/// Order two store version strings — digit runs numerically, the rest as text.
+///
+/// `sort -Vr` is what the store's other consumers use and it is not usable
+/// here. Issue 0625: a flat `corrosion/` prefix put `lib/` and `share/` where
+/// versions go, and a pure-alpha name sorts AHEAD of numeric ones under `-V`,
+/// so `lib` won 155 of 183 resolutions in a single configure. The filter in
+/// [`installed_versions`] is the real defence; this is the second one, and it
+/// also gets `nros1` vs `nros10` right, which a plain string compare does not.
+fn version_key(v: &str) -> Vec<(u64, String)> {
+    let mut out = Vec::new();
+    let mut rest = v;
+    while !rest.is_empty() {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        rest = &rest[digits.len()..];
+        let text: String = rest.chars().take_while(|c| !c.is_ascii_digit()).collect();
+        rest = &rest[text.len()..];
+        out.push((digits.parse::<u64>().unwrap_or(0), text));
+    }
+    out
+}
+
+/// Every version of `tool` actually installed under `root`, newest LAST.
+///
+/// "Installed" means the directory carries a provenance marker — the file
+/// [`execute`] writes on success. That is what keeps a partial unpack, a
+/// legacy flat prefix's `lib/`, and a directory somebody created by hand out
+/// of the answer. A name that does not begin with a digit is skipped for the
+/// same reason: a version starts with a number, and the alternative is issue
+/// 0625 again.
+///
+/// This ENUMERATES the store, which the pinned-resolution path is forbidden to
+/// do (`tool_dir`, phase-365). The two are asking different questions: that one
+/// means "where does the version I pinned live" and has one right answer to
+/// construct; this one means "what is the newest thing here", which nothing but
+/// the store knows.
+pub fn installed_versions(root: &Path, tool: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root.join(tool)) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(|c: char| c.is_ascii_digit()) {
+            continue;
+        }
+        if Provenance::read(&entry.path()).is_none() {
+            continue;
+        }
+        found.push(name);
+    }
+    found.sort_by(|a, b| version_key(a).cmp(&version_key(b)));
+    found
+}
+
+/// The newest installed version of `tool`, if any.
+pub fn newest_installed(root: &Path, tool: &str) -> Option<String> {
+    installed_versions(root, tool).pop()
+}
+
+/// Point `<front_dir>/<name>` at the NEWEST installed version of `tool`, for
+/// each `bin/<name>` the index's `front` list names. Returns what was linked.
+///
+/// Versions accumulate — nothing prunes the store (issue 0500) — and the user
+/// is promised exactly one command: `nros` is whichever version is newest, not
+/// whichever was installed last. So this recomputes from the store rather than
+/// linking the prefix it was just handed; installing an older version on
+/// purpose must not silently downgrade the command.
+///
+/// A symlink, not a copy: the store is the single artifact and `readlink -f`
+/// then answers "which version am I running" without a provenance lookup.
+pub fn front_newest(root: &Path, tool: &str, front: &[String]) -> Result<Vec<PathBuf>> {
+    front_newest_into(root, &front_dir(), tool, front)
+}
+
+/// [`front_newest`] with the destination passed in.
+///
+/// The public wrapper reads `$NROS_HOME`; this takes both directories as
+/// parameters so the decision is a pure function of them and its tests need no
+/// `set_var` — a process-global that leaks between parallel tests (issue 1101),
+/// and the same refactor phase-431 W1 made for the workspace guard.
+pub fn front_newest_into(
+    root: &Path,
+    dir: &Path,
+    tool: &str,
+    front: &[String],
+) -> Result<Vec<PathBuf>> {
+    if front.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(version) = newest_installed(root, tool) else {
+        return Ok(Vec::new());
+    };
+    let prefix = tool_prefix(root, tool, &version);
+    std::fs::create_dir_all(dir).wrap_err_with(|| format!("create {}", dir.display()))?;
+    let mut linked = Vec::new();
+    for rel in front {
+        let target = prefix.join(rel);
+        if !target.is_file() {
+            bail!(
+                "{tool} {version} declares `front = [\"{rel}\"]` in the index, but \
+                 {} does not exist. The install is incomplete, or the index names \
+                 the wrong path.",
+                target.display()
+            );
+        }
+        let Some(name) = Path::new(rel).file_name() else {
+            bail!("{tool}: `front` entry {rel:?} has no file name");
+        };
+        let link = dir.join(name);
+        // Replace rather than fail: this runs on every install, and the whole
+        // point is that the link MOVES to the newest version.
+        match std::fs::symlink_metadata(&link) {
+            Ok(_) => {
+                std::fs::remove_file(&link)
+                    .wrap_err_with(|| format!("replace {}", link.display()))?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).wrap_err_with(|| format!("stat {}", link.display()));
+            }
+        }
+        std::os::unix::fs::symlink(&target, &link)
+            .wrap_err_with(|| format!("link {} -> {}", link.display(), target.display()))?;
+        linked.push(link);
+    }
+    Ok(linked)
+}
+
 /// How a tool was installed; persisted to `<prefix>/.nros-provenance`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -278,7 +423,28 @@ pub fn plan_install(tool: &ToolPackage, host: &str, prefix: &Path) -> InstallAct
 
 /// Execute an install action into `prefix`, returning the recorded provenance.
 /// Side-effecting (shells out to curl / sha256sum / tar / git); real-run only.
+/// Install `tool` at `prefix`, then front whatever the index's `front` list
+/// names (phase-431 W3).
+///
+/// `front` is a parameter of the INSTALL rather than a separate call, because
+/// three call sites reach this function and a fourth spelling of "and then link
+/// it" is how one of them ends up not doing it. Fronting is a no-op for the
+/// tools that declare nothing, which is all of them but `nros`.
 pub fn execute(
+    action: &InstallAction,
+    tool: &str,
+    version: &str,
+    prefix: &Path,
+    front: &[String],
+) -> Result<Provenance> {
+    let provenance = execute_install(action, tool, version, prefix)?;
+    for link in front_newest(&store_root(), tool, front)? {
+        eprintln!("    → {} (newest installed)", link.display());
+    }
+    Ok(provenance)
+}
+
+fn execute_install(
     action: &InstallAction,
     tool: &str,
     version: &str,
@@ -976,6 +1142,37 @@ mod phase365_tool_dir_tests {
         }
     }
 
+    /// phase-431 W3 — the index's `nros` smoke check asserts the CODEGEN
+    /// VERSION, so it must be the version this binary actually emits.
+    ///
+    /// The entry exists to make a released CLI safe to install, and the property
+    /// that makes it safe is what it emits — so `smoke` runs
+    /// `bin/nros --codegen-version` rather than `--version`. That number is
+    /// AUTHORED in two places once it is written into the index, and an
+    /// authored mirror in this tree has drifted every time nothing bound it
+    /// (`check-rmw-api-parity`'s map: 25 symbols, reading green). Bound here.
+    #[test]
+    fn the_nros_smoke_check_expects_the_version_this_binary_emits() {
+        let index = repo_index();
+        let tool = index
+            .tool
+            .get("nros")
+            .expect("`[tool.nros]` — phase-431 W3 added it; if it went away, so should this test");
+        let expected = crate::abi_guard::EMITTED_VERSION.to_string();
+        let probe = tool
+            .smoke
+            .iter()
+            .find(|p| p.run.contains("--codegen-version"))
+            .expect("`[tool.nros].smoke` must probe `--codegen-version`");
+        assert_eq!(
+            probe.expect, expected,
+            "the index expects `{}` from `{}` while this binary emits `{expected}`",
+            probe.expect, probe.run
+        );
+        // The other half of the promise: one command, newest version.
+        assert_eq!(tool.front, vec!["bin/nros".to_string()]);
+    }
+
     /// Issue 0628 — the candidate list is CONSTRUCTED, versioned first.
     ///
     /// Order is the whole contract: a host carrying both shapes must get the
@@ -1051,6 +1248,150 @@ mod tests {
 
     fn tmp(tag: &str) -> PathBuf {
         crate::test_support::scratch_path(&format!("store_{tag}"))
+    }
+
+    /// A version prefix the store would accept: populated, with the marker
+    /// `execute` writes on success.
+    fn install_fake(root: &Path, tool: &str, version: &str, rel: &str) -> PathBuf {
+        let prefix = tool_prefix(root, tool, version);
+        let file = prefix.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("#!/bin/sh\necho {version}\n")).unwrap();
+        Provenance {
+            kind: ProvenanceKind::Prebuilt,
+            version: version.to_string(),
+            sha256: None,
+        }
+        .write(&prefix)
+        .unwrap();
+        prefix
+    }
+
+    /// Issue 0625's shape, in the one place that is ALLOWED to enumerate: a
+    /// directory where a version belongs must not be able to win by sorting.
+    #[test]
+    fn installed_versions_ignores_what_is_not_an_install() {
+        let root = tmp("versions");
+        std::fs::remove_dir_all(&root).ok();
+        install_fake(&root, "nros", "0.5.0-nros1", "bin/nros");
+        install_fake(&root, "nros", "0.6.0-nros1", "bin/nros");
+        // A pure-alpha sibling — `lib`/`share` under a legacy flat prefix. Under
+        // `sort -Vr` this sorts AHEAD of every numeric version, which is how it
+        // won 155 of 183 resolutions once.
+        std::fs::create_dir_all(root.join("nros").join("lib")).unwrap();
+        // A version-shaped directory with no provenance: a partial unpack, or a
+        // prefix somebody created by hand. Not an install.
+        std::fs::create_dir_all(root.join("nros").join("9.9.9-nros1").join("bin")).unwrap();
+
+        assert_eq!(
+            installed_versions(&root, "nros"),
+            vec!["0.5.0-nros1".to_string(), "0.6.0-nros1".to_string()]
+        );
+        assert_eq!(
+            newest_installed(&root, "nros").as_deref(),
+            Some("0.6.0-nros1")
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// `nros1` < `nros2` < `nros10` — a string compare gets the last pair
+    /// backwards, and the store's own vocabulary reaches double digits
+    /// (`qemu 11.0.0-nros6` today).
+    #[test]
+    fn version_order_is_numeric_not_lexical() {
+        let root = tmp("order");
+        std::fs::remove_dir_all(&root).ok();
+        for v in ["0.5.0-nros2", "0.5.0-nros10", "0.5.0-nros1"] {
+            install_fake(&root, "nros", v, "bin/nros");
+        }
+        assert_eq!(
+            newest_installed(&root, "nros").as_deref(),
+            Some("0.5.0-nros10")
+        );
+        assert!("0.5.0-nros10" < "0.5.0-nros2", "a string compare disagrees");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The promise: ONE `nros`, and it is the newest — not the last installed.
+    #[test]
+    fn front_points_at_the_newest_even_when_an_older_one_is_installed_after() {
+        let root = tmp("front_newest");
+        let bin = tmp("front_newest_bin");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
+        let front = vec!["bin/nros".to_string()];
+
+        install_fake(&root, "nros", "0.6.0-nros1", "bin/nros");
+        let linked = front_newest_into(&root, &bin, "nros", &front).unwrap();
+        assert_eq!(linked, vec![bin.join("nros")]);
+        assert_eq!(
+            std::fs::read_link(bin.join("nros")).unwrap(),
+            tool_prefix(&root, "nros", "0.6.0-nros1").join("bin/nros")
+        );
+
+        // Installing an OLDER version afterwards must not downgrade the command.
+        install_fake(&root, "nros", "0.5.0-nros1", "bin/nros");
+        front_newest_into(&root, &bin, "nros", &front).unwrap();
+        assert_eq!(
+            std::fs::read_link(bin.join("nros")).unwrap(),
+            tool_prefix(&root, "nros", "0.6.0-nros1").join("bin/nros")
+        );
+
+        // A NEWER one does move it, and replaces the existing link rather than
+        // failing on it — this runs on every install.
+        install_fake(&root, "nros", "0.7.0-nros1", "bin/nros");
+        front_newest_into(&root, &bin, "nros", &front).unwrap();
+        assert_eq!(
+            std::fs::read_link(bin.join("nros")).unwrap(),
+            tool_prefix(&root, "nros", "0.7.0-nros1").join("bin/nros")
+        );
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
+    }
+
+    /// Declaring nothing fronts nothing — every tool but `nros` is this case,
+    /// and it must not create `$NROS_HOME/bin` as a side effect.
+    #[test]
+    fn front_is_a_no_op_for_a_tool_that_declares_none() {
+        let root = tmp("front_none");
+        let bin = tmp("front_none_bin");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
+        install_fake(&root, "qemu", "11.0.0-nros6", "bin/qemu-system-arm");
+        assert!(
+            front_newest_into(&root, &bin, "qemu", &[])
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!bin.exists(), "no `front` must not create the bin dir");
+
+        // An UNINSTALLED tool that declares one is also silent -- there is
+        // nothing to point at yet, and that is not an error.
+        assert!(
+            front_newest_into(&root, &bin, "nros", &["bin/nros".to_string()])
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
+    }
+
+    /// An index that names a path the install does not contain is an INDEX bug,
+    /// and it must say so rather than leave a dangling link behind.
+    #[test]
+    fn front_refuses_a_path_the_install_does_not_have() {
+        let root = tmp("front_missing");
+        let bin = tmp("front_missing_bin");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
+        install_fake(&root, "nros", "0.5.0-nros1", "bin/nros");
+        let err = front_newest_into(&root, &bin, "nros", &["bin/nrs".to_string()])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("bin/nrs"), "{err}");
+        assert!(!bin.join("nrs").exists(), "left a link behind");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&bin).ok();
     }
 
     /// Issue 0374 d4 — the workspace channel is what source recipes build with,

@@ -40,6 +40,7 @@ pub mod new_system;
 pub mod plan;
 pub mod profile;
 pub mod scaffold_deploy;
+pub mod sdk_front;
 pub mod sdk_path;
 pub mod setup;
 pub mod version;
@@ -135,6 +136,12 @@ pub enum Cmd {
     /// never searched (issue 0625).
     #[command(name = "sdk-path")]
     SdkPath(sdk_path::Args),
+
+    /// phase-431 W3 — point `$NROS_HOME/bin/<name>` at the NEWEST installed
+    /// version of a tool. The bridge for `scripts/bootstrap.sh`, which unpacks
+    /// the CLI itself and has no `nros setup` to run until it has.
+    #[command(name = "sdk-front")]
+    SdkFront(sdk_front::Args),
 
     /// phase-336 — the cargo build-profile table (CMAKE_BUILD_TYPE mapping,
     /// flags, artifact dir, env-injected definitions). The bridge cmake/bash

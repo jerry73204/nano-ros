@@ -613,6 +613,22 @@ pub struct ToolPackage {
     /// exact shape issue 0926 removed for openocd, reappearing one cause over.
     #[serde(default)]
     pub smoke: Vec<SmokeCheck>,
+    /// phase-431 W3 — prefix-relative paths (`bin/nros`) that must be reachable
+    /// by BARE NAME from `$NROS_HOME/bin`, which is the one directory a user
+    /// puts on PATH.
+    ///
+    /// The store accumulates versions and the link always points at the NEWEST
+    /// installed one, so `nros` means one command however many versions are
+    /// present. That is the promise; `sdk_store::front_newest` is where it is
+    /// kept.
+    ///
+    /// This is NOT `scripts/sdk-path-tools.txt`. That list puts a store `bin/`
+    /// dir on PATH for tools an RTOS `make` or a cmake `find_program` invokes
+    /// by bare name, and `nros` must never be on it: it would shadow the
+    /// checkout's own CLI in a contributor's shell, which `just doctor` now
+    /// fails on (phase-431 W2) and `nros build` refuses (W1).
+    #[serde(default)]
+    pub front: Vec<String>,
 }
 
 /// One "does it actually run?" probe for a `[tool.*]` dist (issue 0929).
