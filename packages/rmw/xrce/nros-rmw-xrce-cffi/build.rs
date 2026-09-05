@@ -95,6 +95,17 @@ fn main() {
         println!("cargo:rerun-if-changed={}", root.display());
     }
 
+    // Issue 1069 — the two generated config headers take their version from
+    // these files (`vendored_project_version`), so a submodule bump that moves
+    // only the `project(… VERSION …)` line must still re-run this script. The
+    // loop above watches `src/c`, which a version-only bump need not touch.
+    for cml in [
+        microxrce.join("CMakeLists.txt"),
+        microcdr.join("CMakeLists.txt"),
+    ] {
+        println!("cargo:rerun-if-changed={}", cml.display());
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Phase 129.C.1 — platform fanout driven by `target_os` alone.
@@ -348,15 +359,92 @@ fn main() {
     );
 }
 
+// NROS-XRCE-VERSIONS-BEGIN
+/// The vendored tree's OWN statement of its version — issue 1069.
+///
+/// `MICROCDR_VERSION_STR` compiled as `"2.0.2"` here and `"2.4.1"` under the
+/// CMake lane, for one tree that is 2.0.2: the versions were hand-restated in
+/// four places (both lanes, plus two `nros-sdk-index.toml` rows) and disagreed.
+/// Correcting the literals would have left the same four literals, so both
+/// lanes read the fact instead — each vendored `CMakeLists.txt` says
+/// `project(<name> VERSION "X.Y.Z")`, which is upstream telling us what the
+/// tree is. `nros-rmw-xrce/CMakeLists.txt` has the CMake twin,
+/// `_nros_xrce_project_version()`. Gate: `just check xrce-vendored-versions`.
+///
+/// NOT `git describe --tags`, which issue 1069 proposed: a submodule is fetched
+/// by SHA with no tags, so `git -C …/micro-xrce-dds-client describe --tags`
+/// answers "No tags can describe" on an ordinary checkout.
+///
+/// Panics rather than defaulting: a wrong version compiles into a public macro
+/// and past upstream's own `#if UXR_CLIENT_VERSION_MAJOR >= 4` tripwire, so
+/// "close enough" is exactly the failure mode being retired.
+fn vendored_project_version(cmakelists: &std::path::Path, project: &str) -> [String; 3] {
+    let text = fs::read_to_string(cmakelists).unwrap_or_else(|e| {
+        panic!(
+            "nros-rmw-xrce-cffi: cannot read {} ({e}) — the vendored {project} checkout \
+             is missing. Run `nros setup --source micro-cdr --source \
+             micro-xrce-dds-client` (or `git submodule update --init`).",
+            cmakelists.display()
+        )
+    });
+    let mut found: Vec<[String; 3]> = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let Some(rest) = line.strip_prefix("project(") else {
+            continue;
+        };
+        let mut tok = rest.split_whitespace();
+        if tok.next() != Some(project) {
+            continue;
+        }
+        if !tok
+            .next()
+            .is_some_and(|k| k.eq_ignore_ascii_case("VERSION"))
+        {
+            continue;
+        }
+        let raw = tok.next().unwrap_or("").trim_matches('"');
+        let parts: Vec<&str> = raw.split('.').collect();
+        if parts.len() != 3
+            || !parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        {
+            panic!(
+                "nros-rmw-xrce-cffi: `project({project} VERSION …)` in {} does not state \
+                 an X.Y.Z version (got `{raw}`).",
+                cmakelists.display()
+            );
+        }
+        found.push([
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+        ]);
+    }
+    match found.len() {
+        1 => found.pop().unwrap(),
+        n => panic!(
+            "nros-rmw-xrce-cffi: expected exactly one `project({project} VERSION …)` line in \
+             {}, found {n}. Upstream changed how it states its version — update BOTH lanes \
+             (this function and `_nros_xrce_project_version()` in \
+             nros-rmw-xrce/CMakeLists.txt) together.",
+            cmakelists.display()
+        ),
+    }
+}
+// NROS-XRCE-VERSIONS-END
+
 fn generate_ucdr_config(out_dir: &std::path::Path, microcdr: &std::path::Path) {
     let template = fs::read_to_string(microcdr.join("include/ucdr/config.h.in"))
         .expect("read ucdr config.h.in");
-    // Project version 2.0.2 (matches micro-CDR upstream tag at our pin).
+    // Issue 1069 — read out of the vendored tree, not restated here.
+    let [maj, min, pat] = vendored_project_version(&microcdr.join("CMakeLists.txt"), "microcdr");
     let header = template
-        .replace("@PROJECT_VERSION_MAJOR@", "2")
-        .replace("@PROJECT_VERSION_MINOR@", "0")
-        .replace("@PROJECT_VERSION_PATCH@", "2")
-        .replace("@PROJECT_VERSION@", "2.0.2")
+        .replace("@PROJECT_VERSION_MAJOR@", &maj)
+        .replace("@PROJECT_VERSION_MINOR@", &min)
+        .replace("@PROJECT_VERSION_PATCH@", &pat)
+        .replace("@PROJECT_VERSION@", &format!("{maj}.{min}.{pat}"))
         // ucdrEndianness enum: BIG=0, LITTLE=1. Set 1 for x86 / ARM.
         .replace("@CONFIG_MACHINE_ENDIANNESS@", "1");
     let dir = out_dir.join("include/ucdr");
@@ -393,11 +481,17 @@ fn generate_uxr_config(
     let xrce_transport_mtu = xrce_transport_mtu.to_string();
 
     // Substitute @TOKEN@ placeholders.
+    //
+    // Issue 1069 — the version comes out of the vendored tree. It was `2.4.1`
+    // here against a 3.0.1 checkout, which also disarmed upstream's own
+    // `#if UXR_CLIENT_VERSION_MAJOR >= 4` tripwire by a whole major version.
+    let [maj, min, pat] =
+        vendored_project_version(&microxrce.join("CMakeLists.txt"), "microxrcedds_client");
     let mut h = template
-        .replace("@PROJECT_VERSION_MAJOR@", "2")
-        .replace("@PROJECT_VERSION_MINOR@", "4")
-        .replace("@PROJECT_VERSION_PATCH@", "1")
-        .replace("@PROJECT_VERSION@", "2.4.1")
+        .replace("@PROJECT_VERSION_MAJOR@", &maj)
+        .replace("@PROJECT_VERSION_MINOR@", &min)
+        .replace("@PROJECT_VERSION_PATCH@", &pat)
+        .replace("@PROJECT_VERSION@", &format!("{maj}.{min}.{pat}"))
         .replace("@UCLIENT_MAX_OUTPUT_BEST_EFFORT_STREAMS@", "1")
         .replace("@UCLIENT_MAX_OUTPUT_RELIABLE_STREAMS@", "1")
         .replace("@UCLIENT_MAX_INPUT_BEST_EFFORT_STREAMS@", "1")

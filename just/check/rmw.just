@@ -289,3 +289,22 @@ zpico-config-keys:
 [private]
 zenoh-source-manifest:
     @python3 scripts/check-zenoh-source-manifest.py
+
+# Issue 1069 — the same mirror class as `xrce-source-manifest`, one fact over.
+# `MICROCDR_VERSION_STR` compiled as "2.4.1" under CMake and "2.0.2" under
+# cargo, for a tree that is 2.0.2; the client said 2.4.1 in BOTH lanes against a
+# 3.0.1 checkout, disarming upstream's own `#if UXR_CLIENT_VERSION_MAJOR >= 4`
+# tripwire by a major version. Both lanes now read `project(<name> VERSION …)`
+# out of the vendored CMakeLists.
+#
+# It checks WIRING, not shape. The first version checked only "no literals, a
+# derivation block exists, sdk-index agrees" and a review mutation walked through
+# it: point micro-CDR's derivation at the CLIENT's tree and every shape check
+# still passes while the configure emits `MICROCDR_VERSION_STR "3.0.1"` — 1069
+# verbatim. So the invariant is stated per hop, both lanes (cmake: dir var →
+# derivation site → prefix → configure_file; cargo: let root → generator arg →
+# in-body derivation + template read), plus the client's expected micro-CDR and
+# the authored `nros-sdk-index.toml` rows. Buildless, ~30 ms.
+[private]
+xrce-vendored-versions:
+    @python3 scripts/check-xrce-vendored-versions.py

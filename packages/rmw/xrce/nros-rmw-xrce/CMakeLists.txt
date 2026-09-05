@@ -84,25 +84,96 @@ else()
     set(_xrce_ip OFF)
 endif()
 
+# ---- Vendored versions: DERIVED, never restated (issue 1069) ---------------
+# NROS-XRCE-VERSIONS-BEGIN
+# `MICROCDR_VERSION_STR` compiled as `"2.4.1"` here and `"2.0.2"` in the Rust
+# lane, for one vendored tree that is 2.0.2 — three numbers, none authoritative.
+# Both upstream templates take the same `@PROJECT_VERSION*@` tokens, and this
+# file set them ONCE for the client and never reset them, so the micro-CDR
+# `configure_file` below silently inherited the client's. That is not a bug an
+# ordering fix would retire: four hand-written restatements of one fact is the
+# shape that produced issue 1068 one file over.
+#
+# The fact is already in-tree, and it is upstream's OWN statement: each vendored
+# CMakeLists says `project(<name> VERSION "X.Y.Z")`. Both lanes read that line
+# now — `nros-rmw-xrce-cffi/build.rs` has `vendored_project_version()`, this file
+# has `_nros_xrce_project_version()`. Gate: `just check xrce-vendored-versions`.
+#
+# NOT `git describe --tags`, which issue 1069 proposed: a submodule is fetched
+# by SHA with no tags, so `git -C …/micro-xrce-dds-client describe --tags`
+# answers "No tags can describe" on a normal checkout. Measured, phase-420 W9.
+#
+# The macros DO have a reader, contrary to the issue's "zero readers": upstream's
+# own `#if UXR_CLIENT_VERSION_MAJOR >= 4` tripwire at the bottom of
+# `uxr/client/config.h.in`, three `#error`s that fire when the client crosses to
+# 4.x. Compiling MAJOR=2 against a 3.0.1 tree armed it a whole major late.
+function(_nros_xrce_project_version _cmakelists _project _prefix)
+    if(NOT EXISTS "${_cmakelists}")
+        message(FATAL_ERROR
+            "nros-rmw-xrce: '${_cmakelists}' not found — the vendored ${_project} "
+            "checkout is missing. Run `nros setup --source micro-cdr --source "
+            "micro-xrce-dds-client` (or `git submodule update --init`).")
+    endif()
+    file(STRINGS "${_cmakelists}" _lines
+        REGEX "project[ \t]*\\([ \t]*${_project}[ \t]+VERSION")
+    list(LENGTH _lines _n)
+    if(NOT _n EQUAL 1)
+        message(FATAL_ERROR
+            "nros-rmw-xrce: expected exactly one `project(${_project} VERSION …)` "
+            "line in '${_cmakelists}', found ${_n}. Upstream changed how it states "
+            "its version — update BOTH lanes (this function and build.rs's "
+            "`vendored_project_version`) together.")
+    endif()
+    list(GET _lines 0 _line)
+    if(NOT _line MATCHES "VERSION[ \t]+\"?([0-9]+)\\.([0-9]+)\\.([0-9]+)\"?")
+        message(FATAL_ERROR
+            "nros-rmw-xrce: could not read an X.Y.Z version out of '${_line}'.")
+    endif()
+    set(${_prefix}_VERSION_MAJOR "${CMAKE_MATCH_1}" PARENT_SCOPE)
+    set(${_prefix}_VERSION_MINOR "${CMAKE_MATCH_2}" PARENT_SCOPE)
+    set(${_prefix}_VERSION_PATCH "${CMAKE_MATCH_3}" PARENT_SCOPE)
+    set(${_prefix}_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}"
+        PARENT_SCOPE)
+endfunction()
+
+# Re-configure when a submodule bump moves either statement; without this a
+# configured build dir keeps yesterday's number in its generated headers.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${MICROXRCEDDS_CLIENT_DIR}/CMakeLists.txt"
+    "${MICROCDR_DIR}/CMakeLists.txt")
+
+_nros_xrce_project_version("${MICROXRCEDDS_CLIENT_DIR}/CMakeLists.txt"
+    microxrcedds_client _uxr)
+_nros_xrce_project_version("${MICROCDR_DIR}/CMakeLists.txt"
+    microcdr _ucdr)
+message(STATUS
+    "nano-ros: nros-rmw-xrce vendored micro-XRCE-DDS-Client ${_uxr_VERSION} "
+    "+ micro-CDR ${_ucdr_VERSION} (derived from their CMakeLists, issue 1069)")
+# The client also states which micro-CDR it expects — `set(_microcdr_version …)`.
+# Cross-checking it against `_ucdr_VERSION` catches bumping one submodule and not
+# the other; it lives in the GATE rather than here so there is one implementation
+# of it instead of one per lane.
+# NROS-XRCE-VERSIONS-END
+
 # Generate `<uxr/client/config.h>` from the upstream template. Values
 # match the Rust lane's `posix_compat = true, mtu = 4096` defaults; further
 # tuning lands when 115.K.2.5 flips the C backend on under
 # `-DNROS_C_RMW=xrce`.
-set(NROS_RMW_XRCE_C_PROJECT_VERSION_MAJOR 2)
-set(NROS_RMW_XRCE_C_PROJECT_VERSION_MINOR 4)
-set(NROS_RMW_XRCE_C_PROJECT_VERSION_PATCH 1)
-set(NROS_RMW_XRCE_C_PROJECT_VERSION 2.4.1)
-
 set(_uxr_config_in   "${MICROXRCEDDS_CLIENT_DIR}/include/uxr/client/config.h.in")
 set(_uxr_config_out  "${CMAKE_CURRENT_BINARY_DIR}/uxr_generated/uxr/client/config.h")
 
 # Map the @TOKEN@ placeholders the template expects to our chosen
 # values. `set(... PARENT_SCOPE)` not needed — configure_file reads
 # the current scope.
-set(PROJECT_VERSION_MAJOR  ${NROS_RMW_XRCE_C_PROJECT_VERSION_MAJOR})
-set(PROJECT_VERSION_MINOR  ${NROS_RMW_XRCE_C_PROJECT_VERSION_MINOR})
-set(PROJECT_VERSION_PATCH  ${NROS_RMW_XRCE_C_PROJECT_VERSION_PATCH})
-set(PROJECT_VERSION        ${NROS_RMW_XRCE_C_PROJECT_VERSION})
+#
+# `PROJECT_VERSION*` is a SHARED name: both templates take it, so it must be
+# re-pointed at the right tree before each `configure_file` and never left
+# standing. That is the 1069 bug — see the micro-CDR block below.
+set(PROJECT_VERSION_MAJOR  ${_uxr_VERSION_MAJOR})
+set(PROJECT_VERSION_MINOR  ${_uxr_VERSION_MINOR})
+set(PROJECT_VERSION_PATCH  ${_uxr_VERSION_PATCH})
+set(PROJECT_VERSION        ${_uxr_VERSION})
+
 set(UCLIENT_MAX_OUTPUT_BEST_EFFORT_STREAMS 1)
 set(UCLIENT_MAX_OUTPUT_RELIABLE_STREAMS    1)
 set(UCLIENT_MAX_INPUT_BEST_EFFORT_STREAMS  1)
@@ -149,7 +220,16 @@ set(UCLIENT_PLATFORM_ZEPHYR)
 
 configure_file("${_uxr_config_in}" "${_uxr_config_out}" @ONLY)
 
-# micro-CDR config.h — same configure_file pattern.
+# micro-CDR config.h — same configure_file pattern, and the site issue 1069 was
+# filed about. `ucdr/config.h.in` takes the SAME `@PROJECT_VERSION*@` tokens as
+# the client template above, so leaving the client's values standing compiled
+# `MICROCDR_VERSION_STR "2.4.1"` into a 2.0.2 tree. Re-point them EXPLICITLY at
+# micro-CDR — not by reordering, which would leave the next `configure_file` to
+# inherit whatever ran before it.
+set(PROJECT_VERSION_MAJOR  ${_ucdr_VERSION_MAJOR})
+set(PROJECT_VERSION_MINOR  ${_ucdr_VERSION_MINOR})
+set(PROJECT_VERSION_PATCH  ${_ucdr_VERSION_PATCH})
+set(PROJECT_VERSION        ${_ucdr_VERSION})
 set(CONFIG_MACHINE_ENDIANNESS 1)  # ucdrEndianness: BIG=0, LITTLE=1 (x86 / ARM common case)
 configure_file(
     "${MICROCDR_DIR}/include/ucdr/config.h.in"

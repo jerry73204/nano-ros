@@ -971,13 +971,31 @@ submodule = "packages/rmw/zenoh/zpico-sys/mbedtls"
 
 # Micro-XRCE-DDS Client + Micro-CDR — the vendored C sources nros-rmw-xrce-cffi's
 # build.rs compiles (its presence gate prints `git submodule update --init …`).
+#
+# issue 1069 — these two `version` fields are the ONE restatement of the vendored
+# versions that survives, and they are AUTHORED on purpose. `nros setup --source
+# micro-cdr` runs precisely when the checkout is absent, so it cannot read the
+# tree's own `project(<name> VERSION …)` the way the two BUILD lanes now do; the
+# field is a label (`setup --list`, the `describe_source` line) plus the input
+# `scripts/gen-support-status.py` renders into the book's version table. What it
+# is NOT is a selector: provisioning follows `submodule` + the gitlink.
+#
+# So it stays hand-written and is GATED instead — `just check
+# xrce-vendored-versions` compares both rows against the vendored
+# `project(… VERSION …)` lines. `micro-xrce-dds-client` said `2.4.3-nros1`, which
+# is not a client version at all: it is `[tool.xrce-agent]`'s nros release label,
+# copied across. The tree has been 3.0.1 (gitlink `bdfa2809`, "Release v3.0.1")
+# for as long as the row has existed, which also makes the book's "client and
+# agent are pinned to the same upstream release" false — filed, not fixed here.
+# `micro-cdr` said `2.0.x`; the tree is a pinned tag, so a wildcard understates
+# what we actually know.
 [source.micro-xrce-dds-client]
-version = "2.4.3-nros1"
+version = "3.0.1"
 dest = "packages/rmw/xrce/xrce-sys/micro-xrce-dds-client"
 submodule = "packages/rmw/xrce/xrce-sys/micro-xrce-dds-client"
 
 [source.micro-cdr]
-version = "2.0.x"
+version = "2.0.2"
 dest = "packages/rmw/xrce/xrce-sys/micro-cdr"
 submodule = "packages/rmw/xrce/xrce-sys/micro-cdr"
 
