@@ -748,6 +748,91 @@ impl EntityInventory {
         }
     }
 
+    /// phase-412 -- build the inventory from a resolved SystemModel's wiring
+    /// instead of from `ENTITIES`.
+    ///
+    /// `structure.topics` carries, per topic, its message type and the endpoint
+    /// refs on each side (`/node/endpoint`). That is exactly a per-node sub/pub
+    /// set with types attached, which is what this inventory holds -- so the
+    /// authored contract beside the launch file can replace the `ENTITIES` list
+    /// duplicated in every component's `CMakeLists.txt`.
+    ///
+    /// The two sources are not interchangeable, and the difference is the whole
+    /// reason this is a separate constructor rather than a swap:
+    ///
+    /// * The model has NO TIMER ENTITY. A component whose only callback is a
+    ///   timer contributes nothing here and one callback slot at runtime. The
+    ///   island has four such timers, so a `MAX_CBS` derived from the model
+    ///   alone is short by four. Callers must combine this with the declaration
+    ///   or the component sidecar -- `model_ingest` states the same rule as
+    ///   `max(model_wiring, recorded_metadata)`.
+    /// * Service and action wiring lives in `structure.{services,actions}`,
+    ///   which this reads too, but a model that describes no wiring at all is
+    ///   ABSENT rather than zero -- see `entity_facts::describes_wiring`, and
+    ///   the same three-valued rule [`Declaration`] keeps.
+    ///
+    /// Returns `None` when the model describes no wiring, so a caller cannot
+    /// mistake "nobody authored a contract" for "this image creates nothing".
+    /// That distinction is the one this module exists to preserve.
+    pub fn from_model(
+        source: impl Into<String>,
+        model: &ros_launch_manifest_model::SystemModel,
+    ) -> Option<Self> {
+        if model.structure.topics.is_empty()
+            && model.structure.services.is_empty()
+            && model.structure.actions.is_empty()
+        {
+            return None;
+        }
+
+        // Endpoint refs are `/ns/node/endpoint`; the node FQN is everything but
+        // the last segment. Group per node so each becomes one component row.
+        fn node_of(ep: &str) -> String {
+            ep.rsplit_once('/')
+                .map(|(n, _)| n)
+                .unwrap_or(ep)
+                .to_string()
+        }
+
+        let mut per_node: std::collections::BTreeMap<String, Vec<EntityDecl>> =
+            std::collections::BTreeMap::new();
+
+        for wiring in model.structure.topics.values() {
+            for ep in &wiring.subscribers {
+                per_node.entry(node_of(ep)).or_default().push(EntityDecl {
+                    kind: EntityKind::Subscription,
+                    type_name: Some(wiring.msg_type.clone()),
+                    name: Some(ep.clone()),
+                    depth: None,
+                });
+            }
+            for ep in &wiring.publishers {
+                per_node.entry(node_of(ep)).or_default().push(EntityDecl {
+                    kind: EntityKind::Publisher,
+                    type_name: Some(wiring.msg_type.clone()),
+                    name: Some(ep.clone()),
+                    depth: None,
+                });
+            }
+        }
+
+        let mut inv = Self::new(source);
+        for (node_fqn, entities) in per_node {
+            let component = node_fqn.rsplit('/').next().unwrap_or(&node_fqn).to_string();
+            inv.insert(ComponentEntities {
+                // The model names nodes, not ament packages. A node FQN is the
+                // stable identity here, and stating it as the package rather
+                // than inventing one keeps the provenance line honest about
+                // where the row came from.
+                pkg: node_fqn.clone(),
+                component,
+                class: String::new(),
+                declaration: Declaration::Stated(entities),
+            });
+        }
+        Some(inv)
+    }
+
     /// Record one component. A later record for the same `(pkg, component)`
     /// replaces the earlier one, so a configure that registers a component
     /// twice cannot double-count it.
@@ -2328,5 +2413,76 @@ mod tests {
         assert_eq!(k.per_kind["service_server"], 2);
         assert_eq!(k.per_kind["service_client"], 2);
         assert_eq!(k.max_cbs, 19);
+    }
+}
+
+#[cfg(test)]
+mod from_model_tests {
+    use super::*;
+    use ros_launch_manifest_model::SystemModel;
+
+    /// phase-412 -- the island's own resolved model, cut down to the shape that
+    /// matters: two nodes, three topics, one of them internal.
+    ///
+    /// Asserts the counts the pool derivation consumes, not the parse: the
+    /// question is whether `structure.topics` yields the same per-node sub/pub
+    /// sets the hand-written `ENTITIES` lists did.
+    fn model_from_yaml(y: &str) -> SystemModel {
+        serde_yaml_ng::from_str(y).expect("model fixture parses")
+    }
+
+    #[test]
+    fn topics_become_per_node_subscriptions_and_publishers() {
+        let m = model_from_yaml(
+            r#"
+meta: { version: 1 }
+structure:
+  nodes:
+    /mrm_handler:
+      { scope: s.launch.xml, pkg: autoware_mrm_handler, exec: mrm_handler,
+        node_name: mrm_handler }
+    /stop_mode_operator:
+      { scope: s.launch.xml, pkg: autoware_stop_mode_operator,
+        exec: stop_mode_operator, node_name: stop_mode_operator }
+  topics:
+    /system/mrm/emergency_stop/status:
+      type: tier4_system_msgs/msg/MrmBehaviorStatus
+      sub: [/mrm_handler/emergency_stop_status]
+    /api/operation_mode/state:
+      type: autoware_adapi_v1_msgs/msg/OperationModeState
+      sub: [/mrm_handler/operation_mode_state]
+    /system/stop_mode/control:
+      type: autoware_control_msgs/msg/Control
+      pub: [/stop_mode_operator/control]
+"#,
+        );
+        let inv = EntityInventory::from_model("test", &m).expect("model describes wiring");
+        let d = inv.derive();
+        let k = d.knobs().expect("wiring yields knobs");
+        assert_eq!(k.max_subscribers, 2, "two subscriptions across the image");
+        assert_eq!(k.max_publishers, 1, "one publisher");
+    }
+
+    /// A model that describes NO wiring must abstain, never report zero.
+    ///
+    /// Every launch file in this tree without a contract resolves that way, and
+    /// reporting 0 would size each pool to the infrastructure alone and exhaust
+    /// it the moment a node registers -- a confident wrong number, which is the
+    /// failure shape this module exists to prevent.
+    #[test]
+    fn a_model_without_wiring_abstains() {
+        let m = model_from_yaml(
+            r#"
+meta: { version: 1 }
+structure:
+  nodes:
+    /talker:
+      { scope: s.launch.xml, pkg: demo, exec: talker, node_name: talker }
+"#,
+        );
+        assert!(
+            EntityInventory::from_model("test", &m).is_none(),
+            "no contract authored means unanswered, not zero"
+        );
     }
 }
