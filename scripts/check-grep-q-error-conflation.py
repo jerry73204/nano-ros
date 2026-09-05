@@ -73,6 +73,20 @@ SUFFIXES = (".sh", ".just", ".py")
 # tests it guards.
 SEARCH_ROOTS = ["scripts", "just", "justfile", "packages", "tools"]
 
+# A checker whose SUBJECT is this pattern quotes it, in regexes, in its docstring
+# and in its self-test fixtures. Those are not shell conditionals — they are the
+# thing that finds shell conditionals — so counting them makes the count say
+# something it does not mean. Exempted BY NAME rather than by a baseline bump: a
+# baseline entry would record 22 "sites" that are not sites, and the next person
+# lowering that number would be chasing text in a Python string.
+#
+# `check-pipefail-sigpipe-assertions` (issue 1077) covers the neighbouring rule —
+# a status-consuming pipeline into an early-exit matcher — which this gate
+# structurally cannot see, because it skips any line naming `nros_grep_q` and
+# `printf | nros_grep_q` has the same race plus a subshell that swallows the
+# helper's `exit 2`.
+SELF_REFERENTIAL = ("scripts/check-pipefail-sigpipe-assertions.py",)
+
 
 def tracked():
     out = subprocess.run(
@@ -86,6 +100,7 @@ def tracked():
         if (f.endswith(SUFFIXES) or f == "justfile")
         and "/third-party/" not in f
         and "/generated/" not in f
+        and f not in SELF_REFERENTIAL
     ]
 
 

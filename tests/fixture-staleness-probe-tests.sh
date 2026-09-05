@@ -346,7 +346,7 @@ esac
 
 libleaf_record="$(printf 'linux\x1f%s\x1f\x1f' "$work/libleaf")"
 out="$(bash "$RUST_PROBE" "$libleaf_record")"
-if printf '%s' "$out" | grep -q '^DEGRADED'"$(printf '\t')"; then
+if nros_grep_q '^DEGRADED'"$(printf '\t')" <<<"$out"; then
     ok "a leaf whose artifact the locator cannot find reports DEGRADED"
 else
     fail "the fallback branch stayed SILENT — a layout change would revert every row to the pre-0835 rule with nothing saying so. got: ${out:-<empty>}"
@@ -355,7 +355,7 @@ checks=$((checks + 1))
 
 # And the reason has to be usable: a bare marker with no cause is a line nobody
 # can act on, which is how the silent state survived in the first place.
-if printf '%s' "$out" | grep -q 'falls back to'; then
+if nros_grep_q 'falls back to' <<<"$out"; then
     ok "the DEGRADED line names what the verdict fell back to"
 else
     fail "the DEGRADED line carries no reason: ${out:-<empty>}"
