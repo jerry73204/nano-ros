@@ -1087,6 +1087,13 @@ jobs:
         run: |
           git submodule update --init --depth 1 packages/cli/third-party/play_launch
           cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+          # phase-429 W5 — ASSERT the binary matches the checkout, do not hope.
+          # The other four acquisition sites carried this and this one did not,
+          # which is worse than a missing check: four green steps taught that
+          # the rule was in force here too. A warmed cache whose key is narrower
+          # than `source_stamp.rs`'s watch set hands `check cli-tests` a binary
+          # from a different tree (phase-431 W2, `check-ci-cli-from-source`).
+          "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
           cargo build --release --manifest-path packages/cli/nros-launch-resolve/Cargo.toml
           # `check cli-tests` is 338 s of the 20 min job and it is COMPILE-bound
           # (measured: 350 CPU-s to build, tests run in under a second). Warming
