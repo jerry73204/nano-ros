@@ -43,11 +43,28 @@ fn command_is_guarded(name: &str) -> bool {
     )
 }
 
-/// Refuse to run when this binary is older than the sources it was built from.
+/// Refuse to run when this binary is older than the sources it was built from,
+/// or when it is a FOREIGN binary being run against a checkout.
 ///
-/// Only applies to a binary living INSIDE a checkout's `packages/cli/target/`.
-/// An installed copy (`~/.nros/bin/nros`) is not "stale relative to" a checkout
-/// it does not belong to, and blocking it would break every out-of-tree user.
+/// Two questions, and phase-431 W1 added the second because shipping a prebuilt
+/// `nros` inverts what the first one's exemption means.
+///
+/// 1. **Is this binary stale relative to the checkout it lives in?** Keyed on
+///    the binary's own path. Unchanged.
+/// 2. **Is a binary from somewhere else being run against a checkout?** Keyed on
+///    the WORKSPACE. Until there was a release to install, the only non-checkout
+///    `nros` was a deliberate experiment, so exempting it was right. Once
+///    `~/.nros/bin/nros` exists on developer machines, that exemption becomes a
+///    hole: a PATH accident silently disables the freshness check inside a
+///    checkout, and the binary emits with whatever ITS emitters were.
+///
+/// RFC-0090's codegen version does not cover case 2. It catches an INCOMPATIBLE
+/// emitter; a release at the same version whose emitters have merely MOVED is a
+/// freshness question, and the fingerprint that answers it is consulted by the
+/// fixture stamps, not here.
+///
+/// An installed copy run against a user's own project is still exempt, which is
+/// the case the original exemption existed to protect.
 pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
     if std::env::var_os("NROS_SKIP_STALE_CHECK").is_some() {
         return Ok(());
@@ -58,6 +75,13 @@ pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
     let Ok(exe) = std::env::current_exe() else {
         return Ok(());
     };
+    // The workspace is the cwd. Passed in rather than read inside, so the
+    // decision is a pure function of two paths and its tests need no
+    // `set_current_dir` — a process-global that leaks between parallel tests
+    // (issue 1101 is that hazard, one crate over).
+    if let Ok(cwd) = std::env::current_dir() {
+        refuse_if_foreign_to_workspace(&exe, &cwd)?;
+    }
     let Some(root) = checkout_root_of(&exe) else {
         return Ok(());
     };
@@ -103,6 +127,55 @@ pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
     ))
 }
 
+/// phase-431 W1 — refuse a binary that does not belong to the checkout it is
+/// being run against.
+///
+/// The workspace decides, not the binary: if the current directory sits inside a
+/// nano-ros checkout AND that checkout can build a CLI, then the running `nros`
+/// must be that checkout's own build. Anything else is a shadow — a released
+/// binary on `PATH`, another checkout's build, a stray copy — and it emits with
+/// emitters nobody in this tree can see.
+///
+/// Deliberately silent in three cases, each of which would otherwise break a
+/// legitimate flow:
+///
+/// * the cwd is not in a checkout — a user's own project, which is exactly what
+///   a released binary is FOR;
+/// * the checkout carries no `packages/cli` sources — nothing to be foreign to;
+/// * `current_exe` or the cwd cannot be resolved — skip rather than guess, the
+///   same rule the stamp comparison already follows.
+fn refuse_if_foreign_to_workspace(exe: &Path, workspace: &Path) -> Result<(), String> {
+    let Some(ws_root) = crate::abi_guard::find_monorepo_root(workspace) else {
+        return Ok(());
+    };
+    // A checkout with no CLI sources cannot expect one to be built from it.
+    if !ws_root.join("packages/cli/Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let exe_real = exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf());
+    let expected_dir = ws_root.join("packages/cli/target");
+    let expected_real = expected_dir
+        .canonicalize()
+        .unwrap_or_else(|_| expected_dir.clone());
+    if exe_real.starts_with(&expected_real) {
+        return Ok(());
+    }
+    Err(format!(
+        "this `nros` does not belong to the checkout it is being run against.\n\
+         \x20   running: {}\n\
+         \x20   checkout: {}\n\
+         A binary from outside this tree emits with ITS OWN codegen, which may\n\
+         differ from this checkout's while carrying the same codegen version —\n\
+         the version catches an incompatible emitter, not one that merely moved\n\
+         (RFC-0090, phase-431 W1). Build and use this checkout's own CLI:\n\
+         \x20   ./scripts/bootstrap.sh      (contributors: just setup-cli)\n\
+         \x20   source ./activate.sh\n\
+         Override for a deliberate experiment: NROS_SKIP_STALE_CHECK=1",
+        exe_real.display(),
+        ws_root.display(),
+    ))
+}
+
 /// `<root>` when `exe` is `<root>/packages/cli/target/**/nros`, else `None`.
 fn checkout_root_of(exe: &Path) -> Option<PathBuf> {
     let mut dir = exe.parent()?;
@@ -134,4 +207,96 @@ pub fn stamp_pair() -> Option<(String, String)> {
     let root = checkout_root_of(&exe)?;
     let current = source_stamp::source_stamp(&root)?;
     Some((BUILT_STAMP.to_string(), current))
+}
+
+#[cfg(test)]
+mod foreign_binary_tests {
+    use super::*;
+    use std::fs;
+
+    /// A checkout is "a tree with `packages/core/nros-core/Cargo.toml`" — the
+    /// marker `abi_guard::find_monorepo_root` already uses — plus CLI sources.
+    fn fake_checkout(root: &Path) {
+        fs::create_dir_all(root.join("packages/core/nros-core")).unwrap();
+        fs::write(root.join("packages/core/nros-core/Cargo.toml"), "").unwrap();
+        fs::create_dir_all(root.join("packages/cli/target/release")).unwrap();
+        fs::write(root.join("packages/cli/Cargo.toml"), "").unwrap();
+    }
+
+    fn stray(tmp: &Path) -> PathBuf {
+        let p = tmp.join("elsewhere/nros");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, "").unwrap();
+        p
+    }
+
+    /// The whole point of phase-431 W1: a binary from outside the tree is
+    /// refused when it is run AGAINST that tree.
+    #[test]
+    fn a_foreign_binary_is_refused_against_a_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("checkout");
+        fake_checkout(&root);
+        let err = refuse_if_foreign_to_workspace(&stray(tmp.path()), &root)
+            .expect_err("a binary outside the checkout must be refused");
+        assert!(
+            err.contains("does not belong to the checkout"),
+            "the message must say WHICH problem this is: {err}"
+        );
+        // phase-368 / `check-emitter-just-spelling`: a user-reachable message
+        // that names a `just` recipe must name the USER spelling beside it.
+        // This message becomes MORE user-reachable once a binary ships — a
+        // user who wanders into a checkout is exactly who sees it.
+        assert!(
+            err.contains("./scripts/bootstrap.sh") && err.contains("just setup-cli"),
+            "the remedy must carry both spellings, user first: {err}"
+        );
+    }
+
+    /// The negative control, and the case the original exemption existed to
+    /// protect: a released binary building a USER's project must not be
+    /// refused. Without this, shipping would break every out-of-tree consumer.
+    #[test]
+    fn a_foreign_binary_is_fine_outside_any_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("user-project");
+        fs::create_dir_all(&project).unwrap();
+        assert!(refuse_if_foreign_to_workspace(&stray(tmp.path()), &project).is_ok());
+    }
+
+    /// The checkout's own build is what the tree wants, so it passes this check
+    /// and goes on to the staleness comparison.
+    #[test]
+    fn the_checkouts_own_binary_passes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("checkout");
+        fake_checkout(&root);
+        let own = root.join("packages/cli/target/release/nros");
+        fs::write(&own, "").unwrap();
+        assert!(refuse_if_foreign_to_workspace(&own, &root).is_ok());
+    }
+
+    /// A tree with the runtime marker but no CLI sources cannot expect a CLI to
+    /// be built from it, so there is nothing to be foreign to. Without this arm
+    /// a consumer vendoring `packages/core` would be refused.
+    #[test]
+    fn a_tree_with_no_cli_sources_is_not_a_checkout_for_this_purpose() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vendored");
+        fs::create_dir_all(root.join("packages/core/nros-core")).unwrap();
+        fs::write(root.join("packages/core/nros-core/Cargo.toml"), "").unwrap();
+        assert!(refuse_if_foreign_to_workspace(&stray(tmp.path()), &root).is_ok());
+    }
+
+    /// A subdirectory of the checkout is still the checkout — the walk-up is
+    /// what makes this usable from anywhere in the tree.
+    #[test]
+    fn a_subdirectory_of_the_checkout_still_counts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("checkout");
+        fake_checkout(&root);
+        let deep = root.join("examples/native/rust/talker");
+        fs::create_dir_all(&deep).unwrap();
+        assert!(refuse_if_foreign_to_workspace(&stray(tmp.path()), &deep).is_err());
+    }
 }
