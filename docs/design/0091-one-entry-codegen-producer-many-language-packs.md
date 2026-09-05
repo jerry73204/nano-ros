@@ -299,12 +299,96 @@ pack. The build-integration cost does not.
 - Making the CMake path disappear. `nano_ros_add_node` is a supported surface; it becomes
   a pack, not a casualty.
 
-## Open questions
+## The two open questions, answered
 
-- Does `LoweredEntry` want a `TargetProfile` the way `LoweredType` does? Entry code
-  currently bakes no layout facts, but the tier spec table is `repr(C)`-adjacent and a
-  32-bit target may expose that.
-- The C emitter emits `nros_board_native_run_*` regardless of board — the C path is
-  native-only (archived issue **0097**). Whether the lowering should refuse a non-native C
-  entry, or the pack should grow the RTOS shapes the C++ one has, is a separate decision
-  this RFC does not settle.
+Both were raised in the first draft and both have been studied against the
+tree. One dissolves; the other reveals a larger ungated risk than the question
+asked about.
+
+### 1. Does `LoweredEntry` need a `TargetProfile`? — **No, and the reason matters**
+
+`LoweredType` needs one because message layout IS target-specific (pointer
+width, short enums, `repr(C)` order). The entry bakes **no layout fact**. It
+emits a positional initialiser whose types the target compiler resolves:
+
+```c
+static const nros_native_tier_spec_t __nros_tiers[2] = {
+    { "high", __nros_tier_0_groups, 1u, 80LL, 0u, 10000ull,
+      &__nros_entry_setup_tier_0, 0u, -1LL, NULL, 0ull, 0ull, 0ull, NULL },
+};
+```
+
+Every literal suffix is width-SAFE rather than width-ASSUMING: `1u` into a
+`size_t n_groups`, `0u` into `size_t stack_bytes`, `80LL` into `int64_t
+priority`, `10000ull` into `uint64_t spin_period_us`. No literal is wider than
+its field and each converts by the usual arithmetic conversions, so the same
+text compiles correctly on a 32- and a 64-bit target. There is nothing for a
+`TargetProfile` to decide.
+
+**But the study found the real hazard, which is not target width.** That
+initialiser is POSITIONAL, and `nros_native_tier_spec_t` is mirrored across
+**nine files** — the struct's own comment enumerates them: "ABI append-only,
+keep every mirror in sync: main.hpp `NativeTierSpec`, nros-cpp
+`NativeTierSpecC`, the 4 board `nros_tier_spec_t` mirrors, and both entry
+emitters."
+
+Insert a field anywhere but the end and every generated entry silently
+mis-assigns from that point on — `stack_bytes` lands in `priority`, a function
+pointer lands in a `uint64_t`. That is exactly the issue **0160** class, and
+`check-ffi-struct-mirrors` does NOT cover it: that gate compares
+`component.h` against `nros_cpp_ffi.h` and knows nothing about this struct.
+A comment asking nine files to stay in sync, with no gate, is the shape
+issue 0196 named — "gates whose coverage was narrower than the rule they
+enforce".
+
+Two fixes, and the first belongs in the pack, which is the point:
+
+- **Emit designated initialisers** (`{ .name = "high", .groups = …, … }`, C99
+  and valid in the C++ the C++ pack targets from C++20). Field-order drift then
+  becomes a COMPILE ERROR at the generated TU instead of a silent
+  mis-assignment, and a removed field is named in the diagnostic. This is a
+  rendering change — a pack edit and a golden update — which is precisely the
+  kind of change this design is meant to make cheap.
+- **Extend the mirror gate** to `nros_native_tier_spec_t` across its nine
+  sites. Designated initialisers make drift loud at the point of use; the gate
+  makes it loud at the point of edit. They are complementary, not alternatives.
+
+### 2. Is the C path being native-only a defect? — **No; it is routed, and correctly**
+
+The first draft read `emit_c` in isolation, saw `nros_board_native_run_*`
+hardcoded, and inferred a board-blind emitter. Reading the DISPATCH says
+otherwise (`cmd/codegen.rs`):
+
+```rust
+Lang::C if !board_is_embedded(&plan.board) => emit_c::emit_typed(&plan)?,
+// C++ entries, and embedded C entries (routed here for the C++ board runner).
+_ => emit_cpp::emit_typed(&plan)?,
+```
+
+An embedded C entry routes to the C++ emitter, which produces a `.cpp` TU that
+invokes each C node through its `extern "C"` `__nros_c_component_*` seam; cmake
+gives that output a `.cpp` extension and links `NanoRosCpp`. The embedded board
+runners are C++ only, so this is the correct shape and not an omission.
+
+So `emit_c` is native-only BY CONTRACT, the contract is enforced one level up,
+and archived issue **0097** is genuinely resolved. No lowering refusal is
+needed and the C pack should NOT grow RTOS shapes.
+
+**What the study did find is a flaw in the goldens.** The harness calls each
+emitter directly, so `c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`,
+`c_threadx_one` and `c_nuttx_tiers` record output the real pipeline never
+produces — they are byte-identical to the native rows except the board name in
+a comment. They read as board coverage and are not. Either the harness should
+route through the dispatch, or those rows should say what they actually pin:
+that `emit_c` ignores the board, and that the dispatch is what stops that
+mattering. Tracked on issue 1102.
+
+## Remaining open questions
+
+- Should the designated-initialiser change land with the C++ pack conversion, or
+  ahead of it as its own step? It is a byte-visible change to every generated
+  entry, so it wants its own goldens diff rather than riding a larger one.
+- Does the mirror gate belong in `check-ffi-struct-mirrors` (extending its
+  scope) or as a sibling keyed on this struct? The existing gate's shape —
+  extract both bodies, normalise, compare — assumes TWO files; this one has
+  nine.
