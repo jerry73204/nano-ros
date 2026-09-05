@@ -23,6 +23,23 @@
 # once the ledger classifies the ~2000 rows the first report found; wiring a
 # gate that fails on all of them today is how a gate gets switched off.
 #
+# phase-428 W6 — a ledger row may not cite a file that does not exist.
+#
+# The ledger validates existence in ONE direction: `--check` fails on an
+# unledgered difference and nothing asks whether a row still has a subject. The
+# sweep found rows citing `rclcpp_compat.hpp` (deleted in step A) and two probe
+# files renamed by W-B5. A reason naming a deleted file is a reason nobody can
+# check — the campaign's own "nothing validates a REASON", at the ledger.
+#
+# Cheap and mechanical: it stats cited repo-relative paths. It does NOT check
+# line numbers, whether the reason is still true, or whether the row's subject
+# still exists — those need the extractor, so a green here is narrower than it
+# looks and the script says so.
+[private]
+ledger-orphan-refs:
+    @python3 scripts/check-ledger-orphan-refs.py --self-test
+    @python3 scripts/check-ledger-orphan-refs.py
+
 # Check the API-parity ledger and the correlator's matching rules.
 [group("check")]
 api-parity-ledger:
