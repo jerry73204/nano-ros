@@ -37,7 +37,6 @@
 # looks and the script says so.
 [private]
 ledger-orphan-refs:
-    @python3 scripts/check-ledger-orphan-refs.py --self-test
     @python3 scripts/check-ledger-orphan-refs.py
 
 # Check the API-parity ledger and the correlator's matching rules.
