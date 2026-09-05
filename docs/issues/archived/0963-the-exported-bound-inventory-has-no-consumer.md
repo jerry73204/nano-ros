@@ -99,7 +99,7 @@ definitions, so no amount of wiring fixes them.
   `visualization_msgs` nesting five deep; the types blocking THIS issue are the
   `example_interfaces` `*MultiArray` family, `String`, `WString` and
   `action_msgs/GoalStatusArray`, which nest one or two levels. See
-  [archived/0962](archived/0962-nested-bounded-sequences-cost-the-product-of-their-caps.md);
+  [archived/0962](0962-nested-bounded-sequences-cost-the-product-of-their-caps.md);
 * **narrow the closure**, so an image pays only for the types it actually links
   rather than everything `example_interfaces` ships — the `mixed` workspace uses
   a handful of these and the closure carries all sixteen;

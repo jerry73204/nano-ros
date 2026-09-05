@@ -244,7 +244,7 @@ Executor::open failed: Transport(ConnectionFailed)
 
 The reason was environmental — the router had failed to start with
 `libzenohc.so: cannot open shared object file`, which is
-[issue 0774](0774-*) exactly (`rmw_zenohd` resolves but does not run without the
+[issue 0774](archived/0774-zenohd-loads-unpaired-libzenohc.md) exactly (`rmw_zenohd` resolves but does not run without the
 paired library on `LD_LIBRARY_PATH`). But the accident is the datum:
 
 | router | session | fault |

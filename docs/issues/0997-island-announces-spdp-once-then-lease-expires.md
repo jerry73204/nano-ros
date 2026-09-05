@@ -266,7 +266,7 @@ different reason. Here the island's log kept advancing across the reads.
 # CORRECTION 2026-09-04 — two of the observations above are not evidence
 
 A full audit of the vendored fork's timed-event handlers (see
-[#1000](1000-spdp-periodic-event-orphaned-by-handler-early-return.md), whose own
+[#1000](archived/1000-spdp-periodic-event-orphaned-by-handler-early-return.md), whose own
 proposed fix was found unsafe and is corrected there) retracts two claims made
 above. Both were read as corroborating anomalies; neither is one.
 

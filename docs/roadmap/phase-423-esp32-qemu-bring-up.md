@@ -19,7 +19,7 @@ boots but drops its logs cannot be observed, and a cell that greps a marker
 nothing prints cannot report on any of it. Fixing them in isolation would mean
 each fix lands with no way to demonstrate it.
 
-* **[#1025](../issues/1025-esp32-flash-image-consumer-drops-the-row-variant.md) — the image
+* **[#1025](../issues/archived/1025-esp32-flash-image-consumer-drops-the-row-variant.md) — the image
   cannot be built.** The flash packer asks for the group dir using the row's env
   string, so ESP32 flash images can never be produced. Everything below is
   unobservable until this is true.

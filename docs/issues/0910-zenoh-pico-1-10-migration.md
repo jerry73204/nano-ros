@@ -36,7 +36,7 @@ Two branches on the fork (`jerry73204/zenoh-pico`), both off `upstream/main`:
   `_z_zephyr_uart_read`, which busy-spins on `uart_poll_in` with no timeout, no
   yield and no `uart_err_check`, and returns `len` regardless. All three are
   defects we hit and fixed on our own port; the third is
-  [issue 0852](0852-*), where a silent overrun cost a long investigation that
+  [issue 0852](0852-zephyr-serial-rx-is-polled-and-overruns.md), where a silent overrun cost a long investigation that
   ended in a bug report against an innocent peer.
 - **`nros-integration`** — `serial-fixes` plus a passthrough
   `include/zenoh-pico/config.h`, which upstream no longer ships. Not for
@@ -102,7 +102,7 @@ read already has the deadline, the `k_yield()` and the issue-0852 interrupt-driv
 RX that commit lacks.
 
 The 1.7.2 -> 1.8.0 port is surveyed in
-[phase 415](../roadmap/phase-415-zenoh-pico-1-8-0-patch-line.md): 85 files apply
+[phase 415](../roadmap/archived/phase-415-zenoh-pico-1-8-0-patch-line.md): 85 files apply
 clean, **42 conflict**, 2 moved, and one genuine name collision — our added
 `session/keyexpr.h` versus upstream's `protocol/keyexpr.h` moved to the same
 path. That is a decision, not a merge.
@@ -134,4 +134,4 @@ The practical consequence, found by building 1.8.0 the upstream way during the
 port: anything we write into `config.h` alone is erased by the first `cmake`
 configure. Two knobs were in that position and are now in `config.h.in`; the
 `#ifndef` wrapping from `49012370` still is not (118 lines). Details and the
-sweep command are in [phase-415](../roadmap/phase-415-zenoh-pico-1-8-0-patch-line.md).
+sweep command are in [phase-415](../roadmap/archived/phase-415-zenoh-pico-1-8-0-patch-line.md).

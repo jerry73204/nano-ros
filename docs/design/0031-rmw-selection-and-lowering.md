@@ -97,7 +97,7 @@ feature.
 > historically only partly wired: the C/C++ bake read `[system].rmw`, but the Rust build path
 > read a SEPARATE `[build].rmw` per-package `nros.toml` overlay (→ the board crate's `rmw-<x>`
 > feature), `[deploy.<t>].rmw` was declared-but-unused, and there was no `--rmw` flag — a
-> decoupled "RMW duality." [phase-255](../roadmap/phase-255-rmw-config-unify.md) collapsed this:
+> decoupled "RMW duality." [phase-255](../roadmap/archived/phase-255-rmw-config-unify.md) collapsed this:
 > a single `SystemToml::resolved_rmw(target, cli)` applies the precedence above, read by BOTH the
 > planner (`schema_build_json` → board `rmw-<x>` feature) and the bake (`render_system_config_h`
 > → `#define NROS_SYSTEM_RMW{,_<TOKEN>}`). `--rmw` exists on `nros plan` + `nros codegen-system`.
@@ -226,7 +226,7 @@ first hint; this makes it the model.
    Each board owns its forwarding (heterogeneous: most carry `nros-rmw-zenoh` optional
    behind `rmw-zenoh`, so `?/safety-e2e` fits; family crates like `nros-board-threadx`
    forward to their overlay; xrce/cyclone-only boards declare `safety-e2e = []`,
-   inert). **OPEN** — tracked by [issue 0072](../issues/0072-safety-e2e-backend-feature-not-lowered.md).
+   inert). **OPEN** — tracked by [issue 0072](../issues/archived/0072-safety-e2e-backend-feature-not-lowered.md).
 
 **Capability registry (the SSoT, parallels `resolve_rmw`).** Replace the ad-hoc
 `if safety && backend == "zenoh"` checks with one table:

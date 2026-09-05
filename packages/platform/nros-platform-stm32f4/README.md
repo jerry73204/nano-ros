@@ -2,16 +2,16 @@
 
 Bare-metal platform for STM32F4 Cortex-M4F MCUs (e.g.
 STM32F407VG / F429ZI). Pairs with the
-[`nros-board-stm32f4`](../../boards/nros-board-stm32f4) board crate.
+`nros-board-stm32f4` board crate.
 
 ## Role
 
 Implements the trait family in
-[`nros-platform-api`](../../core/nros-platform-api) for a single-core
+[`nros-platform-api`](../nros-platform-api) for a single-core
 Cortex-M4F with no kernel: DWT cycle counter for the monotonic clock,
 a linker-script heap region with a bump allocator, no threading,
 networking shipped from the board crate via
-[`nros-smoltcp`](../../drivers/nros-smoltcp).
+[`nros-smoltcp`](../../drivers/net/nros-smoltcp).
 
 ## Source layout
 

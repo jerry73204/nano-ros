@@ -879,7 +879,7 @@ node.create_subscription(sub, "/topic",
 
 ## Implementation
 
-See [docs/roadmap/phase-66-cpp-api.md](../roadmap/phase-66-cpp-api.md) for
+See [docs/roadmap/phase-66-cpp-api.md](../roadmap/archived/phase-66-cpp-api.md) for
 work items, acceptance criteria, and implementation schedule.
 
 ## Files

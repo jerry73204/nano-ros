@@ -913,7 +913,7 @@ holds the evidence, the item is *close it*.
 | --- | --- |
 | [#0783](../issues/0783-rust-facade-hides-the-error-vocabulary.md) | `RclReturnCode` exists and is unreachable, and RFC-0036 documents a Rust surface we do not export |
 | [#0784](../issues/0784-nros-facade-node-surface-is-three-audiences.md) | `nros::` publishes three different audiences under one namespace — parity is unreadable until the surface is separable |
-| [#0829](../issues/0829-two-system-default-qos-presets-disagree-on-depth.md) | two `SYSTEM_DEFAULT` QoS presets ship under one meaning and disagree on it |
+| [#0829](../issues/archived/0829-two-system-default-qos-presets-disagree-on-depth.md) | two `SYSTEM_DEFAULT` QoS presets ship under one meaning and disagree on it |
 
 
 ## Adopted issues (2026-09-04) — four parity defects with no phase

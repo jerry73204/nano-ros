@@ -112,7 +112,7 @@ big-endian peer emits big-endian. So the caller does not receive the wire
 representation — it receives a re-encoding, with an encapsulation header we
 synthesized. This is why the sizing work has to reason about
 `MAX_SERIALIZED_SIZE_XCDR1` for this backend while the wire carries XCDR2
-(see [#0964](0964-two-different-sizes-for-the-same-type.md)). Taking the serdata's
+(see [#0964](archived/0964-two-different-sizes-for-the-same-type.md)). Taking the serdata's
 own bytes removes the discrepancy rather than documenting it.
 
 ## Direction
@@ -183,7 +183,7 @@ the header either. Two consequences survive this issue rather than being removed
 by it — a deserialiser must tolerate trailing bytes (nros-serdes reads by
 position, so it does), and a receive buffer cut to a type's exact
 `MAX_SERIALIZED_SIZE` can be up to 3 bytes short of what a remote peer delivers.
-That belongs to [#0964](0964-two-different-sizes-for-the-same-type.md).
+That belongs to [#0964](archived/0964-two-different-sizes-for-the-same-type.md).
 
 ## The third site was CHECKED 2026-09-03 — still unconverted, and the reason is 0976
 
@@ -199,7 +199,7 @@ assumed". Checked. It is NOT converted:
 
 **And the interesting part: converting it would REMOVE adapters, not conflict
 with them.** The first read of this is that the five action adapters
-([#0976](0976-service-action-adapters-tested-only-against-ourselves.md)) block the
+([#0976](archived/0976-service-action-adapters-tested-only-against-ourselves.md)) block the
 change, because they reshape bytes the typed path produces. The direction matters:
 
 * `strip_goal_id_len_at` and `strip_nested_cdr_at` correct bytes WE generate.

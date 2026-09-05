@@ -183,7 +183,7 @@ or an agent writes what actually happened.
 
 ## Related
 
-* [phase-411](phase-411-scope-is-the-spec-verb-first-workflow.md) — a skip is
+* [phase-411](archived/phase-411-scope-is-the-spec-verb-first-workflow.md) — a skip is
   indistinguishable from a pass; this is the same shape one series over, where a
   stale status is indistinguishable from a current one.
 * [phase-413](phase-413-ci-workflow-user-parity.md) — "a uniformly-red lane has

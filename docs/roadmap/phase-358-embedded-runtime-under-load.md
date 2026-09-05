@@ -23,11 +23,13 @@ error, corrected here.
 * **W5 (#557, Zephyr Cyclone boot)** — DONE. "Three layers of hiding, each one
   covering the next" (`b838fc19d`, `a45c36abe`). #557 resolved.
 
-**Owns:** [issue 0271](../issues/0271-orin-spe-btcm-footprint-regression.md),
-[issue 0505](../issues/0505-timer-backlog-replay-no-overrun-policy.md),
+**Owns:** [issue 0271](../issues/archived/0271-orin-spe-btcm-footprint-regression.md),
+[issue 0505](../issues/archived/0505-timer-backlog-replay-no-overrun-policy.md)
+(**RESOLVED** — W1's own body already says so),
 [issue 0506](../issues/0506-transport-band-unbounded-preemption.md),
-[issue 0557](../issues/0557-zephyr-cyclone-action-ddsrt-thread-reuse.md),
-[issue 0579](../issues/0579-nuttx-boot-tier-priority-never-applied.md).
+[issue 0557](../issues/archived/0557-zephyr-cyclone-action-ddsrt-thread-reuse.md),
+[issue 0579](../issues/archived/0579-nuttx-boot-tier-priority-never-applied.md)
+(**RESOLVED** — the body's W-tail already records 0579 and 0583 resolved).
 
 **Related:** [issue 0567](../issues/archived/0567-zpico-rx-cannot-resume-partial-buffer.md)
 (RESOLVED 2026-08-14 — this UNBLOCKS #506's device half; see W3), [phase-352](archived/phase-352-platform-clock-ns.md)

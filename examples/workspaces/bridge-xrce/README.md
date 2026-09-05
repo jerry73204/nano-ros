@@ -5,7 +5,7 @@ A declarative cross-RMW gateway: a `[[bridge]]` in `system.toml` forwards
 Agent) in one process; the agent republishes onto DDS, so a stock ros2/DDS peer
 (`ros2 topic echo /chatter`) sees a nano-ros publisher that only speaks zenoh.
 **No build.rs, no user bridge code** — plain `nros::main!` + config. The
-cyclonedds sibling is [`ws-bridge-rust`](../ws-bridge-rust); xrce differs in that
+cyclonedds sibling is `ws-bridge-rust`; xrce differs in that
 it is **agent-based** (the egress carries a locator, not a DDS domain) and uses
 **lazy type registration** (no descriptor staging / field schema).
 

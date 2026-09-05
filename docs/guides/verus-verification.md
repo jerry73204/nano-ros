@@ -1,7 +1,7 @@
 # Verus Verification Coding Practices
 
 Practical guide for writing and maintaining Verus deductive proofs in nros.
-For architecture and proof targets, see [phase-31-verus-verification.md](../roadmap/phase-31-verus-verification.md).
+For architecture and proof targets, see [phase-31-verus-verification.md](../roadmap/archived/phase-31-verus-verification.md).
 
 ## Quick Reference
 

@@ -29,8 +29,8 @@ that feeds that existing sink, reachable from all three languages, and a single 
 bake site** designed so a future post-link config-patch tool (and, later, a build-time plan
 image) drop in without changing the resolver or its call-sites.
 
-This RFC is the design backing issue [#101](../issues/0101-board-boot-config-not-unified.md)
-(and the durable fix for [#98](../issues/0098-nros-main-ignores-component-node-name.md)). It
+This RFC is the design backing issue [#101](../issues/archived/0101-board-boot-config-not-unified.md)
+(and the durable fix for [#98](../issues/archived/0098-nros-main-ignores-component-node-name.md)). It
 extends RFC-0004 (the configuration model) on one axis: *how* the configured identity reaches
 the running session, uniformly.
 

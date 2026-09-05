@@ -30,9 +30,9 @@ and no live path.
 Two defects were found by *reading* the code during a memory-allocation review,
 not by any test:
 
-- [issue 0812](0812-publisher-loan-heap-allocates-per-loan.md) — a `Box::new`
+- [issue 0812](archived/0812-publisher-loan-heap-allocates-per-loan.md) — a `Box::new`
   per loan, i.e. a malloc on the zero-copy path
-- [issue 0813](0813-zenoh-tx-buf-hardcoded-and-unpriced.md) — a hardcoded 1 KiB
+- [issue 0813](archived/0813-zenoh-tx-buf-hardcoded-and-unpriced.md) — a hardcoded 1 KiB
   ceiling that the feature's own use cases exceed
 
 Both are the kind of thing an embedded lane would have surfaced immediately.

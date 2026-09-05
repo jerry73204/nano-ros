@@ -127,7 +127,7 @@ Mutation-checked against the real registry: deleting `entry-session-name` —
 one of #431's four, and the guard for a defect that survived from 2026-06-13 to
 2026-09-03 — is reported by name.
 
-NOT addressed here, and still open in [1072](1072-*.md): `just/check.just` is
+NOT addressed here, and still open in [1072](../1072-every-pr-conflicts-on-five-shared-append-targets.md): `just/check.just` is
 the tree's busiest merge target, which is why #431 held a stale copy of it in
 the first place. The ratchet catches the loss; it does not reduce the odds of a
 branch carrying an old version of the file.

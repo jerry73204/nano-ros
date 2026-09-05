@@ -47,7 +47,7 @@ Three filed defects are the same missing fact:
 [#0502](../issues/archived/0502-freertos-threadx-clock-us-ms-quantized.md)
 (µs that was really ms), [#0515](../issues/archived/0515-period-not-multiple-of-spin-quantizes-silently.md)
 (a period the spin cadence cannot express) and
-[#0531](../issues/0531-zephyr-cortex-m-clock-us-returns-zero.md)
+[#0531](../issues/archived/0531-zephyr-cortex-m-clock-us-returns-zero.md)
 (a clock that returned 0 forever on every Cortex-M Zephyr board under
 60 MHz, undetected because nothing asserts a clock advances).
 
@@ -236,4 +236,4 @@ definitions cannot coexist:
 ## Changelog
 
 - 2026-08 — initial draft, from the clock-capability survey in
-  [#0532](../issues/0532-platform-clock-abi-unit-and-resolution.md).
+  [#0532](../issues/archived/0532-platform-clock-abi-unit-and-resolution.md).

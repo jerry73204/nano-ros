@@ -171,7 +171,7 @@ upheld by comments and per-combination workarounds:
 
 > **Status: STABLE (2026-06-15).** Bullet 3 (single-shared-runtime, no dup) landed;
 > bullet 1 (registration trigger = the `.init_array` ctor — **§D3.3**) landed in
-> [phase-249](../roadmap/phase-249-one-registration-trigger.md) P4b (linkme deleted);
+> [phase-249](../roadmap/archived/phase-249-one-registration-trigger.md) P4b (linkme deleted);
 > `--allow-multiple-definition` removed on the C/C++ link (Linux/BSD). Residual:
 > the macOS cyclonedds flag (needs a macOS run) is tracked in phase-249. The full
 > link-closure validator extension is **won't-do** — subsumed by the linker once the
@@ -239,13 +239,13 @@ whole-archive manifest. Detail + work items: `docs/roadmap/archived/phase-241-d3
   the **Zephyr** build (`zephyr/CMakeLists.txt`) links the cargo-built staticlib
   directly (its own west link model, not the cmake umbrella), and the archive-symbol
   / header-parity tests consume them.
-- **Remaining D3 goals (bullets 1+2) — [issue 0062](../issues/0062-d3-completion-one-registration-path-and-link-manifest.md).**
+- **Remaining D3 goals (bullets 1+2) — [issue 0062](../issues/archived/0062-d3-completion-one-registration-path-and-link-manifest.md).**
   Single-runtime delivers bullet 3 (no dup). Bullet 1 (one registration trigger) is
   settled as the `.init_array` ctor — see §D3.3. Bullet 2 (generated link manifest —
   the RMW dispatch table, incl. Cyclone's `+libstdc++`) rides on this foundation
   (emit it as data from `resolve_rmw`). The weak `nros_app_register_backends` default
   is already deleted (phase-249 P4a, closes
-  [issue 0050](../issues/0050-weak-symbol-audit-and-checkers.md) W3.1).
+  [issue 0050](../issues/archived/0050-weak-symbol-audit-and-checkers.md) W3.1).
 
 #### D3.3 — Registration trigger: the `.init_array` ctor (decision 2026-06-15)
 
@@ -284,7 +284,7 @@ not a codegen-emitted explicit table.
   call sites (`Executor::open` / `open_multi` / `nros::init`). **Kept:** the
   `#[used] __FORCE_LINK_*` anchors, the embedded explicit calls, the cmake stub.
 
-- **Implemented by [phase-249](../roadmap/phase-249-one-registration-trigger.md) P4b**
+- **Implemented by [phase-249](../roadmap/archived/phase-249-one-registration-trigger.md) P4b**
   (which redefines from "delete linkme → explicit table" to "consolidate to ctor").
 
 ### D4 — Merge-time compile + link gate

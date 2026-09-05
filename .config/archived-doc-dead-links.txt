@@ -1,0 +1,5 @@
+# Dead markdown links inside `**/archived/**`, which this gate
+# counts rather than fixes: an archived document pointing at where
+# a file was WHEN IT WAS WRITTEN is a historical record, not a
+# defect. A ratchet, so the number may only fall.
+422

@@ -34,7 +34,7 @@ pointed at upstream
 [cyclonedds#1342](https://github.com/eclipse-cyclonedds/cyclonedds/issues/1342)
 as the thing to wait for. Two corrections
 ([#0969](../issues/0969-cyclone-take-cdr-round-trip.md),
-[#0970](../issues/0970-cyclone-rmw-should-own-its-sertype.md)):
+[#0970](../issues/archived/0970-cyclone-rmw-should-own-its-sertype.md)):
 
 * `dds_takecdr` takes a reader entity and nothing else, so the RECEIVE side was
   never blocked on any sertype lookup.
@@ -82,7 +82,7 @@ taking a result, and no automated test exercises either it or the write-side
 strips — the action witness (`ros2_action_e2e.rs`) runs the server direction
 only, and the measurement above was an instrumented run rather than a registered
 test. See
-[#0976](../issues/0976-service-action-adapters-tested-only-against-ourselves.md).
+[#0976](../issues/archived/0976-service-action-adapters-tested-only-against-ourselves.md).
 
 ## Phase 108 status events: NULL slots
 
@@ -258,7 +258,7 @@ this in any external integration guide.
 **Measured, and 5× lower than this section used to describe.** Per publish+take
 round trip, on the same harness before and after
 [#0969](../issues/0969-cyclone-take-cdr-round-trip.md) /
-[#0970](../issues/0970-cyclone-rmw-should-own-its-sertype.md):
+[#0970](../issues/archived/0970-cyclone-rmw-should-own-its-sertype.md):
 
 | | allocs @1 msg | allocs @200 msgs | per message |
 | --- | ---: | ---: | ---: |
@@ -289,7 +289,7 @@ request and two per reply. The take side is
 [#0969](../issues/0969-cyclone-take-cdr-round-trip.md)'s third site
 (`take_typed_wire`, which re-encodes XCDR1 native-endian — a correctness
 question, not only a cost one); the witness situation is
-[#0976](../issues/0976-service-action-adapters-tested-only-against-ourselves.md).
+[#0976](../issues/archived/0976-service-action-adapters-tested-only-against-ourselves.md).
 
 ## Boards
 
@@ -371,7 +371,7 @@ observe nothing change here. What DOES change is the executor's arena, which
 nano-ros sizes itself from the same bound. Measure the arena, not the backend.
 
 The ABI declares the field advisory and permits a backend to ignore it
-(`rmw_entity.h`). [Issue 0958](../issues/0958-cyclonedds-ignores-rx-buffer-hint.md)
+(`rmw_entity.h`). [Issue 0958](../issues/archived/0958-cyclonedds-ignores-rx-buffer-hint.md)
 was not that it was ignored — it was that it was ignored *silently*, discarded at
 a bare `/*options*/` with nothing for a reader to find. `subscription_create`
 now carries the same explanation at the parameter itself.
@@ -384,4 +384,4 @@ machinery lives in the zenoh shim's wire attachment (`nros-rmw-zenoh`); CycloneD
 XRCE) carry no `safety-e2e` feature, so a declared `[safety]` axis no-ops on them. The
 `NANO_ROS_SAFETY_E2E=ON` CMake option **warns and is ignored** when `NANO_ROS_RMW` is not
 `zenoh`. Adding a CycloneDDS integrity path (a DDS-side CRC + a C surface) is unscoped —
-see [issue 0300](../issues/0300-safety-e2e-c-cpp-cmake-path-missing.md).
+see [issue 0300](../issues/archived/0300-safety-e2e-c-cpp-cmake-path-missing.md).

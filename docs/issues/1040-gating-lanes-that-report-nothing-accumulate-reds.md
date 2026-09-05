@@ -20,7 +20,7 @@ same mechanism: a person ran `just ci gate` locally.**
 | `check-api-parity`: `cpp:declared_depth` unclassified | phase-403 step 2 (`3d852da49`) | `check::api-parity` |
 | `error: items after a test module` (`board_facts.rs`) | `e453399de` (phase-400 W1) | `check::build` |
 | `check-api-parity`: 3 release-jitter items unclassified | `55324cc33`, landed 02:37 the same day | `check::api-parity` |
-| zenoh-pico 1.8.0 does not build on NuttX ([#1035](1035-zenoh-pico-1-8-0-true-in-preprocessor-breaks-nuttx.md)) | PR #299 | **no lane at all** |
+| zenoh-pico 1.8.0 does not build on NuttX ([#1035](archived/1035-zenoh-pico-1-8-0-true-in-preprocessor-breaks-nuttx.md)) | PR #299 | **no lane at all** |
 
 Plus a sixth of a different kind, in the same window: `other.json` carried
 `cpp:declared_depth` **twice** — two sessions classified one symbol

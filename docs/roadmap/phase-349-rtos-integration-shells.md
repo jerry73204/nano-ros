@@ -35,7 +35,7 @@ the zpico drift gate + `nros-board-common` (28 tests) pass unchanged.
 is `deny_unknown_fields`, so the field must exist before a file may name it —
 but nothing consumes a *requirement* until the integration declares what it
 provides, and adding an unread field invites the dead-config problem
-[#529](../issues/0529-zephyr-platform-knobs-never-resolve.md) is about.
+[#529](../issues/archived/0529-zephyr-platform-knobs-never-resolve.md) is about.
 
 ### Alias resolution is the mechanism, and one lookup was blind to it
 
@@ -195,7 +195,7 @@ placed in a member config would be silently ignored.
 * wrong axis — it answers *who brings up NIC + IP*, not *which stack*;
 * **parsed and never read** — `NetStack` has no consumer beyond one
   construction site in `ws.rs`. Another field of the
-  [#529](../issues/0529-zephyr-platform-knobs-never-resolve.md) shape:
+  [#529](../issues/archived/0529-zephyr-platform-knobs-never-resolve.md) shape:
   authoritative-looking, inert.
 
 Reusing the name for a finer meaning would silently change what nine
@@ -324,7 +324,7 @@ W1 stands alone and should land first regardless of the rest.
   upstream's `CMakeLists.txt` changes nothing for anyone already writing
   `GCC_ARM_CM3`.
 * **Zephyr unselectable by the zpico resolver** —
-  [#529](../issues/0529-zephyr-platform-knobs-never-resolve.md). Resolver fixed;
+  [#529](../issues/archived/0529-zephyr-platform-knobs-never-resolve.md). Resolver fixed;
   the two knob sources are now compared by `check-zephyr-knob-agreement`.
 
   **The severity stated in this section's first draft was wrong.** It claimed

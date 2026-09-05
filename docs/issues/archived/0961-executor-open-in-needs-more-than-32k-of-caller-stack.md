@@ -155,7 +155,7 @@ Two things this did NOT do, and they are why the issue stays open:
    2026-09-03.** phase-409 carved the remaining members and the island entry
    boots on `mr_canhubk3/s32k344` at `CONFIG_MAIN_STACK_SIZE=16384` — half the
    32768 that was previously the smallest workable value
-   ([phase-409](../roadmap/phase-409-executor-inline-storage.md), Acceptance 3;
+   ([phase-409](../../roadmap/phase-409-executor-inline-storage.md), Acceptance 3;
    superproject commit `8d586b2`). Measured on the same two frames this issue
    names: `Executor::open_in` 16000 → 2244 and `nros_cpp_init` 15104 → 1396,
    so 31104 bytes of prologue on that call chain became 3640.

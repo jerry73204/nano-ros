@@ -467,7 +467,7 @@ However, if a specific customer or use case requires IEC 61508 / ISO 26262 certi
 
 ### Implementation
 
-See [Phase 58: ThreadX Platform Support](../roadmap/phase-58-threadx-platform.md) for the full implementation plan. Two validation targets:
+See [Phase 58: ThreadX Platform Support](../roadmap/archived/phase-58-threadx-platform.md) for the full implementation plan. Two validation targets:
 
 1. **Linux simulation port** — ThreadX runs as pthreads on host Linux with NetX Duo real networking (raw socket driver). Zero cross-compilation, fastest iteration.
 2. **QEMU RISC-V 64-bit virt** — Official ThreadX QEMU port with virtio-net Ethernet. Real embedded architecture (rv64gc), real interrupt model (PLIC + CLINT).

@@ -21,7 +21,7 @@ router restarted       ros2 action list -> /fibonacci
 ```
 
 Attaching the probe kills the session. Detaching does not bring it back; only a
-router restart does, which is [issue 0879](0879-serial-link-has-no-resync-after-peer-reset.md)
+router restart does, which is [issue 0879](archived/0879-serial-link-has-no-resync-after-peer-reset.md)
 — the serial link cannot resynchronise once a peer has gone quiet.
 
 ## Mechanism

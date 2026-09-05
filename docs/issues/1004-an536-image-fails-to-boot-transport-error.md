@@ -121,7 +121,7 @@ Two things are worth separating, because it is tempting to collapse them:
 ## Why it matters beyond itself
 
 It blocks [#0997](0997-island-announces-spdp-once-then-lease-expires.md) and
-[#1000](1000-spdp-periodic-event-orphaned-by-handler-early-return.md). Neither
+[#1000](archived/1000-spdp-periodic-event-orphaned-by-handler-early-return.md). Neither
 can be confirmed or refuted while the image does not reach a steady state
 deterministically, and #1000's proposed mechanism is already contradicted by the
 one counter read that did complete (`nros_dbg_spdp_unknown_guid = 0`,

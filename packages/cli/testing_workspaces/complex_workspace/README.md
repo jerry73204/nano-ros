@@ -88,7 +88,7 @@ just build-rust
 
 ---
 
-**📖 For detailed test coverage documentation, see [TEST_COVERAGE.md](TEST_COVERAGE.md)**
+**📖 For detailed test coverage documentation, see TEST_COVERAGE.md**
 
 ## Expected Workflow
 

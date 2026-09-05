@@ -2,7 +2,7 @@
 
 How nano-ros decides which Zephyr versions it supports, why, and how to add a
 new one. Policy rationale + the full work plan live in
-[`docs/roadmap/phase-199-zephyr-version-support-policy.md`](../roadmap/phase-199-zephyr-version-support-policy.md);
+[`docs/roadmap/phase-199-zephyr-version-support-policy.md`](../roadmap/archived/phase-199-zephyr-version-support-policy.md);
 this is the developer-facing reference.
 
 ## The contract: a `(zephyr × zephyr-lang-rust)` pair
@@ -127,6 +127,6 @@ Each line's patch sequence lives in `scripts/zephyr/patches/<line>.sh`
 
 ## See also
 
-- [`docs/roadmap/phase-199-zephyr-version-support-policy.md`](../roadmap/phase-199-zephyr-version-support-policy.md) — rationale + the full work plan.
+- [`docs/roadmap/phase-199-zephyr-version-support-policy.md`](../roadmap/archived/phase-199-zephyr-version-support-policy.md) — rationale + the full work plan.
 - [`scripts/zephyr/patches/README.md`](../../scripts/zephyr/patches/README.md) — the per-line patch-set contract.
 - [`docs/development/sdk-tiers.md`](sdk-tiers.md) — which modules install in which `just setup` tier.

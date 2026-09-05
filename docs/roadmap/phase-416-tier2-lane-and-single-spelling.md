@@ -25,9 +25,9 @@ turned into one recurring defect with two faces:
 The two faces are the same thing: a second copy survives precisely because
 nothing is in a position to notice it.
 
-**Distinct from the neighbours.** [phase-410](phase-410-ci-breadth-depth-restructure.md)
+**Distinct from the neighbours.** [phase-410](archived/phase-410-ci-breadth-depth-restructure.md)
 (complete) restructured which CI lane runs what; it did not make tier 2's
-fixtures build. [phase-356](phase-356-test-evidence-and-measurement-trust.md)
+fixtures build. [phase-356](archived/phase-356-test-evidence-and-measurement-trust.md)
 owns "a number you cannot distinguish from a non-measurement" and already owns
 #0968; this phase owns the lane and the duplication that breaks it.
 [phase-391](phase-391-allocation-unification-and-tier-model.md) takes #1010,
@@ -57,7 +57,7 @@ tier-2 from three broken modules to six of seven green.
 
 ## Work items
 
-* **W1 — [issue 1011](../issues/1011-cyclonedds-zephyr-publisher-cxx11-aggregate.md),
+* **W1 — [issue 1011](../issues/archived/1011-cyclonedds-zephyr-publisher-cxx11-aggregate.md),
   six `rust-*-cyclonedds` zephyr leaves do not compile.** `-std=c++11` on the
   Zephyr lane against a struct with default member initializers, which is not an
   aggregate before C++14. Unmasked by #0998's fix, not caused by it. This is the
@@ -69,7 +69,7 @@ tier-2 from three broken modules to six of seven green.
   wrong reading in #0968. Two fixes are wanted, not one: make the lane build what
   it runs, AND make an unbuilt cell distinguishable from a failed one at the
   summary level — the second is what survives a regression of the first.
-* **W3 — [issue 1017](../issues/1017-entry-template-session-name-ungated.md), the
+* **W3 — [issue 1017](../issues/archived/1017-entry-template-session-name-ungated.md), the
   #1003 class has no gate.** The defect lived two months with a correct sibling
   producer beside it. Note the trap recorded in the issue: the arity carrying the
   session name differs per board, so the obvious textual check would become a

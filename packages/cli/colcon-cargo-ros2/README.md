@@ -373,7 +373,7 @@ Apache-2.0 (compatible with ROS 2 ecosystem)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture details, and guidelines.
+See CONTRIBUTING.md for development setup, architecture details, and guidelines.
 
 ## Related Projects
 

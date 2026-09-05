@@ -48,8 +48,8 @@ NV_SPE_FSP_DIR=$HOME/nvidia/spe-fsp \
 
 Drives consumed by:
 
-- [`nros-platform-orin-spe`](../../platforms/nros-platform-orin-spe/) —
+- `nros-platform-orin-spe` —
   Phase 100.5; implements `PlatformIvc` by delegating here.
-- [`zpico-platform-shim::ivc_helpers`](../../rmw/zenoh/zpico-platform-shim/) —
+- `zpico-platform-shim::ivc_helpers` —
   Phase 100.4; re-exports the C ABI under the `_z_*_ivc` symbol names
   zenoh-pico's `Z_FEATURE_LINK_IVC` C code expects.

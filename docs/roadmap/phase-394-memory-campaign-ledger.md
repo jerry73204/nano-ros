@@ -51,7 +51,7 @@ one effort in two halves:
 | [390](phase-390-storage-mode-rename-inline-heap-view.md) | vocabulary | rename RFC-0033 storage modes `owned`/`borrowed` to `inline`/`heap`/`view` |
 | [391](phase-391-allocation-unification-and-tier-model.md) | dynamic | one `#[global_allocator]`, one funnel, a tier model, rlsf |
 | [392](phase-392-static-memory-space-campaign.md) | static | 27% of a safety-island image is message buffers nobody can price |
-| [380](phase-380-serialized-size-bound.md) | static | serialized size bound (W0–W3, W5 landed) |
+| [380](archived/phase-380-serialized-size-bound.md) | static | serialized size bound (W0–W3, W5 landed) |
 
 The dependency order the docs state: 392 depends on 390 for vocabulary and on
 391 for the gate that verifies its claims, and 392 W1 is the instrument
@@ -86,7 +86,7 @@ inventory's published numbers from a claim into a checked fact. Gate:
 
 ## What the instrument found immediately
 
-[Issue 0827](../issues/0827-unused-rmw-pools-dominate-static-ram.md). Static RAM
+[Issue 0827](../issues/archived/0827-unused-rmw-pools-dominate-static-ram.md). Static RAM
 is a property of the RMW, not of the node — **identical to the byte** across
 talker, listener, service-server and action-server:
 

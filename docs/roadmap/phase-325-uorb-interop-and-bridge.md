@@ -18,7 +18,7 @@ blocker.
 
 **Previously (2026-07-31): Draft.** Not started.
 **Implements:** RFC-0026 (example layout), RFC-0048 (cmake consumption).
-**Successor to:** [phase-316](phase-316-example-tree-axes.md) W4, which carried
+**Successor to:** [phase-316](archived/phase-316-example-tree-axes.md) W4, which carried
 the decisions but not the work — scoping showed W4 is a phase, not a work item.
 **Informed by:** issues 0351 (proofs that observe the wrong thing), 0356
 (`px4_e2e` targets a retired tree), 0288, 0159 (`.clang-format-ignore` precedent).

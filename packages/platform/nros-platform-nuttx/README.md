@@ -2,7 +2,7 @@
 
 Native C implementation of the nano-ros canonical platform ABI (`<nros/platform.h>`) for [NuttX](https://nuttx.apache.org/).
 
-NuttX exposes a POSIX-compatible surface (`pthread_*`, `clock_gettime`, `nanosleep`, `sched_yield`, `malloc`/`realloc`/`free`). The Rust `NuttxPlatform` mirrors this by forwarding every trait method to `PosixPlatform`; the C port follows the same pattern — it compiles the very same `src/platform.c` shipped by [`nros-platform-posix-c`](../nros-platform-posix-c) and produces `libnros_platform_nuttx.a`. No NuttX-specific source file exists.
+NuttX exposes a POSIX-compatible surface (`pthread_*`, `clock_gettime`, `nanosleep`, `sched_yield`, `malloc`/`realloc`/`free`). The Rust `NuttxPlatform` mirrors this by forwarding every trait method to `PosixPlatform`; the C port follows the same pattern — it compiles the very same `src/platform.c` shipped by `nros-platform-posix-c` and produces `libnros_platform_nuttx.a`. No NuttX-specific source file exists.
 
 ## Build
 

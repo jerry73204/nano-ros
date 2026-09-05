@@ -327,7 +327,7 @@ scope (the lint excludes the vendored submodule).
   per-RTOS adapter pattern; §9 std/alloc-per-platform policy.
 - [platform-c-abi.md](../../book/src/internals/platform-c-abi.md) — the
   symbol contract + port-authoring guide + drift gate.
-- [issue 0006](../issues/0006-rtos-dual-heap.md) — the dual-heap / unified
+- [issue 0006](../issues/archived/0006-rtos-dual-heap.md) — the dual-heap / unified
   stats item this RFC's alloc unification resolves.
 - [phase-230](../roadmap/phase-230-platform-layer-split.md) — work breakdown.
 

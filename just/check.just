@@ -237,6 +237,7 @@ fast-serial: \
     ledger-doc-single-home \
     literal-domain-id \
     manifests-parse \
+    markdown-links \
     message-bound-knobs \
     mirror-header-precedence \
     msg-dep-is-path \
@@ -2391,6 +2392,24 @@ runner-sweep-eviction-order:
 # collision is what breaks these.
 doc-refs:
     @bash scripts/check-doc-refs.sh
+
+# issue 1085 — a markdown LINK must resolve EXACTLY, where `doc-refs` above is
+# deliberately loose.
+#
+# `doc-refs` accepts a reference whose basename is at the named path OR in that
+# series' `archived/` dir, because archiving MOVES a resolved issue and
+# retargeting every prose mention would be churn. Right for prose and for a
+# cmake error string; wrong for a link, which a reader CLICKS. Swept when this
+# landed: 146 dead links in live documents, 123 of them a live doc still
+# pointing at where an issue, phase or RFC used to be — with `doc-refs` green
+# the whole time.
+#
+# `book/` has its own gate; `**/archived/**` is a historical record and is
+# COUNTED rather than fixed, as a ratchet that may only fall. Code spans are
+# stripped first: `T operator[](i)` is C++, not a link.
+[private]
+markdown-links:
+    @python3 scripts/check-markdown-links.py
 
 # Every relative link in the book must resolve. `check-doc-refs` answers a
 # different question — "does issue 0123 exist?", by ID, and deliberately

@@ -5,12 +5,12 @@ are LANDED; W0, W2, W3 and W5 remain.** The 2026-08-30 line said "design,
 nothing landed" and outlived that by five days and eleven commits -- the body
 below had been recording `LANDED` per wave the whole time, so the phase read as
 unstarted to anyone who stopped at the header. Opened because
-[phase 402](phase-402-c-subscription-options-struct.md) delivered the PLUMBING
+[phase 402](archived/phase-402-c-subscription-options-struct.md) delivered the PLUMBING
 for a per-type receive hint and stopped there: the hint now reaches the backend
 and changes nothing's size. Depends on
-[issue 0896](../issues/0896-c-cpp-subscriptions-never-state-a-buffer-hint.md)
+[issue 0896](../issues/archived/0896-c-cpp-subscriptions-never-state-a-buffer-hint.md)
 for the bound itself and overlaps
-[issue 0900](../issues/0900-arena-slots-budgeted-at-action-client-worst-case.md)
+[issue 0900](../issues/archived/0900-arena-slots-budgeted-at-action-client-worst-case.md)
 for the arena.
 
 ## There are TWO receive buffers per subscription, and neither is precise
@@ -779,7 +779,7 @@ calls once per package so one build names every type that blew its budget.
 not terminate in any useful sense" now has a number behind it. The diagnostic the
 budget produces, and the evidence that a budget-free type is unaffected in every
 respect, are in
-[issue 0962](../issues/0962-nested-bounded-sequences-cost-the-product-of-their-caps.md).
+[issue 0962](../issues/archived/0962-nested-bounded-sequences-cost-the-product-of-their-caps.md).
 
 This does NOT fix the multiplication. `size_bound` still walks a bounded sequence
 element by element; what changed is that the number is legible and that a user
