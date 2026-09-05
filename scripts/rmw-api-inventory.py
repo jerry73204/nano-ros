@@ -55,12 +55,25 @@ def strip_noise(text):
 
 
 def normalise_params(raw):
-    """`(rmw_node_t * node, const char * name)` -> `rmw_node_t *, const char *`.
+    """`(rmw_node_t * node, const char * name)` -> `rmw_node_t * node, const char * name`.
 
-    Parameter NAMES are dropped and whitespace collapsed, so the comparison is
-    about the types a caller must supply. Keeping the names would report a
-    difference every time upstream renamed an argument, which is not a
-    difference in the ABI and would train people to skim the output.
+    Whitespace collapsed; parameter NAMES KEPT.
+
+    They used to be dropped here, and the reason given was sound but applied at
+    the wrong layer: a renamed argument is not an ABI difference, so COMPARING
+    names would report drift that is not drift and train people to skim. That is
+    an argument about the comparison, not about the record — and dropping them
+    at extraction time meant nothing downstream could show them either.
+
+    The rendered comparison page put the cost on display: the nano-ros column
+    showed `const rmw_publisher_t *publisher` while the ROS 2 column beside it
+    showed a bare `const rmw_publisher_t *`, which reads as though upstream
+    declared it nameless. It does not.
+
+    So the record keeps them and the COMPARISON strips them:
+    `rmw_abi_shape.strip_param_names` is the one place that happens, and
+    `upstream_signatures()` applies it by default, so every existing caller
+    compares exactly what it compared before.
     """
     raw = raw.strip()
     if not raw or raw == "void":
@@ -85,15 +98,24 @@ def normalise_params(raw):
         p = " ".join(p.split())
         if not p:
             continue
-        # A function-pointer parameter keeps its shape; anything else loses a
-        # trailing identifier.
+        # A function-pointer parameter keeps its shape AND its name, which C
+        # writes inside the parentheses (`void (*cb)(void *)`). It used to be
+        # rewritten to `(*)` by the same name-dropping pass as everything else;
+        # now that names are kept, dropping this one would be the only
+        # inconsistency on the page.
         if "(*" in p:
-            types.append(re.sub(r"\(\*\s*[A-Za-z_][A-Za-z0-9_]*\s*\)", "(*)", p))
+            types.append(p)
             continue
         p = re.sub(r"\[\s*\]$", " []", p)
+        # Spacing is normalised around `*` for the TYPE half only, so the name
+        # stays attached to the last `*` the way C is conventionally written
+        # (`rmw_node_t * node`, not `rmw_node_t *node`) and a reader can still
+        # tell type from name by the final token.
         m = re.match(r"^(.*?[\s*])([A-Za-z_][A-Za-z0-9_]*)((\s*\[\s*\])?)$", p)
         if m:
-            p = (m.group(1) + m.group(3)).strip()
+            ty = " ".join((m.group(1)).replace("*", " * ").split())
+            types.append(f"{ty} {m.group(2)}{m.group(3).strip()}")
+            continue
         types.append(" ".join(p.replace("*", " * ").split()))
     return types
 
@@ -205,7 +227,8 @@ typedef struct rmw_thing_s { int x; } rmw_thing_t;
     if functions_in(one_line) != ["rmw_init"]:
         bad.append(f"one-line return type not matched: {functions_in(one_line)}")
 
-    # Signature extraction: parameter NAMES go, types stay, and a function
+    # Signature extraction: parameter names are KEPT (they are stripped by the
+    # comparison, not by the record — see `normalise_params`), and a function
     # pointer parameter keeps its shape.
     sig = functions_in(
         "RMW_PUBLIC\nrmw_ret_t\nrmw_x(rmw_node_t * node, const char * n, void (*cb)(void *), int a[]);",
@@ -213,10 +236,24 @@ typedef struct rmw_thing_s { int x; } rmw_thing_t;
     )
     # A function-pointer parameter keeps its own spelling — it returns before
     # the `*`-spacing pass, deliberately, since `void ( * )(void *)` would be a
-    # worse thing to print at every call site than the shape as written.
-    want = ("rmw_x", "rmw_ret_t", ["rmw_node_t *", "const char *", "void (*)(void *)", "int []"])
+    # worse thing to print at every call site than the shape as written. It also
+    # keeps its name inside the `(*name)`, which is where C puts it.
+    want = (
+        "rmw_x",
+        "rmw_ret_t",
+        ["rmw_node_t * node", "const char * n", "void (*cb)(void *)", "int a[]"],
+    )
     if sig != [want]:
         bad.append(f"signature extraction: got {sig}, want [{want}]")
+    # An UNNAMED parameter is legal C and upstream does use it; it must survive
+    # unchanged rather than losing its last type token to the name matcher.
+    unnamed = functions_in(
+        "RMW_PUBLIC\nrmw_ret_t\nrmw_y(const rmw_publisher_t *, void * *);",
+        with_signature=True,
+    )
+    want_unnamed = ("rmw_y", "rmw_ret_t", ["const rmw_publisher_t *", "void * *"])
+    if unnamed != [want_unnamed]:
+        bad.append(f"unnamed parameters: got {unnamed}, want [{want_unnamed}]")
     if normalise_params("void") != []:
         bad.append("`void` must normalise to no parameters")
 
@@ -224,7 +261,7 @@ typedef struct rmw_thing_s { int x; } rmw_thing_t;
         for b in bad:
             sys.stderr.write("rmw-api-inventory --self-test: " + b + "\n")
         return 2
-    print("rmw-api-inventory --self-test: OK (5 case(s))")
+    print("rmw-api-inventory --self-test: OK (6 case(s))")
     return 0
 
 
@@ -254,6 +291,22 @@ def main(argv):
 
     found = inventory(inc, with_signature=args.signatures)
     if args.signatures:
+        # A FORMAT MARKER, so a reader can tell a names-kept extract from the
+        # names-dropped one that preceded it. Without it the two are
+        # indistinguishable and stripping the older file a second time eats the
+        # last token of every by-value parameter: `const rmw_qos_profile_t`
+        # became `const`. Measured, on exactly one symbol, which is how close
+        # that came to shipping unnoticed.
+        print("# Signatures of the rmw implementation contract — ROS 2 Humble.")
+        print("# name<TAB>return<TAB>params<TAB>header. Parameter NAMES ARE KEPT;")
+        print("# the COMPARISON drops them (`rmw_abi_shape.strip_param_names`),")
+        print("# because a renamed argument is not an ABI difference and reporting")
+        print("# one trains people to skim — while a page that shows our named")
+        print("# slots beside upstream's bare types reads as though upstream")
+        print("# declared them nameless. Regenerate in the distrobox:")
+        print("#   scripts/rmw-api-inventory.py --signatures \\")
+        print("#     > docs/reference/rmw-implementation-signatures.txt")
+        print("# format: 2 (parameter names kept; strip them to compare)")
         for name in sorted(found):
             header, ret, params = found[name]
             print(f"{name}\t{ret}\t{', '.join(params)}\t{header}")

@@ -569,23 +569,63 @@ def vtable_slots():
 
 
 def _norm(raw):
-    """Same normalisation the inventory applies, so both sides are comparable."""
+    """Same normalisation the inventory applies, so both sides are comparable.
+
+    `normalise_params` KEEPS parameter names now (they are dropped by the
+    comparison, not by the record), so this strips them again: this function is
+    the comparison side, and it exists precisely so both sides are the same
+    shape. Missing that coupling turned every argument into a "dropped" one —
+    53 slots at once — because our side carried names and the upstream extract
+    did not.
+    """
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     spec = _util.spec_from_file_location("_inv", os.path.join(ROOT, "scripts", "rmw-api-inventory.py"))
     mod = _util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.normalise_params(raw)
+    return strip_param_names(mod.normalise_params(raw))
 
 
-def upstream_signatures():
+def strip_param_names(params):
+    """`["rmw_node_t * node", "void (*cb)(void *)"]` -> types only.
+
+    THE one place a parameter name is dropped. The extract keeps names because
+    the rendered page shows them beside our own named slots; the COMPARISON
+    drops them because a renamed argument is not an ABI difference and
+    reporting one trains people to skim (issue: the rationale that used to sit
+    on `rmw-api-inventory.normalise_params`, moved to the layer it is actually
+    about).
+    """
+    out = []
+    for p in params:
+        p = " ".join(p.split())
+        if not p:
+            continue
+        # A function-pointer parameter carries its name inside the parens.
+        if "(*" in p:
+            out.append(re.sub(r"\(\*\s*[A-Za-z_][A-Za-z0-9_]*\s*\)", "(*)", p))
+            continue
+        m = re.match(r"^(.*?[\s*])([A-Za-z_][A-Za-z0-9_]*)((\s*\[\s*\])?)$", p)
+        if m:
+            p = (m.group(1) + m.group(3)).strip()
+        out.append(" ".join(p.split()))
+    return out
+
+
+def upstream_signatures(with_names=False):
     """{name: [param types]} for the implementation contract only."""
     if not os.path.exists(SIGS) or not os.path.exists(CONTRACT):
         return None
     contract = {
         l.strip() for l in open(CONTRACT, encoding="utf-8") if l.strip() and not l.startswith("#")
     }
+    # Does this extract carry parameter names? Format 1 dropped them at
+    # extraction; format 2 keeps them and leaves stripping to the comparison.
+    # Stripping a format-1 line AGAIN removes the last token of a by-value
+    # parameter, so the marker is load-bearing rather than decorative.
+    text = open(SIGS, encoding="utf-8").read()
+    has_names = "# format: 2" in text
     sigs = {}
-    for line in open(SIGS, encoding="utf-8"):
+    for line in text.splitlines(keepends=True):
         if line.startswith("#") or not line.strip():
             continue
         parts = line.rstrip("\n").split("\t")
@@ -593,10 +633,10 @@ def upstream_signatures():
             continue
         name, ret, params = parts[0], parts[1], parts[2]
         if name in contract:
-            sigs[name] = (
-                " ".join(ret.split()),
-                [p.strip() for p in params.split(",") if p.strip()],
-            )
+            parsed = [p.strip() for p in params.split(",") if p.strip()]
+            if has_names and not with_names:
+                parsed = strip_param_names(parsed)
+            sigs[name] = (" ".join(ret.split()), parsed)
     return sigs
 
 
