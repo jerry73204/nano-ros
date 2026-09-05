@@ -338,15 +338,23 @@ class QoS {
     }
 
     // -- Predefined profiles (match rclcpp named constructors) --
+    //
+    // phase-428 W10 — DECLARED here, DEFINED below from `nros::detail::qos_table`,
+    // which is the one place this header spells a profile's fields. Until W10
+    // these three carried their own literals AND the `rclcpp::*QoS` classes at
+    // the bottom of the file carried a second, independent set: `sensor_data`
+    // and `services_default` were each written twice inside ONE header, with
+    // nothing asserting they agreed. That is the hand-mirror class
+    // (issues 0088 / 0160 / 0245) at file scope.
 
     /// Default profile: `RELIABLE` + `VOLATILE` + `KEEP_LAST(10)`.
-    static constexpr QoS default_profile() { return QoS(); }
+    static constexpr QoS default_profile();
 
     /// Sensor-data profile: `BEST_EFFORT` + `VOLATILE` + `KEEP_LAST(5)`.
-    static constexpr QoS sensor_data() { return QoS().best_effort().keep_last(5); }
+    static constexpr QoS sensor_data();
 
     /// Services profile: `RELIABLE` + `VOLATILE` + `KEEP_LAST(10)`.
-    static constexpr QoS services() { return QoS().reliable(); }
+    static constexpr QoS services();
 
     // -- Accessors --
 
@@ -435,6 +443,89 @@ class QoS {
 
 namespace detail {
 
+// --- THE C++ QoS profile table (phase-428 W10) -------------------------------
+//
+// Every named profile the C++ surface offers is spelled HERE and nowhere else.
+// `nros::QoS`'s three named statics and all six concrete `rclcpp::*QoS` classes
+// are defined by calling into this block; none of them restates a policy.
+//
+// Why a table and not a hand copy per class: W10 exists because upstream's 7
+// profiles were transcribed in four places across the repo — this header,
+// `nros-rmw/src/traits.rs`, `nros/src/lib.rs` and `nros-rmw-abi/.../
+// rmw_entity.h` — about 26 constants for a 7-row table, with no gate binding
+// them. `QOS_PROFILE_PARAMETER_EVENTS` is the proof: `KeepAll, 0` in Rust under
+// a comment claiming it matched `rmw_qos_profile_parameter_events`, which is
+// `KEEP_LAST, 1000`. This header had the same profile right, which is exactly
+// what an ungated mirror looks like until the day it is not.
+//
+// This block does NOT bind C++ to the cross-language SSoT — it cannot. The C
+// spellings in `rmw_entity.h` are `((rmw_qos_profile_t){...})` compound
+// literals, which are C99 and not standard C++, over a struct whose field types
+// differ from `nros_cpp_qos_t`'s; and `qos.hpp` is deliberately self-contained
+// and freestanding (see issue 0112 at the top of this file), so it cannot take
+// a dependency on a build-generated header either. What the table DOES buy is
+// that the C++ side now has ONE row per profile for a cross-language gate to
+// read, instead of nine constructor bodies to parse.
+//
+// Values read 2026-09-05 against ROS 2 Humble as installed:
+//   /opt/ros/humble/include/rmw/rmw/qos_profiles.h              :25,38,51,64,77,90
+//   /opt/ros/humble/include/rcl/rcl/logging_rosout.h            :36
+//   /opt/ros/humble/include/rclcpp/rclcpp/qos.hpp               :371-500
+//
+// Three fields are identical in EVERY upstream profile and are therefore folded
+// into `QoS`'s default constructor rather than spelled per row:
+//   * `avoid_ros_namespace_conventions` is `false` upstream, `0` here.
+//   * liveliness is `RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT` upstream;
+//     `nros::QoS` defaults to `LivelinessAutomatic`, which is what every
+//     reference RMW folds that sentinel to.
+//   * deadline and the liveliness lease are `RMW_QOS_*_DEFAULT` (infinite)
+//     upstream and `0` here, which `qos_window_ms` above documents as infinite.
+//
+// `rmw_qos_profile_system_default` has NO row: every one of its fields is a
+// sentinel, so no value could be right. `rclcpp::SystemDefaultsQoS` refuses at
+// compile time instead — see the class below.
+struct qos_table {
+    /// `rmw_qos_profile_default` — KEEP_LAST(10), RELIABLE, VOLATILE.
+    ///
+    /// Spelled by `QoS`'s default constructor's member-init list, which IS this
+    /// profile; naming it here would be the second copy this table removes.
+    static constexpr QoS default_profile() { return QoS(); }
+
+    /// `rmw_qos_profile_sensor_data` — KEEP_LAST(5), BEST_EFFORT, VOLATILE.
+    static constexpr QoS sensor_data() { return QoS().best_effort().keep_last(5); }
+
+    /// `rmw_qos_profile_services_default` — KEEP_LAST(10), RELIABLE, VOLATILE.
+    ///
+    /// The depth is stated rather than inherited from `QoS()`: upstream states
+    /// it, and a row that leaves a field to a default cannot be compared to
+    /// upstream's row field by field.
+    static constexpr QoS services_default() { return QoS().reliable().keep_last(10); }
+
+    /// `rmw_qos_profile_parameters` — KEEP_LAST(**1000**), RELIABLE, VOLATILE.
+    static constexpr QoS parameters() { return QoS().reliable().keep_last(1000); }
+
+    /// `rmw_qos_profile_parameter_events` — KEEP_LAST(1000), RELIABLE, VOLATILE.
+    ///
+    /// Same shape as `parameters()` upstream and still its own row: they are two
+    /// upstream constants that happen to agree today, and collapsing them would
+    /// make a future divergence invisible.
+    static constexpr QoS parameter_events() { return QoS().reliable().keep_last(1000); }
+
+    /// `rcl_qos_profile_rosout_default` — KEEP_LAST(1000), RELIABLE,
+    /// TRANSIENT_LOCAL, lifespan {10, 0}.
+    static constexpr QoS rosout() {
+        return QoS().reliable().transient_local().keep_last(1000).lifespan(
+            ::nros::Duration::from_nanoseconds(10000000000LL));
+    }
+
+    /// `rclcpp::ClockQoS` — KEEP_LAST(1), BEST_EFFORT, VOLATILE.
+    ///
+    /// Upstream builds it from `rmw_qos_profile_sensor_data` with `KeepLast(1)`
+    /// (`rclcpp/qos.hpp:371-377`), which is why the depth differs from
+    /// `sensor_data()`'s 5 and the reliability does not.
+    static constexpr QoS clock() { return QoS().best_effort().keep_last(1); }
+};
+
 /// `QoS` → the by-value C ABI record, in ONE place.
 ///
 /// Ten call sites across `publisher.hpp` / `subscription.hpp` / `service.hpp` /
@@ -467,6 +558,20 @@ constexpr nros_cpp_qos_t qos_to_ffi(const QoS& qos) {
 }
 
 } // namespace detail
+
+// phase-428 W10 — the three named statics declared on `QoS`, defined from the
+// one table. Out of line because the table needs a COMPLETE `QoS` and these are
+// members of it; `constexpr` implies `inline`, so this is still header-only and
+// still usable in the `static_assert`s and default arguments that call it.
+constexpr QoS QoS::default_profile() {
+    return detail::qos_table::default_profile();
+}
+constexpr QoS QoS::sensor_data() {
+    return detail::qos_table::sensor_data();
+}
+constexpr QoS QoS::services() {
+    return detail::qos_table::services_default();
+}
 
 } // namespace nros
 
@@ -562,11 +667,19 @@ template <typename F> class is_qos_arg {
 
 } // namespace detail
 
-// --- Named QoS profiles (RFC-0089 W3.f) --------------------------------------
+// --- Named QoS profiles (RFC-0089 W3.f; bound to one table, phase-428 W10) ---
 //
-// TRANSCRIBED from upstream field by field, not approximated. Two of these
-// shipped WRONG, which is the evidence for why the transcription is pinned by a
-// test rather than by review:
+// Each class below is a NAME for a row of `nros::detail::qos_table`, and states
+// no policy of its own. Before W10 each carried its own literals, so
+// `SensorDataQoS` and `ServicesQoS` restated what `nros::QoS::sensor_data()` and
+// `nros::QoS::services()` already said, 400 lines up in the same header — the
+// shape upstream itself avoids: rclcpp's `SensorDataQoS` is
+// `QoSInitialization::from_rmw(rmw_qos_profile_sensor_data)`, a REFERENCE to the
+// rmw constant, never a re-transcription of it (`rclcpp/qos.hpp:391-399`).
+//
+// The reason a name-only class is still worth having is unchanged: two of these
+// shipped WRONG, which is why the values are pinned by a test rather than by
+// review.
 //
 //   * `ParametersQoS()` returned `QoS(10)` where `rmw_qos_profile_parameters`
 //     is KEEP_LAST/**1000** — a hundredfold history difference under a name
@@ -576,41 +689,29 @@ template <typename F> class is_qos_arg {
 //     `rmw_qos_profile_default` — a DIFFERENT upstream profile. It is now
 //     REFUSE-LOUD; see the class below for why no value can be right.
 //
-// Sources, read 2026-09-04 against ROS 2 Humble as installed:
-//   /opt/ros/humble/include/rmw/rmw/qos_profiles.h    :25,38,51,64,77,90
-//   /opt/ros/humble/include/rcl/rcl/logging_rosout.h  :37   (rosout)
-//   /opt/ros/humble/include/rclcpp/rclcpp/qos.hpp     :351-489
+// The upstream sources, and the three fields folded into `QoS()` rather than
+// spelled per row, are documented on `qos_table` itself — one place, because
+// that is the whole point of this work item.
 //
 // These are CLASSES, as upstream's are, so `rclcpp::SensorDataQoS{}` — the
 // brace form — compiles alongside `rclcpp::SensorDataQoS()`. They are
 // `constexpr`, so the table-driven check lives in `static_assert`s
 // (`tests/compile/ros2_api_adoption_stage2.cpp`) rather than in a runtime test
 // no embedded lane runs.
-//
-// Three fields are the same in EVERY upstream profile above and are therefore
-// not spelled per profile:
-//   * `avoid_ros_namespace_conventions` is `false` upstream, `0` in a default
-//     `nros::QoS`.
-//   * liveliness is `RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT` upstream;
-//     `nros::QoS` defaults to `LivelinessAutomatic`, which is what every
-//     reference RMW folds that sentinel to.
-//   * deadline and the liveliness lease are `RMW_QOS_*_DEFAULT` (infinite)
-//     upstream and `0` here, which `nros::detail::qos_window_ms` documents as
-//     infinite.
 
 /// `rmw_qos_profile_sensor_data` — KEEP_LAST(5), BEST_EFFORT, VOLATILE. ADOPT.
 class SensorDataQoS : public QoS {
   public:
-    constexpr SensorDataQoS() : QoS(::nros::QoS().best_effort().keep_last(5)) {}
+    constexpr SensorDataQoS() : QoS(::nros::detail::qos_table::sensor_data()) {}
 };
 
 /// `rmw_qos_profile_services_default` — KEEP_LAST(10), RELIABLE, VOLATILE.
 /// ADOPT. (Verified rather than assumed: this one was already right, but it
 /// was right by way of `QoS(10)`, which states the depth and leaves the
-/// reliability to the default. It now states both.)
+/// reliability to the default. The table row states both.)
 class ServicesQoS : public QoS {
   public:
-    constexpr ServicesQoS() : QoS(::nros::QoS().reliable().keep_last(10)) {}
+    constexpr ServicesQoS() : QoS(::nros::detail::qos_table::services_default()) {}
 };
 
 /// `rmw_qos_profile_parameters` — KEEP_LAST(**1000**), RELIABLE, VOLATILE.
@@ -618,14 +719,19 @@ class ServicesQoS : public QoS {
 /// inversions: it returned `QoS(10)`.
 class ParametersQoS : public QoS {
   public:
-    constexpr ParametersQoS() : QoS(::nros::QoS().reliable().keep_last(1000)) {}
+    constexpr ParametersQoS() : QoS(::nros::detail::qos_table::parameters()) {}
 };
 
 /// `rmw_qos_profile_parameter_events` — KEEP_LAST(1000), RELIABLE, VOLATILE.
 /// ADOPT. A ported node that publishes parameter events names it.
+///
+/// This is the profile phase-428 F2 found inverted on the RUST side
+/// (`nros-rmw/src/traits.rs`, `KeepAll, 0`). The C++ value was already right;
+/// two surfaces disagreeing about one upstream constant, with the wrong one
+/// carrying a comment claiming it matched, is what W10's single table is for.
 class ParameterEventsQoS : public QoS {
   public:
-    constexpr ParameterEventsQoS() : QoS(::nros::QoS().reliable().keep_last(1000)) {}
+    constexpr ParameterEventsQoS() : QoS(::nros::detail::qos_table::parameter_events()) {}
 };
 
 /// `rcl_qos_profile_rosout_default` — KEEP_LAST(1000), RELIABLE,
@@ -638,19 +744,13 @@ class ParameterEventsQoS : public QoS {
 /// runtime is already using.
 class RosoutQoS : public QoS {
   public:
-    constexpr RosoutQoS()
-        : QoS(::nros::QoS().reliable().transient_local().keep_last(1000).lifespan(
-              ::nros::Duration::from_nanoseconds(10000000000LL))) {}
+    constexpr RosoutQoS() : QoS(::nros::detail::qos_table::rosout()) {}
 };
 
 /// `rclcpp::ClockQoS` — KEEP_LAST(1), BEST_EFFORT, VOLATILE. ADOPT.
-///
-/// Upstream builds it from `rmw_qos_profile_sensor_data` with `KeepLast(1)`
-/// (`rclcpp/qos.hpp:351-357`), which is why the depth differs from
-/// `SensorDataQoS`'s 5 and the reliability does not.
 class ClockQoS : public QoS {
   public:
-    constexpr ClockQoS() : QoS(::nros::QoS().best_effort().keep_last(1)) {}
+    constexpr ClockQoS() : QoS(::nros::detail::qos_table::clock()) {}
 };
 
 /// `rclcpp::SystemDefaultsQoS` — **REFUSE-LOUD**.
