@@ -704,3 +704,80 @@ whether the upstream name is adopted, bounded, refused loudly, or absent. A
 `declined` verdict with no disposition does not say whether a ported program
 gets a compile error or a surprise, which is the only thing a porting user needs
 to know.
+
+
+## Settled: the three questions the node-type merge was waiting on (2026-09-05)
+
+The structural blocker was retired (see above); what remained were three
+decisions, not readings. All three are now made.
+
+### 1. `get_logger()` follows ROS 2 after the merge
+
+Today the two spellings collide on an identical signature: `rclcpp::Node::
+get_logger()` returns a `rclcpp::Logger` built from the hardcoded sentinel
+`"nros.compat"`, while `nros::Node::get_logger()` returns the real
+`nros_log::Logger` handle keyed on the node's own name. Same name, same arity,
+different observable behaviour — case (3) of "four ways a row correlates `same`
+falsely", which this RFC already names.
+
+**The merged accessor takes ROS 2's behaviour: a logger named for the node.**
+The sentinel was a placeholder for a shim that no longer exists, and a logger
+that cannot tell you which node emitted a record is worse than the one it
+replaced. This is a strict improvement in both directions, so it needs no
+disposition beyond `adopt`.
+
+### 2. Mirror ROS 2's node types — and the count that implies is ONE
+
+The instruction was to mirror rclcpp and avoid duplicates. Measured, the mapping
+that motivated the question is **inverted**, so recording it before acting:
+
+| type | where it is actually used |
+| --- | --- |
+| `nros::Node` | everywhere, and MOSTLY IN WORKSPACES — 51 files under `workspaces/features`, 41 under `workspaces/cpp`, 30 under `workspaces/c`, 27 under `workspaces/mixed`. The RFC-0043 typed component takes it by reference: `Result Configure(::nros::Node&)`. |
+| `nros::ComponentNode` | **five directories total** — one standalone POC (`native/cpp/component-node-poc`) and two workspace subnode packages. |
+
+So it is not "`Node` for standalone, `ComponentNode` for workspaces". Both live
+in workspaces; they differ by ROLE. `nros::Node` is a node you are handed;
+`ComponentNode` is a base class you derive from, constructed from an
+entry-supplied `NodeHandle`.
+
+Upstream has no counterpart to that distinction. `rclcpp_components` composes
+plain `rclcpp::Node`s — a ported component derives from `rclcpp::Node` and there
+is no second node type to mirror. Mirroring therefore means **one node type**,
+with `ComponentNode`'s two distinguishing features demoted from a type to
+constructors on it:
+
+* construction from an entry-supplied `NodeHandle` rather than the global
+  executor — a constructor overload;
+* RFC-0047's "one component, several named nodes" — genuinely ours-only,
+  because an rclcpp component IS one node. It stays, as a documented divergence
+  with a disposition, not as a second class.
+
+This also closes the duplication `nros.hpp` already flags against itself
+("KNOWN DUPLICATION… There should be ONE helper"): the parameter facade exists
+twice, once in C++14 on `rclcpp::Node` and once in C++17 `if constexpr` on
+`ComponentNode`. One node type is what makes one facade possible.
+
+### 3. Parameters live in Rust; C and C++ are thin wrappers
+
+RFC-0019/0020 already say the Rust API is the implementation SSoT and that
+ergonomics may live in the wrapper while behaviour may not. A node-local C++
+parameter store is behaviour living in the wrapper, and it has the visible
+consequence that a parameter declared through `rclcpp::Node` does not appear in
+`ros2 param list` — the store the parameter SERVICES read is the executor's, in
+Rust.
+
+**The merged node's parameters are the Rust store.** `rclcpp::Node`'s inline
+`ParameterServer<NROS_RCLCPP_MAX_PARAMS>` member and `ComponentNode`'s facade
+both become forwarders to it.
+
+The gap this exposes is small and specific: the FFI has
+`nros_cpp_declare_param` plus typed getters (integer / double / bool / string)
+and **no setter at all** — `grep -c nros_cpp_set_param` is 0, and there is no
+`set_parameter` on the Rust executor either. `set_parameter<T>` therefore has
+nothing to forward to yet, so the merge carries one piece of Rust-side work
+rather than a pure C++ refactor. That is the right shape: the capability is
+missing where the SSoT is, and adding it in C++ would have been the second
+implementation this rule exists to prevent.
+
+Resolves the C++ half of issue 0793.
