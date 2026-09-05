@@ -262,3 +262,30 @@ zpico-config-keys:
         exit 0
     fi
     python3 scripts/gen-zpico-config-keys.py --check
+
+# phase-420 W9 / the mirror class issue 1068 fixed for micro-XRCE, one vendored
+# tree over. zenoh-pico is compiled TWICE — by `nros-zpico-build` for the cargo
+# lane and by `zephyr/cmake/nros_rmw_zenoh.cmake` for the west lane — and each
+# lane held its own copy of the selection: the same nine directory globs,
+# written out twice, with nothing checking they agreed.
+#
+# `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt` is now the one list. Unlike
+# the XRCE manifest it names DIRECTORIES, because zenoh-pico's selection is a
+# RULE ("the whole core") on a rebased patch line, not a subset; the safety a
+# file list would buy is bought instead by asserting every `.c` in the tree is
+# covered by a record, left to the per-platform axis, or on a documented
+# not-compiled list. Also asserts that neither lane names a vendored path (pure
+# text, so it holds without the submodule) and that both answer exactly the
+# manifest's condition tokens, both directions.
+#
+# And one check that is NOT about shape, because every other one is: PLATFORM-
+# CONDITIONAL COMPILATION IS LEGITIMATE ONLY FOR THE PLATFORM TREES — a path
+# under `src/system/<platform>/` must be in a conditional group, the core must
+# be in an unconditional one. Moving a record between two legitimately-declared
+# groups breaks no shape: `dir core … utils` → `dir zephyr_system … utils`
+# leaves every count identical and drops nine `.c` from every non-Zephyr build,
+# under the reader's "selected no sources" guard because 125 is not 0.
+# Buildless, ~40 ms.
+[private]
+zenoh-source-manifest:
+    @python3 scripts/check-zenoh-source-manifest.py

@@ -566,7 +566,60 @@ is one road.
         crate phase-321 W1.d removed — legitimately, since this one has two
         dependents, which is exactly what that deletion said it lacked.
       - zenoh: fold `zephyr/cmake/nros_rmw_zenoh.cmake`'s `GLOB_RECURSE` into the
-        same source list `nros-zpico-build` computes.
+        same source list `nros-zpico-build` computes. **LANDED 2026-09-05.**
+        `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt` is the one list; neither
+        lane names a vendored path any more. It names **DIRECTORIES**, not files,
+        and that is the one place it departs from `xrce-sources.txt`
+        deliberately: the XRCE list is a deliberate SUBSET of a much larger tree,
+        so each line carries a decision, while zenoh-pico's selection is a RULE
+        ("the whole core, nine subtrees, recursively") over a REBASED PATCH LINE
+        that moves with upstream — expanding it to ~130 paths would restate a
+        rule as data, freeze upstream's layout in 130 places, and tax every
+        submodule bump with a reconciliation whose only correct answer is "add
+        them all". The safety a file list buys is bought instead by the gate:
+        `check-zenoh-source-manifest` asserts every `.c` in the tree is covered
+        by a record, left to the per-platform axis, or on a documented
+        not-compiled list, so a new file in a listed directory is compiled (which
+        is what was wanted) while a new DIRECTORY fails. The Zephyr divergence —
+        `system/zephyr/network.c` from the tree rather than the alias TU (phase
+        160.C's ABI mismatch), plus `isotp.c` behind
+        `CONFIG_NROS_ZENOH_LINK_ISOTP` — is carried as the named conditions
+        `zephyr` / `zephyr_isotp`, which the cargo lane answers with
+        `platform == "zephyr"` (false by construction: Zephyr is `compiled_by =
+        "platform"`, issue 0541) rather than a literal `false`.
+        **The gate needed one check that is not about SHAPE, and the first
+        version did not have it.** Six mutations each broke the manifest's
+        structure — an undeclared group, a dropped directory, a regrown glob, an
+        unanswered token, a dead token, a regrown path — and every one was
+        caught; the seventh moved a record between two legitimately-declared
+        groups and was not. `dir core … utils` → `dir zephyr_system … utils`
+        leaves the group count, the record count, the condition-token set and
+        the tree coverage all exactly right, and drops nine `.c` from every
+        non-Zephyr cargo build, quietly enough that the reader's "selected no
+        sources" guard does not fire because 125 is not 0. Same hole the XRCE
+        version gate had next door: a gate that checks shape does not check that
+        each record is attached to the right thing. The invariant added:
+        **platform-conditional compilation is legitimate only for the platform
+        trees** — a path under `src/system/<platform>/` must be in a CONDITIONAL
+        group and everything else, being core, in an unconditional one, so
+        `path is per-platform ⟺ condition != always`. It is this manifest's own
+        argument (the core is a rule; the only per-file decisions are the
+        platform trees) turned into a check, and it covers the mirror direction
+        for free: a `system/zephyr/*.c` in `core` would compile a Zephyr-only TU
+        on every platform.
+        Measured, not asserted: `cargo build -p zpico-sys` compiles the same 134
+        `.c` before and after (compiler-wrapper capture, empty diff), and the
+        cmake reader yields the same 133 / 134 paths the old globs did, with and
+        without ISO-TP. **Found while doing it:** the old `GLOB_RECURSE` carried
+        no `CONFIGURE_DEPENDS`, so a `.c` appearing under one of those
+        directories — which is exactly what an upstream rebase does — had NO
+        rebuild edge; the new `dir` expansion passes it.
+        Still outside the manifest, on purpose: the OTHER platforms'
+        `src/system/<platform>/*.c`, declared once each in
+        `packages/platform/nros-platform-*/nros-platform.toml` `extra_sources`
+        (one declaration, one lane — no mirror to drift), and the in-repo TUs
+        (`zpico.c`, `zpico_zephyr.c`, `platform_aliases.c`, `size_probe.c`),
+        which are not part of the vendored tree.
       Both are build-affecting and need the submodules checked out and both lanes
       built; neither is a documentation change, and neither should be attempted
       in the same commit as the identity above.

@@ -7,52 +7,123 @@ function(nros_zephyr_configure_rmw_zenoh)
 set(ZENOH_PICO_DIR ${NROS_REPO_DIR}/packages/rmw/zenoh/zpico-sys/zenoh-pico)
 
 # --- zenoh-pico sources ---
-
-file(GLOB_RECURSE _zenoh_pico_sources
-    "${ZENOH_PICO_DIR}/src/api/*.c"
-    "${ZENOH_PICO_DIR}/src/collections/*.c"
-    "${ZENOH_PICO_DIR}/src/link/*.c"
-    "${ZENOH_PICO_DIR}/src/net/*.c"
-    "${ZENOH_PICO_DIR}/src/protocol/*.c"
-    "${ZENOH_PICO_DIR}/src/session/*.c"
-    "${ZENOH_PICO_DIR}/src/transport/*.c"
-    "${ZENOH_PICO_DIR}/src/utils/*.c"
-    "${ZENOH_PICO_DIR}/src/system/common/*.c"
-)
-# Zephyr platform: system.c (clock/memory/sleep/random/threading/time)
-# is replaced by the alias TU (`packages/rmw/zenoh/zpico-sys/c/zpico/
-# platform_aliases.c`) compiled inside the cargo-built Rust
-# staticlib (`librustapp.a` / `libnros_c.a`). That TU forwards each
-# `_z_*` to the canonical `nros_platform_*` ABI provided by
-# `nros-platform-zephyr`. Phase 129 retired `zpico-platform-shim`;
-# the alias TU is the single replacement provider.
 #
-# Phase 160.C — network.c (TCP/UDP/multicast) MUST come from
-# zenoh-pico's `src/system/zephyr/network.c`, NOT from the alias
-# TU. The alias TU's `_z_open_tcp` / `_z_send_tcp` / etc. see a
-# generic 32-byte `_z_sys_net_socket_t` opaque (from
-# `nros_zenoh_generic_platform.h`); the Zephyr-side `tx.c` /
-# `link.c` (compiled here under `ZENOH_ZEPHYR`) see the
-# 4-byte `{int _fd}` socket from `system/platform/zephyr.h`.
-# The endpoint layouts diverge too (alias 16 B opaque vs.
-# `{struct addrinfo*}` 8 B). The size mismatch propagates
-# through the by-value endpoint arg and the by-pointer socket
-# arg, corrupting the connect-time state → `Transport(
-# ConnectionFailed)` on every Zephyr Rust app at session open.
-# Same family as Phase 159 NuttX (`_z_send_tcp` ABI gate). The
-# paired build.rs change extends `NROS_ZENOH_PLATFORM_USES_UNIX`
-# to zephyr so the alias TU's network section is `#ifndef`-elided
-# at cargo compile time — without that, both providers land and
-# the alias version wins under `--allow-multiple-definition`.
-zephyr_library_sources(${_zenoh_pico_sources}
-    "${ZENOH_PICO_DIR}/src/system/zephyr/network.c")
-
-# RFC-0083 — the ISO-TP platform binding. A separate TU from network.c, and
-# added by name for the same reason network.c is: the `src/link/*.c` glob above
-# picks up the link itself, but nothing under `src/system/zephyr/` is globbed.
-if(CONFIG_NROS_ZENOH_LINK_ISOTP)
-    zephyr_library_sources("${ZENOH_PICO_DIR}/src/system/zephyr/isotp.c")
+# phase-420 W9 — THIS FILE OWNS NO SOURCE LIST. The set of vendored zenoh-pico
+# TUs compiled here is read from
+# `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt`, which `nros-zpico-build`
+# (the cargo lane, `add_zenoh_pico_core_sources`) reads too.
+#
+# There used to be two copies of that selection — nine directory globs here and
+# the same nine subdirectory names in `nros-zpico-build/src/lib.rs` — with
+# nothing checking that they agreed. That is the defect class issue 1068 fixed
+# for micro-XRCE next door: a hand-mirrored thing drifts on append, so derive
+# it once instead. The per-platform divergence that IS real (Zephyr compiles
+# `system/zephyr/network.c` from the tree while every other platform gets those
+# entry points from the alias TU) is carried in the manifest as a named
+# condition, with the ABI reasoning; see the `zephyr_system` group there.
+#
+# Gate: `just check zenoh-source-manifest`.
+set(_zenoh_manifest "${NROS_REPO_DIR}/packages/rmw/zenoh/zpico-sys/zenoh-sources.txt")
+if(NOT EXISTS "${_zenoh_manifest}")
+    message(FATAL_ERROR
+        "nros_rmw_zenoh: shared source manifest not found at '${_zenoh_manifest}'. "
+        "It is tracked in-repo — a missing one means the checkout is incomplete.")
 endif()
+# Re-configure when the shared list changes; without this a manifest edit would
+# leave a configured build dir compiling yesterday's set.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_zenoh_manifest}")
+
+# NROS-ZENOH-CONDITIONS-BEGIN — the boolean this lane supplies for each
+# condition token the manifest uses. `check-zenoh-source-manifest` asserts the
+# cargo lane answers exactly this token set; the manifest, not this block,
+# decides which sources a token covers.
+set(_zenoh_cond_always TRUE)
+# This lane IS the Zephyr lane — it is reached only from a west build, so the
+# platform test the cargo lane makes is a constant here. The cargo lane answers
+# FALSE (Zephyr is `compiled_by = "platform"`, issue 0541).
+set(_zenoh_cond_zephyr TRUE)
+# RFC-0083 — the ISO-TP platform binding rides on the link Kconfig.
+if(CONFIG_NROS_ZENOH_LINK_ISOTP)
+    set(_zenoh_cond_zephyr_isotp TRUE)
+else()
+    set(_zenoh_cond_zephyr_isotp FALSE)
+endif()
+# NROS-ZENOH-CONDITIONS-END
+
+set(_zenoh_tree_zenoh_pico "${ZENOH_PICO_DIR}/src")
+
+# `group <name> <condition>` records → `_zenoh_group_cond_<name>`.
+file(STRINGS "${_zenoh_manifest}" _zenoh_group_lines REGEX "^[ \t]*group[ \t]")
+foreach(_line IN LISTS _zenoh_group_lines)
+    string(REGEX REPLACE "^[ \t]*group[ \t]+([^ \t]+)[ \t]+([^ \t#]+).*$" "\\1;\\2" _g "${_line}")
+    list(GET _g 0 _gname)
+    list(GET _g 1 _gcond)
+    if(NOT DEFINED _zenoh_cond_${_gcond})
+        message(FATAL_ERROR
+            "nros_rmw_zenoh: ${_zenoh_manifest} group '${_gname}' uses condition token "
+            "'${_gcond}', which this lane does not answer. Add a `set(_zenoh_cond_${_gcond} …)` "
+            "here AND an arm in nros-zpico-build's add_zenoh_pico_core_sources — a token only "
+            "one lane answers is the same defect one conditional over.")
+    endif()
+    set(_zenoh_group_cond_${_gname} "${_gcond}")
+endforeach()
+
+# `dir <group> <tree> <path>` / `src <group> <tree> <path>` records → the
+# library's source list.
+#
+# `CONFIGURE_DEPENDS` on the `dir` expansion, which the hand-written globs it
+# replaces did NOT carry: without it a `.c` added under one of these
+# directories — by an upstream rebase of the `nano-ros` patch line, say — gets
+# no rebuild edge at all, and the build keeps linking yesterday's set with no
+# diagnostic. Same shape as issue 0475 one layer over. It costs a glob per
+# build; the alternative costs a silently wrong image.
+set(_zenoh_pico_sources "")
+file(STRINGS "${_zenoh_manifest}" _zenoh_src_lines REGEX "^[ \t]*(dir|src)[ \t]")
+foreach(_line IN LISTS _zenoh_src_lines)
+    string(REGEX REPLACE "^[ \t]*(dir|src)[ \t]+([^ \t]+)[ \t]+([^ \t]+)[ \t]+([^ \t#]+).*$"
+           "\\1;\\2;\\3;\\4" _r "${_line}")
+    list(GET _r 0 _rkind)
+    list(GET _r 1 _rgroup)
+    list(GET _r 2 _rtree)
+    list(GET _r 3 _rpath)
+    if(NOT DEFINED _zenoh_group_cond_${_rgroup})
+        message(FATAL_ERROR
+            "nros_rmw_zenoh: ${_zenoh_manifest} record '${_rpath}' names group '${_rgroup}', "
+            "which no `group` line declares.")
+    endif()
+    if(NOT DEFINED _zenoh_tree_${_rtree})
+        message(FATAL_ERROR
+            "nros_rmw_zenoh: ${_zenoh_manifest} names unknown source tree '${_rtree}'.")
+    endif()
+    set(_cond "${_zenoh_group_cond_${_rgroup}}")
+    if(NOT _zenoh_cond_${_cond})
+        continue()
+    endif()
+    set(_root "${_zenoh_tree_${_rtree}}")
+    if(_rkind STREQUAL "dir")
+        if(NOT IS_DIRECTORY "${_root}/${_rpath}")
+            message(FATAL_ERROR
+                "nros_rmw_zenoh: ${_zenoh_manifest} lists directory '${_rtree}/${_rpath}', "
+                "which is not a directory at ${_root}/${_rpath}. An upstream bump that renamed "
+                "or removed it needs the manifest updated, not this file.")
+        endif()
+        file(GLOB_RECURSE _expanded CONFIGURE_DEPENDS "${_root}/${_rpath}/*.c")
+        list(APPEND _zenoh_pico_sources ${_expanded})
+    else()
+        if(NOT EXISTS "${_root}/${_rpath}")
+            message(FATAL_ERROR
+                "nros_rmw_zenoh: ${_zenoh_manifest} lists source '${_rtree}/${_rpath}', which "
+                "does not exist at ${_root}/${_rpath}.")
+        endif()
+        list(APPEND _zenoh_pico_sources "${_root}/${_rpath}")
+    endif()
+endforeach()
+if(NOT _zenoh_pico_sources)
+    message(FATAL_ERROR
+        "nros_rmw_zenoh: ${_zenoh_manifest} selected no sources — manifest or condition drift.")
+endif()
+
+zephyr_library_sources(${_zenoh_pico_sources})
 
 # zenoh-pico include directory
 zephyr_include_directories(${ZENOH_PICO_DIR}/include)

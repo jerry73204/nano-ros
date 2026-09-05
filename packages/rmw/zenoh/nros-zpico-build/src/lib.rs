@@ -628,29 +628,211 @@ pub fn arch_matches(arch: &manifest::ArchEntry, target: &str) -> bool {
     nros_board_common::arch_flags::arch_matches(arch, target)
 }
 
-/// Add the zenoh-pico core source set to a `cc::Build`.
-pub fn add_zenoh_pico_core_sources(build: &mut cc::Build, zenoh_pico_src: &Path) {
-    let src_dir = zenoh_pico_src.join("src");
-    for subdir in &[
-        "api",
-        "collections",
-        "link",
-        "net",
-        "protocol",
-        "session",
-        "transport",
-        "utils",
-    ] {
-        add_c_sources_recursive(build, &src_dir.join(subdir));
-    }
-    add_c_sources_recursive(build, &src_dir.join("system").join("common"));
+/// What a `zenoh-sources.txt` record selects.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ZenohSourceKind {
+    /// `dir` — every `.c` under the path, recursively.
+    Dir,
+    /// `src` — exactly one `.c`.
+    File,
 }
 
-/// Recursively collect all .c files from a directory and add them to a cc::Build.
-pub fn add_c_sources_recursive(build: &mut cc::Build, dir: &Path) {
-    if !dir.exists() {
-        return;
+/// One `dir` / `src` record of `zenoh-sources.txt`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ZenohSourceRecord {
+    pub kind: ZenohSourceKind,
+    pub group: String,
+    pub tree: String,
+    pub path: String,
+}
+
+/// Parse `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt` — phase-420 W9.
+///
+/// Returns `(group → condition token, records in file order)`.
+///
+/// The grammar is deliberately line-oriented and dependency-free, because
+/// `zephyr/cmake/nros_rmw_zenoh.cmake` implements the same one with
+/// `file(STRINGS)` and a build script here must work from a bare clone under
+/// the `--locked` cargo shim. Keep the two implementations answering the same
+/// text: `check-zenoh-source-manifest` re-implements it a third time in Python
+/// and compares what each lane selects.
+pub fn parse_zenoh_sources(
+    text: &str,
+) -> Result<
+    (
+        std::collections::BTreeMap<String, String>,
+        Vec<ZenohSourceRecord>,
+    ),
+    String,
+> {
+    let mut groups = std::collections::BTreeMap::new();
+    let mut records = Vec::new();
+    for (n, raw) in text.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split_whitespace().collect();
+        match f.as_slice() {
+            ["group", name, cond] => {
+                if groups
+                    .insert((*name).to_string(), (*cond).to_string())
+                    .is_some()
+                {
+                    return Err(format!("line {}: group `{name}` declared twice", n + 1));
+                }
+            }
+            [kind @ ("dir" | "src"), group, tree, path] => records.push(ZenohSourceRecord {
+                kind: if *kind == "dir" {
+                    ZenohSourceKind::Dir
+                } else {
+                    ZenohSourceKind::File
+                },
+                group: (*group).to_string(),
+                tree: (*tree).to_string(),
+                path: (*path).to_string(),
+            }),
+            _ => {
+                return Err(format!(
+                    "line {}: expected `group <name> <condition>`, \
+                     `dir <group> <tree> <path>` or `src <group> <tree> <path>`, got `{line}`",
+                    n + 1
+                ));
+            }
+        }
     }
+    Ok((groups, records))
+}
+
+/// Add the zenoh-pico source set this platform compiles to a `cc::Build`.
+///
+/// phase-420 W9 — THIS FUNCTION OWNS NO SOURCE LIST. The nine directory globs
+/// that used to live here are read from `zpico-sys/zenoh-sources.txt`, and
+/// `zephyr/cmake/nros_rmw_zenoh.cmake` reads the same file. There were two
+/// copies of that selection, one per language lane, and nothing checked that
+/// they agreed — the class issue 1068 fixed for micro-XRCE next door. Gate:
+/// `just check zenoh-source-manifest`.
+///
+/// `platform` is the resolved `nros-platform.toml` platform name and `link` its
+/// link features; between them they answer the manifest's condition tokens.
+pub fn add_zenoh_pico_core_sources(
+    build: &mut cc::Build,
+    zenoh_pico_src: &Path,
+    manifest_path: &Path,
+    platform: &str,
+    link: &LinkFeatures,
+) {
+    // A manifest edit must rebuild the C. Nothing else here watches this file.
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let text = std::fs::read_to_string(manifest_path).unwrap_or_else(|e| {
+        panic!(
+            "nros-zpico-build: cannot read the shared zenoh-pico source manifest {} ({e}). \
+             It is tracked in-repo — a missing one means the checkout is incomplete.",
+            manifest_path.display()
+        )
+    });
+    let (groups, records) = parse_zenoh_sources(&text)
+        .unwrap_or_else(|e| panic!("nros-zpico-build: {}: {e}", manifest_path.display()));
+
+    // NROS-ZENOH-CONDITIONS-BEGIN — the boolean this lane supplies for each
+    // condition token the manifest uses. `check-zenoh-source-manifest` asserts
+    // the cmake lane answers exactly this token set, and that it is exactly the
+    // set the manifest uses; the manifest, not this match, decides which
+    // sources a token covers.
+    let is_zephyr = platform == "zephyr";
+    let condition = |token: &str| -> bool {
+        match token {
+            "always" => true,
+            // FALSE by construction today, and written as the platform test
+            // rather than a literal `false` so it stays true of the code
+            // rather than of today's routing: Zephyr declares `compiled_by =
+            // "platform"` in `nros-platform.toml`, so the cargo lane never
+            // compiles the vendored tree for it (issue 0541 — when it briefly
+            // did, it died on `version.h: No such file or directory`, a header
+            // only the Zephyr build generates). The cmake lane answers TRUE.
+            "zephyr" => is_zephyr,
+            // RFC-0083 — Zephyr AND the ISO-TP link is wanted.
+            "zephyr_isotp" => is_zephyr && link.isotp,
+            other => panic!(
+                "nros-zpico-build: {} uses condition token `{other}`, which this lane does \
+                 not answer. Add an arm here AND a `set(_zenoh_cond_{other} …)` in \
+                 zephyr/cmake/nros_rmw_zenoh.cmake — a token only one lane answers is the \
+                 same defect one conditional over.",
+                manifest_path.display()
+            ),
+        }
+    };
+    // NROS-ZENOH-CONDITIONS-END
+
+    let tree_root = |tree: &str| -> PathBuf {
+        match tree {
+            "zenoh_pico" => zenoh_pico_src.join("src"),
+            other => panic!(
+                "nros-zpico-build: {} names unknown source tree `{other}`",
+                manifest_path.display()
+            ),
+        }
+    };
+
+    let mut added = 0usize;
+    for record in &records {
+        let token = groups.get(&record.group).unwrap_or_else(|| {
+            panic!(
+                "nros-zpico-build: {}: `{}` names group `{}`, which no `group` line declares",
+                manifest_path.display(),
+                record.path,
+                record.group
+            )
+        });
+        if !condition(token) {
+            continue;
+        }
+        let path = tree_root(&record.tree).join(&record.path);
+        match record.kind {
+            ZenohSourceKind::Dir => {
+                assert!(
+                    path.is_dir(),
+                    "nros-zpico-build: {} lists directory `{}/{}`, which is not a directory \
+                     at {}. An upstream bump that renamed or removed it needs the manifest \
+                     updated, not this build script.",
+                    manifest_path.display(),
+                    record.tree,
+                    record.path,
+                    path.display()
+                );
+                added += add_c_sources_recursive(build, &path);
+            }
+            ZenohSourceKind::File => {
+                assert!(
+                    path.is_file(),
+                    "nros-zpico-build: {} lists source `{}/{}`, which does not exist at {}",
+                    manifest_path.display(),
+                    record.tree,
+                    record.path,
+                    path.display()
+                );
+                build.file(&path);
+                added += 1;
+            }
+        }
+    }
+    assert!(
+        added > 0,
+        "nros-zpico-build: {} selected no sources — manifest or condition drift",
+        manifest_path.display()
+    );
+}
+
+/// Recursively collect all .c files from a directory and add them to a
+/// `cc::Build`; returns how many were added.
+///
+/// phase-420 W9 — reached only through [`add_zenoh_pico_core_sources`]'s `dir`
+/// records now. It expands a rule the manifest states; it does not decide one.
+pub fn add_c_sources_recursive(build: &mut cc::Build, dir: &Path) -> usize {
+    if !dir.exists() {
+        return 0;
+    }
+    let mut added = 0usize;
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .unwrap()
         .filter_map(Result::ok)
@@ -659,11 +841,13 @@ pub fn add_c_sources_recursive(build: &mut cc::Build, dir: &Path) {
     for entry in entries {
         let path = entry.path();
         if path.is_dir() {
-            add_c_sources_recursive(build, &path);
+            added += add_c_sources_recursive(build, &path);
         } else if path.extension().is_some_and(|ext| ext == "c") {
             build.file(&path);
+            added += 1;
         }
     }
+    added
 }
 
 /// RISC-V bare-metal GCC binary names tried, in preference order, wherever
@@ -1115,5 +1299,46 @@ int32_t zpico_init(void);\n";
         assert!(is_embedded_target("riscv32imc-unknown-none-elf"));
         assert!(is_embedded_target("armv7a-nuttx-eabihf"));
         assert!(!is_embedded_target("x86_64-unknown-linux-gnu"));
+    }
+
+    // phase-420 W9 — the shared `zenoh-sources.txt` grammar. Three
+    // implementations answer this text (here, `file(STRINGS)` in
+    // `zephyr/cmake/nros_rmw_zenoh.cmake`, and Python in
+    // `scripts/check-zenoh-source-manifest.py`), so it stays boringly simple
+    // and each one is tested where it lives.
+    #[test]
+    fn zenoh_source_manifest_grammar() {
+        let (groups, records) = parse_zenoh_sources(
+            "# comment\n\
+             group core    always\n\
+             group zeph    zephyr\n\
+             \n\
+             dir core zenoh_pico api\n\
+             src zeph zenoh_pico system/zephyr/network.c  # trailing\n",
+        )
+        .unwrap();
+        assert_eq!(groups["core"], "always");
+        assert_eq!(groups["zeph"], "zephyr");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].kind, ZenohSourceKind::Dir);
+        assert_eq!(records[0].path, "api");
+        assert_eq!(records[1].kind, ZenohSourceKind::File);
+        assert_eq!(records[1].path, "system/zephyr/network.c");
+    }
+
+    #[test]
+    fn zenoh_source_manifest_rejects_malformed_records() {
+        for broken in [
+            "group core\n",
+            "dir core zenoh_pico\n",
+            "glob core zenoh_pico api\n",
+            "banana\n",
+        ] {
+            assert!(
+                parse_zenoh_sources(broken).is_err(),
+                "parser accepted `{broken}`"
+            );
+        }
+        assert!(parse_zenoh_sources("group core always\ngroup core zephyr\n").is_err());
     }
 }

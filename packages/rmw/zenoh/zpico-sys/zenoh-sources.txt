@@ -1,0 +1,184 @@
+# The zenoh-pico backend's source list — the ONE list. phase-420 W9.
+#
+# One vendored tree, two compilers. `nros-zpico-build` compiles the vendored
+# zenoh-pico C for the cargo lane (six platforms, via `zpico-sys`'s build
+# script); `zephyr/cmake/nros_rmw_zenoh.cmake` compiles the same tree for the
+# west/cmake lane. Until this file existed each lane held its own copy of the
+# selection — nine directory globs, written out twice — and nothing checked
+# that they agreed. Same defect class issue 1068 fixed next door for
+# micro-XRCE (`packages/rmw/xrce/xrce-sources.txt`), and the same remedy:
+# derive it once instead of mirroring it.
+#
+# FORMAT
+#
+# Line-oriented, `#` comments, blank lines ignored, whitespace-separated
+# columns — the shape `xrce-sources.txt`, `config/rust-targets.txt` and
+# `packages/cli/cli-source-dirs.txt` already use, chosen because it is the only
+# shape both consumers can read: CMake has no TOML parser (`file(STRINGS)` is
+# what it has) and the Rust side must not gain a dependency (`cargo` is
+# `--locked`-shimmed here, and a build script must work from a bare clone).
+#
+# Three record types:
+#
+#   group <name> <condition>
+#       Declares a selectable group and the condition under which a lane
+#       compiles it. THE CONDITION IS PART OF THE FACT, not a consumer's
+#       business — a manifest that listed sources without saying which are
+#       conditional would just move the drift one conditional over. A lane
+#       supplies a boolean for each condition TOKEN and never decides which
+#       sources a token covers.
+#
+#   dir <group> <tree> <path>
+#       Every `.c` under <path>, RECURSIVELY. Both lanes already expanded
+#       these recursively; the manifest states the rule, they expand it.
+#
+#   src <group> <tree> <path>
+#       Exactly one `.c`. For the files a platform names individually because
+#       its siblings in the same directory must NOT be compiled.
+#
+#   <tree> is one of:
+#
+#       zenoh_pico   packages/rmw/zenoh/zpico-sys/zenoh-pico/src
+#
+#   <path> is relative to that root.
+#
+# WHY DIRECTORIES AND NOT A FILE LIST
+#
+# `xrce-sources.txt` names ~41 individual files, and that is right THERE: the
+# micro-XRCE-DDS-Client tree is much larger than the part we build, so its list
+# is a deliberate SUBSET and every line carries a decision ("this profile, not
+# that one").
+#
+# zenoh-pico is the opposite shape. The selection is "the whole core", stated
+# as nine subtrees, and the only per-file decisions live under
+# `src/system/<platform>/`, which is not core at all. Expanding the rule into
+# ~130 file paths would:
+#
+#   - restate a rule as data and lose the rule, so the next reader cannot tell
+#     an omission from an exclusion;
+#   - freeze upstream's directory layout into this repo in ~130 places, making
+#     an upstream rename a 130-line diff;
+#   - tax every submodule bump with a reconciliation whose only correct answer
+#     is "add them all". zenoh-pico here is a REBASED PATCH LINE
+#     (`jerry73204/zenoh-pico`, branch `nano-ros`) on a moving upstream — the
+#     tree moves, deliberately and regularly.
+#
+# The one thing a file list buys — a new upstream `.c` cannot land unnoticed —
+# is bought more precisely by the gate instead: `check-zenoh-source-manifest`
+# asserts that every `.c` under `zenoh-pico/src/` is either covered by a `dir`
+# or `src` record here, or sits under a `src/system/<platform>/` tree that some
+# platform selects for itself. So a new file in a LISTED directory is compiled
+# (which is always what was wanted) and a new DIRECTORY — the case that really
+# does need a human — fails the gate.
+#
+# CONDITION TOKENS
+#
+#   always        Compiled by every lane, every platform. The core.
+#   zephyr        The build targets Zephyr, whose vendored `system/zephyr/*`
+#                 TUs are compiled from the tree rather than being replaced by
+#                 the alias TU. See the group comment below — this is a real
+#                 per-platform divergence, not drift.
+#   zephyr_isotp  Zephyr **and** the ISO-TP link is wanted (RFC-0083).
+#
+# Tokens use `_` rather than `+` or `-` because CMake interpolates them into a
+# variable name (`_zenoh_cond_${cond}`).
+#
+# HOW EACH LANE ANSWERS THEM
+#
+#   nros-zpico-build   always       → true
+#                      zephyr       → `platform == "zephyr"`, which is FALSE by
+#                                     construction today: `nros-platform.toml`
+#                                     declares Zephyr `compiled_by =
+#                                     "platform"` and `build_zenoh_pico_unified`
+#                                     is not called for it (issue 0541 — when it
+#                                     briefly WAS, the cargo lane died on
+#                                     `version.h: No such file or directory`,
+#                                     a header only the Zephyr build generates).
+#                                     Written as the platform test rather than a
+#                                     literal `false` so it stays true of the
+#                                     code rather than of today's routing.
+#                      zephyr_isotp → the same, AND `link.isotp`.
+#
+#   nros_rmw_zenoh.cmake
+#                      always       → TRUE
+#                      zephyr       → TRUE. This lane IS the Zephyr lane; it is
+#                                     reached only from a west build.
+#                      zephyr_isotp → `CONFIG_NROS_ZENOH_LINK_ISOTP`.
+#
+# WHAT IS DELIBERATELY NOT HERE
+#
+#   `src/system/<platform>/` for platforms OTHER than Zephyr. Those are
+#   declared per platform in `packages/platform/nros-platform-*/
+#   nros-platform.toml` (`extra_sources`), which is a different axis — one
+#   declaration per platform, read by one lane, so there is no mirror to drift.
+#   Zephyr's two files are here because Zephyr has no such block: the cmake lane
+#   IS its `extra_sources`, and leaving them spelled there would be exactly the
+#   unexplained exception outside the manifest this file exists to remove.
+#
+#   `src/system/zephyr/system.c`. Compiled by NEITHER lane, on purpose — phase
+#   129 replaced it with the alias TU (`zpico-sys/c/zpico/platform_aliases.c`),
+#   which forwards each `_z_*` to the canonical `nros_platform_*` ABI. Recorded
+#   in the gate's NOT_COMPILED list so "nothing builds it" is a stated fact
+#   rather than a silence.
+#
+#   The in-repo TUs (`zpico-sys/c/zpico/zpico.c`, `zpico-zephyr/src/
+#   zpico_zephyr.c`, `size_probe.c`, `platform_aliases.c`). They are not part
+#   of the vendored tree; the cargo lane reaches `zpico.c` through each
+#   platform's `extra_sources`, the cmake lane names it directly. Folding those
+#   is a separate change to a file this one does not own.
+#
+# Gate: `just check zenoh-source-manifest`
+#       (scripts/check-zenoh-source-manifest.py) — fails if either lane names a
+#       path inside the vendored tree, if a `.c` in the tree is claimed by
+#       nobody, or if the two lanes do not answer the same set of condition
+#       tokens.
+
+# ---- groups ----------------------------------------------------------------
+
+group core           always
+group zephyr_system  zephyr
+group zephyr_isotp   zephyr_isotp
+
+# ---- the zenoh-pico core ---------------------------------------------------
+#
+# Everything under `src/` except `src/system/<platform>/`, which is the
+# per-platform axis. `system/common` is core: it is the platform-independent
+# half (`platform.c`, `serial.c`).
+
+dir core  zenoh_pico  api
+dir core  zenoh_pico  collections
+dir core  zenoh_pico  link
+dir core  zenoh_pico  net
+dir core  zenoh_pico  protocol
+dir core  zenoh_pico  session
+dir core  zenoh_pico  transport
+dir core  zenoh_pico  utils
+dir core  zenoh_pico  system/common
+
+# ---- Zephyr's vendored platform TUs ----------------------------------------
+#
+# Phase 160.C — network.c (TCP/UDP/multicast) MUST come from zenoh-pico's own
+# `src/system/zephyr/network.c`, NOT from the alias TU that provides the rest
+# of the `_z_*` surface on Zephyr. The alias TU's `_z_open_tcp` / `_z_send_tcp`
+# / … see a generic 32-byte `_z_sys_net_socket_t` opaque (from
+# `nros_zenoh_generic_platform.h`); the Zephyr-side `tx.c` / `link.c` — compiled
+# under `ZENOH_ZEPHYR` from the `core` groups above — see the 4-byte `{int _fd}`
+# socket from `system/platform/zephyr.h`. The endpoint layouts diverge too
+# (alias 16 B opaque vs `{struct addrinfo *}` 8 B). The mismatch propagates
+# through the by-value endpoint arg and the by-pointer socket arg, corrupting
+# the connect-time state → `Transport(ConnectionFailed)` on every Zephyr Rust
+# app at session open. Same family as Phase 159 NuttX (`_z_send_tcp` ABI gate).
+# The paired build.rs behaviour extends `NROS_ZENOH_PLATFORM_USES_UNIX` to
+# zephyr so the alias TU's network section is `#ifndef`-elided at cargo compile
+# time — without that, both providers land and the alias version wins under
+# `--allow-multiple-definition`.
+#
+# So this is a per-platform DECISION with a measured failure behind it, which
+# is why it is a named condition here rather than a line in one lane's file.
+src zephyr_system  zenoh_pico  system/zephyr/network.c
+
+# RFC-0083 — the ISO-TP platform binding. A separate TU from network.c, and
+# named individually for the same reason: the `dir` records above pick up the
+# link itself (`src/link/…`), but nothing under `src/system/zephyr/` is covered
+# by them.
+src zephyr_isotp   zenoh_pico  system/zephyr/isotp.c
