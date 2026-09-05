@@ -9,11 +9,26 @@ directly.
 
 ## Install
 
-The `nros` CLI ships from the in-tree sub-workspace at `packages/cli/`
-nano-ros is a **source distribution** — there is no
-prebuilt `nros` download. One front door — bootstrap
-(builds the CLI from source; installs rustup if needed), then activate
-the workspace to put it on PATH:
+Two front doors, and which one is right depends on who you are.
+
+**Using nano-ros** — install a release, with no checkout and no cargo:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+```
+
+It verifies the sha256, installs into `~/.nros/sdk/nros/<version>/` and points
+`~/.nros/bin/nros` at the newest installed version — one command, however many
+versions accumulate. (No release is cut yet; the installer says so and sends
+you to the source build.)
+
+**Working on nano-ros** — build the CLI from the checkout. That is not a
+fallback: in a checkout the tree's own build is the only binary this tree
+accepts, because a released `nros` emits its own generated code and this
+runtime is what compiles it (RFC-0090, phase-431 W1). `just doctor` fails when
+another `nros` shadows it. The CLI ships from the in-tree sub-workspace at
+`packages/cli/`; bootstrap builds it (installing rustup if needed), then
+activate the workspace to put it on PATH:
 
 ```sh
 ./scripts/bootstrap.sh
