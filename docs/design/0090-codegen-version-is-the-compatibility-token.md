@@ -312,10 +312,16 @@ serialization format.
 
 ## Open questions
 
-1. Does `MIN` start equal to `N` (no window) or one behind? A window costs
-   nothing until the first bump, and `generated/` is never committed, so
-   regeneration is always available — which argues for starting with no window
-   and adding one only when a real migration needs it.
+1. ~~Does `MIN` start equal to `N`?~~ **ANSWERED 2026-09-06 by phase-431's
+   release cadence.** `MIN` starts equal to `N`, and the rule for moving it
+   follows from the cadence rather than from taste: **bump `NROS_CODEGEN_VERSION`
+   freely, raise `NROS_CODEGEN_VERSION_MIN` only deliberately.** In-tree a bump
+   costs one regeneration, because `generated/` is never committed. Raising `MIN`
+   costs something different in kind — it strands every RELEASED binary emitting
+   below the new floor, and under a curated cadence (tag only when asked) those
+   are exactly the binaries users have. Raise it when you are willing to say
+   "that release can no longer build against this runtime", and say so in the
+   release notes.
 2. Where does the C/C++ anchor's `N` come from at *configure* time, for the four
    configure-time emitters phase-424 registered? The binary can be asked
    (`nros --codegen-version`), but that is a process launch per configure.
