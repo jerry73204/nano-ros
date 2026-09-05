@@ -800,7 +800,6 @@ rmw_ret_t service_create(const rmw_node_t* node, const rmw_service_type_support_
         return NROS_RMW_RET_ERROR;
     }
 
-
     out->backend_data = state;
     // Phase 177.36 — register both endpoints with the node graph (server:
     // request reader + reply writer; client: request writer + reply reader).
@@ -831,6 +830,30 @@ static int32_t service_take_request_len(const rmw_service_t* server, uint8_t* bu
     }
     auto* state = static_cast<ServerState*>(server->backend_data);
 
+    // issue 1088 — reserve the correlation slot BEFORE the destructive take.
+    //
+    // `take_typed_wire` is `dds_takecdr` + `ddsi_serdata_unref`: the sample is
+    // consumed and freed. This used to run first, and only then look for a
+    // free slot; with `kRequestSlots` requests outstanding the take succeeded,
+    // the slot search failed, and the caller was told `taken = false` — which
+    // upstream defines as "nothing was consumed" (`rmw.h:2348`). The request
+    // was gone. A busy server stopped answering and looked idle.
+    //
+    // The XRCE sibling already had this right: it returns WOULD_BLOCK without
+    // popping its ring (`xrce/src/service.c:293`). Same contract, two
+    // implementations, and this was the one that lost data.
+    std::size_t slot = kRequestSlots;
+    for (std::size_t i = 0; i < kRequestSlots; ++i) {
+        if (!state->slots[i].in_use) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == kRequestSlots) {
+        // Nothing consumed: the sample stays on the reader for the next take.
+        return wire_status(NROS_RMW_RET_WOULD_BLOCK);
+    }
+
     uint8_t wire[kWireScratch];
     int32_t wire_len = take_typed_wire(state->reader, wire, sizeof(wire));
     if (wire_is_status(wire_len) || wire_len == 0) return wire_len;
@@ -840,17 +863,13 @@ static int32_t service_take_request_len(const rmw_service_t* server, uint8_t* bu
         split_wire_header(wire, static_cast<size_t>(wire_len), state->req_desc, &id, buf, buf_len);
     if (wire_is_status(user_len)) return user_len;
 
-    // Allocate a slot to remember the (writer_guid, seq) pair so the
-    // matching `service_send_response` can echo it back.
-    for (std::size_t i = 0; i < kRequestSlots; ++i) {
-        if (!state->slots[i].in_use) {
-            state->slots[i].id = id;
-            state->slots[i].in_use = true;
-            if (seq_out != nullptr) *seq_out = static_cast<int64_t>(i);
-            return user_len;
-        }
-    }
-    return wire_status(NROS_RMW_RET_WOULD_BLOCK);
+    // Commit the slot reserved above with the (writer_guid, seq) pair so the
+    // matching `service_send_response` can echo it back. The search happened
+    // before the take, so this cannot fail.
+    state->slots[slot].id = id;
+    state->slots[slot].in_use = true;
+    if (seq_out != nullptr) *seq_out = static_cast<int64_t>(slot);
+    return user_len;
 }
 
 /* Phase 376 W3.b/W3.d step A — upstream's shape over the unchanged body above.
@@ -1071,7 +1090,6 @@ rmw_ret_t client_create(const rmw_node_t* node, const rmw_service_type_support_t
         delete state;
         return NROS_RMW_RET_ERROR;
     }
-
 
     // Use the lower 8 bytes of the writer's RTPS GUID as the client
     // identity. Falls back to a random 64-bit value if dds_get_guid

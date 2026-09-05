@@ -2795,10 +2795,9 @@ pub trait ClientTrait {
     /// the caller polls [`poll_server_discovery`](Self::poll_server_discovery)
     /// to collect the result.
     ///
-    /// Default impl: no-op success. Backends without a discovery channel
-    /// (or those that always assume the server is reachable) can leave
-    /// this default and have `poll_server_discovery` return
-    /// `Ok(Some(true))` immediately.
+    /// Default impl: no-op success. A backend without a discovery channel
+    /// leaves this default; `poll_server_discovery` then answers `Ok(None)`
+    /// ("cannot say"), and the caller waits rather than being told yes.
     fn start_server_discovery(&mut self, _timeout_ms: u32) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -2812,11 +2811,27 @@ pub trait ClientTrait {
     /// - `Ok(None)` — query still in flight.
     /// - `Err(_)` — transport-level failure unrelated to server presence.
     ///
-    /// Default impl: returns `Ok(Some(true))` (i.e., "server is always
-    /// assumed reachable"). The Zenoh backend overrides this with a
-    /// liveliness-token check.
+    /// Default impl: `Ok(None)` — **cannot say**, not "yes".
+    ///
+    /// issue 1087. This returned `Ok(Some(true))`, and six wait paths read
+    /// `Some(true) => return Ok(true)`, so `wait_for_service` returned
+    /// immediately on every backend that did not override it. The pair has NO
+    /// VTABLE SLOT (`grep -n discovery rmw_vtable.h` finds nothing), so
+    /// `CffiClient` inherits this default and a Rust backend loses its
+    /// override crossing the C ABI — cyclone, XRCE and uORB all answered "yes"
+    /// without asking anything.
+    ///
+    /// `None` is the honest answer for a backend with no discovery channel: it
+    /// means the query is unresolved, so the caller keeps waiting and reports
+    /// `false` at the deadline. That is the conservative direction — a caller
+    /// that waits unnecessarily loses time, a caller told `true` sends into
+    /// the void and times out on the REQUEST, 30 s later and somewhere else.
+    ///
+    /// This is issue 1008's defect in the pair one frame down; 1008 hardened
+    /// the method that HAS a slot, and the loop it now falls through to had the
+    /// identical optimism.
     fn poll_server_discovery(&mut self) -> Result<Option<bool>, Self::Error> {
-        Ok(Some(true))
+        Ok(None)
     }
 
     /// Whether a matching service server is currently discoverable.
