@@ -8,11 +8,11 @@ existing `rclcpp`, `rclc`, or `rclrs` node toward nano-ros.
 
 | You have (ROS 2) | You get (nano-ros) | Where |
 |---|---|---|
-| colcon workspace (`src/*`) | nano-ros workspace: Node pkgs + one declarative Bringup pkg + one Entry pkg per deploy target | [Project layout](../getting-started/workspace-from-app-node.md) |
+| colcon workspace (`src/*`) | nano-ros workspace: Node pkgs + one declarative Bringup pkg, whose `system.toml` carries one `[image.<id>]` row per deploy target. The binary is generated, not written | [Project layout](../getting-started/workspace-from-app-node.md) |
 | `package.xml` | kept, verbatim — plus a `<nano_ros deploy=…/>` export for embedded targets | [Anatomy](../getting-started/anatomy.md) |
-| `.launch.xml` / `.launch.py` | kept — `nros sync` resolves them (RFC-0060) into a SystemModel the Entry binary bakes in | [Bringup packages](../getting-started/workspace-bringup.md) |
-| `ros2 launch pkg file` | run the Entry binary (`cargo run -p <entry>` / `./build/src/<entry>/<entry>`) — the launch product is compiled in | [Entry packages](../getting-started/workspace-entry-pkg.md) |
-| `colcon build` | `cmake` / `cargo` per workspace root; `colcon build` still works for POSIX C++ workspaces | [C/C++ workspaces](../getting-started/workspace-cpp.md) |
+| `.launch.xml` / `.launch.py` | kept — `nros sync` resolves them (RFC-0060) into a SystemModel the image bakes in | [Bringup packages](../getting-started/workspace-bringup.md) |
+| `ros2 launch pkg file` | `nros build <image>`, then run its binary — the launch product is compiled in | [Images](../getting-started/workspace-entry-pkg.md) |
+| `colcon build` | `nros build <image>` — it generates the root and hands off to `cmake` / `cargo` / `west` / `idf.py`. Running those yourself still works, and so does `colcon build` for POSIX C++ workspaces | [C/C++ workspaces](../getting-started/workspace-cpp.md) |
 | `rosdep install` | `nros setup <board> --rmw <rmw>` | [Install](../getting-started/installation.md) |
 | `RMW_IMPLEMENTATION=…` at runtime | compile-time backend: `-DNROS_RMW=…` / cargo feature | [Switching RMW](../user-guide/rmw-switching.md) |
 | generated msg packages (ament index) | `nros sync` writes `generated/` crates + the cargo patch table | [Message Generation](../user-guide/message-generation.md) |

@@ -1,12 +1,13 @@
 # Bringup packages
 
 A **Bringup pkg** is the declarative glue that ties your Node packages together
-into a runnable topology. It owns the launch file, the wiring between nodes, and
-the per-target deploy config — all without any compiled code of its own.
+into runnable programs. It owns the launch file, the wiring between nodes, and
+the `[image.*]` table saying which programs get built out of them — all without
+any compiled code of its own.
 
 > **Pre-requisite:** You've scaffolded your Node packages following the
 > [Node packages](./workspace-node-pkgs.md) guide. This page adds the
-> `demo_bringup` layer between them and the Entry package that boots everything.
+> `demo_bringup` layer that turns them into something you can build and run.
 
 ---
 
@@ -50,9 +51,11 @@ no `src/`. Its job is to describe *which* nodes run, how they're wired, and
 where they deploy. Naming convention: `<system>_bringup` (aliased `<system>_launch`),
 matching nav2 / Autoware / turtlebot3.
 
-It is **optional**: required only when two or more Entry packages share one
-topology. A single-Entry workspace can fold `launch/` + `system.toml` directly
-into the Entry pkg.
+A multi-node workspace needs exactly one per logical system. It is where
+`[image.*]` lives, so it is the package a buildable workspace cannot do
+without — `nros build` reads that table to decide what programs exist. (The
+single-package copy-out shape under `examples/<platform>/<lang>/` has no
+bringup and no images; it boots itself with a bare `nros::main!()`.)
 
 ---
 
@@ -240,8 +243,8 @@ No `<build_depend>` entries — there is nothing to compile.
 
 ## Workflow: check → run
 
-Once your Bringup pkg is written, use `nros check` to validate and
-`cargo run` to execute the topology:
+Once your Bringup pkg is written, `nros check` validates it and `nros build`
+turns one of its images into a program:
 
 ```bash
 # 1. Lint the bringup pkg (pure-declarative check — no Cargo.toml, stray files, etc.)
@@ -250,10 +253,16 @@ nros check --bringup src/demo_bringup
 # 2. Lint the whole workspace (pkg/class rows, duplicate system.toml, etc.)
 nros check --workspace .
 
-# 3. Run the composed Entry binary (boots all nodes in a single process)
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &   # router — in another shell
-cargo run -p native_entry
+# 3. Build an image. With no name, `nros build` lists what this workspace declares.
+nros build native
+
+# 4. Run it. Zenoh needs a router first, in another shell:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &
 ```
+
+The binary boots every node the launch file names, composed into one process.
+It lands beside the build `nros build` drove — under `target/` on the cargo
+driver, `build/<coordinate>/cmake/` on the cmake one.
 
 Both `nros check` forms pass for the canonical template at
 `examples/workspaces/rust/`.
@@ -277,26 +286,34 @@ Both `nros check` forms pass for the canonical template at
 
 ## Runnable copy-out
 
-`examples/workspaces/rust/` is the canonical Rust 3-role workspace that pairs
-with this guide. Copy the whole directory out and rename the packages.
-`nros sync` materializes generated message crates, `nros codegen-system`
-bakes the Bringup package, and `cargo build -p native_entry` builds the Entry
-pkg.
+`examples/workspaces/rust/` is the canonical Rust workspace that pairs with
+this guide. Copy the whole directory out and rename the packages, then:
+
+```bash
+nros setup native
+nros build native
+```
+
+`nros build` walks the packages, resolves the image, checks the toolchain,
+generates the root manifest and the entry, and hands off to cargo. The older
+`nros sync` / `nros codegen-system` / `nros check` sequence still works; it is
+just no longer something you have to type.
 
 The workspace README at `examples/workspaces/rust/README.md`
 documents the exact CLI commands that are verified green today.
 
 ---
 
-## When you don't need a Bringup pkg
+## Naming a launch file from an entry
 
-If you have a single Entry pkg and don't plan to share the topology across
-multiple boards, fold `launch/` + `config/` directly into the Entry pkg.
 The `nros::main!` macro's `launch =` argument names the bringup package and,
-optionally, a launch file within it — the SAME inputs you author. The build
-resolves them to a SystemModel under `<workspace>/build/nros/models/` (run
-`nros sync`, or let the build system drive it); you never reference the
-model file, though you can inspect it there:
+optionally, a launch file within it — the SAME inputs you author, and the same
+pair an `[image.*]` row names. You will read this in a generated entry, and
+write it yourself only in a single-package project or a materialized one. The
+build resolves the pair to a SystemModel under
+`<workspace>/build/nros/models/` (run `nros sync`, or let the build system
+drive it); you never reference the model file, though you can inspect it
+there:
 
 ```rust
 // Multi-node: the bringup's default launch (system.launch.xml)
@@ -309,13 +326,13 @@ nros::main!(launch = "demo_bringup:sim.launch.xml");
 nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robot1")]);
 ```
 
-If the launch files live inside the Entry pkg itself, point at it by name. The
-Entry package page covers this in full.
+The [Images](./workspace-entry-pkg.md) page covers the macro forms and the
+generated entry in full.
 
 ---
 
 ## Where to go next
 
-- [Entry packages](./workspace-entry-pkg.md) — the `nros::main!` macro and `native_entry`
-- [Role reference](../user-guide/component-and-entry-pkg.md) — full reference for all three roles
+- [Images](./workspace-entry-pkg.md) — the `[image.*]` row that becomes a program
+- [Role reference](../user-guide/component-and-entry-pkg.md) — full reference for the package roles and the image table
 - [Project layout](./workspace-from-app-node.md) — start here if you haven't read it yet

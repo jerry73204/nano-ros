@@ -5,12 +5,12 @@ pure Rust packages.
 
 ```text
 rust/
-├── Cargo.toml
+├── .colcon_workspace     # the tracked marker that this dir IS a workspace root
 └── src/
-    ├── talker_pkg/      # Node pkg: publishes std_msgs/Int32 on /chatter
-    ├── listener_pkg/    # Node pkg: subscribes std_msgs/Int32 on /chatter
-    ├── demo_bringup/           # Bringup pkg: package.xml + system.toml + launch/
-    └── native_entry/           # Entry pkg: native main()
+    ├── talker_pkg/       # Node pkg: publishes std_msgs/Int32 on /chatter
+    ├── listener_pkg/     # Node pkg: subscribes std_msgs/Int32 on /chatter
+    ├── demo_bringup/     # Bringup pkg: package.xml + system.toml + launch/
+    └── zephyr_entry/     # the ONE entry pkg — west needs a real app dir
 ```
 
 The Node packages use generated `std_msgs::msg::Int32` directly.
@@ -35,5 +35,5 @@ Run the native entry with a Zenoh router available:
 
 ```bash
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd
-cargo run -p native_entry
+nros build native && nros run native
 ```
