@@ -50,6 +50,33 @@ And **nothing consumes the Rust one**: `nano_ros_entry` passes `--lang` as `c` o
 only; Rust entries reach the proc-macro through `rust_cargo_application()`. The only
 callers of `emit_rust::emit` are the CLI verb dispatch and a golden test.
 
+### The language vocabulary is fragmented — but NOT five copies of one enum
+
+A first reading of this counted "six language enums" and proposed collapsing
+them. Reading what each one MEANS says otherwise, and the difference decides
+the design:
+
+| Type | Variants | What it actually is |
+| --- | --- | --- |
+| `codegen/entry/mod.rs::Lang` | Rust, Cpp, C | the language enumeration |
+| `orchestration/source_metadata.rs::ComponentLanguage` | Rust, C, Cpp | the same set, but SERIALIZED (serde, snake_case) — a wire format |
+| `cmd/generate.rs::Lang` | Rust, C, Cpp, **All** | a clap argument; `All` is a CLI affordance, not a language |
+| `cmd/codegen_system.rs::ComponentLang` | Rust, **Other** | a binary predicate ("is this component Rust?") |
+| `rosidl-codegen::PayloadLang` | Rust, C | which of TWO emitters is asking, for a storage check |
+
+So there are **three concerns wearing one word**: the enumeration (twice), an
+argument type that adds a non-language variant, and two narrowings. Collapsing
+all five into one type would be wrong in three separate ways — it would force
+`All` into a language, make `Other` and `Cpp` coexist meaninglessly, and couple
+an on-disk wire format to internal enums.
+
+What IS a defect is that the enumeration is declared twice, and that the
+narrowings re-declare rather than derive. A language added to one is invisible
+to the others, and nothing says they are related. Issue **#1062** is that
+failure already shipped: "`nano_ros_add_node` has two language readers that
+disagree — cmake expands SOURCES, the scanner reads the raw text, and the loser
+is a silent `C`".
+
 ### Why the duplication exists (it is not sloppiness)
 
 The proc-macro deliberately does NOT depend on `nros-cli-core`. Issue **0083** /
@@ -86,6 +113,41 @@ they are simply implicit, and each renderer re-derives them.
    generated C++ / C / Rust / <new language>
 ```
 
+### Stage -1 — one `Language`, in a crate everyone can afford
+
+```
+                       nros-lang          (leaf: serde only)
+                          │
+        ┌─────────────────┼──────────────────┬────────────────────┐
+        ▼                 ▼                  ▼                    ▼
+  nros-cli-core     rosidl-codegen      nros-macros        nros-entry-lower
+  entry + system     message packs      the proc-macro      Stage 2 facts
+```
+
+`Language { Rust, C, Cpp }` — the enumeration, declared once, with the
+`serde(rename_all = "snake_case")` representation `ComponentLanguage` already
+writes, so the on-disk source metadata does not change. That repr is a
+compatibility surface and wants a gate, not just care.
+
+Placement is forced by the dependency budget, not by taste: `rosidl-codegen`
+does not depend on `nros-pkg-index`, and the proc-macro depends on neither
+`nros-orchestration-ir` nor `nros-cli-core` (issue 0083). The only home every
+consumer can afford is a new leaf whose dependency list is `serde` and nothing
+else.
+
+The other three types stay, and stop being independent:
+
+- `generate::Lang` becomes a clap argument over `Language` plus `All`, where
+  `All` EXPANDS to the set. It is a CLI affordance and should read as one.
+- `ComponentLang { Rust, Other }` becomes a question asked of `Language`, not a
+  second enum: the call sites want "is this Rust", which is a comparison.
+- `PayloadLang { Rust, C }` is a genuine NARROWING — only two emitters ask that
+  storage question, and `Cpp` is not a valid answer. It keeps its own type, and
+  documents that it is a subset rather than re-deriving the parent.
+
+The rule this encodes: **one enumeration, many narrowings, and a narrowing must
+be derived from the enumeration rather than re-spelled beside it.**
+
 ### Stage 2 — `nros-entry-lower` (new leaf crate)
 
 Everything that is *computation*: boot shape, board resolution, tier lowering, QoS
@@ -98,7 +160,12 @@ duplication returns.
 ### Stage 3 — language packs
 
 `packs/entry/<language>/` — templates over `LoweredEntry`, plus a manifest saying which
-template renders which output. **Per-language generators are expected and correct**; what
+template renders which output. This deliberately mirrors the MESSAGE side's layout
+(`rosidl-codegen/packs/<language>/*.jinja`, registered in a `PACKS` table of
+`include_str!` rows) rather than inventing a second convention; that file's own comment
+already states the goal — "Adding a language = adding rows here plus its `.jinja` files —
+no other Rust". The entry renderer landed with a `TEMPLATES` table under `templates/`,
+which should move to `packs/entry/<lang>/` so there is one convention, not two. **Per-language generators are expected and correct**; what
 must not be per-language is the pipeline that feeds them.
 
 Two of three renderers are already here: `templates/rust_entry.rs.jinja` and
@@ -160,11 +227,69 @@ never compute one.
   board path, tier rows or QoS codes.
 - A gate compares the two Rust renderings over a corpus of plans (the diff `emit_rust`
   promised).
-- Adding a language to entry codegen touches no Rust: a pack directory and a manifest
-  row.
+- Adding a language to entry codegen touches no Rust beyond ONE `Language`
+  variant: a pack directory, a manifest row, and that variant.
+- `Language` is declared once, in a leaf crate whose only dependency is
+  `serde`, and the `snake_case` wire representation of the metadata it replaces
+  is unchanged — gated, because it is an on-disk compatibility surface.
+- No type re-spells the enumeration. A narrowing (`PayloadLang`) derives from
+  it and says so.
 - The goldens (`testdata/entry/*.golden`) stay byte-stable across the whole migration —
   they are how each step is proven, and they already caught a rebase-introduced field
   change and three whitespace faults that review missed.
+
+## Adding a language — the whole procedure
+
+The measure of this design is what a new language costs. Zig, end to end:
+
+1. **`packs/entry/zig/entry.zig.jinja`** — the entry TU shape, over
+   `LoweredEntry`. Boot shape, board path, tier rows, QoS codes and escaped
+   literals arrive already computed; the pack places them.
+2. **One row** in the pack registry (`include_str!`), exactly as the C and Rust
+   packs are registered today.
+3. **One variant** on `Language` in `nros-lang`. Every consumer — the entry
+   pipeline, source metadata, the CLI argument, the proc-macro — sees it,
+   because there is one enumeration rather than five.
+4. **Goldens**: add the coordinate to the harness, run
+   `NROS_UPDATE_GOLDEN=1`, and READ the diff. That is the whole review: the
+   generated source is a file, not a claim.
+
+No lowering code, no emitter, no dispatch arms.
+
+**What this does NOT make cheap, stated plainly.** A language also needs a
+TOOLCHAIN story — how CMake compiles it, how it links against `libnros`, how
+its components declare themselves. That is real work and this design does not
+touch it. The claim here is narrow: the CODEGEN cost of a language becomes a
+pack. The build-integration cost does not.
+
+## Workflow, end to end
+
+```
+  launch.xml + system.toml + Cargo metadata
+        │
+        │  STAGE 0/1  RESOLVE        plan_from_model · nros-launch-parser
+        ▼
+     Plan                                              board-neutral · serde
+        │
+        │  STAGE 2  LOWER  ( ⊗ BoardProfile )          nros-entry-lower
+        │            boot shape · board path · tier rows · QoS codes
+        │            boot config · EVERY literal escaped
+        ▼
+     LoweredEntry                            language-neutral · board-specific
+        │
+        │  STAGE 3  RENDER  ( ⊗ Language )             packs/entry/<lang>/
+        │            templates place values; they compute none
+        ▼
+   generated C++ / C / Rust / <new language>
+        │
+        └── goldens (testdata/entry/*.golden) — byte-compared every run
+
+  Language (nros-lang) is read at Stage 3 to pick the pack, and by the CLI,
+  source metadata and the proc-macro. One enumeration; the narrowings derive.
+
+  The proc-macro enters at Stage 2, not Stage 0: it lowers with the same crate
+  and renders with `quote!`, and a gate compares its output against the pack's.
+```
 
 ## Non-goals
 
