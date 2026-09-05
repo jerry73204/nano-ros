@@ -91,7 +91,13 @@ TYPE_SYNONYMS = {
 # Longest first: `rclc_` must be stripped before `rcl_`, or every rclc symbol
 # normalises to a stray leading `c_`.
 LIB_PREFIXES = {
-    "c": (("nros_", "NROS_"), ("rclc_", "RCLC_", "rcl_", "RCL_")),
+    # phase-428 W2 — OUR side strips the rcl/rclc prefixes too, or an adopted
+    # name normalises to `rcl_node_fini` on our side and `node_fini` on
+    # theirs, which can never match. Longest-first so `rclc_` wins over `rcl_`.
+    "c": (
+        ("nros_", "NROS_", "rclc_", "RCLC_", "rcl_", "RCL_"),
+        ("rclc_", "RCLC_", "rcl_", "RCL_"),
+    ),
 }
 
 
