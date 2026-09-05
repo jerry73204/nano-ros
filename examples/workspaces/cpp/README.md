@@ -4,7 +4,7 @@ This workspace demonstrates C++ Node packages with a C++ native Entry package.
 
 ```text
 cpp/
-├── CMakeLists.txt
+├── .colcon_workspace
 └── src/
     ├── talker_pkg/      # Node pkg: publishes std_msgs/Int32 on /chatter
     ├── listener_pkg/    # Node pkg: subscribes std_msgs/Int32 on /chatter

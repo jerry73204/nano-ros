@@ -28,7 +28,7 @@
 - [Project layout](./getting-started/workspace-from-app-node.md)
 - [Node packages](./getting-started/workspace-node-pkgs.md)
 - [Bringup packages](./getting-started/workspace-bringup.md)
-- [Entry packages](./getting-started/workspace-entry-pkg.md)
+- [Images](./getting-started/workspace-entry-pkg.md)
 - [C / C++ multi-node workspaces](./getting-started/workspace-cpp.md)
 - [Mixed-language workspaces](./getting-started/workspace-mixed-language.md)
 - [Rust, C, and Mixed — per-language notes](./getting-started/workspace-languages.md)
