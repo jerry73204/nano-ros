@@ -320,6 +320,22 @@ def arity_set(item):
     return out or {0}
 
 
+def _ret_of(recs):
+    """The single return type of a record set, or None when it is not one.
+
+    Overloads that disagree with each other are not a divergence FROM UPSTREAM
+    and must not be reported as one, so a set with more than one distinct
+    return type answers None rather than picking a representative.
+    """
+    seen = set()
+    for r in recs if isinstance(recs, (list, tuple)) else [recs]:
+        if isinstance(r, dict):
+            v = r.get("ret")
+            if v:
+                seen.add(str(v).strip())
+    return next(iter(seen)) if len(seen) == 1 else None
+
+
 def compare(ours, theirs, lang):
     """Bucket every key present on either side.
 
@@ -352,7 +368,31 @@ def compare(ours, theirs, lang):
                             "rules": subs,
                         }
                     else:
-                        bucket, detail = "same", None
+                        # phase-428 W6 — `same` used to be assigned here
+                        # unconditionally, WITHOUT comparing return types. That
+                        # is how `Publisher::publish` (void -> Result),
+                        # `Client::service_is_ready` (bool -> Expected<bool>)
+                        # and `Executor::spin_once` all correlated `same`: the
+                        # names match, the arities intersect, and nothing
+                        # looked further. Both classes RFC-0089 was written
+                        # about were outside the gate by construction.
+                        #
+                        # Reported as a NOTE, not yet a verdict. The tree has
+                        # 135 cpp rows in this bucket and none of them carries
+                        # a ledger row, because the ledger's contract is one
+                        # row per NON-correspondence -- so failing here today
+                        # would fail on all of them at once, which this file's
+                        # own neighbour calls "how a gate gets switched off".
+                        # Sizing it first is the point.
+                        ret_o, ret_t = _ret_of(o), _ret_of(t)
+                        if ret_o is not None and ret_t is not None and ret_o != ret_t:
+                            bucket, detail = "same", {
+                                "ret_differs": True,
+                                "ours_ret": ret_o,
+                                "theirs_ret": ret_t,
+                            }
+                        else:
+                            bucket, detail = "same", None
                 else:
                     rules = signature_rules.explain(key, o, t)
                     bucket = "systematic" if rules else "differs"
