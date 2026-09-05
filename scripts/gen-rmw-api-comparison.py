@@ -84,6 +84,61 @@ def _split_params(raw):
     return out
 
 
+def visitor_payloads():
+    """`{visitor struct: "visit(ctx, a, b, c)"}` from the `*_visit_fn` typedefs.
+
+    A slot that takes `rmw_node_visitor_t` prints two parameters where upstream
+    prints four, and a reader comparing the columns concludes we dropped two
+    fields. We did not — they moved INTO the callback, which the slot signature
+    cannot show because the payload lives behind the typedef.
+
+    Reported from the header, not restated here: the visitor argument list is
+    the thing most likely to gain a field (issue 0785 added `enclave` to exactly
+    this one), and a hand-copied list would be wrong the first time that
+    happened.
+    """
+    src = open(os.path.join(ABI_DIR, "rmw_vtable.h"), encoding="utf-8").read()
+    body = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    body = re.sub(r"(?m)//.*$", " ", body)
+    fns = {}
+    for m in re.finditer(
+        r"typedef\s+bool\s*\(\s*\*\s*(rmw_\w+_visit_fn)\s*\)\s*\(([^;]*?)\)\s*;", body
+    ):
+        names = []
+        for p in _split_params(m.group(2)):
+            # The NAME is what a reader needs; the types are on the typedef.
+            tok = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p)
+            names.append(tok[-1] if tok else p)
+        fns[m.group(1)] = names
+    out = {}
+    for m in re.finditer(
+        r"typedef\s+struct\s+(rmw_\w+_visitor_t)\s*\{(.*?)\}\s*\1\s*;", body, flags=re.S
+    ):
+        fm = re.search(r"(rmw_\w+_visit_fn)\s+visit\s*;", m.group(2))
+        if fm and fm.group(1) in fns:
+            out[m.group(1)] = "visit(" + ", ".join(fns[fm.group(1)]) + ")"
+    return out
+
+
+def annotate_visitors(params, visitors):
+    """Say what a visitor parameter yields, beside the parameter.
+
+    `rmw_node_visitor_t visitor` is two words where upstream's column shows
+    `node_names` and `node_namespaces` as separate out-parameters, so the row
+    reads as though we dropped them. They are the callback's arguments. Naming
+    them here is the smallest place to put that: in the cell where the reader
+    is already comparing.
+    """
+    out = []
+    for p in params:
+        for struct, payload in visitors.items():
+            if struct in p:
+                p = f"{p}  /* {payload} */"
+                break
+        out.append(p)
+    return out
+
+
 def vtable_slots_named():
     """{slot: [param text with names]} straight from the vtable header."""
     src = open(os.path.join(ABI_DIR, "rmw_vtable.h"), encoding="utf-8").read()
@@ -343,6 +398,7 @@ def build():
     slots, rets = shape.vtable_slots()
     globs = global_signatures()
     slots_named = vtable_slots_named()
+    visitors = visitor_payloads()
     kinds = parity._slot_kinds()
     rules = arg_rules()
 
@@ -370,7 +426,9 @@ def build():
                 name = re.split(r"[ ,(]", detail.strip())[0]
                 inert = kinds.get(name) == "inert"
                 our_ret, our_params = rets.get(name, "?"), slots.get(name, [])
-                our_display = slots_named.get(name, our_params)
+                our_display = annotate_visitors(
+                    slots_named.get(name, our_params), visitors
+                )
                 is_slot = True
             else:
                 name = sym
