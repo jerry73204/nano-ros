@@ -59,6 +59,14 @@ source ./activate.sh          # or: direnv allow / source ./activate.fish
 just doctor
 ```
 
+**Build the CLI here, do not install a release.** `scripts/install.sh` exists
+for users and puts a released `nros` in `~/.nros/bin`; in a checkout that binary
+is refused. It emits *its own* generated code, and this tree's runtime is what
+has to compile it — a release at the same codegen version is different, not
+compatible (RFC-0090, phase-431 W1). `just doctor` FAILS when a `nros` on PATH
+is not this checkout's, because `nros_cli_bin` resolves PATH first, so a shadow
+is the binary every recipe here would run.
+
 **`source ./activate.sh` is not optional, and skipping it fails in a confusing
 place.** It puts the per-checkout `nros` binary on PATH and exports the SDK
 environment the build scripts read; without it `zpico-sys/build.rs` panics with
