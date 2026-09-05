@@ -100,6 +100,44 @@ fn typed_node(pkg: &str, exec: &str) -> PlanNode {
     node(pkg, exec, Some((&class, &header)))
 }
 
+/// A two-tier C plan — the `run_tiers` path, which no other row reaches.
+///
+/// A tier's members are `(node_name, callback_group)`, and `emit_c` filters
+/// nodes into tiers BY NODE NAME, so the names here must match the execs.
+fn c_tiered_plan(board: &str) -> Plan {
+    use nros_orchestration_ir::{ResolvedTier, ResolvedTierTable};
+    let tier = |name: &str, priority: i64, period: u64, member: &str, grp: &str| ResolvedTier {
+        name: name.into(),
+        priority,
+        stack_bytes: None,
+        spin_period_us: Some(period),
+        preempt_threshold: None,
+        time_slice_us: None,
+        sched_class: None,
+        class: None,
+        period_us: None,
+        budget_us: None,
+        deadline_us: None,
+        deadline_policy: None,
+        core: None,
+        members: vec![(member.into(), grp.into())],
+    };
+    let mut ctrl = c_node("ctrl_pkg", "ctrl");
+    ctrl.callback_groups = vec!["ctrl_grp".into()];
+    ctrl.sched_context = Some(0);
+    let mut telem = c_node("telem_pkg", "telem");
+    telem.callback_groups = vec!["telem_grp".into()];
+    telem.sched_context = Some(1);
+    let mut p = plan(board, vec![ctrl, telem]);
+    p.resolved_tiers = Some(ResolvedTierTable {
+        tiers: vec![
+            tier("high", 80, 10_000, "ctrl", "ctrl_grp"),
+            tier("low", 10, 100_000, "telem", "telem_grp"),
+        ],
+    });
+    p
+}
+
 /// The matrix. One row per (board family x entry shape) that reaches a
 /// compiler, because the emitter is what every C/C++ image boots through.
 fn cases() -> Vec<(&'static str, Plan, Lang)> {
@@ -131,6 +169,33 @@ fn cases() -> Vec<(&'static str, Plan, Lang)> {
             Lang::C,
         ));
     }
+
+    // The C rows above are one node with nothing set, which reaches neither
+    // the per-package dedup, the multi-node storage, nor the `run_tiers` path
+    // — most of `emit_c`. These three do.
+    let mut c_rich = c_node("c_talker_pkg", "talker");
+    c_rich.name = Some("renamed_talker".into());
+    c_rich.namespace = Some("/demo".into());
+    c_rich.params = vec![("rate_hz".into(), "10".into())];
+    c_rich.remaps = vec![("chatter".into(), "/demo/chatter".into())];
+    out.push((
+        "c_native_rich",
+        plan(
+            "native",
+            // The same package TWICE plus a second one: the forward-declaration
+            // loop dedups by package, so a repeat must not emit a second
+            // `extern` while it still gets its own node storage.
+            vec![
+                c_rich,
+                c_node("c_talker_pkg", "talker2"),
+                c_node("c_listener_pkg", "listener"),
+            ],
+        ),
+        Lang::C,
+    ));
+
+    out.push(("c_native_tiers", c_tiered_plan("native"), Lang::C));
+    out.push(("c_nuttx_tiers", c_tiered_plan("nuttx"), Lang::C));
 
     out.push((
         "rust_native_one",
