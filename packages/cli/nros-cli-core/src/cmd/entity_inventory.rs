@@ -210,12 +210,13 @@ pub fn run(args: EntityInventoryArgs) -> Result<()> {
             .wrap_err_with(|| format!("read model `{}`", model_path.display()))?;
         let model: ros_launch_manifest_model::SystemModel = serde_yaml_ng::from_str(&raw)
             .wrap_err_with(|| format!("parse model `{}`", model_path.display()))?;
-        match EntityInventory::from_model(model_path.display().to_string(), &model) {
-            Some(model_inv) => inv = inv.merged_per_kind_max(&model_inv),
-            // No wiring described. Not an error and not a zero: nobody authored
-            // a contract for this image, and the declaration is the only source
-            // there is.
-            None => {}
+        // `from_model` returning None means NO WIRING DESCRIBED. Not an error
+        // and not a zero: nobody authored a contract for this image, so the
+        // declaration is the only source there is and it stands alone.
+        if let Some(model_inv) =
+            EntityInventory::from_model(model_path.display().to_string(), &model)
+        {
+            inv = inv.merged_per_kind_max(&model_inv);
         }
     }
 

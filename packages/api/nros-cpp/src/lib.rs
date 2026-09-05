@@ -1042,6 +1042,12 @@ fn record_node_error(err: &nros_node::NodeError) {
     nros_node::boot_report::note_error(node_error_class(err), transport, ptr, len);
 }
 
+/// Phase 155.C -- map `NodeError` to the closest `NROS_CPP_RET_*` code, and
+/// record it in the boot self-report on the way past.
+///
+/// Gated with its two callees: without `rmw-cffi` there is no
+/// `nros_rmw::TransportError` to map, and nothing in this crate calls it.
+#[cfg(feature = "rmw-cffi")]
 pub(crate) fn node_error_to_cpp_ret(err: nros_node::NodeError) -> nros_cpp_ret_t {
     use nros_node::NodeError as E;
     record_node_error(&err);
