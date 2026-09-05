@@ -1,6 +1,7 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** **W1, W2 and W3 landed.** W4–W6 open — the distribution
+**Status (2026-09-06).** **W1–W4 landed.** W5 (the release workflow) and W6
+(docs) open — the distribution
 mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
@@ -241,12 +242,80 @@ install an OLDER one, front -> unchanged                 (no silent downgrade)
 $NROS_HOME/bin/nros --codegen-version -> 1
 ```
 
-### W4 — `bootstrap.sh` downloads, and still builds from source
+### W4 — the download front door, and it is NOT `bootstrap.sh`
 
 The paradox-breaker. Fetch `nros-<host>.tar.zst` + verify sha256, install through
-W3, and keep the source build as the fallback for an unsupported host and as the
-contributor path (`--from-source`). The book's step 2 stops being "build the CLI"
-for a user and stays exactly that for a contributor.
+W3, and keep the source build for an unsupported host and for contributors. The
+book's step 2 stops being "build the CLI" for a user and stays exactly that for a
+contributor.
+
+**Landed 2026-09-06, with the shape changed.** This item was written as
+"`bootstrap.sh` downloads by default, `--from-source` opts out". That is not
+implementable, and the reason is structural rather than a preference:
+
+* `bootstrap.sh` lives IN a checkout, so its download would put a released
+  binary on a contributor's PATH beside that checkout's sources;
+* a released binary run against a nano-ros checkout is refused by W1 and
+  reported as a `[FAIL]` by W2 — both deliberately;
+* and it cannot BE the checkout's binary either: `nros source-stamp` compares
+  against the sources it was built from, so a release from another commit reads
+  stale the moment it is copied into `packages/cli/target/`.
+
+That is RFC-0090's thesis, not an inconvenience: the release is for people
+building THEIR workspace, and inside nano-ros the tree's own build is the only
+correct binary. It also matches the standing constraint that the checkout must
+win locally. So the two front doors **split by audience**:
+
+| | who | what |
+| --- | --- | --- |
+| `scripts/bootstrap.sh` | contributors, in a checkout | builds from source (unchanged) |
+| `scripts/install.sh` | users, anywhere | downloads a release into the store |
+
+```
+curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+```
+
+POSIX `sh`, because it runs from a curl pipe on a machine with nothing
+provisioned — and with no `nros`, which is the bootstrap paradox it exists to
+break. It never touches a checkout: it installs into `<store>/nros/<version>/`
+and calls the binary it just placed with
+`nros sdk-front nros --front bin/nros`, so "which version does `nros` mean" has
+exactly one implementation (W3's `front_newest`) and the shell does not get a
+second opinion. `--front` exists for precisely this caller: a user outside a
+checkout has no `nros-sdk-index.toml` until the install finishes.
+
+**The checksum is mandatory, not best-effort.** An asset served over a hijacked
+CDN and an asset that arrived intact look identical to `tar`, and the person
+running this cannot inspect what was fetched. A missing `.sha256` is a refusal,
+not a fallback. `zstd`'s absence is probed BEFORE the download, the same rule
+`sdk_store::execute` follows (issue 0385): otherwise it fails deep inside `tar`
+with `zstd: Cannot exec`, after the bytes are already down.
+
+**The store version comes from the asset**, at `share/nros/VERSION`, not from
+`nros --version`: those differ by the `-nrosN` repackaging counter
+(`0.5.0` vs `0.5.0-nros1`), and the wrong one means a later
+`nros setup --tool nros` installs a SECOND copy of the same binary under the
+other name. W5's release job writes that file from the index. A pre-W5 asset
+falls back to `--version` and says so.
+
+`tests/nros-installer-tests.sh` (`just check nros-installer`, on the fast lane)
+serves a tarball built from the checkout's own `nros` over loopback, so it needs
+no release to exist and reaches no network. Five arms, and the refusals are the
+interesting half — an asset that installs anyway leaves a binary emitting code
+into someone's workspace:
+
+```
+happy path        -> installed at <store>/nros/9.9.9-nros7, fronted, runs
+version pinning   -> the prefix is the ASSET's version, and the only one
+bad checksum      -> refuses, and installs NOTHING
+absent .sha256    -> refuses (unverified is not a fallback)
+no asset at all   -> refuses, naming the source build as the way forward
+```
+
+W2's gate moved with the decision: it flagged `bootstrap.sh` without
+`--from-source` as the release path, which is now false. It flags
+`scripts/install.sh` instead — bootstrap building from source is exactly what
+the gate wants.
 
 ### W5 — the release workflow
 
@@ -257,6 +326,17 @@ convention, and the reason is reproducibility rather than convenience.
 **The release must assert what it ships**: the built binary's
 `--codegen-version` against the tree it was built from, so a release cannot go
 out claiming a compatibility it does not have.
+
+Two more requirements, discovered by W4 and recorded here rather than left to be
+rediscovered:
+
+* **the asset carries `share/nros/VERSION`**, written from `[tool.nros].version`
+  in the index, because the store prefix must be the version the index pins and
+  `nros --version` prints a different string;
+* **the asset ships a `.sha256` beside it**, because `install.sh` refuses an
+  asset it cannot verify — a release without one is un-installable, by design;
+* and the asset must be **prefix-rooted** (`bin/nros`, `share/…`), the mirror
+  shape every other dist in the index uses, so it lands in the store unchanged.
 
 ### W6 — the docs stop describing a source-only distribution
 

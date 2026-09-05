@@ -149,6 +149,7 @@ fast-serial: \
     cbindgen-pin \
     cc-build-policy \
     ci-cli-from-source \
+    nros-installer \
     ci-doc-workflow-refs \
     ci-image-python-deps \
     ci-no-fixture-tolerance \
@@ -1169,6 +1170,15 @@ config-knob-census:
 [group("checks")]
 ci-cli-from-source:
     @python3 scripts/check-ci-cli-from-source.py
+
+# phase-431 W4 — the user installer installs, and REFUSES. A corrupted or
+# unsigned asset that installs anyway is worse than one that fails: the binary
+# it leaves behind emits code into someone's workspace. Serves a tarball built
+# from the checkout's own `nros` over loopback, so it needs no release to exist
+# and reaches no network.
+[group("checks")]
+nros-installer:
+    @bash tests/nros-installer-tests.sh
 
 [group("checks")]
 workflow-setup-spelling:
