@@ -1345,6 +1345,19 @@ pub struct Executor<'s> {
     /// `reconcile_ros_time_source` closes the gap on each spin.
     #[cfg(all(feature = "sim-time", any(has_rmw, test)))]
     pub(crate) sim_time_requested: bool,
+    /// Whether `use_sim_time` was ever stated to THIS executor.
+    ///
+    /// `sim_time_requested` alone cannot answer it: `false` is both "told to
+    /// turn it off" and "never told anything", and the two license opposite
+    /// actions on a PROCESS-GLOBAL gate. Without this, every executor that
+    /// never heard of the parameter wrote `set_active(false)` on its first
+    /// spin -- because the gate defaults to TRUE, so `false != is_active()`
+    /// held -- and switched off a simulated clock somebody else installed.
+    /// One `cargo test` process is exactly that situation: 344 sibling tests
+    /// spin an executor each, and the sim-time test failed 3 runs of 3 while
+    /// passing alone.
+    #[cfg(all(feature = "sim-time", any(has_rmw, test)))]
+    pub(crate) sim_time_stated: bool,
     #[cfg(feature = "lifecycle-services")]
     pub(crate) lifecycle:
         Option<alloc::boxed::Box<crate::lifecycle_services::LifecycleRuntimeState>>,
@@ -1592,6 +1605,8 @@ impl<'s> Executor<'s> {
             sim_time_source: None,
             #[cfg(all(feature = "sim-time", any(has_rmw, test)))]
             sim_time_requested: false,
+            #[cfg(all(feature = "sim-time", any(has_rmw, test)))]
+            sim_time_stated: false,
             #[cfg(feature = "lifecycle-services")]
             lifecycle: None,
             // Initialise the spin endpoint to construction time so the
@@ -7689,6 +7704,7 @@ impl<'s> Executor<'s> {
             && let nros_params::ParameterValue::Bool(enable) = value
         {
             self.sim_time_requested = *enable;
+            self.sim_time_stated = true;
         }
     }
 
@@ -8791,6 +8807,12 @@ impl<'s> Executor<'s> {
     /// backwards jump.
     #[cfg(all(feature = "sim-time", any(has_rmw, test)))]
     pub(crate) fn reconcile_ros_time_source(&mut self) {
+        // An executor nobody told about `use_sim_time` has NO opinion, and the
+        // gate is process-global, so writing its default here is not a no-op --
+        // it is one executor overruling another. Say nothing until asked.
+        if !self.sim_time_stated {
+            return;
+        }
         if self.sim_time_requested == crate::time_source::is_active()
             && (!self.sim_time_requested || self.sim_time_source.is_some())
         {
@@ -8827,6 +8849,7 @@ impl<'s> Executor<'s> {
                 .get_bool(crate::time_source::USE_SIM_TIME_PARAM)
         {
             self.sim_time_requested = enable;
+            self.sim_time_stated = true;
         }
     }
 
