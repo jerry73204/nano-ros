@@ -220,6 +220,18 @@ packages/core/*/include/nros/.*.tmp.*
 # behind, in a directory where SOURCE `.cargo/config.toml` files also live.
 .*.nros-sync-tmp.[0-9]*
 
+# THIRD writer, same class, and this one had four files ON MAIN since phase-402.
+# `cargo-nano-ros`'s `atomic_file.rs` stages `.<name>.nros-tmp.<pid>` beside the
+# destination and renames it into place; a build killed in between leaves it.
+# The rules above did not catch these because the temps sit in `metadata/` and
+# end in `.nros-tmp.<pid>` AFTER the `.unprobeable` suffix — so `*.unprobeable`
+# missed them exactly the way `*.json` had missed `.json.unprobeable` one rule
+# up. That is the same escape twice, on the same path, so this rule is written
+# for the WRITER rather than for the directory: `atomic_file.rs` always uses the
+# `.nros-tmp.` infix, so matching it anywhere closes the class instead of
+# waiting for a fourth suffix to slip past a fourth pattern.
+**/*.nros-tmp.[0-9]*
+
 # RFC-0061 / phase-318 W1 — per-binary codegen-fingerprint cache.
 .nros-cache/
 
