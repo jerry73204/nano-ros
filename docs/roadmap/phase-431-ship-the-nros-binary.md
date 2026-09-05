@@ -1,7 +1,7 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** **W1–W5 landed.** W6 (docs) open. No release has been
-cut: W5 is manual dispatch, and cutting one is a decision, not a consequence — the distribution
+**Status (2026-09-06). Every work item is landed.** No release has been cut:
+W5 is manual dispatch, and cutting one is a decision, not a consequence — the distribution
 mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
@@ -400,6 +400,35 @@ wrong on the first release and should be replaced, not deleted — the reason
 prebuilt binaries were withdrawn is worth keeping, with the answer now attached.
 `AGENTS.md` and `scripts/bootstrap.sh`'s header (*"there is no prebuilt `nros`
 download"*) likewise.
+
+**Landed 2026-09-06.**
+
+The claim that needed replacing was **"there is no prebuilt `nros`"**, in 12
+places across 11 files. That sentence is a fact with an expiry date, and the
+replacement deliberately is not: the durable statement is about **audience**, not
+existence — a checkout builds its own binary because that is the only one it
+accepts, and a user installs a release because they have no checkout. That reads
+correctly before the first release and after it.
+
+The four-step quick start stays a *contributor* flow (it opens with `git clone`),
+with the user path stated above it as a table. `installation.md` and
+`reference/cli.md` lead with `install.sh`; the seven getting-started pages carried
+the same parenthetical and were rewritten together rather than one at a time.
+`CONTRIBUTING.md` gains the sentence a contributor actually needs — *do not
+install a release here, `just doctor` fails on it, and here is why* — since a
+contributor who has both is the person this phase's hazard is aimed at.
+
+One thing is said once and not eleven times: **no release is cut yet.** It sits
+in `installation.md`, and `install.sh` says the same thing itself when run early,
+so a user who skips the book still lands somewhere useful.
+
+**Filed while verifying:** [#1110](../issues/1110-rustdoc-broken-intra-doc-link-in-clienttrait.md)
+— `just book` and the docs deploy have been red since 2026-09-03. `3941b569a`
+deleted `ClientTrait::is_server_ready`; the paragraph beside it still links to it,
+rustdoc's broken-link lint is deny-level, and nothing on a merge-gating lane runs
+rustdoc. Not this phase's change (`mdbook build` alone is green, and `just book`
+was red before the edit and after it), and the class is 0319/0896 again: a correct
+check on a path nothing traverses.
 
 ## What this phase must not do
 

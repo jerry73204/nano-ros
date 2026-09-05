@@ -18,7 +18,8 @@ Pick one path from a fresh checkout — `just` is NOT a prereq.
 ```
 Installs rustup if needed and builds the in-tree `nros` CLI from
 source at `packages/cli/target/release/nros`, leaving it on PATH for
-this shell (nano-ros is a source distribution — no prebuilt `nros`).
+this shell (in a checkout, the tree's own build is the binary this tree
+accepts — RFC-0090 / phase-431).
 
 **B. Already have cargo** (equivalent — same build, same binary):
 ```sh

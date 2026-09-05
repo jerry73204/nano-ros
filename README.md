@@ -66,8 +66,12 @@ cd nano-ros
 ./scripts/bootstrap.sh
 ```
 
-The script installs rustup if needed and builds the CLI from source —
-nano-ros is a source distribution (there is no prebuilt `nros`).
+The script installs rustup if needed and builds the CLI from source. In a
+checkout that is the point: the tree's own build is the binary this tree
+accepts, because a released `nros` emits its own generated code and this
+runtime is what has to compile it (RFC-0090). To just *use* nano-ros, install
+a release instead — `curl -fsSL
+https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh`.
 Equivalent, if you already have cargo:
 `git submodule update --init packages/cli/third-party/play_launch &&
 cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros`.

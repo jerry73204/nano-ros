@@ -17,9 +17,16 @@ nano-ros itself lives at [NEWSLabNTU/nano-ros](https://github.com/NEWSLabNTU/nan
 
 ## Install
 
-nano-ros is a **source distribution** (phase-288 D1/D2): there is no
-prebuilt `nros`. From a nano-ros checkout, the front door builds it —
-installing rustup if needed:
+Users install a release and need no checkout:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+```
+
+From a nano-ros checkout, the front door builds it instead — installing rustup
+if needed. That is the correct binary here and a released one is not: it emits
+its own generated code, and this tree's runtime is what has to compile it
+(RFC-0090, phase-431 W1/W2).
 
 ```bash
 ./scripts/bootstrap.sh
