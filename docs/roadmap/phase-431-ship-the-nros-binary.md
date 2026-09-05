@@ -1,7 +1,7 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** **W1–W4 landed.** W5 (the release workflow) and W6
-(docs) open — the distribution
+**Status (2026-09-06).** **W1–W5 landed.** W6 (docs) open. No release has been
+cut: W5 is manual dispatch, and cutting one is a decision, not a consequence — the distribution
 mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
@@ -337,6 +337,60 @@ rediscovered:
   asset it cannot verify — a release without one is un-installable, by design;
 * and the asset must be **prefix-rooted** (`bin/nros`, `share/…`), the mirror
   shape every other dist in the index uses, so it lands in the store unchanged.
+
+**Landed 2026-09-06** as `.github/workflows/release-nros.yml`. Nothing is
+scheduled and nothing triggers on a tag: the tag is created BY the workflow,
+from the version you type, and `publish` defaults to **false** so a dispatch
+builds and verifies without releasing anything.
+
+*What it asserts*, each because it is a property a user cannot check for
+themselves:
+
+| check | what it catches |
+| --- | --- |
+| `nros source-stamp` | the binary does not match the checkout it was built from |
+| `--codegen-version` vs `NROS_CODEGEN_VERSION` in the same tree | a release claiming a compatibility it does not have — the failure that withdrew the last one |
+| `[tool.nros].version` == the dispatched version | an asset whose store prefix is not the one the index pins |
+| the version is `<crate>-nrosN` | releasing `0.6.0-nros1` off a 0.5.0 tree |
+
+*And it installs its own asset before publishing it.* The installer's refusals
+are gated against a synthetic tarball (W4); only this catches an asset that is
+well-formed and **wrong** — a missing `VERSION`, a prefix rooted one directory
+too deep, a binary that does not run on a clean runner. It serves the tarball
+over loopback and asserts the fronted binary runs `--codegen-version` and
+`setup --list` **from a directory that is not a checkout**.
+
+That last assertion found a real gap. **A released `nros` could not run
+`nros setup <board>` at all**: `locate_index` looked in the cwd and in a
+workspace, both of which assume a checkout, and the whole point of shipping a
+binary is that there is no checkout. So the asset carries
+`share/nros/nros-sdk-index.toml` and `setup::shipped_index` resolves it from the
+running executable — from the executable rather than `$NROS_HOME`, so two
+versions in the store each answer with their own and stay independently
+installable. `resolve_index` falls back only for the DEFAULT: a `--index` the
+user typed names a file they chose, and silently reading another one is how a
+build gets provisioned from a table nobody looked at.
+
+*Runner and reach.* `ubuntu-22.04`, pinned rather than `latest`: the binary
+links the runner's glibc, and a newer one will not run on the LTS the book's
+install instructions target — the floor is a property of the release. Linux
+x86_64 only; `linux-arm64` is one matrix row whenever a runner is decided on,
+and the index already carries the host key.
+
+*The gate exempts it, in one direction only.* `check-ci-cli-from-source`'s arm A
+does not apply to a workflow that PRODUCES the release — it names the asset a
+dozen times because it builds one, and it runs `scripts/install.sh` on purpose.
+Arm B still applies, and that is what keeps the exemption from being a hole:
+mutation-verified by deleting the `source-stamp` line, which turns the gate red.
+
+`check-workflow-indexed-apt` caught the workflow restating `zstd` as an apt
+package name; it now asks `scripts/sdk/prereq-packages.py`, since the index
+carries the per-manager spellings and a workflow copy is the one that goes
+stale.
+
+Rehearsed locally end to end — build, verify, stage, serve, install, front, run
+outside a checkout — before the workflow was committed, because a release
+workflow's first real run should not be its first run.
 
 ### W6 — the docs stop describing a source-only distribution
 

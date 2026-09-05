@@ -214,7 +214,8 @@ pub fn run(args: Args) -> Result<()> {
         };
     }
 
-    let index = SdkIndex::load(&args.index)?;
+    let index_path = resolve_index(&args.index);
+    let index = SdkIndex::load(&index_path)?;
     let host = host_key();
 
     if args.list {
@@ -226,7 +227,7 @@ pub fn run(args: Args) -> Result<()> {
         return Ok(());
     }
     if let Some(ws) = args.workspace_scan.clone() {
-        let root = args.index.parent().map(std::path::Path::to_path_buf);
+        let root = index_path.parent().map(std::path::Path::to_path_buf);
         return run_workspace_scan(&index, &ws, root.as_deref());
     }
     // `--sudo` means "execute the install", and there are exactly two things it
@@ -244,7 +245,7 @@ pub fn run(args: Args) -> Result<()> {
         // `path` probe resolves against (phase-398 W2). Derived rather than
         // re-discovered, so the probe and the provisioner cannot disagree
         // about where a checkout is.
-        let root = args.index.parent().map(std::path::Path::to_path_buf);
+        let root = index_path.parent().map(std::path::Path::to_path_buf);
         return run_system(&index, args.check, args.sudo, root.as_deref(), &args.roles);
     }
     // #0390 — must precede the generic `--check` below: `--build-sources --check`
@@ -252,7 +253,7 @@ pub fn run(args: Args) -> Result<()> {
     if args.build_sources {
         return run_build_sources(
             &index,
-            &args.index,
+            &index_path,
             args.check,
             args.dry_run,
             shallow_override(&args),
@@ -282,7 +283,7 @@ pub fn run(args: Args) -> Result<()> {
     if !args.sources.is_empty() {
         return provision_named_sources(
             &index,
-            &args.index,
+            &index_path,
             &args.sources,
             args.dry_run,
             shallow_override(&args),
@@ -304,7 +305,7 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     let root = store_root();
-    let workspace = index_workspace(&args.index);
+    let workspace = index_workspace(&index_path);
     let lock_path = PathBuf::from(LOCK_FILE);
     let mut lock = SdkLock::load(&lock_path)?;
     let mut installed = false;
@@ -1016,8 +1017,9 @@ pub fn activate_store_path(dirs: &[PathBuf]) {
 }
 
 /// Locate the SDK index for auto-setup: cwd, then the passed workspace, then
-/// `$NROS_WORKSPACE`. `None` ⇒ auto-setup is a no-op (not every build runs near
-/// a nano-ros workspace). Shared with `nros doctor`'s license-gate check (187.7).
+/// `$NROS_WORKSPACE`, then the copy SHIPPED BESIDE THE BINARY. `None` ⇒
+/// auto-setup is a no-op (not every build runs near a nano-ros workspace).
+/// Shared with `nros doctor`'s license-gate check (187.7).
 pub(crate) fn locate_index(workspace: Option<&Path>) -> Option<PathBuf> {
     let cwd = PathBuf::from("nros-sdk-index.toml");
     if cwd.is_file() {
@@ -1028,6 +1030,39 @@ pub(crate) fn locate_index(workspace: Option<&Path>) -> Option<PathBuf> {
         .or_else(|| std::env::var_os("NROS_WORKSPACE").map(PathBuf::from));
     ws.map(|w| w.join("nros-sdk-index.toml"))
         .filter(|p| p.is_file())
+        .or_else(shipped_index)
+}
+
+/// The index shipped inside the release, at `<prefix>/share/nros/` — phase-431
+/// W5.
+///
+/// Without this a released `nros` cannot run `nros setup <board>` AT ALL: the
+/// index was only ever looked for in the cwd or a workspace, both of which
+/// assume a checkout, and the whole point of shipping a binary is that there
+/// is no checkout. The release asset carries it; this is where it is found.
+///
+/// Resolved from the running executable rather than from `$NROS_HOME`, so a
+/// binary and the index it was released with stay together — two versions in
+/// the store each answer with their own, which is what makes them independently
+/// installable.
+pub(crate) fn shipped_index() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let prefix = exe.parent()?.parent()?; // <prefix>/bin/nros -> <prefix>
+    let candidate = prefix.join("share/nros/nros-sdk-index.toml");
+    candidate.is_file().then_some(candidate)
+}
+
+/// The index a command should read, given what the user passed.
+///
+/// `--index` defaults to the bare name `nros-sdk-index.toml`, which resolves
+/// against the cwd — right inside a checkout, and unusable for a released
+/// binary. So a DEFAULT that does not resolve falls back to the shipped copy;
+/// a path the user actually typed is never second-guessed.
+pub fn resolve_index(explicit: &Path) -> PathBuf {
+    if explicit != Path::new("nros-sdk-index.toml") || explicit.is_file() {
+        return explicit.to_path_buf();
+    }
+    shipped_index().unwrap_or_else(|| explicit.to_path_buf())
 }
 
 /// The workspace root a `[source.*]` `dest` is resolved against: the directory
@@ -2310,6 +2345,30 @@ fn compose_packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// phase-431 W5 — a path the user TYPED is never second-guessed; only the
+    /// default falls back to the copy shipped beside the binary.
+    ///
+    /// The fallback exists because a released `nros` has no checkout to find an
+    /// index in, and without one `nros setup <board>` fails outright — which
+    /// would make the shipped binary unable to do the thing it is installed
+    /// for. But an explicit `--index` names a file the caller chose, and
+    /// silently reading a different one is how a build gets provisioned from a
+    /// table nobody looked at.
+    #[test]
+    fn an_explicit_index_is_never_replaced_by_the_shipped_one() {
+        let typed = Path::new("some/other/index.toml");
+        assert_eq!(resolve_index(typed), typed.to_path_buf());
+
+        // The default, when it resolves in the cwd, is also left alone: inside
+        // a checkout the tree's own index must win over any shipped copy.
+        let dir = crate::test_support::scratch_path("resolve_index_cwd");
+        std::fs::create_dir_all(&dir).unwrap();
+        let here = dir.join("nros-sdk-index.toml");
+        std::fs::write(&here, "").unwrap();
+        assert_eq!(resolve_index(&here), here);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// issue 0603 — a `header` probe answers about the `-dev` package, where
     /// `sharedlib` answers about the runtime one.
