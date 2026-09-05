@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One vendored tree, two compilers, ONE owner per platform — phase-420 W9.
+"""One vendored tree, three compilers, ONE owner per platform — phase-420 W9.
 
 THE MEASUREMENT THIS GATE PRESERVES (2026-09-05)
 ------------------------------------------------
@@ -78,7 +78,10 @@ What it checks
    said did not exist: `scripts/qemu/build-zenoh-pico.sh` (issue 1096), with its
    own nine-directory loop, its own config header and its own slot defaults.
    That gate's "NEITHER LANE NAMES A PATH INSIDE THE VENDORED TREE" was true of
-   the two lanes it knows and false of the repository.
+   the two lanes it knows and false of the repository. The ledger is EMPTY now:
+   that script reads the manifest and is a declared lane in the sibling, whose
+   `LANE_SPECS` this check reads rather than restating — one list of who the
+   lanes are, because two lists is how the third one hid.
 
 8. **A group's NAME agrees with its CONDITION**, on platform and on feature.
    Found by review after the first version shipped: SWAPPING two groups'
@@ -95,6 +98,48 @@ What it checks
    spelling of the same swap, in which the groups are perfect and the two
    RECORDS trade places. A `<platform>_<feature>` group compiles TUs whose paths
    name that feature; a base-platform group compiles none that do.
+10. **The readiness lane answers as the lane it PROXIES for.** (5) holds the two
+    real lanes to the platform each owns; `scripts/qemu/build-zenoh-pico.sh`
+    owns none — it cross-compiles the tree for `bare-metal` into a standalone
+    `.a` that no image links, to answer "does the bare-metal build still
+    compile?". So it must answer every condition token exactly as the cargo lane
+    does for that platform: `always` true, every platform-named token false. A
+    `zephyr) return 0 ;;` there leaves every token declared, used, answered and
+    counted — sibling green, (5) green, since neither looks at this lane's
+    ANSWERS — while the proxy compiles a different source set than the build it
+    stands for. The platform is read back out of the script (its shim include
+    path) and its owner out of `nros-platform.toml`, so the two facts this rests
+    on cannot silently stop describing it.
+11. **The readiness lane's config header still mirrors the generator.** This is
+    the one place here that ACCEPTS a mirror, on a stated argument:
+    `config_header()` resolves its inputs from cargo build-script environment
+    (link features, the RFC-0049 wire ladder, `$DOTCONFIG` knobs) that a
+    standalone shell script cannot supply, so restating the RESOLUTION in shell
+    would be a fourth statement of it rather than one fewer. What the mirror
+    lacked was the drift-detector, which is the shape of every duplication this
+    area has paid for. Compared by macro NAME for every unconditional `#define`
+    the generator emits, and by VALUE wherever the generator's value is a
+    literal (a `const`/`let` binding in the same function is resolved, so
+    `Z_TRANSPORT_LEASE {}` / `const … = 60_000` compares as `60000`). Measured
+    when it was written: SIX macros missing from the mirror and FOUR values
+    disagreeing — `Z_TRANSPORT_LEASE` still 10000 after issue 0906 moved it,
+    plus `Z_FEATURE_MATCHING`, `Z_FEATURE_LOCAL_SUBSCRIBER`,
+    `Z_FEATURE_LOCAL_QUERYABLE` and `Z_FEATURE_BATCHING`, which decide which
+    code compiles. 45 of the readiness build's 130 objects changed when they
+    were brought back into line.
+12. **The readiness lane passes the shim's slot counts, and the right ones.**
+    The last of issue 1096's four copies, and the same trade as (11): the
+    macro⇄field mapping is read out of `ShimConfig::defines()` and the defaults
+    out of `shim_config_from_env()`, so the script's `-DZPICO_*` flags are
+    compared rather than trusted. An OMISSION is a failure here, and
+    `defines()`' own comment says why: the C shim `#define`s a fallback for
+    every one of these, so a missing `-D` is not "no opinion", it is the shim's
+    default winning on one lane only — issue 0460's shape. It was live: the real
+    build passes ten of these on every target and the readiness script passed
+    seven (`ZPICO_MAX_SESSIONS`, `ZPICO_READ_TASK_PRIORITY`,
+    `ZPICO_LEASE_TASK_PRIORITY` were missing; their values happen to equal
+    today's C fallbacks, so adding them changed no preprocessing — what changed
+    is that a moved default is now a red gate instead of a silent divergence).
 
 Run: python3 scripts/check-zenoh-lane-ownership.py
 """
@@ -112,6 +157,10 @@ MANIFEST = ZENOH / "zpico-sys/zenoh-sources.txt"
 CMAKE = REPO / "zephyr/cmake/nros_rmw_zenoh.cmake"
 RUST_LIB = ZENOH / "nros-zpico-build/src/lib.rs"
 RUST_RUNNER = ZENOH / "nros-zpico-build/src/runner.rs"
+# The bare-metal QEMU readiness lane (issue 1096). Declared in the sibling
+# gate's LANE_SPECS; named here because checks (10) and (11) are about this
+# file specifically.
+QEMU_SH = REPO / "scripts/qemu/build-zenoh-pico.sh"
 
 # The platform search path `PlatformsTree::default_search_path` walks, in its
 # order. A platform is one subdirectory holding an `nros-platform.toml`.
@@ -159,9 +208,22 @@ FEATURE_TU_EXCEPTIONS: dict[str, str] = {}
 # an exemption list: an entry must name an OPEN issue, and check (7) fails on
 # any compiler of the tree that is neither a declared lane nor listed here — so
 # a FOURTH copy cannot land quietly while the third is being paid off.
-KNOWN_UNSHARED_COMPILES = {
-    "scripts/qemu/build-zenoh-pico.sh": "issue 1096",
-}
+#
+# EMPTY, and that is the finding rather than a default: its one entry was
+# `scripts/qemu/build-zenoh-pico.sh` (issue 1096), the third compiler check (7)
+# found on its first run. That script reads `zenoh-sources.txt` now and is a
+# declared lane in the sibling gate, so the entry went with the debt — which is
+# the direction check (7)'s own "no longer compiles the tree" arm asks for.
+KNOWN_UNSHARED_COMPILES: dict[str, str] = {}
+
+# The platform `scripts/qemu/build-zenoh-pico.sh` cross-compiles the vendored
+# tree for. It is a PROXY for the cargo lane's bare-metal build — a standalone
+# `.a` no image links, built to answer "does the bare-metal zenoh-pico compile?"
+# — so it must answer the manifest's condition tokens exactly as the cargo lane
+# does for this platform. Checked, not assumed: check (10) fails if the script
+# does not reach for this platform's shim headers, and if the platform's own
+# `nros-platform.toml` hands its zenoh compile to someone other than cargo.
+READINESS_PLATFORM = "bare-metal"
 
 # What "compiles the vendored tree" looks like from the outside: a reference to
 # the tree's SOURCE root. Include and header references are not this — a
@@ -716,11 +778,15 @@ def third_compile_problems(
     while `check-zenoh-source-manifest`'s "neither lane names a vendored path"
     was true of the two lanes and false of the repository.
     """
+    # WHO THE LANES ARE IS READ FROM THE SIBLING, not restated here. Both gates
+    # would otherwise name the same files, and the second copy is what let the
+    # third compiler hide: that gate's path check was scoped to the lanes it
+    # knew, this gate's exemption list named the one it did not, and neither
+    # list could tell you the other was incomplete.
     expected = {str(p.relative_to(REPO)) for p, _c in west.values()}
+    expected |= {str(p.relative_to(REPO)) for p in _sibling().LANE_SPECS}
     expected |= {
         str(MANIFEST.relative_to(REPO)),
-        str(RUST_LIB.relative_to(REPO)),
-        str(RUST_RUNNER.relative_to(REPO)),
         "scripts/check-zenoh-lane-ownership.py",
         "scripts/check-zenoh-source-manifest.py",
     }
@@ -748,6 +814,467 @@ def third_compile_problems(
                 f"tree. If {why} is fixed, delete the entry and close it."
             )
     return bad
+
+
+# --- (10) + (11): the bare-metal readiness lane ------------------------------
+#
+# `scripts/qemu/build-zenoh-pico.sh` is the third compiler of the vendored tree
+# (issue 1096). Since it now READS the shared manifest, `check-zenoh-source-
+# manifest` holds it to the same shape rules as the other two — it names no
+# vendored path, it answers exactly the manifest's token set, it reads the file.
+# What that gate cannot say is which WAY it answers, and what it does with the
+# values the cargo lane derives. Those are this gate's business, exactly as (5)
+# is for the other two lanes.
+
+# `always) return 0 ;;` — one arm of the shell lane's `zenoh_condition`. Shell
+# truth is INVERTED (0 is success), which is the cross-wire this pattern has to
+# read correctly: a `return 1` on `always` would compile nothing and a `return
+# 0` on `zephyr` would drag Zephyr's vendored TUs into a Cortex-M3 build.
+_SH_ANSWER = re.compile(r"^\s*([A-Za-z0-9_]+)\)\s*return\s+([01])\s*;;")
+
+
+def sh_answers(text: str, where: str = str(QEMU_SH)) -> dict[str, bool]:
+    """token → the boolean the readiness lane supplies, from its marker block."""
+    out: dict[str, bool] = {}
+    for raw in block(text, where):
+        line = raw.split("#", 1)[0]
+        m = _SH_ANSWER.match(line)
+        if m:
+            out[m.group(1)] = m.group(2) == "0"
+    return out
+
+
+def readiness_lane_problems(
+    tokens: set[str],
+    platforms: dict[str, tuple[str, Path]],
+    answers: dict[str, bool],
+    sh_text: str,
+) -> list[str]:
+    """(10): the readiness lane answers as the lane it proxies for.
+
+    It is a PROXY: it compiles the vendored tree for `bare-metal` into a
+    standalone `.a` that no image links, to answer "does the bare-metal build
+    still compile?". A proxy that selects a different source set than the build
+    it stands for answers a question nobody asked — and does it in green.
+
+    Two of the three statements are checked rather than assumed. The platform it
+    builds for is read back out of the script (its shim include path), so
+    `READINESS_PLATFORM` cannot quietly stop describing it; and that platform's
+    zenoh owner must be `cargo`, because if a west lane ever took it over, the
+    build this proxies for would be a different one.
+    """
+    bad: list[str] = []
+    strip = _sibling().strip_comments
+    body = strip(sh_text, "#")
+    plat = READINESS_PLATFORM
+    if plat not in platforms:
+        return [
+            f"READINESS_PLATFORM = `{plat}`, which no nros-platform.toml declares. "
+            f"{QEMU_SH.relative_to(REPO)} cross-compiles the vendored tree for it, so it "
+            "is not a name this gate may invent."
+        ]
+    if f"$PLATFORM_DIR/{plat}" not in body:
+        bad.append(
+            f"{QEMU_SH.relative_to(REPO)} does not reach for `$PLATFORM_DIR/{plat}` — "
+            f"READINESS_PLATFORM says it builds for `{plat}` and the script says otherwise. "
+            "One of the two moved; this check is wired to the wrong platform until they agree."
+        )
+    owner = platforms[plat][0]
+    if owner != "cargo":
+        bad.append(
+            f"{plat}: [build.zenoh] compiled_by = \"{owner}\" in {platforms[plat][1]}, so the "
+            f"cargo lane does not compile the vendored tree for it — but "
+            f"{QEMU_SH.relative_to(REPO)} is a PROXY for that compile. It now stands for a "
+            "build nobody performs."
+        )
+    for token in sorted(tokens):
+        got = answers.get(token)
+        if got is None:
+            # The missing-token report belongs to the sibling; this would be a
+            # second voice on the same defect.
+            continue
+        named = token_platform(token, set(platforms))
+        if token == _sibling().UNCONDITIONAL:
+            want = True
+            why = "the core, which every lane on every platform compiles"
+        elif named is None:
+            bad.append(
+                f"condition token `{token}` names no platform and is not "
+                f"`{_sibling().UNCONDITIONAL}` — this check cannot decide how the "
+                f"{plat} readiness lane should answer it. Extend "
+                "`readiness_lane_problems` with the rule rather than leaving the answer "
+                "unchecked."
+            )
+            continue
+        elif named == plat:
+            want = True
+            why = f"a token naming `{plat}`, the platform this lane builds for"
+        else:
+            want = False
+            why = f"a token naming `{named}`, which is not `{plat}`"
+        if got is not want:
+            bad.append(
+                f"{QEMU_SH.relative_to(REPO)} answers condition token `{token}` "
+                f"{str(got).upper()}, but it is {why}, so it must be {str(want).upper()}. "
+                "The token SET is identical either way, which is why the sibling gate is "
+                "green: this is the readiness build selecting different sources from the "
+                "build it stands for."
+            )
+    return bad
+
+
+# The Rust function whose output the readiness lane mirrors, and the shell
+# heredoc that mirrors it.
+_CONFIG_HEADER_FN = "pub fn config_header("
+_SH_HEREDOC_START = 'cat > "$BUILD_DIR/zenoh-config/zenoh_generic_config.h" << \'EOF\''
+_DEFINE = re.compile(r"^#define ([A-Za-z_][A-Za-z_0-9]*)(?: (.*))?$")
+# `const NAME: ty = 60_000;` / `let name = 1;` — a value bound in the function
+# body and then formatted in. Numeric literals only: anything else is not a
+# value this gate can compare and is reported as dynamic instead.
+_RS_CONST = re.compile(r"\bconst ([A-Za-z_][A-Za-z_0-9]*)\s*:\s*[A-Za-z0-9_]+\s*=\s*([^;]+);")
+_RS_LET = re.compile(r"\blet ([a-z_][A-Za-z_0-9]*)\s*=\s*([^;]+);")
+
+
+def _rust_fn_writelns(text: str, sig: str) -> list[tuple[int, str, str]]:
+    """`(brace depth, format string, argument text)` for each `writeln!` in a fn.
+
+    Depth 0 is the function body itself — an UNCONDITIONAL emission. Anything
+    deeper sits inside an `if`, which is how `Z_FEATURE_UNSTABLE_API` (emitted
+    only under the cargo feature) is told apart from the ~50 macros every
+    generated header carries. Same trick as `cmake_answers`' if-nesting count,
+    for the same reason.
+
+    Hand-scanned rather than regexed because the format strings contain braces
+    (`{}`) and the body contains comments; a scanner that counted those would
+    put every emission at a nonsense depth. It asserts it ends balanced, so a
+    body shape it cannot read is a LOUD failure, not a silently empty result.
+    """
+    i = text.index(sig)
+    open_brace = text.index("{", text.index(") -> String", i))
+    out: list[tuple[int, str, str]] = []
+    depth = 0
+    k = open_brace + 1
+    n = len(text)
+    while k < n:
+        c = text[k]
+        if c == '"':
+            k = _skip_string(text, k)
+            continue
+        if text.startswith("//", k):
+            k = text.find("\n", k)
+            if k < 0:
+                break
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            if depth == 0:
+                return out
+            depth -= 1
+        elif text.startswith("writeln!(", k):
+            args, k = _macro_args(text, k + len("writeln!("))
+            fmt, rest = _first_string(args)
+            if fmt is not None:
+                out.append((depth, fmt, rest))
+            continue
+        k += 1
+    raise LaneError(f"{sig} — unbalanced braces; the scanner cannot read this function body")
+
+
+def _skip_string(text: str, k: int) -> int:
+    """Index just past the double-quoted string literal starting at `k`."""
+    k += 1
+    while k < len(text):
+        if text[k] == "\\":
+            k += 2
+            continue
+        if text[k] == '"':
+            return k + 1
+        k += 1
+    raise LaneError("unterminated string literal")
+
+
+def _macro_args(text: str, k: int) -> tuple[str, int]:
+    """The text inside a macro's parens, and the index just past the `)`."""
+    depth = 1
+    start = k
+    while k < len(text):
+        c = text[k]
+        if c == '"':
+            k = _skip_string(text, k)
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:k], k + 1
+        k += 1
+    raise LaneError("unterminated macro invocation")
+
+
+def _first_string(args: str) -> tuple[str | None, str]:
+    """The first string literal in a `writeln!`'s arguments, and what follows.
+
+    `writeln!(header)` and `writeln!(header, x)` have none — a blank line and a
+    non-literal, neither of which declares a macro.
+    """
+    k = args.find('"')
+    if k < 0:
+        return None, ""
+    end = _skip_string(args, k)
+    return args[k + 1 : end - 1], args[end:].lstrip(" ,\n")
+
+
+def _numeric(value: str) -> str | None:
+    """`60_000` → `60000`; anything not a plain integer literal → None."""
+    v = value.strip().replace("_", "")
+    return v if v.isdigit() else None
+
+
+def rust_config_macros(text: str) -> tuple[dict[str, str | None], set[str]]:
+    """`({macro → literal value or None}, {conditionally-emitted macros})`.
+
+    A `None` value means "emitted, but its value is computed" — a link flag, a
+    resolved buffer size, a knob. Those are compared by NAME only, and the OK
+    line says how many, because a gate that quietly checked half of what it
+    named would be the same silence one level up.
+    """
+    emitted = _rust_fn_writelns(text, _CONFIG_HEADER_FN)
+    body_start = text.index(_CONFIG_HEADER_FN)
+    body = text[body_start : text.index("\n}\n", body_start)]
+    bound: dict[str, str] = {}
+    for pat in (_RS_CONST, _RS_LET):
+        for name, value in pat.findall(body):
+            lit = _numeric(value)
+            if lit is not None:
+                bound[name] = lit
+    macros: dict[str, str | None] = {}
+    conditional: set[str] = set()
+    for depth, fmt, args in emitted:
+        m = _DEFINE.match(fmt)
+        if not m:
+            continue
+        name, value = m.group(1), m.group(2)
+        if depth > 0:
+            conditional.add(name)
+            continue
+        if value is None:
+            macros[name] = None
+        elif "{" not in value:
+            macros[name] = value.strip()
+        elif value.strip() == "{}":
+            macros[name] = bound.get(args.strip().rstrip(","))
+        else:
+            macros[name] = None
+    return macros, conditional
+
+
+def sh_config_macros(text: str) -> dict[str, str | None]:
+    """The `#define`s in the readiness lane's generated-config heredoc."""
+    start = text.find(_SH_HEREDOC_START)
+    if start < 0:
+        raise LaneError(
+            f"{QEMU_SH.relative_to(REPO)}: no `{_SH_HEREDOC_START}` — this gate can no longer "
+            "see the generated config header, so it cannot compare it"
+        )
+    body = text[start + len(_SH_HEREDOC_START) :]
+    end = body.find("\nEOF\n")
+    if end < 0:
+        raise LaneError(f"{QEMU_SH.relative_to(REPO)}: unterminated config-header heredoc")
+    out: dict[str, str | None] = {}
+    for line in body[:end].splitlines():
+        m = _DEFINE.match(line)
+        if m:
+            out[m.group(1)] = m.group(2).strip() if m.group(2) else None
+    return out
+
+
+def config_header_mirror_problems(
+    rust_text: str, sh_text: str
+) -> tuple[list[str], list[str]]:
+    """(11): the readiness lane's config header still mirrors the generator.
+
+    THIS ONE ACCEPTS A MIRROR, which the rest of this area does not, and the
+    reason is stated so the next reader can disagree with it on purpose:
+    `config_header()` resolves its inputs from cargo build-script environment —
+    link features from `CARGO_FEATURE_*`, wire sizes through the RFC-0049
+    ladder and the platform descriptor, knobs from `$DOTCONFIG` — none of which
+    a standalone shell script can supply. Reproducing that resolution in shell
+    would be a FOURTH statement of it, not one fewer. So the mirror stays and
+    gains the drift-detector it never had.
+
+    What it caught the day it was written (measured 2026-09-05, all real):
+    six macros the generator emits and the mirror did not, including
+    `Z_TRANSPORT_LEASE_TASK_SLEEP_CHUNK_MS` (issue 0959) and the four RFC-0080
+    link flags; `Z_TRANSPORT_LEASE` still 10000 after issue 0906 moved it to
+    60000; and `Z_FEATURE_MATCHING`, `Z_FEATURE_LOCAL_SUBSCRIBER`,
+    `Z_FEATURE_LOCAL_QUERYABLE` and `Z_FEATURE_BATCHING` disagreeing — four
+    flags that decide which code compiles, one of which (`BATCHING`) gates
+    transport struct FIELDS. 45 of the 130 objects changed when they were
+    brought back into line: the readiness check had been answering for a build
+    nobody performs.
+    """
+    rust, conditional = rust_config_macros(rust_text)
+    sh = sh_config_macros(sh_text)
+    bad: list[str] = []
+    for name in sorted(set(rust) - set(sh)):
+        bad.append(
+            f"`config_header()` emits `#define {name}` and {QEMU_SH.relative_to(REPO)}'s "
+            "generated config header does not. The readiness build compiles the vendored "
+            "tree with a different feature set than the build it proxies for."
+        )
+    for name in sorted(set(sh) - set(rust) - conditional):
+        bad.append(
+            f"{QEMU_SH.relative_to(REPO)} defines `{name}`, which `config_header()` never "
+            "emits — a value the real bare-metal build does not set. Delete it, or add it "
+            "to the generator if the real build wants it too."
+        )
+    checked = 0
+    for name in sorted(set(rust) & set(sh)):
+        want = rust[name]
+        if want is None:
+            continue
+        checked += 1
+        if sh[name] != want:
+            bad.append(
+                f"`{name}` is `{want}` in `config_header()` and `{sh[name]}` in "
+                f"{QEMU_SH.relative_to(REPO)}. Change the generator and mirror it, in that "
+                "order — never the mirror alone to make this gate pass."
+            )
+    dynamic = sorted(n for n in set(rust) & set(sh) if rust[n] is None)
+    notes = [
+        f"config header mirror: {len(rust)} unconditional macros, {checked} compared by "
+        f"VALUE, {len(dynamic)} by NAME only — they carry no value, or one the real build "
+        f"resolves from link features / the RFC-0049 ladder / a knob: {', '.join(dynamic)}"
+    ]
+    return bad, notes
+
+
+# `-DZPICO_MAX_PUBLISHERS=8` in the readiness lane's compiler flags.
+_SH_DEFINE_FLAG = re.compile(r"-D(ZPICO_[A-Z_0-9]+)=([^\s\"]+)")
+# `("ZPICO_MAX_PUBLISHERS", self.max_publishers.to_string()),` in `defines()`,
+# and the constant form `("ZPICO_TX_BATCH", "1".to_string())` beside it — both,
+# because a gate that read only the field form would call a macro the real build
+# DOES pass "one the real build does not set".
+_RS_SHIM_DEFINE = re.compile(
+    r'\(\s*"(ZPICO_[A-Z_0-9]+)"\s*,\s*(?:self\.([a-z_0-9]+)|"([^"]*)")\.to_string\(\)'
+)
+# `max_publishers: env_usize("ZPICO_MAX_PUBLISHERS", 8),` / `get_reply_buf_size: 4096,`
+_RS_ENV_DEFAULT = re.compile(r"([a-z_0-9]+)\s*:\s*env_usize\(\s*\"[A-Z_0-9]+\"\s*,\s*(\d+)\s*\)")
+_RS_LIT_DEFAULT = re.compile(r"^\s*([a-z_0-9]+)\s*:\s*(\d+)\s*,\s*$", re.M)
+
+
+def shim_defines(lib_text: str) -> list[tuple[str, str | None, bool, str | None]]:
+    """`(macro, field, unconditional?, constant)` for every `-D` the real build passes.
+
+    Read from `ShimConfig::defines()`, which is the one place that knows the
+    macro⇄field mapping; the `if self.tx_batch { … }` pushes are marked
+    conditional by brace depth, the same way `config_header()`'s `if
+    unstable_api` is.
+    """
+    i = lib_text.index("pub fn defines(&self)")
+    out: list[tuple[str, str | None, bool, str | None]] = []
+    depth = 0
+    k = lib_text.index("{", lib_text.index("Vec<(&'static str, String)>", i))
+    n = len(lib_text)
+    k += 1
+    while k < n:
+        c = lib_text[k]
+        if c == '"':
+            k = _skip_string(lib_text, k)
+            continue
+        if lib_text.startswith("//", k):
+            k = lib_text.find("\n", k)
+            if k < 0:
+                break
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            if depth == 0:
+                if not out:
+                    raise LaneError(
+                        "ShimConfig::defines() yielded no (macro, field) pairs — this gate "
+                        "cannot read it, and an empty list would compare nothing"
+                    )
+                return out
+            depth -= 1
+        elif c == "(":
+            m = _RS_SHIM_DEFINE.match(lib_text, k)
+            if m:
+                out.append((m.group(1), m.group(2), depth == 0, m.group(3)))
+                k = m.end()
+                continue
+        k += 1
+    raise LaneError("ShimConfig::defines() — unbalanced braces")
+
+
+def shim_defaults(runner_text: str) -> dict[str, str]:
+    """`ShimConfig` field → its default, for the fields whose default is a literal.
+
+    Read from `shim_config_from_env()`. A field built from anything else — the
+    queryable table, which is sized from the resolved model or a per-target
+    budget (`resolve_queryable_default`), and the ladder knobs `resolve_wire`
+    overwrites — is simply absent, and its macro is then compared by NAME only.
+    """
+    i = runner_text.index("fn shim_config_from_env()")
+    body = runner_text[i : runner_text.index("\n}\n", i)]
+    out = {f: v for f, v in _RS_ENV_DEFAULT.findall(body)}
+    for f, v in _RS_LIT_DEFAULT.findall(body):
+        out.setdefault(f, v)
+    return out
+
+
+def shim_slot_problems(lib_text: str, runner_text: str, sh_text: str) -> tuple[list[str], list[str]]:
+    """(12): the readiness lane passes the shim's slot counts, and the right ones.
+
+    Same argument as (11) — a mirror that cannot be a derivation, so it gets the
+    detector instead. What is different here is the failure mode of an OMISSION,
+    and `ShimConfig::defines()` states it in its own comment: the C shim
+    `#define`s its own fallback for every one of these, so leaving a `-D` out is
+    not "no opinion", it is the C default silently winning. That is issue 0460's
+    shape, and it was live on this lane: the real bare-metal build passes TEN
+    of these unconditionally and the readiness script passed SEVEN.
+    """
+    declared = shim_defines(lib_text)
+    defaults = shim_defaults(runner_text)
+    got = dict(_SH_DEFINE_FLAG.findall(_sibling().strip_comments(sh_text, "#")))
+    known = {macro for macro, _f, _u, _c in declared}
+    bad: list[str] = []
+    checked = 0
+    for macro, field, unconditional, constant in declared:
+        want = constant if constant is not None else defaults.get(field)
+        if macro not in got:
+            if unconditional:
+                bad.append(
+                    f"{QEMU_SH.relative_to(REPO)} does not pass `-D{macro}` — the real build "
+                    f"passes it on every target (`ShimConfig::defines()`), and the C shim "
+                    f"`#define`s its own fallback, so omitting it is not 'no opinion': it is "
+                    "the shim's default silently winning on this lane only (issue 0460)."
+                )
+            continue
+        if want is None:
+            continue
+        checked += 1
+        if got[macro] != want:
+            bad.append(
+                f"`{macro}` is `{want}` in `shim_config_from_env()` and `{got[macro]}` in "
+                f"{QEMU_SH.relative_to(REPO)}. These are STATIC array sizes in the C shim, so "
+                "the readiness build sizes its tables differently from the build it proxies "
+                "for. Change the default and mirror it, in that order."
+            )
+    for macro in sorted(set(got) - known):
+        bad.append(
+            f"{QEMU_SH.relative_to(REPO)} passes `-D{macro}`, which `ShimConfig::defines()` "
+            "never emits — a knob the real build does not set. Delete it, or add it there if "
+            "the real build wants it too."
+        )
+    notes = [
+        f"shim slot defines: {len(known)} declared by ShimConfig::defines(), {len(got)} passed "
+        f"by the readiness lane, {checked} compared by VALUE"
+    ]
+    return bad, notes
 
 
 def scan_tree_compilers(repo: Path) -> dict[str, str]:
@@ -1077,6 +1604,253 @@ def self_test() -> None:
         {"c": "always"}, [("dir", "c", "zenoh_pico", "system/common")], names2
     ) == []
 
+    # --- (10) the readiness lane answers as the lane it proxies for ---------
+    sh_block = (
+        f"# {_BEGIN}\n"
+        "zenoh_condition() {\n"
+        "    case \"$1\" in\n"
+        "        always) return 0 ;;\n"
+        "        zephyr) return 1 ;;\n"
+        "        zephyr_isotp) return 1 ;;\n"
+        "        *) exit 1 ;;\n"
+        "    esac\n"
+        "}\n"
+        f"# {_END}\n"
+        "INCLUDES=\"$INCLUDES -I$PLATFORM_DIR/bare-metal\"\n"
+    )
+    # SHELL TRUTH IS INVERTED. A reader that got this backwards would call the
+    # correct file wrong and the broken one right, which is the only way this
+    # check can be worse than nothing.
+    assert sh_answers(sh_block, "T") == {
+        "always": True,
+        "zephyr": False,
+        "zephyr_isotp": False,
+    }, sh_answers(sh_block, "T")
+    # `*)` is a refusal, not an answer.
+    assert "*" not in sh_answers(sh_block, "T")
+
+    toks3 = {"always", "zephyr", "zephyr_isotp"}
+    plats_ok = {
+        "bare-metal": ("cargo", Path("config/bare-metal/nros-platform.toml")),
+        "zephyr": ("platform", Path("packages/platform/nros-platform-zephyr/nros-platform.toml")),
+    }
+    assert readiness_lane_problems(toks3, plats_ok, sh_answers(sh_block, "T"), sh_block) == []
+
+    # THE CROSS-WIRE, and it is shape-valid in every other gate: every token is
+    # declared, used, answered by all three lanes and counted identically. This
+    # one drags Zephyr's vendored `system/zephyr/network.c` into a Cortex-M3
+    # readiness build — the proxy stops standing for the build it proxies.
+    crossed = dict(sh_answers(sh_block, "T"), zephyr=True)
+    msgs = readiness_lane_problems(toks3, plats_ok, crossed, sh_block)
+    assert any("answers condition token `zephyr` TRUE" in m for m in msgs), msgs
+    # ...and its mirror: the core answered false compiles nothing at all.
+    msgs = readiness_lane_problems(
+        toks3, plats_ok, dict(sh_answers(sh_block, "T"), always=False), sh_block
+    )
+    assert any("answers condition token `always` FALSE" in m for m in msgs), msgs
+
+    # the three statements this check refuses to assume.
+    msgs = readiness_lane_problems(toks3, plats_ok, sh_answers(sh_block, "T"),
+                                   sh_block.replace("$PLATFORM_DIR/bare-metal", "$PLATFORM_DIR/x"))
+    assert any("does not reach for `$PLATFORM_DIR/bare-metal`" in m for m in msgs), msgs
+    plats_taken = dict(plats_ok, **{"bare-metal": ("platform", Path("p.toml"))})
+    msgs = readiness_lane_problems(toks3, plats_taken, sh_answers(sh_block, "T"), sh_block)
+    assert any("stands for a build nobody performs" in m for m in msgs), msgs
+    msgs = readiness_lane_problems(toks3, {"zephyr": ("platform", Path("p"))},
+                                   sh_answers(sh_block, "T"), sh_block)
+    assert any("no nros-platform.toml declares" in m for m in msgs), msgs
+    # a token this rule cannot decide fails CLOSED rather than going unchecked.
+    msgs = readiness_lane_problems(
+        {"isotp"}, plats_ok, {"isotp": True}, sh_block
+    )
+    assert any("cannot decide how the bare-metal readiness lane" in m for m in msgs), msgs
+
+    # --- (11) the config-header mirror --------------------------------------
+    fake_rs = (
+        "pub fn config_header(link: &L) -> String {\n"
+        '    writeln!(header, "#define ZENOH_GENERIC_CONFIG_H").unwrap();\n'
+        "    const LEASE_MS: u32 = 60_000;\n"
+        "    let loopback = 1;\n"
+        '    writeln!(header, "#define Z_TRANSPORT_LEASE {}", LEASE_MS).unwrap();\n'
+        '    writeln!(header, "#define Z_FEATURE_LOCAL_SUBSCRIBER {}", loopback).unwrap();\n'
+        '    writeln!(header, "#define Z_FEATURE_MATCHING 1").unwrap();\n'
+        '    writeln!(header, "#define Z_FEATURE_RX_CACHE 0").unwrap();\n'
+        '    writeln!(header, "#define Z_FEATURE_LINK_TCP {}", link.tcp_flag()).unwrap();\n'
+        "    writeln!(header).unwrap();\n"
+        "    if unstable_api {\n"
+        '        writeln!(header, "#define Z_FEATURE_UNSTABLE_API").unwrap();\n'
+        "    }\n"
+        "    header\n"
+        "}\n"
+    )
+    macros, conditional = rust_config_macros(fake_rs)
+    assert macros == {
+        "ZENOH_GENERIC_CONFIG_H": None,
+        "Z_TRANSPORT_LEASE": "60000",      # `const` resolved, `_` separators dropped
+        "Z_FEATURE_LOCAL_SUBSCRIBER": "1",  # `let` resolved
+        "Z_FEATURE_MATCHING": "1",
+        "Z_FEATURE_RX_CACHE": "0",
+        "Z_FEATURE_LINK_TCP": None,         # computed → NAME only
+    }, macros
+    # emitted under an `if`, so it is not required of the mirror.
+    assert conditional == {"Z_FEATURE_UNSTABLE_API"}, conditional
+
+    def _sh(body: str) -> str:
+        return _SH_HEREDOC_START + "\n" + body + "\nEOF\n"
+
+    good_sh = _sh(
+        "#define ZENOH_GENERIC_CONFIG_H\n"
+        "#define Z_TRANSPORT_LEASE 60000\n"
+        "#define Z_FEATURE_LOCAL_SUBSCRIBER 1\n"
+        "#define Z_FEATURE_MATCHING 1\n"
+        "#define Z_FEATURE_RX_CACHE 0\n"
+        "#define Z_FEATURE_LINK_TCP 1\n"
+    )
+    bad_msgs, notes_t = config_header_mirror_problems(fake_rs, good_sh)
+    assert bad_msgs == [], bad_msgs
+    assert "4 compared by VALUE" in notes_t[0], notes_t
+    assert "2 by NAME only" in notes_t[0], notes_t
+
+    # the drift that was actually there: a macro the generator gained and the
+    # mirror never did (`Z_TRANSPORT_LEASE_TASK_SLEEP_CHUNK_MS`, issue 0959).
+    msgs, _ = config_header_mirror_problems(
+        fake_rs, good_sh.replace("#define Z_FEATURE_MATCHING 1\n", "")
+    )
+    assert any("emits `#define Z_FEATURE_MATCHING`" in m for m in msgs), msgs
+    # ...and the reverse: a value the real build does not set at all.
+    msgs, _ = config_header_mirror_problems(
+        fake_rs, good_sh.replace("#define Z_FEATURE_RX_CACHE 0", "#define Z_FEATURE_GHOST 1")
+    )
+    assert any("defines `Z_FEATURE_GHOST`" in m for m in msgs), msgs
+    # ...and a value that drifted (`Z_TRANSPORT_LEASE` 10000 vs 60000).
+    msgs, _ = config_header_mirror_problems(
+        fake_rs, good_sh.replace("Z_TRANSPORT_LEASE 60000", "Z_TRANSPORT_LEASE 10000")
+    )
+    assert any("`Z_TRANSPORT_LEASE` is `60000`" in m for m in msgs), msgs
+
+    # THE SHAPE-PRESERVING CROSSING: the mirror's macro SET is identical, every
+    # value is one the generator emits somewhere, and two of them have traded
+    # places. Nothing about the file's shape changed — this is the mutation that
+    # a name-set check alone reports as green.
+    swapped = good_sh.replace("#define Z_FEATURE_MATCHING 1", "#define Z_FEATURE_MATCHING 0")
+    swapped = swapped.replace("#define Z_FEATURE_RX_CACHE 0", "#define Z_FEATURE_RX_CACHE 1")
+    msgs, _ = config_header_mirror_problems(fake_rs, swapped)
+    assert len(msgs) == 2, msgs
+    assert any("`Z_FEATURE_MATCHING` is `1`" in m for m in msgs), msgs
+    assert any("`Z_FEATURE_RX_CACHE` is `0`" in m for m in msgs), msgs
+
+    # a conditional emission is not required of the mirror, but is accepted in
+    # it — the mirror may legitimately carry a `#define` the generator only
+    # writes under a cargo feature.
+    msgs, _ = config_header_mirror_problems(
+        fake_rs, good_sh.replace("#define Z_FEATURE_RX_CACHE 0",
+                                 "#define Z_FEATURE_RX_CACHE 0\n#define Z_FEATURE_UNSTABLE_API")
+    )
+    assert msgs == [], msgs
+
+    # a shape this gate cannot read is LOUD, never an empty comparison: an empty
+    # macro set would pass every check above while comparing nothing.
+    for broken in ("", _SH_HEREDOC_START + "\n#define X 1\n"):
+        try:
+            sh_config_macros(broken)
+        except LaneError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(f"unreadable heredoc accepted: {broken!r}")
+    try:
+        _rust_fn_writelns("pub fn config_header(x) -> String {\n  if a {\n", _CONFIG_HEADER_FN)
+    except LaneError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("unbalanced fn body accepted")
+
+    # --- (12) the shim slot defines ----------------------------------------
+    fake_defines = (
+        "    pub fn defines(&self) -> Vec<(&'static str, String)> {\n"
+        "        let mut out = vec![\n"
+        '            ("ZPICO_MAX_PUBLISHERS", self.max_publishers.to_string()),\n'
+        '            ("ZPICO_MAX_QUERYABLES", self.max_queryables.to_string()),\n'
+        "        ];\n"
+        "        if self.tx_batch {\n"
+        '            out.push(("ZPICO_TX_BATCH", "1".to_string()));\n'
+        "        }\n"
+        '        out.push(("ZPICO_READ_TASK_PRIORITY", self.read_task_priority.to_string()));\n'
+        "        out\n"
+        "    }\n"
+    )
+    fake_runner = (
+        "fn shim_config_from_env() -> ShimConfig {\n"
+        "    let max_queryables = env_usize(\"ZPICO_MAX_QUERYABLES\", sizing.default);\n"
+        "    ShimConfig {\n"
+        '        max_publishers: env_usize("ZPICO_MAX_PUBLISHERS", 8),\n'
+        "        max_queryables,\n"
+        '        read_task_priority: env_usize("ZPICO_READ_TASK_PRIORITY", 16),\n'
+        "        get_poll_interval_ms: 10,\n"
+        "    }\n"
+        "}\n"
+    )
+    assert shim_defines(fake_defines) == [
+        ("ZPICO_MAX_PUBLISHERS", "max_publishers", True, None),
+        ("ZPICO_MAX_QUERYABLES", "max_queryables", True, None),
+        # a CONSTANT push, and behind an `if` — both facts have to survive, or a
+        # macro the real build does pass reads as one it does not set.
+        ("ZPICO_TX_BATCH", None, False, "1"),
+        ("ZPICO_READ_TASK_PRIORITY", "read_task_priority", True, None),
+    ], shim_defines(fake_defines)
+    assert shim_defaults(fake_runner) == {
+        "max_publishers": "8",
+        "read_task_priority": "16",
+        "get_poll_interval_ms": "10",
+    }, shim_defaults(fake_runner)
+    # `max_queryables` is sized from the resolved model or a per-target budget,
+    # so it has NO literal default and is compared by name only. A gate that
+    # invented one would report every correct build as drifted.
+    assert "max_queryables" not in shim_defaults(fake_runner)
+
+    good_flags = (
+        'DEFINES="$DEFINES -DZPICO_MAX_PUBLISHERS=8"\n'
+        'DEFINES="$DEFINES -DZPICO_MAX_QUERYABLES=8"\n'
+        'DEFINES="$DEFINES -DZPICO_READ_TASK_PRIORITY=16"\n'
+    )
+    msgs, notes_s = shim_slot_problems(fake_defines, fake_runner, good_flags)
+    assert msgs == [], msgs
+    assert "2 compared by VALUE" in notes_s[0], notes_s
+    # THE OMISSION, which is issue 0460's shape: the C shim's own `#ifndef`
+    # fallback wins on this lane and nowhere else, so nothing looks wrong.
+    msgs, _ = shim_slot_problems(
+        fake_defines, fake_runner,
+        good_flags.replace('DEFINES="$DEFINES -DZPICO_READ_TASK_PRIORITY=16"\n', ""),
+    )
+    assert any("does not pass `-DZPICO_READ_TASK_PRIORITY`" in m for m in msgs), msgs
+    # ...and a CONDITIONAL one may be absent without complaint.
+    assert not any("ZPICO_TX_BATCH" in m for m in msgs), msgs
+    # THE CROSSING: the flag set is unchanged and two counts trade places.
+    swapped = good_flags.replace("-DZPICO_MAX_PUBLISHERS=8", "-DZPICO_MAX_PUBLISHERS=16")
+    swapped = swapped.replace("-DZPICO_READ_TASK_PRIORITY=16", "-DZPICO_READ_TASK_PRIORITY=8")
+    msgs, _ = shim_slot_problems(fake_defines, fake_runner, swapped)
+    assert len(msgs) == 2, msgs
+    assert any("`ZPICO_MAX_PUBLISHERS` is `8`" in m for m in msgs), msgs
+    assert any("`ZPICO_READ_TASK_PRIORITY` is `16`" in m for m in msgs), msgs
+    # a knob the real build does not set at all.
+    msgs, _ = shim_slot_problems(
+        fake_defines, fake_runner, good_flags + 'DEFINES="$DEFINES -DZPICO_INVENTED=3"\n'
+    )
+    assert any("passes `-DZPICO_INVENTED`" in m for m in msgs), msgs
+    # a comment is not a compile flag.
+    msgs, _ = shim_slot_problems(
+        fake_defines, fake_runner, good_flags + "# was -DZPICO_INVENTED=3\n"
+    )
+    assert msgs == [], msgs
+    # a `defines()` this gate cannot read is LOUD, never an empty comparison.
+    try:
+        shim_defines(
+            "    pub fn defines(&self) -> Vec<(&'static str, String)> {\n        vec![]\n    }\n"
+        )
+    except LaneError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("empty defines() accepted")
+
 
 def main() -> int:
     self_test()
@@ -1085,7 +1859,10 @@ def main() -> int:
     sibling = _sibling()
     try:
         groups, rows = sibling.parse_manifest(MANIFEST.read_text(encoding="utf-8"), str(MANIFEST))
-        texts = {p: p.read_text(encoding="utf-8") for p in {CMAKE, RUST_LIB, RUST_RUNNER}}
+        texts = {
+            p: p.read_text(encoding="utf-8")
+            for p in {CMAKE, RUST_LIB, RUST_RUNNER, QEMU_SH}
+        }
         cmake = cmake_answers(texts[CMAKE])
         arms, binds = rust_answers(texts[RUST_LIB])
     except (LaneError, OSError, sibling.ManifestError) as e:
@@ -1110,6 +1887,16 @@ def main() -> int:
     bad += third_compile_problems(scan_tree_compilers(REPO), WEST_LANES)
     bad += group_naming_problems(groups, set(platforms))
     bad += feature_record_problems(groups, rows, set(platforms))
+    bad += readiness_lane_problems(
+        set(groups.values()), platforms, sh_answers(texts[QEMU_SH]), texts[QEMU_SH]
+    )
+    mirror_bad, notes = config_header_mirror_problems(texts[RUST_LIB], texts[QEMU_SH])
+    bad += mirror_bad
+    slot_bad, slot_notes = shim_slot_problems(
+        texts[RUST_LIB], texts[RUST_RUNNER], texts[QEMU_SH]
+    )
+    bad += slot_bad
+    notes += slot_notes
 
     if bad:
         print("check-zenoh-lane-ownership: FAIL", file=sys.stderr)
@@ -1119,10 +1906,14 @@ def main() -> int:
 
     owned = sorted(n for n, (o, _w) in platforms.items() if o == "platform")
     cargo = sorted(n for n, (o, _w) in platforms.items() if o == "cargo")
+    for note in notes:
+        print(f"check-zenoh-lane-ownership: {note}")
     print(
         "check-zenoh-lane-ownership: OK — "
         f"cargo compiles the vendored tree for {cargo}, "
-        f"{sorted(WEST_LANES)} for {owned}; no platform is in both, none in neither"
+        f"{sorted(WEST_LANES)} for {owned}; no platform is in both, none in neither; "
+        f"the {READINESS_PLATFORM} readiness lane "
+        f"({QEMU_SH.relative_to(REPO)}) proxies the cargo one"
     )
     return 0
 

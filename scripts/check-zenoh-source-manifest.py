@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""One vendored tree, two compilers, ONE source list — phase-420 W9.
+"""One vendored tree, THREE compilers, ONE source list — phase-420 W9 / issue 1096.
 
-The vendored zenoh-pico C is compiled twice: by `nros-zpico-build`
-(`add_zenoh_pico_core_sources`, cc-rs, six platforms) for the cargo lane, and by
-`zephyr/cmake/nros_rmw_zenoh.cmake` for the west/cmake lane. Until W9 each lane
-held its own copy of the selection — the same nine directory globs, written out
-twice — and nothing checked that they agreed. That is the defect issue 1068
-fixed next door for micro-XRCE, and the remedy is the same: derive the list once
-(`packages/rmw/zenoh/zpico-sys/zenoh-sources.txt`) and have both lanes read it.
+The vendored zenoh-pico C is compiled three times: by `nros-zpico-build`
+(`add_zenoh_pico_core_sources`, cc-rs, six platforms) for the cargo lane, by
+`zephyr/cmake/nros_rmw_zenoh.cmake` for the west/cmake lane, and by
+`scripts/qemu/build-zenoh-pico.sh`, which cross-compiles it for bare-metal
+Cortex-M3 as a QEMU build-readiness check. Until W9 each lane held its own copy
+of the selection — the same nine directory globs, written out twice — and
+nothing checked that they agreed. That is the defect issue 1068 fixed next door
+for micro-XRCE, and the remedy is the same: derive the list once
+(`packages/rmw/zenoh/zpico-sys/zenoh-sources.txt`) and have every lane read it.
+
+W9 shipped knowing only the first two, and said so in this docstring; the third
+was found the same day by `check-zenoh-lane-ownership`'s check (7) — a nine-
+directory loop with no "matches build.rs" comment on it and no gate watching it
+(issue 1096). It reads the manifest now, and it is a LANE here rather than a
+ledger entry there: the check that made the mirror unrecreatable was scoped to
+the two lanes it knew, which is precisely how a third copy stayed invisible.
 
 THIS GATE IS WHAT MAKES THAT STICK. Deriving without a gate is one refactor away
 from a lane quietly regrowing a `file(GLOB_RECURSE …)` or a `src_dir.join("api")`,
@@ -40,23 +49,26 @@ What it checks
    not 0. See `attachment_problems`.
 3. Every directory and file it names EXISTS. Skipped LOUDLY when the zenoh-pico
    submodule is not checked out.
-4. NEITHER LANE NAMES A PATH INSIDE THE VENDORED TREE. This is the check that
-   makes the mirror unrecreatable, and it is pure text so it holds on a clone
-   with no submodules. **"Neither lane" means the two lanes in `LANES` below,
-   NOT the repository** — a green here has been over-read once already: a THIRD
-   compiler of the vendored tree exists (`scripts/qemu/build-zenoh-pico.sh`,
-   issue 1096) with its own copy of the same nine directories, and this check
-   never looked at it. `check-zenoh-lane-ownership`'s check (7) is what
-   enumerates every tracked file that compiles the tree; this one stays scoped
-   to the two lanes it was written for.
-5. Both lanes answer EXACTLY the set of condition tokens the manifest uses — no
-   more, no fewer. A token only one lane answers is the same defect one
-   conditional over; a token the manifest never uses is dead selection logic.
+4. NO LANE NAMES A PATH INSIDE THE VENDORED TREE. This is the check that makes
+   the mirror unrecreatable, and it is pure text so it holds on a clone with no
+   submodules. **"No lane" means the lanes in `LANE_SPECS` below, NOT the
+   repository** — a green here has been over-read once already: it said "neither
+   lane" while a THIRD compiler of the vendored tree existed
+   (`scripts/qemu/build-zenoh-pico.sh`, issue 1096) with its own copy of the same
+   nine directories, and this check never looked at it. That one is a lane here
+   now, but the scoping caveat stands for the NEXT one:
+   `check-zenoh-lane-ownership`'s check (7) is what enumerates every tracked file
+   that compiles the tree, and it is the gate that decides whether this list is
+   complete.
+5. Every lane that SELECTS answers EXACTLY the set of condition tokens the
+   manifest uses — no more, no fewer. A token only some lanes answer is the same
+   defect one conditional over; a token the manifest never uses is dead selection
+   logic. Which WAY a lane answers is `check-zenoh-lane-ownership` (5) and (10).
 6. Every `.c` in the vendored tree is accounted for: covered by a record, or
    under a `src/system/<platform>/` tree that platform selects for itself, or on
    the documented not-compiled list. The inverse drift — a file the tree has and
    neither lane builds.
-7. Both lanes actually READ the manifest.
+7. Every lane actually READS the manifest.
 
 Run: python3 scripts/check-zenoh-source-manifest.py
 """
@@ -76,6 +88,22 @@ CMAKE = REPO / "zephyr/cmake/nros_rmw_zenoh.cmake"
 # because a regrown list in either is the same regression.
 RUST_LIB = ZENOH / "nros-zpico-build/src/lib.rs"
 RUST_RUNNER = ZENOH / "nros-zpico-build/src/runner.rs"
+# Issue 1096 — the bare-metal QEMU readiness lane. It compiles the vendored tree
+# for Cortex-M3 into a standalone `.a` that no image links, so a drift here buys
+# a FALSE GREEN readiness check rather than a wrong image; it is a lane all the
+# same, because a readiness check that has silently stopped tracking the build it
+# proxies for is worse than no check.
+QEMU_SH = REPO / "scripts/qemu/build-zenoh-pico.sh"
+
+# Every lane, with `(comment marker, path-literal flavour, token pattern)`.
+# `token pattern` is None for a lane that reads the manifest and does not
+# SELECT — `runner.rs` is the cargo lane's call site, not its condition block.
+#
+# THIS DICT IS THE LANE LIST. `check-zenoh-lane-ownership` imports it rather
+# than restating who the lanes are (its check (7) would otherwise have to name
+# the same three files a second time, which is the mirror this file exists to
+# delete, one level up).
+LANE_SPECS: dict[Path, tuple[str, str, "re.Pattern[str] | None"]] = {}
 
 # tree name → root, relative to the repo.
 TREES = {
@@ -119,6 +147,7 @@ LANE_PATH_ALLOWLIST: dict[Path, set[str]] = {
     CMAKE: set(),
     RUST_LIB: set(),
     RUST_RUNNER: set(),
+    QEMU_SH: set(),
 }
 
 # The delimited block in each lane that answers the condition tokens.
@@ -129,10 +158,33 @@ _RS_TOKEN = re.compile(r'"([A-Za-z0-9_]+)"\s*=>')
 # `set(_zenoh_cond_zephyr_isotp …)` — a variable in the cmake lane.
 _CMAKE_TOKEN = re.compile(r"set\s*\(\s*_zenoh_cond_([A-Za-z0-9_]+)")
 
+# `always) return 0 ;;` — a case arm in the shell lane's condition function.
+# The `*)` fallthrough cannot match, which is the point: it is the arm that
+# REFUSES an unanswered token, not an answer to one.
+_SH_TOKEN = re.compile(r"^\s*([A-Za-z0-9_]+)\)\s*return\s+[01]\s*;;", re.M)
+
 # A vendored path as the cmake lane can only spell it.
 _CMAKE_VENDOR_PATH = re.compile(r"\$\{ZENOH_PICO_DIR\}/src/[A-Za-z0-9_*./-]+")
+# ...and as the shell lane can. Both spellings of the tree root are reachable
+# (`$ZENOH_PICO_DIR/src/...` and the `$ZENOH_PICO_SRC/...` shorthand), and
+# neither pattern matches the ROOT alone or a path built from a VARIABLE — a
+# lane must be able to hold the root and join a manifest-supplied tail, which is
+# exactly what deriving looks like.
+_SH_VENDOR_PATH = re.compile(
+    r"\$\{?ZENOH_PICO_DIR\}?/src/[A-Za-z0-9_*./-]+|\$\{?ZENOH_PICO_SRC\}?/[A-Za-z0-9_*./-]+"
+)
 # Any double-quoted string in Rust; filtered against the vendored roots after.
 _RS_STRING = re.compile(r'"([A-Za-z0-9_*./-]+)"')
+
+LANE_SPECS.update(
+    {
+        CMAKE: ("#", "cmake", _CMAKE_TOKEN),
+        RUST_LIB: ("//", "rust", _RS_TOKEN),
+        RUST_RUNNER: ("//", "rust", None),
+        QEMU_SH: ("#", "sh", _SH_TOKEN),
+    }
+)
+LANES = tuple(LANE_SPECS)
 
 
 class ManifestError(Exception):
@@ -316,15 +368,24 @@ def vendor_roots(rows) -> set[str]:
     return {path.split("/", 1)[0] for _kind, _group, _tree, path in rows}
 
 
-def lane_paths(text: str, marker: str, roots: set[str], cmake: bool, allow: set[str]) -> list[str]:
+def lane_paths(text: str, marker: str, roots: set[str], flavour: str, allow: set[str]) -> list[str]:
     """Vendored-tree paths a lane names in compiled position, minus the allowlist.
 
     Pure text: it needs no checkout, which matters because this is the check
     that has to hold on a bare clone.
+
+    `flavour` is how the lane's language can spell such a path: `cmake` and `sh`
+    interpolate a variable holding the tree root, `rust` joins onto a `PathBuf`,
+    so the first two are found by regex and the third by looking at every string
+    literal outside a test module.
     """
     body = strip_comments(text, marker)
-    if cmake:
+    if flavour == "cmake":
         hits = set(_CMAKE_VENDOR_PATH.findall(body))
+    elif flavour == "sh":
+        hits = set(_SH_VENDOR_PATH.findall(body))
+    elif flavour != "rust":
+        raise ManifestError(f"unknown lane flavour `{flavour}`")
     else:
         body = strip_test_modules(body)
         hits = {
@@ -440,6 +501,16 @@ def self_test() -> None:
     g, r = parse_manifest("group core always\ndir ghost zenoh_pico utils\n", "T")
     assert attachment_problems(g, r, "T") == []
 
+    # Every lane is declared once, with an allowlist entry and a readable
+    # flavour — a lane added to one table and not the other is a KeyError at
+    # runtime, which is a stack trace rather than a finding.
+    assert set(LANE_SPECS) == set(LANE_PATH_ALLOWLIST) == set(LANES), sorted(LANE_SPECS)
+    assert all(f in ("cmake", "rust", "sh") for _m, f, _p in LANE_SPECS.values())
+    assert sum(1 for _m, _f, pat in LANE_SPECS.values() if pat is not None) >= 3, (
+        "fewer than three lanes SELECT — a lane that answers no token cannot be "
+        "held to the manifest's condition set"
+    )
+
     # Manifest defects each report.
     _, r = parse_manifest("group core always\ndir nope zenoh_pico api\n", "T")
     assert any(
@@ -462,18 +533,43 @@ def self_test() -> None:
     # THE REGRESSION: a lane regrows a source list of its own.
     roots = {"api", "collections", "system"}
     assert lane_paths(
-        'file(GLOB_RECURSE _x "${ZENOH_PICO_DIR}/src/api/*.c")', "#", roots, True, set()
+        'file(GLOB_RECURSE _x "${ZENOH_PICO_DIR}/src/api/*.c")', "#", roots, "cmake", set()
     ) == ["${ZENOH_PICO_DIR}/src/api/*.c"]
-    assert lane_paths('src_dir.join("collections")', "//", roots, False, set()) == ["collections"]
-    assert lane_paths('build.file(z.join("system/zephyr/network.c"));', "//", roots, False, set()) == [
+    assert lane_paths('src_dir.join("collections")', "//", roots, "rust", set()) == ["collections"]
+    assert lane_paths('build.file(z.join("system/zephyr/network.c"));', "//", roots, "rust", set()) == [
         "system/zephyr/network.c"
     ]
     # ...and it must not fire on a clean lane, on the tree ROOT, on an
     # allowlisted path, or on a path that only appears in prose.
-    assert lane_paths('set(_zenoh_tree_zenoh_pico "${ZENOH_PICO_DIR}/src")', "#", roots, True, set()) == []
-    assert lane_paths('zenoh_pico_src.join("include")', "//", roots, False, set()) == []
-    assert lane_paths('# see ${ZENOH_PICO_DIR}/src/api/*.c\n', "#", roots, True, set()) == []
-    assert lane_paths('src_dir.join("api")', "//", roots, False, {"api"}) == []
+    assert lane_paths('set(_zenoh_tree_zenoh_pico "${ZENOH_PICO_DIR}/src")', "#", roots, "cmake", set()) == []
+    assert lane_paths('zenoh_pico_src.join("include")', "//", roots, "rust", set()) == []
+    assert lane_paths('# see ${ZENOH_PICO_DIR}/src/api/*.c\n', "#", roots, "cmake", set()) == []
+    assert lane_paths('src_dir.join("api")', "//", roots, "rust", {"api"}) == []
+
+    # THE SHELL LANE (issue 1096). Its regression is the loop it used to hold:
+    # `for dir in api collections ...; do find "$ZENOH_PICO_DIR/src/$dir" ...`.
+    assert lane_paths(
+        'for f in $(find "$ZENOH_PICO_DIR/src/system/common" -name "*.c"); do', "#", roots, "sh", set()
+    ) == ["$ZENOH_PICO_DIR/src/system/common"]
+    assert lane_paths('SOURCES="$SOURCES $ZENOH_PICO_SRC/api"', "#", roots, "sh", set()) == [
+        "$ZENOH_PICO_SRC/api"
+    ]
+    assert lane_paths('f="${ZENOH_PICO_SRC}/utils/uuid.c"', "#", roots, "sh", set()) == [
+        "${ZENOH_PICO_SRC}/utils/uuid.c"
+    ]
+    # ...and a lane that HOLDS THE ROOT and joins a manifest-supplied tail onto
+    # it is what deriving looks like, so neither spelling of the root may fire.
+    assert lane_paths('ZENOH_PICO_SRC="$ZENOH_PICO_DIR/src"', "#", roots, "sh", set()) == []
+    assert lane_paths('SOURCES="$SOURCES $ZENOH_PICO_SRC/$c"', "#", roots, "sh", set()) == []
+    assert lane_paths('if [ ! -d "$ZENOH_PICO_SRC/$c" ]; then', "#", roots, "sh", set()) == []
+    assert lane_paths('INCLUDES="-I$ZENOH_PICO_DIR/include"', "#", roots, "sh", set()) == []
+    assert lane_paths('# the old loop read $ZENOH_PICO_SRC/api\n', "#", roots, "sh", set()) == []
+    try:
+        lane_paths("x", "#", roots, "perl", set())
+    except ManifestError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("unknown flavour accepted")
     # ...and a fixture inside a test module is not compiled position, while the
     # code AFTER that module still is (runner.rs has three, mid-file).
     assert (
@@ -481,7 +577,7 @@ def self_test() -> None:
             '#[cfg(test)]\nmod t {\n  fn f() { g("api"); }\n}\nfn real() {}\n',
             "//",
             roots,
-            False,
+            "rust",
             set(),
         )
         == []
@@ -490,16 +586,23 @@ def self_test() -> None:
         '#[cfg(test)]\nmod t { fn f() { g("api"); } }\nfn real() { h("collections"); }\n',
         "//",
         roots,
-        False,
+        "rust",
         set(),
     ) == ["collections"]
 
-    # THE OTHER REGRESSION: the two lanes answer different token sets.
+    # THE OTHER REGRESSION: the lanes answer different token sets.
     rs = f'{_BEGIN}\n "always" => true,\n "zephyr" => z,\n{_END}'
     cm = f"{_BEGIN}\nset(_zenoh_cond_always TRUE)\n{_END}"
+    sh = f"{_BEGIN}\n        always) return 0 ;;\n        zephyr) return 1 ;;\n"
+    sh += f"        *) exit 1 ;;\n{_END}"
     assert lane_tokens(rs, _RS_TOKEN, "//") == {"always", "zephyr"}
     assert lane_tokens(cm, _CMAKE_TOKEN, "#") == {"always"}
     assert lane_tokens(rs, _RS_TOKEN, "//") - lane_tokens(cm, _CMAKE_TOKEN, "#") == {"zephyr"}
+    # the shell lane answers by `case` arm, and its `*)` refusal is NOT an
+    # answer — a lane that swallowed an unknown token would silently drop the
+    # sources behind it.
+    assert lane_tokens(sh, _SH_TOKEN, "#") == {"always", "zephyr"}
+    assert lane_tokens(f"{_BEGIN}\n  always) return 0 ;;\n{_END}", _SH_TOKEN, "#") == {"always"}
     try:
         lane_tokens("no markers here", _RS_TOKEN, "//")
     except ManifestError:
@@ -517,7 +620,7 @@ def main() -> int:
     bad: list[str] = []
     notes: list[str] = []
 
-    lanes = (CMAKE, RUST_LIB, RUST_RUNNER)
+    lanes = LANES
     for p in (MANIFEST, *lanes):
         if not p.exists():
             print(f"check-zenoh-source-manifest: missing {p.relative_to(REPO)}", file=sys.stderr)
@@ -562,9 +665,9 @@ def main() -> int:
     # (4) neither lane names a path inside the vendored tree.
     roots = vendor_roots(rows)
     for path in lanes:
-        is_cmake = path == CMAKE
+        marker, flavour, _tok = LANE_SPECS[path]
         for hit in lane_paths(
-            texts[path], "#" if is_cmake else "//", roots, is_cmake, LANE_PATH_ALLOWLIST[path]
+            texts[path], marker, roots, flavour, LANE_PATH_ALLOWLIST[path]
         ):
             bad.append(
                 f"{path.relative_to(REPO)} names vendored path `{hit}` — phase-420 W9: the "
@@ -572,15 +675,21 @@ def main() -> int:
                 "there (or to this gate's LANE_PATH_ALLOWLIST, with the reason it is not shared)."
             )
 
-    # (5) both lanes answer exactly the manifest's condition tokens.
+    # (5) every SELECTING lane answers exactly the manifest's condition tokens.
+    answered: list[tuple[str, set[str]]] = []
     try:
-        rs_tokens = lane_tokens(texts[RUST_LIB], _RS_TOKEN, "//")
-        cm_tokens = lane_tokens(texts[CMAKE], _CMAKE_TOKEN, "#")
+        for path in lanes:
+            marker, _flavour, pattern = LANE_SPECS[path]
+            if pattern is None:
+                continue
+            answered.append(
+                (str(path.relative_to(REPO)), lane_tokens(texts[path], pattern, marker))
+            )
     except ManifestError as e:
         print(f"check-zenoh-source-manifest: {e}", file=sys.stderr)
         return 1
     wanted = set(groups.values())
-    for label, got in (("nros-zpico-build/src/lib.rs", rs_tokens), (CMAKE.name, cm_tokens)):
+    for label, got in answered:
         for tok in sorted(wanted - got):
             bad.append(
                 f"{label} does not answer condition token `{tok}`, which {MANIFEST.name} uses. "
@@ -592,11 +701,21 @@ def main() -> int:
                 "dead selection logic, or a manifest that lost a group."
             )
 
-    # (7) both lanes actually read the manifest.
+    # (7) every lane actually reads the manifest.
     if MANIFEST.name not in texts[CMAKE]:
         bad.append(f"{CMAKE.relative_to(REPO)} never names {MANIFEST.name} — it reads no manifest")
     if MANIFEST.name not in texts[RUST_LIB] + texts[RUST_RUNNER]:
         bad.append(f"the cargo lane never names {MANIFEST.name} — it reads no manifest")
+    if MANIFEST.name not in strip_comments(texts[QEMU_SH], "#"):
+        # Comments stripped, and that is the whole point here: this lane spent a
+        # phase carrying "matches build.rs ..." comments beside its own copy of
+        # everything they named (issue 1096). A mention of the manifest is not a
+        # read of it.
+        bad.append(
+            f"{QEMU_SH.relative_to(REPO)} names {MANIFEST.name} only in comments (or not at "
+            "all) — the bare-metal readiness lane must READ the shared source list, never "
+            "restate it. A fallback to a built-in directory list is the drift back."
+        )
 
     for note in notes:
         print(f"check-zenoh-source-manifest: {note}")
@@ -610,9 +729,11 @@ def main() -> int:
     print(
         "check-zenoh-source-manifest: OK — "
         f"{kinds['dir']} directories + {kinds['src']} files in {len(groups)} groups, "
-        f"conditions {sorted(wanted)}, both lanes derive them "
-        "(scope: the 2 lanes in LANES, and SHAPE only — who else compiles the tree is "
-        "check-zenoh-lane-ownership (7), which way a lane answers a token is its (5)/(8)/(9))"
+        f"conditions {sorted(wanted)}, all {len(LANES)} lanes derive them "
+        f"({len(answered)} of them answer the tokens) "
+        f"(scope: the {len(LANES)} lanes in LANE_SPECS, and SHAPE only — who else compiles "
+        "the tree is check-zenoh-lane-ownership (7), which way a lane answers a token is its "
+        "(5)/(10), and the readiness lane's two remaining mirrors are its (11)/(12))"
     )
     return 0
 

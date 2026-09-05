@@ -1,12 +1,12 @@
 ---
 id: 1096
 title: "`scripts/qemu/build-zenoh-pico.sh` is a THIRD copy of the zenoh-pico source selection, the config header and the shim slot defaults — outside the manifest that exists to make there be one"
-status: open
+status: resolved
 type: tech-debt
 area: rmw, build
 severity: low
 found: 2026-09-05
-related: [1068, phase-420]
+related: [1068, 0460, 0906, 0959, phase-420]
 ---
 
 # One vendored tree, THREE compilers
@@ -139,3 +139,120 @@ fix — see below.
 zenoh-pico tree must be a declared lane or carry a tracked issue id in the
 allowlist; removing this entry without fixing the script turns the gate red,
 which is the intended direction.
+
+## Resolution (2026-09-05)
+
+Fix candidate 1, plus more than it promised. **Two of the four copies are gone
+and the other two are watched.** No new gate: both invariants extend the two
+gates that already own this tree, because a third gate about it would be the
+same mirror one level up.
+
+### (1) The source selection — DERIVED, gone
+
+`scripts/qemu/build-zenoh-pico.sh` reads `zenoh-sources.txt` (group / dir / src,
+the manifest's own grammar, recursive `dir` expansion) and holds no directory of
+its own. It answers the condition tokens in a delimited
+`NROS-ZENOH-CONDITIONS-BEGIN/END` block like the other two lanes — `always`
+true, `zephyr` and `zephyr_isotp` false, because a Cortex-M3 bare-metal build is
+neither.
+
+Every failure exits: a missing manifest, a malformed record, an undeclared
+group, an unknown tree, a listed directory that does not exist or holds no `.c`,
+a condition token this lane does not answer, or a selection of zero sources.
+**There is deliberately no fallback to a built-in list** — that would put the
+drift back while looking fixed. Verified: with the missing-manifest guard
+removed as well, the script still dies on "selected no sources" rather than
+compiling anything.
+
+It is a declared LANE in `check-zenoh-source-manifest` now (`LANE_SPECS`), not a
+ledger entry in `check-zenoh-lane-ownership`, so that gate's checks (4), (5) and
+(7) — no vendored path, exactly the manifest's token set, actually reads the
+file — cover it like the other two. `check-zenoh-lane-ownership` reads its lane
+list FROM that dict rather than restating it: two lists of who the lanes are is
+how this third copy hid in the first place. `KNOWN_UNSHARED_COMPILES` is empty.
+
+### (3) The platform defines — DELETED
+
+Ten `Z_FEATURE_*` `-D` flags that the generated config header, forty lines
+earlier in the same file, already stated. `ZENOH_GENERIC` makes
+`zenoh-pico/config.h` include that header and nothing else, so they were the
+same fact twice with nothing comparing them. Three remain — `ZENOH_GENERIC`,
+`ZPICO_SMOLTCP`, `ZENOH_DEBUG=0` — none of which the header says.
+
+### (2) and (4) — still mirrors, now with the detector
+
+`config_header()` and `shim_config_from_env()` resolve their inputs from cargo
+build-script environment: link features from `CARGO_FEATURE_*`, wire sizes
+through the RFC-0049 ladder and the platform descriptor, knobs from
+`$DOTCONFIG`. A standalone shell script can supply none of that, so restating
+the RESOLUTION in shell — or in a new Rust binary whose arguments restate it —
+would be a FOURTH statement, not one fewer. The mirrors stay; what they lacked
+was the drift-detector, which is the shape of every duplication this area has
+paid for.
+
+`check-zenoh-lane-ownership` (11) compares the script's generated config header
+against `config_header()`: by macro NAME for every unconditional `#define` it
+emits (an `if`-nested one, `Z_FEATURE_UNSTABLE_API`, is not required), and by
+VALUE wherever the generator's value is a literal — resolving a `const`/`let`
+bound in the same function, so `Z_TRANSPORT_LEASE {}` / `const … = 60_000`
+compares as `60000`. Check (12) does the same for the `-DZPICO_*` slot counts,
+reading the macro⇄field mapping out of `ShimConfig::defines()` and the defaults
+out of `shim_config_from_env()`; an OMISSION fails there, because the C shim
+`#define`s a fallback for each and a missing `-D` is the shim's default winning
+on one lane only (issue 0460's shape). Check (10) holds the lane's condition
+ANSWERS to the cargo lane's for `bare-metal`, which no shape check can see.
+
+### What the detectors found the day they were written
+
+The issue said "today the three agree". That was true of the SOURCE SELECTION
+and false of everything else — the two value mirrors had drifted in **thirteen**
+places, and the drift was the false green the issue predicted:
+
+| | mirror said | real bare-metal build |
+| --- | --- | --- |
+| `Z_TRANSPORT_LEASE` | 10000 | 60000 (issue 0906) |
+| `Z_TRANSPORT_LEASE_TASK_SLEEP_CHUNK_MS` | absent | 1000 (issue 0959) |
+| `Z_FEATURE_MATCHING` | 0 | 1 |
+| `Z_FEATURE_LOCAL_SUBSCRIBER` / `_LOCAL_QUERYABLE` | 0 | 1 (issue 0096) |
+| `Z_FEATURE_BATCHING` | 1 | 0 |
+| `Z_FEATURE_LINK_{IVC,CUSTOM,CAN,ISOTP}` | absent | 0 (RFC-0080) |
+| `Z_FEATURE_TX_SPLIT_LOCK` | absent | 0 |
+| `-DZPICO_{MAX_SESSIONS,READ_TASK_PRIORITY,LEASE_TASK_PRIORITY}` | not passed | 1 / 16 / 16 |
+
+Four of those decide which code compiles, and `Z_FEATURE_BATCHING` gates
+transport struct FIELDS (the issue-0135 every-TU rule). Measured: bringing them
+into line changed **45 of the 130 objects** and grew the `.a` from 3,838,958 to
+3,898,018 bytes. The readiness check was compiling code the real build does not, and
+not compiling code it does — exactly "answering a question about a build nobody
+performs", which is what this issue said it feared and could not yet show.
+
+The three `-D`s equal today's C `#ifndef` fallbacks, so adding them changed no
+preprocessing (0 of 130 objects moved); what changed is that a moved default is
+now a red gate rather than a silent divergence.
+
+### Verified
+
+- Compiled-source list diffed before and after: **identical**, 130 files, empty
+  diff — same nine directories, in the same order, now read rather than written.
+- Objects: with the source list derived and the redundant `-D`s deleted and
+  nothing else changed, all **130 objects were byte-identical**. The 45 that
+  differ are the config-header correction alone.
+- The script runs: `./scripts/qemu/build-zenoh-pico.sh` → `Built 130 sources →
+  build/qemu-zenoh-pico/libzenohpico.a (3.8MiB)`, `arm-none-eabi-gcc` 22 s.
+- Both gates green. Mutation-tested: a regrown literal path, a `zephyr) return
+  0` cross-wire, an `always) return 1`, reading a different file, dropping the
+  script from the sibling's lane list, a fourth compiler landing, a macro added
+  to the generator, a value drifting, **two macros trading values with the set
+  unchanged**, an invented macro, a moved Rust default, two slot counts trading
+  values, and a dropped `-D` — every one reported.
+
+### What is NOT unified, and what would finish it
+
+The two value mirrors still exist as text. Making them derivations means fix
+candidate 2 from the list above: delete the script and make "does the bare-metal
+zenoh-pico build?" a `fixtures.toml` compile-stage row, which is what the
+fixture manifest is for. That removes both mirrors instead of watching them, at
+the cost of the standalone `arm-none-eabi-gcc` path this script gives a host
+with no cargo bare-metal setup. Not done here, and not urgent: it is a readiness
+artifact no image links, so what is at stake is a false green, and the false
+green now fails a gate.
