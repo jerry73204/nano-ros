@@ -1348,10 +1348,34 @@ fn command_exists(cmd: &str) -> bool {
 /// The composed native install command for `manager` over `packages`.
 /// One command, the user's to run — sudo is spelled out where the manager
 /// needs it (brew must NOT run under sudo).
+///
+/// # apt retries behind an `apt-get update`
+///
+/// A container image ships with an EMPTY `/var/lib/apt/lists`, and
+/// `apt-get install` against an empty index does not say "no index" — it says
+/// `E: Unable to locate package libglib2.0-dev` for a package that plainly
+/// exists. So the failure reads as a bad package NAME, and the names were
+/// checked and correct. That cost the nightly esp32 lane a third consecutive
+/// red (behind issues 1025 and 1070, each of which had to be fixed before this
+/// one became visible at all).
+///
+/// It is a RETRY rather than an unconditional `apt-get update &&` because an
+/// update needs the NETWORK. A host that is offline with a warm index installs
+/// fine today, and prefixing the update would break exactly that host to fix a
+/// different one. Ordering it install-first keeps the warm path untouched — no
+/// network, no wait — and pays the update only where the first attempt failed,
+/// which is the cold-container case this exists for.
+///
+/// The cost is that a GENUINE failure (a package that really is missing) prints
+/// its error twice. That is the right trade: the second one is the real answer,
+/// and both name the package.
 pub(crate) fn native_install_command(manager: &str, packages: &[String]) -> String {
     let list = packages.join(" ");
     match manager {
-        "apt" => format!("sudo apt-get install -y {list}"),
+        "apt" => format!(
+            "sudo apt-get install -y {list} \
+             || {{ sudo apt-get update && sudo apt-get install -y {list}; }}"
+        ),
         "dnf" => format!("sudo dnf install -y {list}"),
         "pacman" => format!("sudo pacman -S --needed {list}"),
         "brew" => format!("brew install {list}"),
@@ -2948,6 +2972,60 @@ mod workspace_scan_tests {
     /// A parse-level test, because the defect was parse-level: the install code
     /// underneath was correct and unreachable, so no test of THAT could have
     /// failed.
+    /// The apt command must survive an EMPTY package index.
+    ///
+    /// A container ships no `/var/lib/apt/lists`, and `apt-get install` there
+    /// reports `Unable to locate package <real-package>` — a name error for a
+    /// name that is correct. Retry behind an update, install-first so an
+    /// OFFLINE host with a warm index never touches the network.
+    #[test]
+    fn apt_retries_behind_an_update_and_tries_install_first() {
+        let pkgs = vec!["libglib2.0-dev".to_string(), "libpixman-1-dev".to_string()];
+        let cmd = native_install_command("apt", &pkgs);
+
+        // install FIRST: the warm/offline path must not begin with an update.
+        assert!(
+            cmd.starts_with("sudo apt-get install -y "),
+            "an offline host with a warm index would now need the network:\n{cmd}"
+        );
+        assert!(
+            cmd.contains("apt-get update"),
+            "no retry behind an update:\n{cmd}"
+        );
+        // the retry must re-run the install, not just refresh the index
+        let installs = cmd.matches("apt-get install -y").count();
+        assert_eq!(installs, 2, "the retry does not re-install:\n{cmd}");
+        for p in &pkgs {
+            assert!(cmd.contains(p.as_str()), "{p} missing from:\n{cmd}");
+        }
+        // valid `sh -c` input: that is how it is RUN, and it is also printed.
+        let st = std::process::Command::new("sh")
+            .args(["-n", "-c", &cmd])
+            .status()
+            .expect("spawn sh -n");
+        assert!(
+            st.success(),
+            "composed apt command is not valid shell:\n{cmd}"
+        );
+    }
+
+    /// The other managers are untouched — brew must never gain a sudo, and
+    /// none of them gains a retry they did not ask for.
+    #[test]
+    fn the_other_managers_are_unchanged() {
+        let pkgs = vec!["z".to_string()];
+        assert_eq!(
+            native_install_command("dnf", &pkgs),
+            "sudo dnf install -y z"
+        );
+        assert_eq!(
+            native_install_command("pacman", &pkgs),
+            "sudo pacman -S --needed z"
+        );
+        assert_eq!(native_install_command("brew", &pkgs), "brew install z");
+        assert!(!native_install_command("brew", &pkgs).contains("sudo"));
+    }
+
     #[test]
     fn sudo_parses_with_tool_as_well_as_system() {
         use clap::Parser;
