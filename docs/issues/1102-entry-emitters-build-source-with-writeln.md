@@ -98,6 +98,29 @@ proc-macro's dependency budget) and many language PACKS. Converting the
 emitters, which is what this issue tracks, is Stage 3 of that design — worth
 doing on its own, and not the whole of it.
 
+## Follow-ups the RFC-0091 study surfaced
+
+Two items that belong to this issue's area, both evidenced in
+[RFC-0091](../design/0091-one-entry-codegen-producer-many-language-packs.md):
+
+1. **The tier spec table is initialised POSITIONALLY** against
+   `nros_native_tier_spec_t`, a struct mirrored across NINE files whose own
+   comment asks a human to keep them in sync. `check-ffi-struct-mirrors` does
+   not cover it — it compares `component.h` against `nros_cpp_ffi.h` only. A
+   field inserted anywhere but the end silently mis-assigns every generated
+   entry (issue 0160's class, uncaught). Emitting DESIGNATED initialisers makes
+   that a compile error at the generated TU; extending the mirror gate makes it
+   loud at the point of edit. Both, ideally.
+
+2. **Five C goldens record output the pipeline never produces.**
+   `c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`, `c_threadx_one` and
+   `c_nuttx_tiers` come from calling `emit_c` directly, but `cmd/codegen.rs`
+   routes an embedded C entry to the C++ emitter. They are byte-identical to
+   the native rows except a comment, and they read as board coverage they do
+   not have. Route the harness through the dispatch, or relabel them to pin
+   what they actually prove — that `emit_c` ignores the board and the dispatch
+   is what stops that mattering.
+
 ## Notes
 
 `check-entry-session-name` gates the session-name property across both
