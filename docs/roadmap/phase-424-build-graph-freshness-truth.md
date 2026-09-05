@@ -304,3 +304,151 @@ on this host, so no PX4 build was run and nothing was verified through
 `libnros_cpp.a` artifacts and real generated headers, in both directions; its
 behaviour *inside a PX4 configure* is inferred from it sitting at file scope in a
 module every PX4 root includes.
+
+## Resolved: #1050 defect (3), a module can name its backend (2026-09-05)
+
+> **Reconciled 2026-09-06.** This section was written against a parallel
+> implementation (PR #492, `nros_cpp_init_with_rmw`). What LANDED is PR #481's
+> `nros_cpp_init_rmw` plus the `BootConfig.rmw` baked rung — same defect, same
+> conclusion, different spelling. The narrative below is kept because its
+> measurement and its reasoning hold; the names are corrected, and one claim it
+> opens with was refuted on the way, which is recorded rather than deleted.
+
+**The opening claim is half wrong, and the half that is true is on the C
+surface.** `nros_cpp_init` goes through `Executor::open_in`, which has consulted
+`resolve_backend` since phase-128.A.3 and REFUSES an ambiguous registry — so the
+observed `nros::init() failed` was the resolver refusing, not zenoh being opened.
+The C path (`nros::internals::open_session`) really did take registry slot 0
+silently, and that is where "opens whichever backend registered FIRST" was true.
+Reproduced as a failing test before anything was changed.
+
+Measured on PX4: a uORB-only module linked against a zenoh-carrying
+`libnros_cpp.a` failed at `init()` — **broken by a backend it never declared,
+winning a race it should not have been in.**
+
+The capability existed twice already — `Executor::open_with_rmw` and
+`NodeBuilder().rmw(...)` — and the one-liner the examples use could not reach
+either. What shipped is the missing rung, not a new mechanism:
+
+* `nros_cpp_init_with_rmw()` (FFI) and `nros::init_with_rmw()` (header), routed
+  to `Executor::open_with_rmw_in`, which already existed.
+* **One body, two entry points.** `nros::init()` is now
+  `init_with_rmw(nullptr, …)`, and `nros_cpp_init()` is
+  `nros_cpp_init_with_rmw(NULL, …)`. Splitting them would have put the
+  `NROS_ENTRY_*` baked-rung ladder in the header twice and the `resolve_boot`
+  ladder in Rust twice — a second partial copy of that ladder is a defect this
+  file already carried once and removed (issue 0329).
+* **No fallback, deliberately.** A named backend that is not registered in this
+  image FAILS. A fallback is the defect.
+* Routing through `nros_cpp_init_multi` was the obvious shortcut and is wrong:
+  it takes `spec.domain_id` RAW, so it would have skipped `resolve_boot` and with
+  it the env rung and the `NROS_DOMAIN_ID_EXPLICIT_ZERO` sentinel.
+
+Gated by `packages/api/nros-cpp/tests/compile/init_names_its_backend.cpp` on the
+`check cpp` lane — the PX4 call shape including its defaults, plus every
+historical `init()` spelling, so the delegation cannot silently change the public
+surface.
+
+## Carried forward — work that outlives the issues
+
+The eight issues close; three pieces of work do not. Written here rather than
+left in the issue bodies, because each needs a decision or a wave and an archived
+issue is not where anyone looks for that.
+
+### 1. #0945 item 4 — the generated headers' consumer migration
+
+**The one item with a countable finish line.** `nros-{c,cpp}`'s build scripts
+write their per-build config headers into `$CARGO_TARGET_DIR/nros-{c,cpp}-generated/`,
+a path inside cargo's tree that cargo does not manage. `$OUT_DIR` is cargo's own
+answer and the Zephyr lane already takes it (`cargo-out-dir-headers.py`, W5.c);
+the other lanes do not.
+
+Counted, not estimated: **128 hits across 26 non-doc files** (`git grep -n
+'nros-c-generated\|nros-cpp-generated' -- ':!docs'`), including
+`NanoRosNodeRegister.cmake`, `NanoRosVerbs.cmake`, `integrations/nuttx/Make.defs`,
+`integrations/px4/NanoRosPx4Module.cmake`, `zephyr/CMakeLists.txt`, and 49 hits in
+`just/check.just`.
+
+**What makes it a wave rather than an afternoon**, and this is the part worth
+knowing before starting: `write_header_to_corrosion()` already exists and writes
+to `$CORROSION_BUILD_DIR`, which is cmake-owned and outside cargo's tree. It is
+not enough on its own. The target-dir copy beside it is load-bearing *because*
+`CORROSION_BUILD_DIR` cannot be watched — it is a PATH variable, and watching one
+as text is issue 0491's defect, which issue 0805 measured at ~70 spellings in one
+fingerprint namespace and 459 s of a warm rebuild. So the migration needs the
+Corrosion lanes to get a cache-hit-safe header destination the way the Zephyr lane
+did, and Corrosion invokes cargo itself rather than being wrapped. **That is a
+design question at the tree's most fragile seam, not a mechanical sweep.**
+
+The risk it carries is not the one item 4 names. Its stated risk (a future cargo
+target-dir GC) has never fired; the side channel having no OWNER has, six times
+(issues 0360, 0834, 0978, 0985, 0987, 1031), and the differential probe families
+are structurally blind to it — a wrong generated header produces the same wrong
+bytes twice, so the verdict is FRESH.
+
+### 2. #1018's second half — the stale-CLI refusal is still a STOP
+
+> **Superseded 2026-09-06 by phase-429 / RFC-0090.** Kept for the record; the
+> conclusion changed.
+
+The configure-time half is fixed (`nros_codegen_tool_reconfigure()`, gated), and
+the `generated/` regeneration stamp now keys on `nros codegen-fingerprint`.
+
+What was expected to remain — narrowing the refusal — was MEASURED and largely
+refuted. Of the three stops this issue reports, **two are correct**: the
+`play_launch` pin is a genuine CLI build input (`build.rs` bakes
+`NROS_PLAY_LAUNCH_SHA`; issue 0561 records a pin move that left the stamp
+unchanged while `setup-cli` reported success), and `cmd/doctor.rs` is compiled
+into the binary, so the stamp's question — "does this binary match its sources" —
+is answered correctly. The right question, "would this binary emit different
+bytes", cannot be answered without compiling the sources.
+
+One watch-set entry WAS removable, and it was removed:
+`rosidl-codegen/templates/`, five `.jinja` files byte-identical to
+`packs/scaffold/` and referenced from no `.rs`. Proof is the pair of
+measurements — the codegen fingerprint did not move, the source stamp did.
+
+What actually changed is WHO PAYS: RFC-0090 gives generated code a version the
+runtime asserts, so the refusal stops being the only guard, and it cannot fire
+for a user at all (`checkout_root_of` matches only a binary inside the
+checkout).
+
+Narrowing the WATCH SET is rejected and the reason is written down: the emitters
+reach through `cargo-nano-ros`/`nros-cli-core`, so a crate-level closure is nearly
+the whole closure and would not have excluded `doctor.rs` anyway; and issue 0604
+measured a hand-rolled closure wrong in BOTH directions at once (23 dirs where
+cargo resolves 8, blind to `workspace = true` and to `optional = true`).
+
+The issue's own option (2) is the shape that works, and it needs one decision
+first. **Stamp the generated output with the CLI's codegen FINGERPRINT** rather
+than gating on the CLI's source hash: the running binary can compare its own
+`codegen_fingerprint()` against the stamp in `generated/` and regenerate when they
+differ, without anyone rebuilding the CLI. `nros codegen-fingerprint` exists and
+collapses 41 binaries to 9 fingerprints — 78 % of rebuilds would cost nothing.
+
+The catch, measured: the corpus behind that fingerprint covers the message,
+service and action emitters and **not** `codegen entry` or `codegen-system`, so
+keying those two on it would report FRESH for a real emitter change. The split
+that works is per-emitter — fingerprint-keyed where the corpus covers it, source-
+stamped where it does not — and whether to take that or first extend the corpus
+(which means `rosidl-codegen` reaching emitters that live above it in
+`nros-cli-core`, a layering change) is the decision. **Not done blind:** this is
+the freshness gate every consumer passes through, and it cannot be verified from a
+worktree that cannot build the Zephyr lane.
+
+### 3. #0835's residue — the duplicated `threadx-riscv64` corrosion group
+
+> **Closed 2026-09-06.** This item asked for a decision that has since been
+> taken, so it is no longer carried forward. Kept because the cost it names was
+> real and was paid knowingly.
+
+The six `examples/qemu-riscv64-threadx/rust/*` leaves no longer misreport their
+platform, and the shared cargo directory keys on the resolved feature set rather
+than the label, so the duplicate groups are gone. The decision this item asked
+for — whether to re-key at all, given that **either candidate fix re-keys every
+corrosion cargo directory on every platform** and schedules a one-time full
+rebuild — was taken: it re-keys. The old directories are inert and are not
+removed.
+
+As this item originally warned, the call was deliberately not slipped into an
+unrelated branch; it landed as its own change with the cost stated in the commit.

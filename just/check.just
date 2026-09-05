@@ -4057,6 +4057,21 @@ cpp: cpp-fmt
         -Ipackages/api/nros-c/include \
         -Ipackages/platform/nros-platform-api/include \
         packages/api/nros-cpp/tests/compile/graph_query_entry_points.cpp
+    echo "  - a module can NAME the backend it means (issue 1050 defect 3)"
+    # `nros::init()` opens whichever backend registered FIRST, and on a hosted
+    # target that order is decided before `main` by `.init_array` ctors. A PX4
+    # uORB-only module linked against a zenoh-carrying archive was handed zenoh
+    # and failed dialling a router nobody asked for. The capability existed on
+    # `Executor::open_with_rmw` and `NodeBuilder().rmw(...)`; the one-liner the
+    # examples use could not reach it. Surface probe, including the defaults
+    # that make it a one-liner.
+    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-cpp/tests/compile/init_names_its_backend.cpp
     echo "  - a message's serialization format matches the linked backend (RFC-0088 D5)"
     # phase-421 W6 — codegen specialises `nros::format_of<M>` per message and the
     # typed creators `static_assert` on it. The positive TU proves the assertion
