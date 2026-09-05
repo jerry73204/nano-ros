@@ -11,30 +11,31 @@
 #         link glue. CLASS is any namespace-qualified name (RFC-0057; the
 #         L.4 prefix rule is retired — pkg is explicit metadata).
 #
-#     phase-403 W9 (issue 0965) adds the optional
-#       `ENTITIES <spec>...`  |  `ENTITIES NONE`
-#     argument — WHICH entities this component's constructor creates. Each
-#     spec is `<kind>[:<type>[:<name>]]`, with an optional `*N` repeat on the
-#     kind:
+#     `ENTITIES` was phase-403 W9's way of saying WHICH entities a component's
+#     constructor creates. It is RETIRED (phase-412) and now fails loud.
 #
-#         ENTITIES sub:nav_msgs/msg/Odometry:/localization/kinematic_state
-#                  pub*5 timer service_client*2
-#
-#     Kinds: publisher, subscription, timer, service_server, service_client,
-#     action_server, action_client, guard_condition (short forms pub / sub /
-#     srv / client are accepted). `nros ws entity-inventory` owns the grammar.
-#
-#     WHY THE AUTHOR STATES IT. RFC-0043/0044 components wire themselves in
-#     CONSTRUCTORS, at runtime; the macros know the kind and the type `M`, but
-#     anything they emit is a link-section fact and exists only after linking,
+#     The reasoning that put it here still holds and is worth keeping: RFC-0043
+#     /0044 components wire themselves in CONSTRUCTORS, at runtime, so anything
+#     the macros emit is a link-section fact that exists only after linking,
 #     while `NROS_EXECUTOR_MAX_CBS` and the arena are `const` sizes compiled
 #     INTO nros-node before a component TU is compiled. Emitted evidence can
-#     VERIFY a count; it can never SUPPLY one.
+#     VERIFY a count; it can never SUPPLY one. Somebody has to STATE it.
 #
-#     ABSENT IS NOT ZERO. Omitting `ENTITIES` writes no `entities` key at all,
-#     and one such component makes the whole image REFUSE to derive rather than
-#     derive a total that is short. `ENTITIES NONE` is how a component that
-#     really creates nothing says so.
+#     What changed is WHO states it and WHERE. A list in a component's own
+#     CMakeLists is hand-maintained beside the code with nothing comparing the
+#     two, and that is not a hypothetical: the safety island's mrm_handler
+#     declared six subscriptions for a node that creates seven, every pool
+#     derived from the list was short by one, and the eleventh subscription
+#     failed at boot with a transport error that named nothing. It cost days on
+#     real silicon.
+#
+#     The replacement is a CONTRACT SIDECAR beside the launch file --
+#     `<stem>.contract.yaml` next to `<stem>.launch.xml` in the bringup package
+#     -- which the resolver folds into the SystemModel. One file per system
+#     rather than one per component, sitting next to the launch file that says
+#     which nodes run, and `nros ws entity-inventory --model` sizes the pools
+#     from it. `nano_ros_entry` passes the model automatically; nothing here
+#     needs an argument.
 #
 #   * `nano_ros_entry(NAME <name> SOURCES <files...> [BOARD <board>]
 #       DEPLOY <target1> [<target2> ...])`
@@ -1111,40 +1112,35 @@ function(nano_ros_node_register)
     _nros_json_strlist(_deploy_json  ${_NRC_DEPLOY})
     _nros_json_strlist(_cbgs_json    ${_NRC_CALLBACK_GROUPS})
 
-    # phase-403 W9 (issue 0965) — the ENTITY declaration.
+    # phase-412 — `ENTITIES` is RETIRED. It stays PARSED (and
+    # `KEYWORDS_MISSING_VALUES` still catches the valueless form) purely so an
+    # existing caller fails HERE, naming its replacement, instead of having the
+    # keyword and its specs silently join SOURCES via UNPARSED_ARGUMENTS and
+    # become source files nobody can find. Same shape as the HOST removal in
+    # `nano_ros_entry`.
     #
-    # `"entities"` is EMITTED ONLY WHEN THE KEYWORD WAS GIVEN, and that is the
-    # whole design rather than a nicety. `nros ws entity-inventory` must be able
-    # to tell "this component creates nothing" from "this component said
-    # nothing": the first is an answer it can compose, the second makes the
-    # WHOLE image refuse to derive. An always-present `"entities": []` collapses
-    # exactly those two, and the collapse is an under-report — a `MAX_CBS`
-    # smaller than the image needs, which fails entity creation at boot.
-    #
-    # So: keyword absent  -> no key at all -> "did not say".
-    #     ENTITIES NONE   -> ["none"]      -> "creates none", derivable.
-    #     ENTITIES <spec>… -> the specs.
-    #
-    # `KEYWORDS_MISSING_VALUES` catches the third shape, `ENTITIES` with nothing
-    # after it, which cmake would otherwise leave indistinguishable from absent.
-    # It is a typo rather than a claim, so it is a hard error here — the one
-    # validation this side does, because it is the one the CLI cannot see.
+    # There is no metadata `"entities"` key any more. The three-valued rule it
+    # existed for — "did not say" vs "creates none" vs the specs — is not gone,
+    # it MOVED: a component the model describes is stated, a component the model
+    # does not describe is "did not say" and still makes the image refuse rather
+    # than derive a total that is short.
     set(_entities_field "")
-    if("ENTITIES" IN_LIST _NRC_KEYWORDS_MISSING_VALUES)
+    if(DEFINED _NRC_ENTITIES OR "ENTITIES" IN_LIST _NRC_KEYWORDS_MISSING_VALUES)
         message(FATAL_ERROR
-            "nano_ros_node_register(${_NRC_NAME}): ENTITIES was given with no values.\n"
-            "  Write `ENTITIES NONE` if this component creates no entities, or list them:\n"
-            "    ENTITIES sub:nav_msgs/msg/Odometry:/odom pub*2 timer\n"
-            "  Omitting ENTITIES entirely is also legal and means \"not declared\" — the\n"
-            "  image then keeps its configured NROS_EXECUTOR_MAX_CBS instead of a derived one.")
-    endif()
-    if(DEFINED _NRC_ENTITIES)
-        # The specs are NOT parsed here. `nros ws entity-inventory` owns the
-        # grammar and the kind vocabulary; a second parser in cmake is how the
-        # two spellings drift, and its error would name a token rather than a
-        # component.
-        _nros_json_strlist(_entities_json ${_NRC_ENTITIES})
-        set(_entities_field ", \"entities\": [${_entities_json}]")
+            "nano_ros_node_register(${_NRC_NAME}): ENTITIES was retired (phase-412).\n"
+            "  What this component creates is now stated ONCE PER SYSTEM, in a contract\n"
+            "  sidecar beside the launch file that runs it:\n"
+            "\n"
+            "      <bringup>/launch/<stem>.contract.yaml   (beside <stem>.launch.xml)\n"
+            "\n"
+            "  nodes: names each node's `pub` / `sub` / `srv` / `cli` endpoints and its\n"
+            "  `paths:` (a path whose trigger is `{ timer: { rate_hz: N } }` IS a timer);\n"
+            "  topics: / services: / actions: wire those endpoints to absolute names.\n"
+            "  The resolver folds it into the SystemModel and `nano_ros_entry` passes\n"
+            "  that model to `nros ws entity-inventory`, so the pools size themselves.\n"
+            "\n"
+            "  Delete the ENTITIES argument. A system with no contract yet keeps its\n"
+            "  configured NROS_EXECUTOR_MAX_CBS, exactly as it did before phase-403.")
     endif()
 
     get_property(_acc GLOBAL PROPERTY NROS_COMPONENTS_JSON)
@@ -1182,16 +1178,30 @@ function(nano_ros_node_register)
     endif()
     _nros_node_register_schedule_inventory()
 
-    # phase-403 step 2 — carry the declared `@depth=` to the COMPILER.
-    if(DEFINED _NRC_ENTITIES)
-        _nros_emit_declared_qos_header("${_NRC_NAME}" "${_lib}" "${_nrc_lang}")
-    endif()
+    # phase-403 step 2 carried a declared `@depth=` to the COMPILER from here,
+    # via `_nros_emit_declared_qos_header`. Its only producer was `ENTITIES`,
+    # which is retired, so the call is gone and no component gets a depth table.
+    # The function itself is still there and still tested; see the note above it
+    # for why, and issue 1084 for what a new producer costs.
 endfunction()
 
 # _nros_emit_declared_qos_header(<component> <target> <lang>)
 #
 # phase-403 step 2 — render this component's declared QoS depths as a C++
 # header and put it on its own library's include path, so `NROS_SUBSCRIBE` can
+# NO PRODUCTION CALLER, and that is deliberate rather than an oversight.
+# `ENTITIES` was this function's only caller and it is retired (phase-412), so
+# nothing in a real configure renders a depth table today. The function and its
+# test (`tests/cmake-declared-qos-header-tests.sh`, a REAL configure) stay
+# because the mechanism is correct and the renderer behind it is still exercised
+# by `check-cpp`; what is missing is a producer, not the machinery.
+#
+# Restoring one means rendering from the model's
+# `contracts.sub_endpoints[*].qos.depth`, which `EntityInventory::from_model`
+# already reads. The obstacle is WHERE: this runs per component, before the
+# entry has resolved a model, and the table has to land on that component's own
+# include path. Issue 1084.
+#
 # static_assert the QoS at a call site against the `@depth=` the register call
 # beside it declared.
 #

@@ -1,0 +1,33 @@
+# Node interface contract for system.launch.xml (phase-412 -- ENTITIES retired).
+#
+# A launch file names nodes; it cannot say that `talker` creates a publisher
+# and a timer. That used to live in each package's `nano_ros_node_register(
+# ENTITIES ...)`, hand-maintained with nothing comparing it to the code. This
+# is the replacement: the resolver folds it into the SystemModel, and
+# `nros ws entity-inventory --model` sizes the image's pools from it.
+#
+# `nodes:` keys are LOCAL endpoint names. An absolute path here would be
+# concatenated onto the node FQN and match no topic.
+
+version: 1
+
+nodes:
+  talker:
+    # `Talker::on_timer` publishes one Int32 per tick. 1 Hz is the example's
+    # own period, not a number invented to satisfy a mapper.
+    paths:
+      on_timer:
+        trigger: { timer: { rate_hz: 1 } }
+        output: [chatter]
+    pub:
+      chatter: {}
+
+  listener:
+    sub:
+      chatter: {}
+
+topics:
+  /chatter:
+    type: std_msgs/msg/Int32
+    pub: [talker/chatter]
+    sub: [listener/chatter]

@@ -233,3 +233,48 @@ cannot see it — this is read from `ARENA_SIZE` for the reason issue 0900 gives
   `std_msgs/msg/Int32` for this image, which is exactly the input the
   `subscribed` basis wants; whether that changes the payload classes here is
   unmeasured, and on a one-small-type image it may well be nothing.
+
+## Update 2026-09-05 (phase-412) — the SOURCE moved, the answer did not
+
+The three consumers above are still derived and still derived the same way.
+What changed is where the statement comes from.
+
+This issue's answer was `nano_ros_node_register(ENTITIES ...)`: each component
+naming, in its own CMakeLists, what its constructor creates. That was the right
+shape for the question ("emitted evidence can VERIFY a count, it can never
+SUPPLY one" still holds) and the wrong PLACE for it. A list beside the code
+with nothing comparing the two drifts, and on the safety island it did:
+`mrm_handler` declared six subscriptions for a node that creates seven. Every
+pool derived from the list was short by one, the eleventh subscription failed
+the metadata-slot guard at boot, and the error it produced named nothing —
+`SubscriberCreationFailed` has no dedicated return code, so the funnel's `_ =>`
+arm collapsed it into `-100 Backend("rmw_ret error")`. Days on real silicon.
+
+`ENTITIES` is retired. The statement is now a CONTRACT SIDECAR beside the
+launch file — `<stem>.contract.yaml` next to `<stem>.launch.xml` — which the
+resolver folds into the SystemModel, and `EntityInventory::from_model` reads:
+
+| kind | model location |
+| --- | --- |
+| publisher, subscription | `structure.topics[*].{publishers,subscribers}` |
+| service server / client | `structure.services[*].{server,client}` |
+| action server / client | `structure.actions[*].{server,client}` |
+| timer | `contracts.node_paths[*]` with an EMPTY `input` |
+
+The timer row is the one that had to be established rather than assumed: the
+belief that the model has no timer entity is what kept `ENTITIES` alive through
+phase-412's first half, and it was wrong. `PathContract::input` is documented as
+"empty = periodic (timer-driven)", and a contract's
+`trigger: { timer: { rate_hz: N } }` resolves to exactly that.
+
+Measured on the island, ENTITIES removed from all four components: 29 entities,
+15 callback slots, `MAX_SUBSCRIBERS` 11, `RMW_SUBSCRIBER_SLOTS` 11 — identical
+to what the declaration produced, and 11 is the count the hardware measured. On
+the cpp workspace examples, likewise identical: talker+listener 3 entities /
+2 slots, action_server 2 entities / 2 slots.
+
+Still open, and why this issue is not resolved: one image cannot state itself.
+`service_client_pkg` has a service CLIENT and no server (the server is a
+separate image), and the contract schema has no `external:` mark for services
+the way it has for topics, so `dangling-entity` refuses. That image keeps its
+configured sizes. Issue 1083.

@@ -1,0 +1,14 @@
+# Node interface contract for service_server.launch.xml (phase-412).
+# Replaces `nano_ros_node_register(ENTITIES service_server:...)`.
+
+version: 1
+
+nodes:
+  add_server:
+    srv:
+      add_two_ints: {}
+
+services:
+  /add_two_ints:
+    type: example_interfaces/srv/AddTwoInts
+    server: [add_server/add_two_ints]

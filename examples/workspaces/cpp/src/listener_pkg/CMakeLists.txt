@@ -21,11 +21,10 @@ nros_components_register_node(listener_lib
     PLUGIN listener_pkg::Listener
     EXECUTABLE listener
     SHAPE configure
-    # issue 0965 — what this component CREATES, read off its own
-    # source. Absence means "nobody said" and refuses the whole image,
-    # so every component in a workspace declares or none derives.
-    ENTITIES
-             sub:std_msgs/msg/Int32:/chatter)
+    # phase-412 -- `ENTITIES` is retired. What this component creates is
+    # stated in demo_bringup/launch/system.contract.yaml, beside the launch
+    # file that runs it, and reaches the sizing through the SystemModel.
+)
 
 # `nros_find_interfaces` declares INTERFACE libs (`std_msgs__nano_ros_cpp`)
 # carrying generated headers' include dirs. Entry pkg auto-links; Node

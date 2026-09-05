@@ -17,12 +17,10 @@ nros_components_register_node(action_client_lib
     PLUGIN action_client_pkg::FibClient
     EXECUTABLE fib_client
     SHAPE configure
-    # issue 0965 — what this component CREATES, read off its own
-    # source. Absence means "nobody said" and refuses the whole image,
-    # so every component in a workspace declares or none derives.
-    ENTITIES
-             action_client:example_interfaces/action/Fibonacci:/fibonacci
-             timer)
+    # phase-412 -- `ENTITIES` is retired. What this component creates is
+    # stated in demo_bringup/launch/action_client.contract.yaml, beside the launch
+    # file that runs it, and reaches the sizing through the SystemModel.
+)
 
 if(TARGET example_interfaces__nano_ros_cpp)
     target_link_libraries(action_client_lib

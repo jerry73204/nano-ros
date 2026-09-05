@@ -116,27 +116,73 @@ nano_ros_auto_add_library(talker_lib STATIC src/Talker.cpp)
 nros_components_register_node(talker_lib
     PLUGIN talker_pkg::Talker      # any qualified name — upstream namespaces port verbatim
     EXECUTABLE talker
-    SHAPE configure                # this walkthrough uses the configure(Node&) shape
-    ENTITIES pub:std_msgs/msg/Int32:/chatter timer)
+    SHAPE configure)               # this walkthrough uses the configure(Node&) shape
 ```
 
-`ENTITIES` (optional) states what this component's constructor creates, so the
-build can size the executor instead of a human counting call sites. Each entry
-is `<kind>[:<type>[:<topic>]]`, with an optional `*N` repeat on the kind
-(`pub*5`); the kinds are `publisher`, `subscription`, `timer`,
-`service_server`, `service_client`, `action_server`, `action_client` and
-`guard_condition`. Write `ENTITIES NONE` for a component that creates none.
+### Telling the build what the component creates
 
-It is worth stating even though it is optional: `NROS_EXECUTOR_MAX_CBS` is
-derived from it, and the derivation is all-or-nothing. **If any component in an
-image omits `ENTITIES`, nothing is derived for that image** — a count taken over
-only the components that answered is smaller than the image needs, and a short
-`MAX_CBS` fails entity creation at boot. Inspect the composed answer with
-`nros ws entity-inventory --metadata <build>/nros-metadata.json`.
+`NROS_EXECUTOR_MAX_CBS`, the subscriber slots and the arena are `const` sizes
+compiled into nros-node before a component TU is compiled, while an RFC-0043
+component wires itself in its CONSTRUCTOR, at runtime. Nothing the macros emit
+can supply those sizes — it exists only after linking. So somebody has to state
+what the image creates, ahead of the build.
 
-Note that a publisher is inventoried but claims no callback slot, so the
-declared entity count and the derived `MAX_CBS` are legitimately different
-numbers.
+That statement is a **contract sidecar** beside the launch file, not something
+in this CMakeLists. `<stem>.contract.yaml` next to `<stem>.launch.xml` in the
+bringup package:
+
+```yaml
+# src/demo_bringup/launch/system.contract.yaml
+version: 1
+
+nodes:
+  talker:
+    paths:
+      on_timer:                                  # a path with a timer trigger
+        trigger: { timer: { rate_hz: 1 } }       # IS the periodic callback
+        output: [chatter]
+    pub:
+      chatter: {}
+  listener:
+    sub:
+      chatter: {}
+
+topics:
+  /chatter:
+    type: std_msgs/msg/Int32
+    pub: [talker/chatter]
+    sub: [listener/chatter]
+```
+
+`nodes:` keys are LOCAL endpoint names — an absolute path there is concatenated
+onto the node's FQN and matches no topic. `topics:`, `services:` and `actions:`
+wire those endpoints to absolute names and carry the type. `paths:` is where
+timers live: the model records a path with no `input` as the periodic callback.
+
+`nros sync` folds it into the resolved SystemModel, and the entry passes that
+model to the sizing automatically — nothing here takes an argument for it.
+Inspect the composed answer with:
+
+```console
+$ nros ws entity-inventory --metadata <build>/nros-metadata.json       --model <ws>/build/nros/models/demo_bringup/system_model.yaml
+```
+
+The derivation is all-or-nothing per image: **a component the contract does not
+describe makes that image derive nothing** and keep its configured
+`NROS_EXECUTOR_MAX_CBS`. A count taken over only the components that answered
+is smaller than the image needs, and a short `MAX_CBS` fails entity creation at
+boot — so "some of them" is refused rather than guessed at.
+
+Note that a publisher is inventoried but claims no callback slot, so the entity
+count and the derived `MAX_CBS` are legitimately different numbers.
+
+> Earlier versions stated this per component, as
+> `nano_ros_node_register(ENTITIES ...)`. That keyword is retired (phase-412)
+> and now fails with a pointer here. It was a list beside the code with nothing
+> comparing the two, and on the safety island one of them declared six
+> subscriptions for a node that creates seven: every pool derived from it was
+> short by one, and the eleventh subscription failed at boot with a transport
+> error that named nothing.
 
 ```cpp
 // src/talker_pkg/include/talker_pkg/Talker.hpp

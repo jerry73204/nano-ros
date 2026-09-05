@@ -1,0 +1,16 @@
+# Node interface contract for action_client.launch.xml (phase-412).
+# Replaces `nano_ros_node_register(ENTITIES action_client:... timer)`.
+
+version: 1
+
+nodes:
+  fib_client:
+    paths:
+      on_timer:
+        trigger: { timer: { rate_hz: 1 } }
+        output: []
+
+actions:
+  /fibonacci:
+    type: example_interfaces/action/Fibonacci
+    client: [fib_client/fibonacci]

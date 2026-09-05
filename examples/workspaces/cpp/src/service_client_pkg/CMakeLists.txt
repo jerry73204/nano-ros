@@ -15,12 +15,15 @@ nros_components_register_node(service_client_lib
     PLUGIN service_client_pkg::AddClient
     EXECUTABLE add_client
     SHAPE configure
-    # issue 0965 — what this component CREATES, read off its own
-    # source. Absence means "nobody said" and refuses the whole image,
-    # so every component in a workspace declares or none derives.
-    ENTITIES
-             service_client:example_interfaces/srv/AddTwoInts:/add_two_ints
-             timer)
+    # phase-412 -- `ENTITIES` is retired, and this component is the one
+    # case with no replacement yet: its service has a CLIENT and no
+    # server (the server is the separate add_server image), and the
+    # contract schema has no `external:` mark for services the way it
+    # has for topics -- `dangling-entity` makes a client-only service a
+    # hard resolve error. So this image authors no contract and keeps
+    # its CONFIGURED pool sizes, which is what every image had before
+    # phase-403. Issue 1083.
+)
 
 if(TARGET example_interfaces__nano_ros_cpp)
     target_link_libraries(service_client_lib

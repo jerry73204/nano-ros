@@ -17,12 +17,10 @@ nros_components_register_node(action_server_lib
     PLUGIN action_server_pkg::FibServer
     EXECUTABLE fib_server
     SHAPE configure
-    # issue 0965 — what this component CREATES, read off its own
-    # source. Absence means "nobody said" and refuses the whole image,
-    # so every component in a workspace declares or none derives.
-    ENTITIES
-             action_server:example_interfaces/action/Fibonacci:/fibonacci
-             timer)
+    # phase-412 -- `ENTITIES` is retired. What this component creates is
+    # stated in demo_bringup/launch/action_server.contract.yaml, beside the launch
+    # file that runs it, and reaches the sizing through the SystemModel.
+)
 
 # Guard with if(TARGET) (Zephyr whole-archives the generated interface; see talker_pkg).
 if(TARGET example_interfaces__nano_ros_cpp)

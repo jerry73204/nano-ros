@@ -1,0 +1,18 @@
+# Node interface contract for action_server.launch.xml (phase-412).
+# Replaces `nano_ros_node_register(ENTITIES action_server:... timer)`.
+
+version: 1
+
+nodes:
+  fib_server:
+    # The Fibonacci server computes one step per tick and publishes feedback
+    # from that tick, so the timer is a real callback slot.
+    paths:
+      on_timer:
+        trigger: { timer: { rate_hz: 10 } }
+        output: []
+
+actions:
+  /fibonacci:
+    type: example_interfaces/action/Fibonacci
+    server: [fib_server/fibonacci]
