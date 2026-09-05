@@ -80,17 +80,31 @@ layer.
 The class RFC-0089 exists for, and a parity report correlates every one of these
 `same`, because correlation compares names and shapes.
 
-* **zenoh implements none of reliability / durability / history / depth.**
-  `grep -rn "qos\.depth\|qos\.reliability\|qos\.durability\|qos\.history"
-  packages/rmw/zenoh/nros-rmw-zenoh/src` → **0 matches** (verified). Yet
-  `supported_qos_policies()` returns `CORE`, whose definition
-  (`traits.rs:1719`) is `RELIABILITY | DURABILITY_VOLATILE | HISTORY | DEPTH`,
-  so `validate_against` accepts RELIABLE. The only consumers of
-  `.reliability`/`.durability` are `keyexpr.rs:196,202`, which serialise them
-  into the liveliness token **a `rmw_zenoh_cpp` peer reads**. Ring depth is the
-  build-time `SUBSCRIBER_RING_DEPTH`, never `qos.depth`. `TRANSIENT_LOCAL` *is*
-  correctly refused, so the loud path exists and reliability is simply not on
-  it.
+* **zenoh ignores the QoS REQUEST — which is not the same as implementing
+  nothing, and the first draft of this finding got that wrong.** The grep is
+  real: `grep -rn "qos\.depth\|qos\.reliability\|qos\.durability\|qos\.history"
+  packages/rmw/zenoh/nros-rmw-zenoh/src` → **0 matches**. But it proves the
+  request is never READ, not that the policy is absent. Corrected, per policy:
+
+  | policy | delivered? |
+  | --- | --- |
+  | reliability | **yes, unconditionally RELIABLE.** `Z_RELIABILITY_DEFAULT = Z_RELIABILITY_RELIABLE` (`zenoh-pico/api/constants.h:203`); the shim never sets the field, so every put takes that default, over a TCP transport |
+  | durability | **yes, VOLATILE** — and `TRANSIENT_LOCAL` is correctly refused |
+  | history | `KEEP_LAST` only |
+  | depth | **no** — build-time `SUBSCRIBER_RING_DEPTH` (default 4), overflow drops at `subscriber.rs:1538` |
+
+  So a caller asking BEST_EFFORT gets RELIABLE: *stronger* than requested,
+  which is the safe direction under RxO (a BEST_EFFORT reader accepts a
+  RELIABLE writer). It costs bandwidth and latency, not correctness, and
+  advertising `RELIABILITY` is defensible.
+
+  **The real over-claim is `DEPTH`.** A caller asking depth 100 silently gets
+  4, and under `KEEP_ALL` that is a violation rather than a downgrade. The code
+  already knows: `session.rs:900-907` says the reported depth deliberately does
+  not mirror upstream's 42 because *"advertising a depth we cannot honour is
+  the lie issue 0829 is about"* — so `get_actual_qos` tells the truth while the
+  SUPPORTED MASK still claims `DEPTH`. The honesty is in one place and not the
+  other.
 * **zenoh `create_service` / `create_client` discard the caller's QoS** —
   literally `let _ = qos;` (`session.rs:1005`, `:1041`, verified) — and announce
   a hardcoded `services_default()` to the graph.
@@ -185,10 +199,21 @@ W1–W6 stand for the user-facing C/C++/Rust APIs. The RMW layer adds:
   `check-rmw-slot-producers` so a backend body does not satisfy the check, and
   decide per slot whether the 17 unreachable ones get a consumer or are
   withdrawn. *Acceptance:* the tool's inert count matches the hand count.
-* **W9 [rmw] — QoS claimed must be QoS applied.** `supported_qos_policies()`
-  must be derived from what the backend implements, not authored. *Acceptance:*
-  a backend that ignores `qos.reliability` cannot advertise `RELIABILITY`; the
-  zenoh service path either applies QoS or refuses loudly.
+* **W9 [rmw] — the supported mask is DERIVED, not authored.** Today
+  `supported_qos_policies()` is a hand-written constant, so a backend can
+  declare a capability it does not have. Derive it from what the backend
+  actually honours.
+
+  Measured for zenoh, the derived mask is
+  `RELIABILITY | DURABILITY_VOLATILE | HISTORY` — **`DEPTH` drops out**, and
+  nothing that works today breaks, because dropping `DEPTH` refuses a request we
+  were already silently downgrading. RELIABLE keeps working because we genuinely
+  deliver it.
+
+  *Acceptance:* a backend whose code never reads a policy cannot advertise it;
+  `create_service`/`create_client`'s `let _ = qos;` either applies the profile
+  or refuses loudly; a request for a depth the ring cannot hold is refused or
+  reported, never silently clamped.
 * **W10 [rmw] — one QoS table.** Upstream's 7 profiles are hand-transcribed in
   four places (26 constants) with no gate binding them; `PARAMETER_EVENTS` is
   the proof. *Acceptance:* one SSoT, generated or gated, and the
