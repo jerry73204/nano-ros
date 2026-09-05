@@ -76,3 +76,23 @@ string-conventions:
 [private]
 pipefail-sigpipe-assertions:
     @python3 scripts/check-pipefail-sigpipe-assertions.py
+
+# Issue 1097 — every LITERAL in-repo path a recipe names must exist, and carry
+# the manifest its tool needs.
+#
+# The sibling of 0660 one level over: `just` resolves a recipe NAME only when
+# the recipe runs, and it never resolves a PATH at all. Two recipes were live
+# and dead when this landed, and both were born that way — `xrce
+# check-rust-rmw` (`cargo check` in a directory that has never held a
+# `Cargo.toml`) and `native test-ros2-shell` (a script phase-16 planned and
+# never committed). Both survived by being `[group("debug")]`, on no lane, and
+# named by nothing.
+#
+# Checks the MANIFEST, not just the directory, because the directory was fine:
+# cargo walks UP, so the 1097 recipe silently became a full-workspace check
+# that covered everything EXCEPT the crate it claimed to.
+#
+# A recipe's literal paths exist and carry their tool's manifest. Buildless, ~0.2 s.
+[group("ci")]
+just-recipe-paths:
+    @python3 scripts/check-just-recipe-paths.py
