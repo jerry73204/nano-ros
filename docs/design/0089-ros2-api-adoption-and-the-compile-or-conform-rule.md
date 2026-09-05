@@ -1267,3 +1267,88 @@ here unchanged; a nano-ros file using `rclcpp::spin_once` or the out-ref
 direction for the campaign — the goal is ROS 2 code running on nano-ros, not
 the reverse — but users will assume symmetry, so the book must say it plainly
 rather than letting a build failure say it later.
+
+
+## The governing principle (2026-09-05) — read this before the rule above
+
+The compile-or-conform rule at the top of this RFC is a CONSEQUENCE. This is the
+premise it follows from, stated after several sections had been written as if
+the rule were the premise.
+
+### The principle
+
+> **Our constraints come first. Within them, port upstream. A name may be kept
+> with a changed signature; a name may be invented where upstream has none. The
+> success criterion is that porting a ROS 2 file is a MECHANICAL edit — every
+> difference is one the compiler points at, and the fix is local and obvious.**
+
+Three clauses, in strict priority order:
+
+1. **RTOS and bare-metal constraints are non-negotiable.** No allocator on the
+   dispatch path, no exceptions (RFC-0018), no RTTI, a fixed executor arena, no
+   `dlopen`, `core`/`core+alloc` as the terminal state. An upstream shape that
+   cannot be expressed under these is not adopted, however central it is
+   upstream.
+2. **Within them, port upstream.** Same name, same argument order, same
+   semantics wherever the constraints permit. This is not a preference to be
+   traded away for a nicer local design — RFC-0036 already forbids recording a
+   preference as a divergence.
+3. **Invent only where upstream has nothing.** A capability upstream lacks
+   (caller-owned entity storage, `spin_once` with a budget, compile-time
+   declared QoS) gets a name in `rclcpp::` and a ledger row saying it is ours.
+
+This is **not a one-to-one mapping**, and it was never meant to be. A one-to-one
+mapping would force clause 1 to yield to clause 2, which is backwards.
+
+### What "mechanical" means, precisely
+
+The user's edit must be *directed by the compiler*, never discovered at
+runtime. That is the whole of the compile-or-conform rule, restated as a user
+outcome:
+
+| what differs | is it mechanical? | why |
+| --- | --- | --- |
+| name | yes — a rename | undeclared identifier |
+| argument order or types | yes — reorder or restate | no matching overload |
+| return type, **where the result is used** | yes | type mismatch at the use |
+| **return type, where the result is discarded** | **NO** | nothing is said |
+| behaviour behind an identical signature | **NO** | nothing is said, ever |
+
+The last two rows are the reason the rule exists. The fourth is the subtle one
+and it is live in this tree: **`rclcpp::init()` returns `void` upstream and
+`Result` here.** At a call site that writes `rclcpp::init(argc, argv);` as a
+statement, both compile, and the ported program silently stops checking an
+error it never checked. That is a changed signature that the compiler does NOT
+point at.
+
+So clause 2's licence to change a signature carries an obligation:
+
+> **A signature change is permitted when the compiler forces the edit. When it
+> does not, the difference must be made loud by other means.**
+
+For `init` the means is `[[nodiscard]]` on `Result` (or the
+`NROS_NODISCARD` spelling for C++14 targets), which turns the discarded-result
+case into a warning the `-D warnings` lanes already treat as an error.
+`grep -n nodiscard` on `result.hpp` returns nothing today, so this is an
+outstanding item rather than a description — filed against the node-merge work.
+
+### How the four dispositions follow
+
+`adopt`, `adopt-bounded`, `refuse-loud`, `absent` are not four independent
+choices; they are what clause 1 does to a candidate from clause 2:
+
+* the constraint permits it → **adopt**;
+* the constraint permits a weaker form, and the weakening is visible → **adopt-bounded**;
+* the constraint forbids it and the defect is knowable from the type →
+  **refuse-loud** at compile time;
+* the constraint forbids it and only the VALUE carries the defect → refuse-loud
+  at the call, which is what `rclcpp::init(argc, argv)` does with `--ros-args`;
+* upstream has it, we will not, and no ported file can reach it → **absent**.
+
+### The one-directional consequence, restated
+
+A ROS 2 file compiles here after a mechanical edit. A nano-ros file does not
+compile against ROS 2 — it uses names and shapes upstream lacks. That asymmetry
+is the principle working, not a gap in it: clause 1 outranks clause 2, so where
+our constraints demand something upstream does not have, we have it and upstream
+does not.
