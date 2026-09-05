@@ -263,8 +263,21 @@ def doc_groups():
     # shared helper rather than a second spelling", which is the rule the
     # #282 -> #326 pair was filed under. The `target` filter main carried is
     # dropped as dead: git never tracks it, so the index cannot yield it.
+    # The `third-party` test is RELATIVE to the repo, and that is the whole of
+    # the fix. It read `p.parts` on the ABSOLUTE path, so a checkout that
+    # happens to live under a directory of that name filtered out EVERY cli
+    # document instead of just the vendored `packages/cli/third-party/`
+    # subtree -- and vendoring nano-ros as `<super>/third-party/nano-ros` is
+    # exactly how the safety island consumes it.
+    #
+    # The gate then read GREEN on that checkout while scanning nothing, which
+    # is worse than red: on 2026-09-05 it made ten baseline waivers look dead,
+    # they were pruned as "no longer offend", and CI -- whose checkout is not
+    # under a `third-party` directory -- failed on all ten. A gate whose
+    # coverage depends on where the tree was cloned reports the clone, not the
+    # code.
     cli_docs = {p for p in tracked("packages/cli", suffix=".md")
-                if "third-party" not in p.parts}
+                if "third-party" not in p.relative_to(REPO).parts}
     return [
         (REPO / "justfile", sorted(root_docs)),
         (cli_root / "justfile", sorted(cli_docs)),
