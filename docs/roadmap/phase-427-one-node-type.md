@@ -63,7 +63,28 @@ optional to migrate rather than a flag day.
 * **W7 [migration] — `nros::Node` deprecated, then deleted.** Alias for one
   release with `NROS_DEPRECATED_MSG`, then removed.
 
-## What stays invented
+## What stays invented — REVISED after review (2026-09-05)
+
+The first version of this table had four entries. Reviewed against the recorded
+upstream surface, **two were mislabelled** (RFC-0089 §"Review of the invented
+parts"):
+
+| item | verdict |
+| --- | --- |
+| `rclcpp::Timer` | **partly ported.** Upstream's `TimerBase` is a POLYMORPHIC base and adopting the hierarchy is refused by clause 1 — a vtable in every image that holds a timer. But the common ported line is a member declaration, `rclcpp::TimerBase::SharedPtr timer_;`, which is a NAME. So hosted gains `using TimerBase = Timer;` plus a `SharedPtr` typedef, and a file that tries to DERIVE fails to compile. `WallTimer`/`GenericTimer` stay absent — templates over a clock type we do not have. |
+| `rclcpp::spin_once(timeout_ms)` | **invention, kept.** Upstream's verb is ALREADY ported — `spin_some(node)` exists here with upstream's drain-what-is-ready semantics as a 0-timeout spin. Ours is a blocking wait with a budget, which rclcpp has no verb for and an RTOS task needs. |
+| `Node::init` / `Node::ok` | kept. `ok()` matches `rclcpp::ok()`'s own spelling; `init()` is the channel a `-fno-exceptions` target needs instead of a throwing constructor. |
+| out-ref `create_*` | **not an invention.** It shares upstream's name with a changed signature, and the signature is forced: the arena stores `&entity` as its dispatch context and has NO unregister, so a value-returning form would move the object and dangle the context on the first callback. |
+
+The `rclpy.spin_once` collision recorded earlier was **overstated**. rclpy's
+signature is `(node, timeout_sec)`, so a user carrying that habit writes
+`spin_once(node, 0.1)` in C++ and gets no matching overload — mechanical, not
+silent. The ledger row records the sibling for the reader; it is not a reason to
+rename.
+
+## Superseded first-pass table
+
+### (first pass, kept for the diff)
 
 Tabulated in RFC-0089; repeated here because it is the part a reviewer should
 argue with. Each needs a ledger row with `disposition: extension`, and each is
@@ -82,3 +103,21 @@ watched by the collision gate.
 * The C API's node shape — phase-428's sweep decides whether it follows.
 * Migrating the 409 remaining `nros::` call sites; the alias makes that
   optional and incremental.
+
+
+## W8 [error channel] — one rule, and `[[nodiscard]]`
+
+The review surfaced that we ship two error channels with no stated rule.
+`Result` (no value) and `Expected<T>` (value or error) both live in
+`result.hpp`, which — measured — carries ZERO capability gates and parses under
+the ThreadX `-nostdinc++` shim, so both reach every target.
+
+The rule, now in RFC-0089: ours-only fallible operations return `Result`, or
+`Expected<T>` when they produce a value; a state query that cannot fail returns
+`bool`; **a PORTED api keeps upstream's channel even when that is `bool`** —
+`rclcpp::Node::get_parameter` returns `bool` upstream, so ours does. Making that
+uniform would be a preference recorded as a divergence, which RFC-0036 forbids.
+
+*Acceptance:* `Result` and `Expected<T>` carry `[[nodiscard]]`
+(`NROS_NODISCARD` on C++14); a TU that discards `rclcpp::init(argc, argv)`
+fails a `-D warnings` lane. This subsumes W6's first item.
