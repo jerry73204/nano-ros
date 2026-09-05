@@ -355,3 +355,102 @@ The optimistic default is `Ok(None)`; the two comments claiming an rclcpp
 "snapshot semantic" are corrected (there is none —
 `ClientBase::service_is_ready()` calls rcl on every invocation); the zenoh latch
 returns `Err(Unsupported)` instead of a permanent yes. W13 is what closes 1087.
+
+## W5 — the findings, recorded (2026-09-05)
+
+W1–W4 produced ~40 confirmed findings that existed only in agent transcripts.
+Recording them here first, because a finding nobody can find is the campaign's
+own failure shape one level up: not a fix landing where the symptom was seen,
+but a finding landing where nobody will look.
+
+**Verification status is stated per row and it is not uniform.** Six were
+re-verified by hand against upstream headers (marked ✔); the rest rest on the
+audits' evidence, which was well-cited but is not the same as checked.
+
+### Ranked — silently wrong (no compile error, no runtime error, wrong result)
+
+| # | finding | file:line | lane |
+| --- | --- | --- | --- |
+| 1 ✔ | `LifecycleNode::trigger_transition(uint8_t)` — four of eight ids differ from `lifecycle_msgs`; `2` ACTIVATES where ROS 2 cleans up. Correct mapping exists in-tree, wire-path only. **Issue 1099** | `nros-cpp/lifecycle.hpp:173` | W3 |
+| 2 ✔ | `poll_server_discovery` defaults `Ok(Some(true))`, no vtable slot, so the 1008 fix is neutralised three lines below itself. **Issue 1087** | `nros-rmw/traits.rs:3006` | W4 |
+| 3 | `rclc_publisher_init_default` applies neither namespace nor remap; every other entity kind applies both, via a seam publishers never reach | `nros-c/publisher.rs:245` | W2 |
+| 4 | `rclc_executor_trigger_one`'s `obj` changed from entity pointer to pointer-to-index; ported call compiles with zero warnings. A unit test asserts the divergence | `nros-c/executor.rs:1349` | W2 |
+| 5 | `rclc_executor_spin_some` returns TIMEOUT on every idle tick; upstream explicitly discards it | `nros-c/executor.rs:2860` | W2 |
+| 6 | `rclc_executor_spin_period` uses `period` as the wait timeout; `set_timeout` loses its only reader | `nros-c/executor.rs:2989` | W2 |
+| 7 | `Publisher::publish()` widened `void`→`Result` — the hottest line in a ported node — and is the only method with no `initialized_` guard | `nros-cpp/publisher.hpp:95` | W3 |
+| 8 | `Client::service_is_ready()` returns `Expected<bool>` whose `operator bool` is the PROBE-SUCCEEDED flag; the rclcpp `while (!ready)` idiom exits on the first successful "no" | `nros-cpp/client.hpp:222` | W3 |
+| 9 | seven `create_*` verbs discard `Result` and return a non-null pointer to a dead entity; `spin` then returns silently on an uninitialised node | `nros-cpp/nros.hpp:607…896` | W3 |
+| 10 | `PublisherOptions::qos` / `SubscriptionOptions::qos` written, read by nothing; `#[allow(dead_code)]` suppressed the compiler's own report | `nros-node/node.rs:159,184` | W4 |
+| 11 | `init_with_args` names the parameter `_args`; `init_with_launch{,_auto}` verify a path and never parse it, returning `ContextSource::Launch` | `api/nros/init.rs:186,212,228` | W4 |
+| 12 | the attachment capability is claimed by four doc comments, implemented by nobody, and has no vtable slot — shares a root with the bridge dedup bug | `nros-rmw/traits.rs:2105,2320` | W4 |
+| 13 | `take_validated` synthesises `gap: 0, duplicate: false` — an all-clear the safety layer never established | `nros-rmw/traits.rs:2500` | W4 |
+| 14 ✔ | six `*_get_actual_qos` echo the request; `_UNKNOWN` is written nowhere in any implementation | `cyclonedds/qos.cpp:140` | W1 |
+| 15 | `assert_liveliness` — one question, four answers, no wire traffic on zenoh; the header documents a fifth | `zenoh/shim/publisher.rs:413` | W1 |
+| 16 | `get_serialization_format` gives two NULL-slot answers on one type, one of them the `"cdr"` guess the header forbids | `cffi/lib.rs:1712,2001` | W1 |
+| 17 | `SubscriptionOptions::sched_context` is structurally unreachable on the poll overload; `message_info` stored and never read; `create_publisher_in` drops its callback group | `nros-cpp/subscription.hpp:674` | W3 |
+| 18 | `Client::send_request` hardcodes slot 0 and discards the sequence number — two outstanding requests share one unkeyed slot | `nros-cpp/client.hpp:132` | W3 |
+| 19 | `create_action_client`'s QoS is marshalled and named `_qos`; the server side honours the same struct | `nros-cpp/src/action.rs:867` | W3 |
+| 20 | every C node's logger is the catch-all `"nros"` — `get_logger` is lookup-only and C has no registration entry point | `nros-c/node.rs:685` | W2 |
+| 21 | `RCLCPP_FATAL` expands to `NROS_ERROR`; `Severity::Fatal` exists | `nros-cpp/log.hpp:331` | W3 |
+| 22 | `rcl_*_is_valid` is false and `_get_*_name` NULL for entities in their working state | `nros-c/service.rs:2171` | W2 |
+| 23 | `rcl_node_is_valid` never consults the context; true after `rclc_support_fini` | `nros-c/node.rs:760` | W2 |
+| 24 | name/value truncation returns OK on a DIFFERENT name; a >63-byte parameter declares OK and is then permanently unreachable | `nros-c/util.rs:18` | W2 |
+| 25 | `wait_for_service` defaults to 5 s where upstream blocks forever | `nros-cpp/client.hpp:261` | W3 |
+| 26 | `Executor::spin_once` — 10 ms default, ms not ns, drains the ready set, and `-1` polls where upstream blocks | `nros-cpp/executor.hpp:167` | W3 |
+| 27 | destroying or moving a callback-mode entity leaves the arena dispatching into freed memory; the guard is a comment | `nros-cpp/subscription.hpp:451` | W3 |
+
+### Loud but wrong-shaped, and preferences recorded as constraints
+
+`rcl_timer_fini`/`rcl_guard_condition_fini` reject the idempotent call upstream
+accepts (W2 F11) · `nros_log_severity_t` 0–5 against rcutils 0/10/…/50, with
+`TRACE = UNSET = 0` and no catch-all over a `#[repr(u8)]` enum (W2 F13) ·
+`typedef const void* nros_logger_t` silently accepts the rcutils port (W2 F14) ·
+`SpinOptions::only_next`, `ServiceServer`/`ServiceClient`, `GoalId`,
+`CancelReturnCode`, `Severity`, the 12 `nros_*_throttle!` macros (W4 F14) ·
+`get_subscription_names_and_types_by_node`, the inverted `create_subscription`
+argument order, `rclcpp::Result` as a fabricated name in a namespace we do not
+own (W3 F16) · `rclcpp::TimerBase` adopts the name and none of the methods, so
+`timer_->cancel()` has no local fix (W3 F15) — and RFC-0089 decided today that
+this class should NOT exist.
+
+### The instruments — every one validates less than its green implies
+
+* **`correlate.py` never compares return types or struct field values.** When
+  arities intersect and no rule fires it assigns `same` unconditionally
+  (`:348`). 135 cpp rows sit in `same`; 89 are UNLEDGERED and the ledger wants
+  no row for them, because correspondence is decided without looking. **Both
+  classes RFC-0089 was written about are outside the gate by construction.**
+* `signature_rules.explain()` reconciles by ARITY ALONE — `clock_init`'s
+  swapped argument order and `timer_init`'s dropped clock both print
+  `no-allocator` as the whole explanation. 3 of 12 rules are dead, including
+  one that can never fire because another reaches the arity first.
+* `executor-owns-no-entity-storage` still fires 6 times and is cited in 10
+  ledger rows after being withdrawn.
+* 43 ledger rows cite `rclcpp_compat.hpp`, deleted in step A.
+* The ledger validates existence in ONE direction: no row is ever checked for
+  still having a subject. Six log rows describe a rename that shipped; `rust:init`
+  is a mis-filed row about a different function.
+* `check-rmw-slot-producers` tests `if s in produced` first, so 17 of 68 slots
+  are unreachable from any application while reported as 6 inert.
+* A comment claims a gate — `qos_presets_agree` — that does not exist.
+
+### Corrections to this campaign's own records
+
+* ✔ RFC-0089 §"get_logger follows ROS 2" argues the C++ sentinel is broken
+  because `nros::Node::get_logger()` returns the real handle. **Both are the
+  sentinel** — the Rust path falls back to `DEFAULT_LOGGER` too. The asymmetry
+  argument does not hold.
+* ✔ phase-428 F1 said `NROS_RMW_RELIABILITY_UNKNOWN` "exists and is unused" —
+  false, it is live. Corrected in place.
+* ✔ W10 left `QOS_PROFILE_CLOCK` on `Automatic` — F2's fourth instance, inside
+  the fix for F2's third. Corrected.
+* Issue 1041 diagnoses a path that has been dead since 2026-08-11; the C++
+  timer never reaches the code it cites. Retractable.
+* The `polling_subscription` inversion did NOT recur — stated because a clean
+  result is also a finding.
+
+### What W5 still owes
+
+Each row above needs a ledger entry with a `disposition`. That is the authoring
+step, and it is deliberately separate from this record: recording the finding
+protects it from loss, ledgering it is what makes `--check` enforce it.
