@@ -1753,6 +1753,23 @@ rename the compiler demands, which is a mechanical edit under the principle.
 The verb is already accurate and already ported: `create_wall_timer` says
 *wall*, and wall is what we schedule on.
 
+### AMENDED 2026-09-05 — ROS time is coming, and the conclusion survives
+
+The premise below ("the clock it is generic over does not exist here") is
+scheduled to change: **phase-430 brings ROS time**, for rosbag replay. The
+reasoning above was correct and one of its two legs is being removed.
+
+**The conclusion does not change.** The clock becomes a RUNTIME FIELD on the
+flat `Timer` plus a second verb (`create_timer(clock, period, cb)` beside
+`create_wall_timer`), not a type parameter and not a hierarchy — because the
+other leg is untouched: the executor dispatches through a raw function pointer
+in the arena, so it never needs a type-erased base, and a `TimerBase` would
+still be a vtable no dispatch uses.
+
+Upstream distinguishes the two cases by TYPE *and* by VERB. The type
+distinction stays unportable; **the verb distinction is portable and it is what
+ported code writes**, so that is what we take.
+
 ### The condition under which this is revisited
 
 If ROS-time or simulated-time timers are ever implemented — a bag-driven or
