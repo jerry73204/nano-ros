@@ -194,6 +194,19 @@ fn cases() -> Vec<(&'static str, Plan, Lang)> {
         Lang::C,
     ));
 
+    // param-services and lifecycle close a setup function with a fixed block
+    // that no other row emits. Both paths carry it — the single setup fn, and
+    // TIER 0 only, because they are process facts rather than per-tier ones.
+    let mut c_svc = plan("native", vec![c_node("c_talker_pkg", "talker")]);
+    c_svc.param_services = true;
+    c_svc.lifecycle = Some("active".into());
+    out.push(("c_native_services", c_svc, Lang::C));
+
+    let mut c_tier_svc = c_tiered_plan("native");
+    c_tier_svc.param_services = true;
+    c_tier_svc.lifecycle = Some("configure".into());
+    out.push(("c_native_tiers_services", c_tier_svc, Lang::C));
+
     out.push(("c_native_tiers", c_tiered_plan("native"), Lang::C));
     out.push(("c_nuttx_tiers", c_tiered_plan("nuttx"), Lang::C));
 

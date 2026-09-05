@@ -35,10 +35,17 @@ use minijinja::Environment;
 /// and from build scripts in trees that do not contain this checkout, so a
 /// template resolved from disk at run time would be a path dependency the
 /// caller cannot satisfy.
-const TEMPLATES: &[(&str, &str)] = &[(
-    "rust_entry.rs.jinja",
-    include_str!("templates/rust_entry.rs.jinja"),
-)];
+const TEMPLATES: &[(&str, &str)] = &[
+    (
+        "rust_entry.rs.jinja",
+        include_str!("templates/rust_entry.rs.jinja"),
+    ),
+    ("c_entry.c.jinja", include_str!("templates/c_entry.c.jinja")),
+    (
+        "c_service_trailer.c.jinja",
+        include_str!("templates/c_service_trailer.c.jinja"),
+    ),
+];
 
 static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
     let mut env = Environment::new();
