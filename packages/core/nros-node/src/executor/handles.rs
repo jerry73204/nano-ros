@@ -2159,10 +2159,13 @@ impl<Svc: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
     /// On the Zenoh backend this issues a `z_liveliness_get` against the
     /// matching server's wildcarded liveliness keyexpr; the executor is
     /// spun cooperatively while the query is in flight so other
-    /// subscribers / timers continue to make progress. Backends without
-    /// liveliness discovery answer `Ok(true)` immediately (default trait
-    /// impl in `nros-rmw`), so the call is a no-op cost when discovery
-    /// isn't supported.
+    /// subscribers / timers continue to make progress.
+    ///
+    /// issue 1087 — a backend without liveliness discovery answers `Ok(None)`
+    /// ("cannot say"), NOT `Ok(true)`. It used to answer yes, so this returned
+    /// immediately on cyclone, XRCE and uORB without probing anything. Such a
+    /// backend now waits out the budget and reports `Ok(false)`: slower, and
+    /// the direction that does not send a request into the void.
     ///
     /// Recommended usage — gate the first `call()` on this:
     ///

@@ -998,12 +998,24 @@ impl ClientTrait for ZenohServiceClient {
     }
 
     fn poll_server_discovery(&mut self) -> Result<Option<bool>, Self::Error> {
-        // Latched success: once we've seen a token, the server is "ready"
-        // for the rest of this client's lifetime. ROS 2's discovery model
-        // doesn't require us to re-prove a server's existence on every
-        // call (rclcpp's `service_is_ready` snapshot semantic); if the
-        // server later goes away, individual `call()`s will time out at
-        // the reply side.
+        // issue 1087 — the latch stays, and the justification that used to sit
+        // here does not. It claimed "rclcpp's `service_is_ready` snapshot
+        // semantic"; there is no such semantic.
+        // `rclcpp::ClientBase::service_is_ready()` calls
+        // `rcl_service_server_is_available` on EVERY invocation, and upstream
+        // `rmw.h` says the outcome reflects a QoS-compatibility CHANGE, in
+        // either direction.
+        //
+        // What the latch actually is: a positive cache over a single-shot
+        // liveliness query, with NO invalidation. It is right that a
+        // `wait_for_service` which already succeeded need not re-query, and
+        // wrong that a server which has since died still reads available for
+        // the client's lifetime.
+        //
+        // The invalidation is NOT implemented here and issue 1087 stays open
+        // for it: clearing this needs the liveliness subscription to report a
+        // token DROP, which the shim does not surface today. Saying so rather
+        // than shipping a comment that describes a hook nobody wrote.
         if self.server_seen {
             return Ok(Some(true));
         }
