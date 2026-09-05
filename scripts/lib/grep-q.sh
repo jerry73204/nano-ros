@@ -28,6 +28,33 @@
 # run means producing a verdict from missing evidence, and there is no useful
 # way for a caller to "handle" that.
 #
+# FEED IT A HERE-STRING. NEVER A PIPE. Issue 1077 — this helper does not make
+# `printf '%s' "$text" | nros_grep_q PAT` safe, and the pipe is a SEPARATE
+# defect from the one above:
+#
+#   * Bash's builtin `printf` flushes per LINE, and a `-q` grep exits at the
+#     FIRST match. So whenever the needle is on any line but the last, grep can
+#     close the read end while the writer still has a line to send. The writer
+#     takes SIGPIPE, and `set -o pipefail` makes that 141 the PIPELINE's status
+#     — so `if ! …` reads a SUCCESSFUL match as a MISS. Traced:
+#
+#         write(1, "    demo/msg/Open (unbounded)\n", 30) = -1 EPIPE
+#         --- SIGPIPE ---  +++ killed by SIGPIPE +++   PIPESTATUS=(141 0)
+#
+#     Measured at 60 of 3000 calls (2%) on a three-line haystack on an IDLE
+#     12-core host, and at 13 of 300 runs of the gate that carried it, against
+#     0 of 300 with the here-string. That was `check-fast` flaking on four
+#     different gates over four runs, each flake wearing a considered assertion
+#     message pointing at real code — the shape issue 0876 names, where a red
+#     is not a verdict and is articulate enough to survive review.
+#
+#   * A pipeline element is a SUBSHELL, so the `exit 2` above ends only that
+#     subshell. The fatal path cannot stop the caller, which is the whole point
+#     of routing through this helper.
+#
+# So: `nros_grep_q PAT <<<"$text"`, or `nros_grep_q PAT "$file"`. Gated by
+# `check-pipefail-sigpipe-assertions`.
+#
 # FLAGS. Leading `-…` arguments are passed through, so `grep -qi` / `grep -qE` /
 # `grep -qF` convert without rephrasing the pattern:
 #

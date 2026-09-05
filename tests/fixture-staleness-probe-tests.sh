@@ -71,6 +71,14 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
 
+# `nros_grep_q` — 0 match / 1 no-match / exit 2 when grep could not run, so a
+# tool failure never becomes a finding (issue 0726). Call it with a HERE-STRING,
+# NEVER through a pipe: builtin `printf` flushes per LINE and `grep -q` stops at
+# the first hit, so the writer's next write takes SIGPIPE and `pipefail` turns a
+# MATCH into a MISS. That is issue 1077, measured at 13 of 300 runs here.
+# shellcheck source=../scripts/lib/grep-q.sh
+source "$repo_root/scripts/lib/grep-q.sh"
+
 CMAKE_PROBE="scripts/test/cmake-fixture-stale.sh"
 RUST_PROBE="scripts/test/rust-fixture-stale.sh"
 
@@ -358,7 +366,7 @@ echo ""
 echo "== the OLD rules still fire on this fixture (negative control) =="
 
 out="$(cmake --build "$work/cell/build-probe" 2>&1)"
-if printf '%s' "$out" | grep -qE "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v"; then
+if nros_grep_q -E "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v" <<<"$out"; then
     ok "the old cmake rule (grep the build chatter) reports STALE — as it did forever"
 else
     fail "the old cmake rule did NOT fire: this fixture no longer models the defect"
@@ -369,7 +377,7 @@ touch "$work/leaf/src/main.rs"
 out="$(cd "$work/leaf" && cargo build --profile "$probe_profile" \
     --target-dir "$NROS_BUILD_ROOT/cargo-fixtures/linux" \
     --message-format=json --quiet 2>/dev/null)"
-if printf '%s' "$out" | grep -q '"fresh":false'; then
+if nros_grep_q '"fresh":false' <<<"$out"; then
     ok "the old cargo rule (\"fresh\":false) reports STALE — as it did forever"
 else
     fail "the old cargo rule did NOT fire: this fixture no longer models the defect"

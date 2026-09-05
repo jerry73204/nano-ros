@@ -101,6 +101,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
+# `nros_grep_q` — 0 match / 1 no-match / exit 2 when grep could not run, so a
+# tool failure never becomes a finding (issue 0726). Call it with a HERE-STRING,
+# NEVER through a pipe: builtin `printf` flushes per LINE and `grep -q` stops at
+# the first hit, so the writer's next write takes SIGPIPE and `pipefail` turns a
+# MATCH into a MISS. That is issue 1077, measured at 13 of 300 runs here.
+# shellcheck source=../scripts/lib/grep-q.sh
+source "$PROJECT_ROOT/scripts/lib/grep-q.sh"
+
 MODULE="$PROJECT_ROOT/cmake/NanoRosMessageBounds.cmake"
 
 FAILURES=0
@@ -880,19 +888,19 @@ _o_frag "std_msgs/msg/Int32;demo/msg/Open" \
         "std_msgs/msg/Int32=1;demo/msg/Open=1" "$T/o-bad.cmake"
 
 _o_out=$(cmake -DFRAG="$T/o-ok.cmake" -P "$T/o-join.cmake" 2>&1)
-if ! printf '%s' "$_o_out" | grep -q "status=derived"; then
+if ! nros_grep_q "status=derived" <<<"$_o_out"; then
     fail "O: every subscribed type is bounded and the join still refused:"
     printf '%s\n' "$_o_out"
 fi
 check
 _o_out=$(cmake -DFRAG="$T/o-bad.cmake" -P "$T/o-join.cmake" 2>&1)
-if ! printf '%s' "$_o_out" | grep -q "status=refused"; then
+if ! nros_grep_q "status=refused" <<<"$_o_out"; then
     fail "O: a subscribed type with no bound did NOT refuse -- a payload class \
 would be sized from a blank _RX:"
     printf '%s\n' "$_o_out"
 fi
 check
-if ! printf '%s' "$_o_out" | grep -q "demo/msg/Open"; then
+if ! nros_grep_q "demo/msg/Open" <<<"$_o_out"; then
     fail "O: the refusal does not name the offending type:"
     printf '%s\n' "$_o_out"
 fi
