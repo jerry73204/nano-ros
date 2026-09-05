@@ -350,9 +350,21 @@ mod tests {
         assert_eq!(s.as_str(), "1:1:1,1:,:,:,,");
     }
 
+    /// The KEEP_ALL encoding (history digit 2), built rather than borrowed.
+    ///
+    /// phase-428 W10 — this read `QOS_PROFILE_PARAMETER_EVENTS`, which was
+    /// KEEP_ALL only because that preset was WRONG: upstream
+    /// `rmw_qos_profile_parameter_events` is KEEP_LAST(1000). So this test both
+    /// depended on the defect and helped hide it, and correcting the preset
+    /// turned it red — the identical two-crate shape issue 0793 hit four
+    /// entries up, which its own comment already describes ("Two tests pinned
+    /// it, in two crates").
+    ///
+    /// The fix is not a new preset to borrow: no NAMED preset is KEEP_ALL now,
+    /// and a test about an ENCODING should state the value it encodes.
     #[test]
     fn test_qos_string_keep_all() {
-        let qos = QoSProfile::QOS_PROFILE_PARAMETER_EVENTS;
+        let qos = QoSProfile::new().keep_all().depth(0);
         let s: heapless::String<32> = qos.to_qos_string();
         assert_eq!(s.as_str(), "1:2:2,0:,:,:,,");
     }

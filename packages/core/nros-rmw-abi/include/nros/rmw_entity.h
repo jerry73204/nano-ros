@@ -714,67 +714,117 @@ typedef struct rmw_subscription_options_t {
 } rmw_subscription_options_t;
 
 /* ---- Standard QoS profile constants ---- */
-/* Defined as static const initialisers at the bottom of this
- * header so they're available in every compilation unit that
- * includes it. Match the field set of upstream
- * `rmw_qos_profile_default` etc. */
+/*
+ * Compound-literal macros rather than `static const` objects, so a profile is
+ * usable in every TU that includes this header with no storage and no
+ * initialisation order.
+ *
+ * **ONE STATEMENT PER PROFILE (phase-428 W10).** Every profile below is a
+ * single line through `NROS_RMW_QOS_PROFILE_FROM_POLICIES`, which is the ONLY
+ * place the fields that never vary between profiles — `_reserved0`, the three
+ * durations, `avoid_ros_namespace_conventions`, `_reserved1` — are written.
+ * They used to be written out per profile: 26 constants in one file held in
+ * agreement by eye, and the four profiles carrying a concrete liveliness had
+ * all drifted the same way while their doc comments asserted the drifted value
+ * was upstream's.
+ *
+ * **The values are UPSTREAM's, and this file is a TRANSCRIPTION of them.** An
+ * embedded image cannot include `rmw/qos_profiles.h` and an offline build has
+ * no ROS install to read, so the numbers have to live here. That makes them
+ * exactly the kind of copy that drifts, so they are not maintained by hand
+ * alone: `scripts/check-qos-profile-table.py` binds every profile below to the
+ * Rust SSoT (`nros_rmw::QoSProfile`'s `QOS_PROFILE_*` constants) and, when a
+ * ROS install is resolvable, re-derives both against
+ * `<prefix>/include/rmw/rmw/qos_profiles.h`. Edit a value here without the
+ * gate agreeing and the gate is what tells you.
+ */
 
-/** `rmw_qos_profile_default`-equivalent: reliable + volatile +
- *  keep-last(10), automatic liveliness, no deadline / lifespan. */
-#define NROS_RMW_QOS_PROFILE_DEFAULT \
+/** Build a profile from the five policies that actually differ between
+ *  profiles.
+ *
+ *  INTERNAL to this profile list — it is not itself a profile, and a backend
+ *  has no reason to call it. The arguments are BARE policy suffixes
+ *  (`RELIABLE`, `VOLATILE`, `KEEP_LAST`, `SYSTEM_DEFAULT`, …) token-pasted
+ *  onto the `NROS_RMW_*` prefixes, so a policy that is renamed becomes a
+ *  compile error here instead of a silently wrong integer — phase-376 W5/B2's
+ *  lesson ("a comment is not a binding") applied to the profiles as well as to
+ *  the enums. */
+#define NROS_RMW_QOS_PROFILE_FROM_POLICIES(rel, dur, hist, dep, live)       \
     ((rmw_qos_profile_t){                                                   \
-        .reliability = NROS_RMW_RELIABILITY_RELIABLE,                    \
-        .durability  = NROS_RMW_DURABILITY_VOLATILE,                     \
-        .history     = NROS_RMW_HISTORY_KEEP_LAST,                       \
-        .liveliness_kind = NROS_RMW_LIVELINESS_AUTOMATIC,                \
-        .depth       = 10,                                               \
-        ._reserved0  = 0,                                                \
-        .deadline_ms = 0,                                                \
-        .lifespan_ms = 0,                                                \
-        .liveliness_lease_ms = 0,                                        \
-        .avoid_ros_namespace_conventions = 0,                            \
-        ._reserved1  = {0, 0, 0},                                        \
+        .reliability     = NROS_RMW_RELIABILITY_##rel,                      \
+        .durability      = NROS_RMW_DURABILITY_##dur,                       \
+        .history         = NROS_RMW_HISTORY_##hist,                         \
+        .liveliness_kind = NROS_RMW_LIVELINESS_##live,                      \
+        .depth           = (dep),                                           \
+        ._reserved0      = 0,                                               \
+        .deadline_ms     = 0,                                               \
+        .lifespan_ms     = 0,                                               \
+        .liveliness_lease_ms = 0,                                           \
+        .avoid_ros_namespace_conventions = 0,                               \
+        ._reserved1      = {0, 0, 0},                                       \
     })
 
-/** `rmw_qos_profile_sensor_data`-equivalent: best-effort +
- *  volatile + keep-last(5). */
-#define NROS_RMW_QOS_PROFILE_SENSOR_DATA \
-    ((rmw_qos_profile_t){                                                   \
-        .reliability = NROS_RMW_RELIABILITY_BEST_EFFORT,                 \
-        .durability  = NROS_RMW_DURABILITY_VOLATILE,                     \
-        .history     = NROS_RMW_HISTORY_KEEP_LAST,                       \
-        .liveliness_kind = NROS_RMW_LIVELINESS_AUTOMATIC,                \
-        .depth       = 5,                                                \
-        ._reserved0  = 0,                                                \
-        .deadline_ms = 0,                                                \
-        .lifespan_ms = 0,                                                \
-        .liveliness_lease_ms = 0,                                        \
-        .avoid_ros_namespace_conventions = 0,                            \
-        ._reserved1  = {0, 0, 0},                                        \
-    })
+/* LIVELINESS IS THE SENTINEL IN EVERY CONCRETE PROFILE — phase-428 W10.
+ *
+ * `DEFAULT`, `SENSOR_DATA`, `SERVICES_DEFAULT` and `PARAMETERS` carried
+ * `NROS_RMW_LIVELINESS_AUTOMATIC` (1) until 2026-09-05, under doc comments
+ * reading "`rmw_qos_profile_default`-equivalent … automatic liveliness".
+ * Upstream's own initialisers say `RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT`
+ * for all seven profiles, `rmw_qos_profile_unknown` excepted — there is no
+ * upstream profile that asks for AUTOMATIC. This is the F2 class: 0829 fixed
+ * `SYSTEM_DEFAULT`'s liveliness because that was the profile being looked at,
+ * and the four siblings carrying the same wrong value were not swept.
+ *
+ * THIS CHANGES WHAT A BACKEND COMPILES AGAINST, so what it does to the wire is
+ * stated rather than assumed. The two in-tree consumers of a changed macro are
+ * `nros-rmw-cyclonedds`'s `create_service` / `create_client`
+ * (`NROS_RMW_QOS_PROFILE_SERVICES_DEFAULT` when the caller passes NULL) and
+ * `nros-rmw-xrce`'s (same); the cyclone unit tests use `_DEFAULT`.
+ *   - cyclonedds: `make_dds_qos` calls `dds_qset_liveliness` only when the kind
+ *     is NOT the sentinel (`qos.cpp:99`), so AUTOMATIC(1) set
+ *     `DDS_LIVELINESS_AUTOMATIC` + `DDS_INFINITY` explicitly and the sentinel
+ *     omits the call — leaving Cyclone's own default, which the DDS spec fixes
+ *     at AUTOMATIC with an infinite lease. Same offered QoS on the wire.
+ *   - xrce: drops liveliness entirely (it lowers no liveliness field), so the
+ *     value is unobservable there either way.
+ *   - zenoh: reads no QoS field at all (phase-428 F1).
+ * A backend that starts honouring liveliness later sees the correct
+ * "middleware's choice" here rather than an unrequested AUTOMATIC.
+ */
 
-/** `rmw_qos_profile_services_default`-equivalent: reliable +
- *  volatile + keep-last(10). */
-#define NROS_RMW_QOS_PROFILE_SERVICES_DEFAULT  NROS_RMW_QOS_PROFILE_DEFAULT
+/** `rmw_qos_profile_default` — reliable + volatile + keep-last(10). */
+#define NROS_RMW_QOS_PROFILE_DEFAULT                                        \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(RELIABLE, VOLATILE, KEEP_LAST, 10, SYSTEM_DEFAULT)
 
-/** `rmw_qos_profile_parameters`-equivalent: reliable + volatile +
- *  keep-last(1000). */
-#define NROS_RMW_QOS_PROFILE_PARAMETERS \
-    ((rmw_qos_profile_t){                                                   \
-        .reliability = NROS_RMW_RELIABILITY_RELIABLE,                    \
-        .durability  = NROS_RMW_DURABILITY_VOLATILE,                     \
-        .history     = NROS_RMW_HISTORY_KEEP_LAST,                       \
-        .liveliness_kind = NROS_RMW_LIVELINESS_AUTOMATIC,                \
-        .depth       = 1000,                                             \
-        ._reserved0  = 0,                                                \
-        .deadline_ms = 0,                                                \
-        .lifespan_ms = 0,                                                \
-        .liveliness_lease_ms = 0,                                        \
-        .avoid_ros_namespace_conventions = 0,                            \
-        ._reserved1  = {0, 0, 0},                                        \
-    })
+/** `rmw_qos_profile_sensor_data` — best-effort + volatile + keep-last(5). */
+#define NROS_RMW_QOS_PROFILE_SENSOR_DATA                                    \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(BEST_EFFORT, VOLATILE, KEEP_LAST, 5, SYSTEM_DEFAULT)
 
-/** `rmw_qos_profile_system_default`-equivalent: **every field is the sentinel**.
+/** `rmw_qos_profile_services_default` — reliable + volatile + keep-last(10).
+ *
+ *  Spelled out rather than aliased to `NROS_RMW_QOS_PROFILE_DEFAULT`. The two
+ *  are field-identical in every ROS distro we target, but upstream states them
+ *  as two independent initialisers and is free to move one; an alias makes
+ *  that divergence unrepresentable and hides which profile a backend actually
+ *  asked for. With the shared expander the duplication is five tokens. */
+#define NROS_RMW_QOS_PROFILE_SERVICES_DEFAULT                               \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(RELIABLE, VOLATILE, KEEP_LAST, 10, SYSTEM_DEFAULT)
+
+/** `rmw_qos_profile_parameters` — reliable + volatile + keep-last(1000). */
+#define NROS_RMW_QOS_PROFILE_PARAMETERS                                     \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(RELIABLE, VOLATILE, KEEP_LAST, 1000, SYSTEM_DEFAULT)
+
+/** `rmw_qos_profile_parameter_events` — reliable + volatile + keep-last(1000).
+ *
+ *  NEW at phase-428 W10; the C ABI had no name for this profile while the Rust
+ *  side did, which is half of why the Rust copy could sit at `KEEP_ALL, 0` for
+ *  two phases with nothing to disagree with it. KEEP_LAST(1000) is not a
+ *  cosmetic difference from KEEP_ALL: a RELIABLE writer with KEEP_ALL BLOCKS
+ *  when history fills, where KEEP_LAST overwrites. */
+#define NROS_RMW_QOS_PROFILE_PARAMETER_EVENTS                               \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(RELIABLE, VOLATILE, KEEP_LAST, 1000, SYSTEM_DEFAULT)
+
+/** `rmw_qos_profile_system_default` — **every field is the sentinel**.
  *
  * issue 0829. This aliased `NROS_RMW_QOS_PROFILE_DEFAULT` until 2026-09-03,
  * which made `SYSTEM_DEFAULT` a byte-for-byte synonym for a concrete
@@ -800,19 +850,23 @@ typedef struct rmw_subscription_options_t {
  * and leaves the depth for the Agent; zenoh resolves the depth to the ring the
  * shim actually enforces. */
 #define NROS_RMW_QOS_PROFILE_SYSTEM_DEFAULT                                 \
-    ((rmw_qos_profile_t){                                                   \
-        .reliability = NROS_RMW_RELIABILITY_SYSTEM_DEFAULT,              \
-        .durability  = NROS_RMW_DURABILITY_SYSTEM_DEFAULT,               \
-        .history     = NROS_RMW_HISTORY_SYSTEM_DEFAULT,                  \
-        .liveliness_kind = NROS_RMW_LIVELINESS_SYSTEM_DEFAULT,           \
-        .depth       = 0,                                                \
-        ._reserved0  = 0,                                                \
-        .deadline_ms = 0,                                                \
-        .lifespan_ms = 0,                                                \
-        .liveliness_lease_ms = 0,                                        \
-        .avoid_ros_namespace_conventions = 0,                            \
-        ._reserved1  = {0, 0, 0},                                        \
-    })
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(SYSTEM_DEFAULT, SYSTEM_DEFAULT, SYSTEM_DEFAULT, 0,  \
+                                       SYSTEM_DEFAULT)
+
+/** `rmw_qos_profile_unknown` — **"the backend could not determine this"**, and
+ *  distinct from `SYSTEM_DEFAULT`.
+ *
+ *  NEW at phase-428 W10, completing upstream's set of seven. `SYSTEM_DEFAULT`
+ *  means "nobody asked, so the middleware chooses"; `UNKNOWN` means "we looked
+ *  and cannot say", which is what a `*_get_actual_qos` slot owes its caller for
+ *  a policy it cannot read back. The `*_UNKNOWN` policy values have existed
+ *  since phase-376 W5/B2 with no profile naming them, which is why
+ *  `get_actual_qos` echoes the REQUEST today (phase-428 F1) — an unreportable
+ *  field reads as *granted*, the inverse of upstream's meaning. Depth is 0
+ *  because upstream's is `RMW_QOS_POLICY_DEPTH_SYSTEM_DEFAULT`; there is no
+ *  "unknown depth" spelling. */
+#define NROS_RMW_QOS_PROFILE_UNKNOWN                                        \
+    NROS_RMW_QOS_PROFILE_FROM_POLICIES(UNKNOWN, UNKNOWN, UNKNOWN, 0, UNKNOWN)
 
 /* ------------------------------------------------------------------ */
 /* Entity structs                                                     */

@@ -384,8 +384,19 @@ pub enum QoSDurabilityPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum QoSLivelinessPolicy {
-    /// No liveliness assertion or tracking. Default for entities
-    /// that don't care about liveliness.
+    /// Discriminant 0 — the same value the C ABI spells
+    /// `NROS_RMW_LIVELINESS_SYSTEM_DEFAULT` and upstream spells
+    /// `RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT`.
+    ///
+    /// phase-428 W10 — the NAME diverges from both and the VALUE does not, so
+    /// this is what an upstream-mirroring profile carries. Read it as "the
+    /// middleware's choice", not as "liveliness is off": a backend that sees 0
+    /// omits the DDS call entirely and inherits the DDS default, which is
+    /// AUTOMATIC. `None` is our spelling, kept because it is the C ABI
+    /// discriminant three enums already agree on; renaming it is a separate
+    /// question from getting the value right, and only the value crosses.
+    ///
+    /// No liveliness assertion or tracking of our own.
     #[default]
     None = 0,
     /// Backend's keepalive task asserts liveliness automatically.
@@ -769,51 +780,110 @@ impl QoSProfile {
     }
 }
 
-impl QoSProfile {
-    /// Internal const builder. Extended-policy fields default to
-    /// "off" (zero) and `liveliness_kind = Automatic` (the upstream
-    /// `rmw_qos_profile_default` choice).
-    const fn build(
-        reliability: QoSReliabilityPolicy,
-        durability: QoSDurabilityPolicy,
-        history: QoSHistoryPolicy,
-        depth: u32,
-    ) -> Self {
-        Self {
-            history,
-            reliability,
-            durability,
-            liveliness_kind: QoSLivelinessPolicy::Automatic,
-            depth,
-            deadline_ms: 0,
-            lifespan_ms: 0,
-            liveliness_lease_ms: 0,
-            avoid_ros_namespace_conventions: false,
-            tx_express: false,
+/// The ONE authoring site for every named [`QoSProfile`] preset — phase-428 W10.
+///
+/// Upstream's profiles were hand-transcribed here and in three other places
+/// (`nros::qos`, `nros/qos.hpp`, `rmw_entity.h`) with nothing binding them, and
+/// they drifted exactly as every other hand-mirror in this tree has: issue 0793
+/// caught `PARAMETERS` claiming TRANSIENT_LOCAL, fixed that one profile, and
+/// left `PARAMETER_EVENTS` sitting at `KeepAll, depth 0` under a comment saying
+/// *"matches rmw_qos_profile_parameter_events"* — where upstream is
+/// `KEEP_LAST, 1000`. A RELIABLE writer with KEEP_ALL **blocks** when history
+/// fills where KEEP_LAST(1000) overwrites, so that was an inverting difference,
+/// not a weaker one, and the test beneath it asserted the wrong value.
+///
+/// Three properties are what make this a table rather than ten `const`s:
+///
+/// 1. **Every field is stated.** The `Self::build(...)` helper this replaces
+///    supplied `liveliness_kind`, the three duration windows and both flags
+///    silently, so five of ten fields per profile were invisible at the
+///    authoring site and no reader could compare a row against upstream.
+/// 2. **Every row declares its PROVENANCE** — the upstream symbol it mirrors,
+///    or `nros: <why>` for a preset we invented. A profile cannot be added
+///    without answering "whose constant is this?".
+/// 3. **The field ORDER is upstream's** (`rmw_qos_profile_t` in
+///    `rmw/include/rmw/types.h`: history, depth, reliability, durability,
+///    deadline, lifespan, liveliness, lease, avoid-ns), so a row reads against
+///    the header positionally.
+///
+/// Expansion is exactly the `pub const` items that were here before — no table
+/// is materialised, nothing is `static`, and the crate stays `no_std` and
+/// zero-cost on every target it reaches.
+///
+/// `scripts/check-qos-profile-ssot.py` parses this invocation and asserts every
+/// upstream-mirroring row field-by-field against
+/// `docs/reference/rmw-qos-profiles.txt`, which is itself extracted from a real
+/// ROS install. The other three sites bind to this block.
+macro_rules! qos_profiles {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident : $provenance:literal = {
+            history: $history:ident,
+            depth: $depth:expr,
+            reliability: $reliability:ident,
+            durability: $durability:ident,
+            deadline_ms: $deadline_ms:expr,
+            lifespan_ms: $lifespan_ms:expr,
+            liveliness_kind: $liveliness_kind:ident,
+            liveliness_lease_ms: $liveliness_lease_ms:expr,
+            avoid_ros_namespace_conventions: $avoid:expr,
+            tx_express: $tx_express:expr,
+        };
+    )+) => {
+        impl QoSProfile {
+            $(
+                $(#[$meta])*
+                ///
+                #[doc = concat!("Provenance: `", $provenance, "`.")]
+                pub const $name: Self = Self {
+                    history: QoSHistoryPolicy::$history,
+                    depth: $depth,
+                    reliability: QoSReliabilityPolicy::$reliability,
+                    durability: QoSDurabilityPolicy::$durability,
+                    deadline_ms: $deadline_ms,
+                    lifespan_ms: $lifespan_ms,
+                    liveliness_kind: QoSLivelinessPolicy::$liveliness_kind,
+                    liveliness_lease_ms: $liveliness_lease_ms,
+                    avoid_ros_namespace_conventions: $avoid,
+                    tx_express: $tx_express,
+                };
+            )+
         }
-    }
+    };
+}
 
-    /// Create new QoS settings with defaults (matches `QOS_PROFILE_DEFAULT`:
-    /// Reliable, Volatile, KeepLast(10)).
-    pub const fn new() -> Self {
-        Self::QOS_PROFILE_DEFAULT
-    }
+// nros-qos-table: BEGIN
+// The SSoT. Everything between this marker and `nros-qos-table: END` is parsed
+// by `scripts/check-qos-profile-ssot.py`; do not add a `QoSProfile` preset
+// anywhere else in this crate — the gate refuses one.
+qos_profiles! {
+    /// Best-effort QoS (for real-time).
+    BEST_EFFORT: "nros: best-effort keep-last(1); a shorthand, not an upstream constant" = {
+        history: KeepLast,
+        depth: 1,
+        reliability: BestEffort,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: Automatic,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Best-effort QoS (for real-time)
-    pub const BEST_EFFORT: Self = Self::build(
-        QoSReliabilityPolicy::BestEffort,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        1,
-    );
-
-    /// Reliable QoS
-    pub const RELIABLE: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        10,
-    );
+    /// Reliable QoS.
+    RELIABLE: "nros: reliable keep-last(10); a shorthand, not an upstream constant" = {
+        history: KeepLast,
+        depth: 10,
+        reliability: Reliable,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: Automatic,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
     /// `rmw_qos_profile_system_default` — **an absence, not a profile.**
     ///
@@ -835,47 +905,64 @@ impl QoSProfile {
     /// `liveliness_kind` is [`QoSLivelinessPolicy::None`], which IS the
     /// sentinel on that policy — it lowers to
     /// `NROS_RMW_LIVELINESS_SYSTEM_DEFAULT` (0), the two having collapsed onto
-    /// one value in phase-376 W5/B2.
-    pub const QOS_PROFILE_SYSTEM_DEFAULT: Self = Self {
-        history: QoSHistoryPolicy::SystemDefault,
-        reliability: QoSReliabilityPolicy::SystemDefault,
-        durability: QoSDurabilityPolicy::SystemDefault,
-        liveliness_kind: QoSLivelinessPolicy::None,
+    /// one value in phase-376 W5/B2. This is therefore the ONE preset that
+    /// matches upstream on all nine fields.
+    QOS_PROFILE_SYSTEM_DEFAULT: "rmw_qos_profile_system_default" = {
+        history: SystemDefault,
         depth: DEPTH_SYSTEM_DEFAULT,
+        reliability: SystemDefault,
+        durability: SystemDefault,
         deadline_ms: 0,
         lifespan_ms: 0,
+        liveliness_kind: None,
         liveliness_lease_ms: 0,
         avoid_ros_namespace_conventions: false,
         tx_express: false,
     };
 
-    /// Default QoS profile (matches rmw_qos_profile_default)
-    pub const QOS_PROFILE_DEFAULT: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        10,
-    );
+    /// Default QoS profile — reliable, volatile, keep-last(10).
+    QOS_PROFILE_DEFAULT: "rmw_qos_profile_default" = {
+        history: KeepLast,
+        depth: 10,
+        reliability: Reliable,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Sensor data QoS profile (matches rmw_qos_profile_sensor_data)
-    pub const QOS_PROFILE_SENSOR_DATA: Self = Self::build(
-        QoSReliabilityPolicy::BestEffort,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        5,
-    );
+    /// Sensor data QoS profile — best-effort, volatile, keep-last(5).
+    QOS_PROFILE_SENSOR_DATA: "rmw_qos_profile_sensor_data" = {
+        history: KeepLast,
+        depth: 5,
+        reliability: BestEffort,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Services default QoS profile (matches rmw_qos_profile_services_default)
-    pub const QOS_PROFILE_SERVICES_DEFAULT: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        10,
-    );
+    /// Services default QoS profile — reliable, volatile, keep-last(10).
+    QOS_PROFILE_SERVICES_DEFAULT: "rmw_qos_profile_services_default" = {
+        history: KeepLast,
+        depth: 10,
+        reliability: Reliable,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Parameters QoS profile (matches rmw_qos_profile_parameters)
-    /// Mirrors `rmw_qos_profile_parameters`: KEEP_LAST(1000), RELIABLE,
-    /// **VOLATILE**.
+    /// Parameters QoS profile — KEEP_LAST(1000), RELIABLE, **VOLATILE**.
     ///
     /// issue 0793 — this said `TransientLocal` until 2026-08-25, disagreeing
     /// both with upstream (`/opt/ros/<distro>/include/rmw/rmw/qos_profiles.h`)
@@ -883,36 +970,74 @@ impl QoSProfile {
     /// which was already correct. Two copies of one profile that disagree is the
     /// defect; the wrong one being the one named after the upstream constant is
     /// what made it hard to see.
-    pub const QOS_PROFILE_PARAMETERS: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        1000,
-    );
+    QOS_PROFILE_PARAMETERS: "rmw_qos_profile_parameters" = {
+        history: KeepLast,
+        depth: 1000,
+        reliability: Reliable,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Clock QoS profile - same as sensor data but with depth 1
-    pub const QOS_PROFILE_CLOCK: Self = Self::build(
-        QoSReliabilityPolicy::BestEffort,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        1,
-    );
+    /// Parameter events QoS profile — KEEP_LAST(1000), RELIABLE, VOLATILE.
+    ///
+    /// phase-428 W10 — this was `KeepAll, depth 0` until 2026-09-05, under a
+    /// comment claiming it matched `rmw_qos_profile_parameter_events`. Upstream
+    /// is `KEEP_LAST, 1000` (identical to `rmw_qos_profile_parameters`), and
+    /// `rclcpp::ParameterEventsQoS` — which our own C++ surface mirrors — was
+    /// already correct, so the two languages shipped different profiles under
+    /// one name.
+    ///
+    /// The difference INVERTS behaviour rather than weakening it: both DDS
+    /// backends map KEEP_ALL faithfully, and a RELIABLE writer with KEEP_ALL
+    /// **blocks** once history fills, where KEEP_LAST(1000) overwrites. A
+    /// parameter server whose events nobody is reading would stall the node
+    /// instead of dropping the oldest event.
+    QOS_PROFILE_PARAMETER_EVENTS: "rmw_qos_profile_parameter_events" = {
+        history: KeepLast,
+        depth: 1000,
+        reliability: Reliable,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Parameter events QoS profile (matches rmw_qos_profile_parameter_events)
-    pub const QOS_PROFILE_PARAMETER_EVENTS: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepAll,
-        0, // Not used with KeepAll
-    );
+    /// Action status default QoS profile — reliable, transient-local,
+    /// keep-last(1). From `rcl_action`, not `rmw`.
+    QOS_PROFILE_ACTION_STATUS_DEFAULT: "rcl_action_qos_profile_status_default" = {
+        history: KeepLast,
+        depth: 1,
+        reliability: Reliable,
+        durability: TransientLocal,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: None,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
-    /// Action status default QoS profile (matches rcl_action_qos_profile_status_default)
-    pub const QOS_PROFILE_ACTION_STATUS_DEFAULT: Self = Self::build(
-        QoSReliabilityPolicy::Reliable,
-        QoSDurabilityPolicy::TransientLocal,
-        QoSHistoryPolicy::KeepLast,
-        1,
-    );
+    /// Clock QoS profile — sensor-data shaped with depth 1.
+    QOS_PROFILE_CLOCK: "nros: sensor-data shaped with depth 1; /clock has no rmw constant" = {
+        history: KeepLast,
+        depth: 1,
+        reliability: BestEffort,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: Automatic,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
 
     /// PX4 companion QoS profile (Phase 233 / RFC-0039 Track B). Matches the
     /// QoS PX4's `uxrce_dds_client` uses on `/fmu/out/*` and `/fmu/in/*` —
@@ -922,12 +1047,69 @@ impl QoSProfile {
     /// writers). Verified against real PX4 SITL (`nros-px4-sitl-test`):
     /// `TRANSIENT_LOCAL` durability silently fails to match `/fmu/out/*`.
     /// Adjust depth via `.keep_last(n)` for higher-rate streams.
-    pub const QOS_PROFILE_PX4: Self = Self::build(
-        QoSReliabilityPolicy::BestEffort,
-        QoSDurabilityPolicy::Volatile,
-        QoSHistoryPolicy::KeepLast,
-        1,
-    );
+    QOS_PROFILE_PX4: "nros: PX4 uxrce_dds_client companion QoS; no upstream constant" = {
+        history: KeepLast,
+        depth: 1,
+        reliability: BestEffort,
+        durability: Volatile,
+        deadline_ms: 0,
+        lifespan_ms: 0,
+        liveliness_kind: Automatic,
+        liveliness_lease_ms: 0,
+        avoid_ros_namespace_conventions: false,
+        tx_express: false,
+    };
+}
+// nros-qos-table: END
+
+// Where we knowingly differ from upstream, and where we knowingly have no
+// counterpart. phase-428 W10.
+//
+// These lines are DATA, not prose: `check-qos-profile-ssot.py` requires a
+// deviation to name the field, BOTH values and a tracking reference, and it
+// re-measures `ours=` and `upstream=` against the table and the extracted
+// record on every run. So a deviation cannot survive either side changing —
+// which is the failure mode the phase-428 sweep found in `ARG_DEVIATIONS`,
+// where 42 values were reason strings against a membership test and nothing
+// checked that the reason was still true.
+//
+//   Every upstream-mirroring preset states AUTOMATIC where upstream states the
+//   SYSTEM_DEFAULT sentinel. MEASURED consequences, 2026-09-05:
+//     - cyclonedds: wire-identical. `nros_rmw_cyclonedds_qos_apply`
+//       (`qos.cpp:99-121`) calls `dds_qset_liveliness` only when the kind is
+//       NOT the sentinel, and Cyclone's own reader/writer default IS
+//       `DDS_LIVELINESS_AUTOMATIC` — so both spellings put AUTOMATIC on the
+//       wire.
+//     - zenoh: invisible. `QosKeyExpr::to_qos_string` (`keyexpr.rs:214-222`)
+//       emits `"{rel}:{dur}:{hist},{depth}:,:,:,,"` — the liveliness and lease
+//       positions are EMPTY for every profile, so the value never reaches a
+//       peer's graph parse.
+//   The one live consequence is `required_policies()`, which sets
+//   `LIVELINESS_AUTOMATIC` for these presets where upstream would demand
+//   nothing — an over-demand, so it can only turn an acceptance into a
+//   rejection, and it flips no verdict today because every
+//   `supported_qos_policies()` in the tree advertises that bit.
+//   NOT fixed here on purpose: the same AUTOMATIC is hand-written into
+//   `rmw_entity.h`'s `NROS_RMW_QOS_PROFILE_*` macros and `nros::qos::DEFAULT`,
+//   and `liveliness_kind` crosses the C ABI as its discriminant. Flipping the
+//   Rust half alone would make a C caller's `NROS_RMW_QOS_PROFILE_DEFAULT` and
+//   a Rust caller's `QOS_PROFILE_DEFAULT` differ in a field cyclonedds puts on
+//   the wire — i.e. it would create the very defect W10 exists to close. All
+//   four sites move together or none do.
+//
+// nros-qos-absent: upstream=rmw_qos_profile_unknown ref="phase-428 W10"
+//   No nano-ros counterpart, deliberately. `rmw_qos_profile_unknown` is what an
+//   RMW returns from `*_get_actual_qos` when it cannot report a policy; it is
+//   not a profile an application constructs. Our enums have no `Unknown`
+//   variant to build it from on three of the four policies — the C ABI has
+//   `NROS_RMW_RELIABILITY_UNKNOWN` and nothing reads it (phase-428 F1).
+
+impl QoSProfile {
+    /// Create new QoS settings with defaults (matches `QOS_PROFILE_DEFAULT`:
+    /// Reliable, Volatile, KeepLast(10)).
+    pub const fn new() -> Self {
+        Self::QOS_PROFILE_DEFAULT
+    }
 
     // --- Static constructor methods (matching rclrs API) ---
 
@@ -1775,9 +1957,13 @@ impl QoSProfile {
             mask |= QoSPolicyMask::HISTORY;
         }
         // Depth's sentinel is a VALUE, not a variant: `DEPTH_SYSTEM_DEFAULT`
-        // is 0, the same 0 that `KEEP_ALL` profiles carry to mean "depth is
-        // not used here" (`QOS_PROFILE_PARAMETER_EVENTS`). Both mean the
-        // caller did not ask for a depth, so both decline the bit.
+        // is 0, the same 0 that a `KEEP_ALL` profile carries to mean "depth is
+        // not used here" (`QoSProfile::keep_all()` leaves whatever depth the
+        // profile had, and a caller building one from scratch leaves it 0).
+        // Both mean the caller did not ask for a depth, so both decline the
+        // bit. No NAMED preset is `KEEP_ALL` any more — phase-428 W10;
+        // `QOS_PROFILE_PARAMETER_EVENTS` used to be the exemplar here and was
+        // the defect, not the example.
         if self.depth != DEPTH_SYSTEM_DEFAULT {
             mask |= QoSPolicyMask::DEPTH;
         }
@@ -1853,9 +2039,11 @@ impl QoSProfile {
     /// `true` if any field is still the `SYSTEM_DEFAULT` sentinel.
     ///
     /// Depth is deliberately NOT part of this test: a `KEEP_ALL` profile
-    /// legitimately carries depth 0 forever (`QOS_PROFILE_PARAMETER_EVENTS`),
-    /// and a backend that resolves the sentinel depth to 0 — XRCE does, on
-    /// purpose — leaves a resolved profile reading 0 here. This asks about the
+    /// legitimately carries depth 0 forever (any profile a caller builds with
+    /// [`QoSProfile::keep_all`] and never gave a depth to — no NAMED preset is
+    /// `KEEP_ALL` since phase-428 W10), and a backend that resolves the
+    /// sentinel depth to 0 — XRCE does, on purpose — leaves a resolved profile
+    /// reading 0 here. This asks about the
     /// three POLICY fields, where the sentinel is a distinct variant and so
     /// cannot be confused with a stated value.
     #[must_use]
@@ -3278,11 +3466,65 @@ mod tests {
         assert_eq!(qos.depth, 1);
     }
 
+    /// phase-428 W10 — this asserted `KeepAll`, which PINNED THE DEFECT, in
+    /// exactly the shape issue 0793 had already been caught in one profile
+    /// over: upstream `rmw_qos_profile_parameter_events` is KEEP_LAST(1000) +
+    /// RELIABLE + VOLATILE, byte-identical to `rmw_qos_profile_parameters`, and
+    /// our C++ surface (`rclcpp::ParameterEventsQoS`) was already correct — so
+    /// the two languages shipped different profiles under one name while this
+    /// test reported green.
+    ///
+    /// The old value inverted behaviour rather than weakening it: a RELIABLE
+    /// writer with KEEP_ALL blocks once history fills, where KEEP_LAST(1000)
+    /// overwrites.
     #[test]
     fn test_qos_profile_parameter_events() {
         let qos = QoSProfile::QOS_PROFILE_PARAMETER_EVENTS;
         assert_eq!(qos.reliability, QoSReliabilityPolicy::Reliable);
-        assert_eq!(qos.history, QoSHistoryPolicy::KeepAll);
+        assert_eq!(qos.durability, QoSDurabilityPolicy::Volatile);
+        assert_eq!(
+            qos.history,
+            QoSHistoryPolicy::KeepLast,
+            "rmw_qos_profile_parameter_events is KEEP_LAST; KEEP_ALL makes a \
+             reliable parameter-event writer BLOCK where upstream overwrites"
+        );
+        assert_eq!(qos.depth, 1000);
+
+        // Upstream defines the two constants with identical field values.
+        assert_eq!(qos, QoSProfile::QOS_PROFILE_PARAMETERS);
+    }
+
+    /// phase-428 W10 — the class behind the `PARAMETER_EVENTS` defect, not just
+    /// the instance. `KEEP_ALL` under RELIABLE is a blocking configuration, and
+    /// no upstream `rmw_qos_profile_*` nor `rcl_action_qos_profile_*` uses it;
+    /// every one of them is `KEEP_LAST` or the SYSTEM_DEFAULT sentinel. A NAMED
+    /// preset that is `KeepAll` is therefore a transcription error by
+    /// construction — a caller who genuinely wants it says
+    /// [`QoSProfile::keep_all`].
+    #[test]
+    fn no_named_preset_is_keep_all() {
+        for (name, qos) in [
+            ("BEST_EFFORT", QoSProfile::BEST_EFFORT),
+            ("RELIABLE", QoSProfile::RELIABLE),
+            ("SYSTEM_DEFAULT", QoSProfile::QOS_PROFILE_SYSTEM_DEFAULT),
+            ("DEFAULT", QoSProfile::QOS_PROFILE_DEFAULT),
+            ("SENSOR_DATA", QoSProfile::QOS_PROFILE_SENSOR_DATA),
+            ("SERVICES_DEFAULT", QoSProfile::QOS_PROFILE_SERVICES_DEFAULT),
+            ("PARAMETERS", QoSProfile::QOS_PROFILE_PARAMETERS),
+            ("PARAMETER_EVENTS", QoSProfile::QOS_PROFILE_PARAMETER_EVENTS),
+            (
+                "ACTION_STATUS_DEFAULT",
+                QoSProfile::QOS_PROFILE_ACTION_STATUS_DEFAULT,
+            ),
+            ("CLOCK", QoSProfile::QOS_PROFILE_CLOCK),
+            ("PX4", QoSProfile::QOS_PROFILE_PX4),
+        ] {
+            assert_ne!(
+                qos.history,
+                QoSHistoryPolicy::KeepAll,
+                "preset {name} is KEEP_ALL; no upstream profile is"
+            );
+        }
     }
 
     #[test]
