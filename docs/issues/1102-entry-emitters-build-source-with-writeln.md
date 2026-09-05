@@ -5,7 +5,7 @@ title: "The entry emitters build C++/C/Rust with `writeln!`, so the generated
 status: open
 type: tech-debt
 area: codegen, cli
-related: [issue-1003, issue-1017, rfc-0068, phase-416]
+related: [issue-1003, issue-1017, rfc-0068, rfc-0091, phase-416]
 ---
 
 ## Symptom
@@ -83,6 +83,20 @@ loop, the boot wrapper — not the arithmetic.
 - Fixtures build and the runtime cells that read a session name still pass
   (`roundtrip_xprocess_e2e::two_template_built_entries_register_distinct_names`
   is the one that would catch a regression of 1003).
+
+## Scope correction (RFC-0091)
+
+This issue was filed as "three emitters build source with `writeln!`". That
+understates it. Entry code has **four** producers, and two of them —
+`emit_rust.rs` and the `nros::main!()` proc-macro (3822 lines) — are different
+paths to the SAME outcome. Nothing consumes the CLI's Rust entry; cmake asks
+only for `c`/`cpp`.
+
+[RFC-0091](../design/0091-one-entry-codegen-producer-many-language-packs.md)
+records the architecture: one producer (a leaf `nros-entry-lower` inside the
+proc-macro's dependency budget) and many language PACKS. Converting the
+emitters, which is what this issue tracks, is Stage 3 of that design — worth
+doing on its own, and not the whole of it.
 
 ## Notes
 
