@@ -1682,3 +1682,111 @@ canonical zero-cost API. That stands.
 
 Two of four were mislabelled. What remains genuinely invented is `spin_once`
 and `Node::init`, plus `Timer` as a concrete type behind a ported alias.
+
+## Timer, studied against RTOS semantics (2026-09-05) — no `TimerBase`, no hierarchy
+
+The objection is right and it kills the alias: **`TimerBase` is a name that
+promises children.** A reader who finds it expects `WallTimer` and
+`GenericTimer` beside it, and aliasing a concrete class to that name sells a
+taxonomy we do not have. Either port the hierarchy or do not take the name.
+
+So: can the hierarchy be ported? Measured, not assumed.
+
+### What upstream's three types are FOR
+
+* `TimerBase` — a non-template base so the executor can hold a
+  `std::vector<TimerBase::WeakPtr>` without knowing the callback type. Its job
+  is **type erasure for the executor**.
+* `GenericTimer<FunctorT, ClockT>` — stores the callback functor BY VALUE and is
+  parameterised on the **clock**.
+* `WallTimer<FunctorT>` — `GenericTimer` pinned to the steady clock.
+
+The hierarchy exists because upstream's executor needs a type-erased handle
+while the timer wants the functor inline.
+
+### Why neither reason survives here
+
+**Type erasure is already done, one layer down.** Our `Timer` is not an owner —
+it is a HANDLE: `{void* executor_; size_t handle_id_; bool initialized_;}`. The
+callback lives in the executor arena as a raw `void(*)(void*)` plus a `void*`
+context, and dispatch goes through that pointer. The executor never needs a
+base class because it never holds a C++ timer object at all. A `TimerBase` here
+would be a vtable added for API shape with **no dispatch that uses it** —
+clause 1 refuses it, and unlike the usual vtable argument this one buys nothing
+even in principle.
+
+**The clock parameter corresponds to a capability we do not have, and that is
+the real finding.** Our timers are scheduled by the executor against
+`nros_platform_clock_ns` — one **monotonic** counter, with
+`ExecutorConfig::clock_us` as the only override (`executor/spin.rs:8746`).
+`create_timer` takes `(Timer&, uint64_t period_ms, callback, ctx)`: **no clock
+argument anywhere.** `nros::Clock` with its `NROS_CLOCK_{SYSTEM,ROS,STEADY}_TIME`
+types is a time-READING API; it does not drive timer scheduling.
+
+So upstream's `WallTimer` vs `GenericTimer<Clock>` distinction is exactly the
+distinction between a steady-clock timer and a **ROS-time / simulated-time**
+timer — and we only have the first. `GenericTimer` cannot be ported because the
+thing it is generic over does not exist here. Porting the NAME while having one
+clock would be the compile-and-differ this RFC forbids: a ported file passing a
+`Clock` would either fail to compile (fine, but then the name bought nothing) or
+compile and silently ignore the clock (forbidden).
+
+### Should we invent our own hierarchy instead?
+
+No, and for the same reason the alias was wrong. **A hierarchy with one leaf is
+a promise with no content.** The two axes that might have been children are
+already expressed better:
+
+* one-shot vs repeating → `create_timer_oneshot` and `set_oneshot`/
+  `set_repeating` **methods**, because a timer changes between them at runtime
+  and a type cannot;
+* clock source → does not exist yet.
+
+Inventing `nros::TimerBase` with a single `WallTimer` under it would reproduce
+the misleading promise we just refused to import, and charge a vtable for it.
+
+**Decision: `rclcpp::Timer` stays flat and stays ours.** No `TimerBase`, no
+`WallTimer`, no `GenericTimer`. A ported file's
+`rclcpp::TimerBase::SharedPtr timer_;` becomes `rclcpp::Timer timer_;` — a
+rename the compiler demands, which is a mechanical edit under the principle.
+
+The verb is already accurate and already ported: `create_wall_timer` says
+*wall*, and wall is what we schedule on.
+
+### The condition under which this is revisited
+
+If ROS-time or simulated-time timers are ever implemented — a bag-driven or
+sim-driven clock feeding the executor's scheduler — the port is
+`create_timer(clock, period, callback)` plus a clock field on `Timer`. **Still
+flat.** The hierarchy would only become right if the executor needed a
+type-erased base, and it will not, because dispatch stays a raw function
+pointer in the arena.
+
+## The error channel, settled (2026-09-05)
+
+Two channels, and the value-carrying one is renamed:
+
+| the operation | channel |
+| --- | --- |
+| cannot fail; answers a question | `bool` |
+| can fail, produces nothing | `Result` |
+| can fail, produces a value | `Result<T>` — **today's `Expected<T>`, renamed** |
+| **upstream THROWS** | `Result<T>` (or `Result`), never an exception — RFC-0018 |
+| a ported API whose upstream channel is `bool` | `bool`, unchanged |
+
+`Result` becomes `Result<void>` with `Result` as the alias, so there is one
+template and one name rather than two unrelated types a reader must learn.
+`Expected<T>` survives as a deprecated alias for one release.
+
+Two properties this has to keep, both already true and both worth stating so a
+refactor does not lose them:
+
+* **Both reach every target.** `result.hpp` carries zero capability gates and
+  parses under the ThreadX `-nostdinc++` shim — measured by the header lane, not
+  assumed. The rename must not introduce a gate.
+* **Neither may be silently discarded.** `[[nodiscard]]` (`NROS_NODISCARD` on
+  C++14) on both, which is what makes `rclcpp::init(argc, argv);` as a bare
+  statement a warning the `-D warnings` lanes already treat as an error. This is
+  the whole reason the channel question mattered: upstream returns `void` there,
+  and a widened return type at a discarding call site is a signature change the
+  compiler does not point at.

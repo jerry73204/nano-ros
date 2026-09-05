@@ -71,7 +71,7 @@ parts"):
 
 | item | verdict |
 | --- | --- |
-| `rclcpp::Timer` | **partly ported.** Upstream's `TimerBase` is a POLYMORPHIC base and adopting the hierarchy is refused by clause 1 — a vtable in every image that holds a timer. But the common ported line is a member declaration, `rclcpp::TimerBase::SharedPtr timer_;`, which is a NAME. So hosted gains `using TimerBase = Timer;` plus a `SharedPtr` typedef, and a file that tries to DERIVE fails to compile. `WallTimer`/`GenericTimer` stay absent — templates over a clock type we do not have. |
+| `rclcpp::Timer` | **invention, kept flat — the `TimerBase` alias is WITHDRAWN.** `TimerBase` is a name that promises children, and aliasing a concrete class to it sells a taxonomy we do not have. Studied: upstream's hierarchy exists so its executor can hold a type-erased handle while the timer stores its functor inline. Neither reason survives — our `Timer` is a HANDLE and the callback lives in the arena as a raw fn ptr, so the executor never holds a C++ timer and a base would carry a vtable NO dispatch uses. And `GenericTimer`'s clock parameter corresponds to ROS-time/simulated-time timers, which we do not have: `create_timer` takes no clock and the executor schedules on one monotonic `nros_platform_clock_ns`. Inventing our own one-leaf hierarchy would reproduce the same empty promise. `create_wall_timer` already carries the accurate verb. |
 | `rclcpp::spin_once(timeout_ms)` | **invention, kept.** Upstream's verb is ALREADY ported — `spin_some(node)` exists here with upstream's drain-what-is-ready semantics as a 0-timeout spin. Ours is a blocking wait with a budget, which rclcpp has no verb for and an RTOS task needs. |
 | `Node::init` / `Node::ok` | kept. `ok()` matches `rclcpp::ok()`'s own spelling; `init()` is the channel a `-fno-exceptions` target needs instead of a throwing constructor. |
 | out-ref `create_*` | **not an invention.** It shares upstream's name with a changed signature, and the signature is forced: the arena stores `&entity` as its dispatch context and has NO unregister, so a value-returning form would move the object and dangle the context on the first callback. |
@@ -118,6 +118,15 @@ The rule, now in RFC-0089: ours-only fallible operations return `Result`, or
 `rclcpp::Node::get_parameter` returns `bool` upstream, so ours does. Making that
 uniform would be a preference recorded as a divergence, which RFC-0036 forbids.
 
-*Acceptance:* `Result` and `Expected<T>` carry `[[nodiscard]]`
-(`NROS_NODISCARD` on C++14); a TU that discards `rclcpp::init(argc, argv)`
-fails a `-D warnings` lane. This subsumes W6's first item.
+**Settled shape.** `Expected<T>` is RENAMED to `Result<T>`, and today's
+value-less `Result` becomes `Result<void>` with `Result` as the alias — one
+template, one name, instead of two unrelated types a reader must learn.
+`Expected<T>` survives as a deprecated alias for one release. Where upstream
+would THROW, the counterpart returns `Result<T>`; where upstream's channel is
+already `bool` (`Node::get_parameter`), ours stays `bool`.
+
+*Acceptance:* `Result` and `Result<T>` carry `[[nodiscard]]` (`NROS_NODISCARD`
+on C++14); a TU that discards `rclcpp::init(argc, argv)` fails a `-D warnings`
+lane. `result.hpp` still carries ZERO capability gates and still parses under
+the ThreadX `-nostdinc++` shim — the rename must not introduce a gate, and the
+header lane is what proves it. This subsumes W6's first item.
