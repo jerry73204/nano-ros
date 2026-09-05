@@ -833,6 +833,103 @@ impl EntityInventory {
         Some(inv)
     }
 
+    /// phase-412 -- combine a declaration-derived inventory with a
+    /// model-derived one, PER COMPONENT and PER KIND, taking whichever source
+    /// says more.
+    ///
+    /// Neither source is complete, which is why this is a max and not a choice
+    /// -- the same rule, for the same reason, that
+    /// `model_ingest::count_callbacks_with_metadata` applies one layer up:
+    ///
+    /// * The MODEL has no timer entity. The island runs four timers and the
+    ///   contract cannot express one, so a model-only `MAX_CBS` is short by
+    ///   four and short halts the board.
+    /// * The DECLARATION is hand-written. mrm_handler's said six subscriptions
+    ///   where the code creates seven, and nothing compared the two; the model
+    ///   gets its seven from an authored contract instead.
+    ///
+    /// Per KIND rather than per component total, because the two blind spots
+    /// are in different kinds: taking a whole-component max would let the
+    /// declaration's four timers hide the model's extra subscription, or the
+    /// reverse. Per kind, each source can only ever raise the answer.
+    ///
+    /// UNION would double-count: both sources describe the same subscriptions,
+    /// so adding them sizes every pool at twice the truth.
+    ///
+    /// The join key is the COMPONENT name -- `nano_ros_node_register(NAME ...)`
+    /// on one side and the launch `exec` on the other, which RFC-0057 already
+    /// requires to be the same string. A component in one source and not the
+    /// other is carried through unchanged rather than dropped.
+    #[must_use]
+    pub fn merged_per_kind_max(&self, model: &EntityInventory) -> EntityInventory {
+        use std::collections::BTreeMap;
+
+        fn by_kind(d: &Declaration) -> BTreeMap<EntityKind, Vec<EntityDecl>> {
+            let mut m: BTreeMap<EntityKind, Vec<EntityDecl>> = BTreeMap::new();
+            for e in d.entities() {
+                m.entry(e.kind).or_default().push(e.clone());
+            }
+            m
+        }
+
+        let model_rows: BTreeMap<&str, &ComponentEntities> = model
+            .components
+            .iter()
+            .map(|c| (c.component.as_str(), c))
+            .collect();
+
+        let mut out = Self::new(format!("{} + {}", self.source, model.source));
+        let mut seen: Vec<&str> = Vec::new();
+
+        for decl_row in &self.components {
+            let Some(model_row) = model_rows.get(decl_row.component.as_str()) else {
+                out.insert(decl_row.clone());
+                continue;
+            };
+            seen.push(decl_row.component.as_str());
+
+            // A component the declaration says nothing about is NOT a zero, so
+            // the model simply stands. `Declaration::None` IS a zero and the
+            // max still holds.
+            let decl_kinds = by_kind(&decl_row.declaration);
+            let model_kinds = by_kind(&model_row.declaration);
+
+            let mut merged: Vec<EntityDecl> = Vec::new();
+            let mut kinds: Vec<EntityKind> = decl_kinds
+                .keys()
+                .chain(model_kinds.keys())
+                .copied()
+                .collect();
+            kinds.sort_by_key(|k| k.tag());
+            kinds.dedup();
+            for k in kinds {
+                let d = decl_kinds.get(&k).map(Vec::as_slice).unwrap_or(&[]);
+                let m = model_kinds.get(&k).map(Vec::as_slice).unwrap_or(&[]);
+                // The LONGER list wins whole, so the winning source's types and
+                // topic names survive intact rather than being spliced.
+                merged.extend_from_slice(if m.len() > d.len() { m } else { d });
+            }
+
+            out.insert(ComponentEntities {
+                pkg: decl_row.pkg.clone(),
+                component: decl_row.component.clone(),
+                class: decl_row.class.clone(),
+                declaration: if merged.is_empty() {
+                    decl_row.declaration.clone()
+                } else {
+                    Declaration::Stated(merged)
+                },
+            });
+        }
+
+        for (name, row) in &model_rows {
+            if !seen.contains(name) {
+                out.insert((*row).clone());
+            }
+        }
+        out
+    }
+
     /// Record one component. A later record for the same `(pkg, component)`
     /// replaces the earlier one, so a configure that registers a component
     /// twice cannot double-count it.
@@ -2461,6 +2558,91 @@ structure:
         let k = d.knobs().expect("wiring yields knobs");
         assert_eq!(k.max_subscribers, 2, "two subscriptions across the image");
         assert_eq!(k.max_publishers, 1, "one publisher");
+    }
+
+    /// phase-412 -- the merge must take the model's EXTRA subscription and keep
+    /// the declaration's timer.
+    ///
+    /// This is the island's actual failure in miniature: the hand-written list
+    /// said one subscription where the contract says two, and the contract
+    /// cannot express the timer the list carries. Either source alone
+    /// under-sizes a pool, in a different kind each.
+    #[test]
+    fn the_merge_takes_the_larger_of_each_kind() {
+        let mut decl = EntityInventory::new("metadata");
+        decl.insert(ComponentEntities {
+            pkg: "autoware_mrm_handler".into(),
+            component: "mrm_handler".into(),
+            class: "MrmHandler".into(),
+            declaration: Declaration::Stated(vec![
+                EntityDecl {
+                    kind: EntityKind::Subscription,
+                    type_name: Some("a/msg/A".into()),
+                    name: Some("/one".into()),
+                    depth: None,
+                },
+                EntityDecl {
+                    kind: EntityKind::Timer,
+                    type_name: None,
+                    name: None,
+                    depth: None,
+                },
+            ]),
+        });
+
+        let mut model = EntityInventory::new("model");
+        model.insert(ComponentEntities {
+            pkg: "/mrm_handler".into(),
+            component: "mrm_handler".into(),
+            class: String::new(),
+            declaration: Declaration::Stated(vec![
+                EntityDecl {
+                    kind: EntityKind::Subscription,
+                    type_name: Some("a/msg/A".into()),
+                    name: Some("/one".into()),
+                    depth: None,
+                },
+                EntityDecl {
+                    kind: EntityKind::Subscription,
+                    type_name: Some("b/msg/B".into()),
+                    name: Some("/two".into()),
+                    depth: None,
+                },
+            ]),
+        });
+
+        let merged = decl.merged_per_kind_max(&model);
+        let d = merged.derive();
+        let k = d.knobs().expect("merged yields knobs");
+        assert_eq!(
+            k.max_subscribers, 2,
+            "the model's extra subscription survives"
+        );
+        assert_eq!(
+            k.max_cbs, 3,
+            "two subscriptions plus the timer only the declaration knows"
+        );
+    }
+
+    /// A component the model does not mention keeps its declaration whole.
+    #[test]
+    fn a_component_absent_from_the_model_is_not_dropped() {
+        let mut decl = EntityInventory::new("metadata");
+        decl.insert(ComponentEntities {
+            pkg: "p".into(),
+            component: "only_declared".into(),
+            class: "C".into(),
+            declaration: Declaration::Stated(vec![EntityDecl {
+                kind: EntityKind::Timer,
+                type_name: None,
+                name: None,
+                depth: None,
+            }]),
+        });
+        let merged = decl.merged_per_kind_max(&EntityInventory::new("model"));
+        assert_eq!(merged.len(), 1);
+        let d = merged.derive();
+        assert_eq!(d.knobs().expect("knobs").max_cbs, 1);
     }
 
     /// A model that describes NO wiring must abstain, never report zero.

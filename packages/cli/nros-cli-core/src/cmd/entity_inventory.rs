@@ -61,6 +61,22 @@ pub struct EntityInventoryArgs {
     #[arg(long, value_name = "PATH")]
     pub metadata: Option<PathBuf>,
 
+    /// phase-412 -- a resolved SystemModel whose `structure.topics` carries the
+    /// authored contract's wiring.
+    ///
+    /// When given AND the model describes wiring, its per-node sub/pub sets are
+    /// combined with the metadata declaration per component and per kind,
+    /// taking whichever says more (`EntityInventory::merged_per_kind_max`).
+    /// That is what lets a contract beside the launch file replace the
+    /// `ENTITIES` lists, WITHOUT losing the timers the contract schema cannot
+    /// express.
+    ///
+    /// Absent, or present but describing no wiring, the metadata declaration
+    /// stands alone -- which is every image in this tree that has not authored
+    /// a contract.
+    #[arg(long, value_name = "PATH")]
+    pub model: Option<PathBuf>,
+
     /// Write the canonical JSON artifact here.
     #[arg(long = "output-json", value_name = "PATH")]
     pub output_json: Option<PathBuf>,
@@ -183,6 +199,25 @@ pub fn run(args: EntityInventoryArgs) -> Result<()> {
     let doc: MetadataDoc = serde_json::from_str(&raw)
         .wrap_err_with(|| format!("parse metadata `{}`", metadata.display()))?;
     let mut inv = inventory_from_metadata(&metadata.display().to_string(), &doc)?;
+
+    // phase-412 -- fold in the model's wiring when a contract authored it.
+    //
+    // Deliberately a COMBINE and not a replace: the contract has no timer
+    // entity, so a model-only inventory under-sizes MAX_CBS by one per timer
+    // in the image. See `EntityInventory::merged_per_kind_max`.
+    if let Some(model_path) = &args.model {
+        let raw = std::fs::read_to_string(model_path)
+            .wrap_err_with(|| format!("read model `{}`", model_path.display()))?;
+        let model: ros_launch_manifest_model::SystemModel = serde_yaml_ng::from_str(&raw)
+            .wrap_err_with(|| format!("parse model `{}`", model_path.display()))?;
+        match EntityInventory::from_model(model_path.display().to_string(), &model) {
+            Some(model_inv) => inv = inv.merged_per_kind_max(&model_inv),
+            // No wiring described. Not an error and not a zero: nobody authored
+            // a contract for this image, and the declaration is the only source
+            // there is.
+            None => {}
+        }
+    }
 
     if let Some(want) = &args.component {
         inv = narrow_to_component(&inv, want)?;
