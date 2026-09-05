@@ -898,3 +898,121 @@ means:
 That ordering matters. Steps 1–3 are Rust-side, and step 4 is what makes the
 C/C++ side a thin wrapper rather than a second implementation — which is
 RFC-0019/0020's rule, and the reason this is a Rust job rather than a C++ one.
+
+
+## The proposed node shape (2026-09-05)
+
+Grounded in the three shapes that actually exist in the tree, not in the two the
+merge question implied.
+
+### The three working shapes today
+
+**A — standalone `main`** (`examples/native/cpp/talker`, and every
+`examples/<plat>/<lang>/` leaf):
+
+```cpp
+nros::init();
+nros::Node node;                        // caller-owned storage
+nros::create_node(node, "talker");      // out-ref, returns Result
+node.create_publisher(pub, "/chatter"); // out-ref, returns Result
+while (running) nros::spin_once(100);
+```
+
+**B — workspace typed component** (RFC-0043; the dominant workspace shape —
+41 files in `workspaces/cpp` alone):
+
+```cpp
+class Talker {
+    Publisher<Int32> pub_;   // inline storage, no allocator
+    Timer timer_;
+    void on_tick();
+  public:
+    Result configure(nros::Node& node);   // node passed BY REFERENCE
+};
+```
+
+**C — `ComponentNode`** (RFC-0044/0047; five directories):
+
+```cpp
+class SubNode : public nros::ComponentNode {
+    SubNode(NodeHandle h) : ComponentNode(h, "sub_node") {}
+};
+```
+
+And upstream's component, for comparison:
+
+```cpp
+class Talker : public rclcpp::Node {
+    explicit Talker(const NodeOptions& o) : Node("talker", o) {
+        pub_ = create_publisher<M>("chatter", 10);           // returns shared_ptr
+        timer_ = create_wall_timer(1s, [this]{ on_tick(); });
+    }
+};
+```
+
+C is upstream's shape with the handle swapped for the executor. **B has no
+upstream counterpart at all** — and B is the one that carries our hardest
+constraint, because it needs neither an allocator nor derivation nor a vtable.
+
+### The proposal
+
+**One node type. Three constructors. Two entity-creation shapes. B unchanged.**
+
+```cpp
+namespace nros { class Node; }
+namespace rclcpp { using Node = ::nros::Node; }   // unconditional alias
+```
+
+*Constructors* — because construction is not identity, and `rclcpp::Node`
+already has several:
+
+1. `Node()` + `nros::create_node(node, name, ns)` — shape A, out-ref, no
+   allocator, works on every target. Stays exactly as it is.
+2. `Node(const std::string& name, const NodeOptions& = {})` — upstream's, for a
+   ported file. Hosted-only, because `std::string` is.
+3. `Node(NodeHandle handle, const char* name, const char* ns = nullptr)` —
+   shape C's, promoted from a second class to a constructor on the one type.
+
+*Entity creation* — both shapes on the one type, distinguished by argument
+order, which is already how the overloads resolve:
+
+| shape | signature | reach |
+| --- | --- | --- |
+| ours | `create_publisher(Publisher<M>& out, const char* topic, qos) -> Result` | every target |
+| upstream | `create_publisher<M>(const std::string& topic, qos) -> shared_ptr<Publisher<M>>` | hosted |
+
+The out-ref family is an **ours-only name for a capability upstream lacks**
+(caller-owned storage), which is a permanent divergence under this RFC's own
+rules, not a transitional one. The `shared_ptr` family allocates, and that is
+inherent to the arena contract rather than to the spelling: the arena stores a
+raw pointer and has no unregister, so anything handed back as a pointer needs a
+second owner with node lifetime (`owned_entities_`).
+
+*Derivation* — `class Talker : public rclcpp::Node` becomes available, which is
+what a ported component writes. It requires the hosted constructor, so it is
+hosted-only, and that is honest: on a freestanding target the answer is shape B.
+
+*Shape B survives untouched.* `Result configure(nros::Node&)` takes the one node
+type by reference. It was never a node type — only a convention — and after the
+merge it is the same convention over the same type. **This is the shape to keep
+recommending for firmware**, because it is the only one of the three that needs
+no allocator and no vtable.
+
+*`ComponentNode`* becomes `using ComponentNode = Node;` for one release, then
+goes. Its two real contents are already accounted for: the handle constructor
+(3 above) and RFC-0047's several-named-nodes, which stays as an ours-only
+capability on the single type.
+
+### What this costs, stated rather than implied
+
+* **`get_logger()` changes behaviour** on the `rclcpp::` spelling: a node-named
+  logger replaces the `"nros.compat"` sentinel. Decided above; strictly better,
+  but it IS a behaviour change and belongs in the changelog.
+* **A vtable appears** only if someone derives. Shapes A and B add none, so no
+  embedded image pays for the hosted shape unless it uses it.
+* **`sizeof(Node)` must not move with a capability probe** — the hosted members
+  live behind an unconditional owner member, enforced by
+  `check-cpp-capability-layout` and already the reason `timers_` is gone.
+* **The 409 `nros::` call sites do not have to move.** The alias is
+  unconditional and both spellings name one type, so migration becomes
+  optional per file rather than a flag day.
