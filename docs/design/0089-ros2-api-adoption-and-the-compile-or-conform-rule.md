@@ -1352,3 +1352,191 @@ compile against ROS 2 — it uses names and shapes upstream lacks. That asymmetr
 is the principle working, not a gap in it: clause 1 outranks clause 2, so where
 our constraints demand something upstream does not have, we have it and upstream
 does not.
+
+## The node API, proposed under the governing principle (2026-09-05)
+
+Supersedes "The node API, revised" above, which predates the principle and kept
+four names in `nros::`. Every decision below is annotated with the clause it
+follows from: **[1]** constraints first, **[2]** port upstream within them,
+**[3]** invent only where upstream has nothing.
+
+### Type and namespace
+
+```cpp
+namespace rclcpp {
+class Node { /* ... */ };
+}
+namespace nros { using Node = ::rclcpp::Node; }   // transitional; deprecated, then deleted
+```
+
+`rclcpp::Node` is the class **[2]**. One type — `ComponentNode` is deleted, not
+aliased, because once its handle became a constructor it had no distinction
+left. `nros::` survives only as a migration alias so the remaining call sites
+are optional to move rather than a flag day.
+
+**Layout is probe-independent [1].** Hosted-only state lives out of line behind
+one unconditional pointer, allocated lazily on the first hosted-shape call and
+never on a freestanding target:
+
+```cpp
+nros_cpp_node_t handle_;
+bool            initialized_;
+void*           executor_handle_;
+Clock           clock_;
+void*           hosted_ = nullptr;   // detail::NodeHosted*, null on freestanding
+```
+
+Enforced by `check-cpp-capability-layout`; this is the rule `timers_` broke.
+
+### Construction
+
+Upstream constructs a node with a name and throws on failure. We cannot throw
+**[1]**, so the constructor is kept and the failure channel changes **[2]**:
+
+```cpp
+Node() noexcept;                                                  // [3] uninitialised, pair with init()
+explicit Node(const char* name, const char* ns = nullptr) noexcept;  // [2] upstream's shape, no allocator
+Result init(const char* name, const char* ns = nullptr) noexcept;    // [3] explicit-code form
+bool   ok() const noexcept;                                          // [2] replaces the throw
+```
+
+Hosted adds upstream's exact spellings **[2]**:
+
+```cpp
+explicit Node(const std::string& name, const NodeOptions& = NodeOptions());
+Node(const std::string& name, const std::string& ns, const NodeOptions& = NodeOptions());
+```
+
+`ok()` is **adopt-bounded**: upstream throws, we set a flag. That is weaker, and
+the weakening is only safe if it is loud. The generated entry checks `ok()` and
+halts naming the node (RFC-0044 Q2 already does this); a standalone `main` must
+check it, and the book must say so. This is the same class as `init()`'s
+discarded `Result` — a difference the compiler does not point at — so it is an
+outstanding loudness item, not a solved one.
+
+### Entity creation — one name, two signatures
+
+Upstream's name is kept and the signature changes **[2]**. The compiler forces
+the edit: there is no overload taking `(const std::string&, int)` on a
+freestanding target, so a ported line fails to compile rather than differing.
+
+```cpp
+// [2] freestanding — caller-owned storage, no allocator, every target
+Result create_publisher   (Publisher<M>&,    const char* topic, const QoS& = {}) noexcept;
+Result create_subscription(Subscription<M>&, const char* topic, void(*)(const M&), const QoS& = {}) noexcept;
+Result create_service     (Service<S>&,      const char* name,  ..., const QoS& = ServicesQoS()) noexcept;
+Result create_client      (Client<S>&,       const char* name,  ..., const QoS& = ServicesQoS()) noexcept;
+Result create_wall_timer  (Timer&, uint64_t period_ms, void(*)(void*), void* ctx) noexcept;
+
+// [2] hosted — upstream's exact signatures
+std::shared_ptr<Publisher<M>>    create_publisher<M>(const std::string& topic, const QoS&);
+std::shared_ptr<Subscription<M>> create_subscription<M>(const std::string& topic, const QoS&, Cb);
+std::shared_ptr<TimerBase>       create_wall_timer(std::chrono::duration<...>, Cb);
+std::shared_ptr<Service<S>>      create_service<S>(const std::string& name, ...);
+std::shared_ptr<Client<S>>       create_client<S>(const std::string& name, ...);
+```
+
+**Member-function binding folds into `create_wall_timer` [2] rather than being a
+free `bind_timer` [3].** A component binds its own method with no allocation and
+no `std::function`:
+
+```cpp
+template <typename C, void (C::*M)()>
+Result create_wall_timer(Timer& out, uint64_t period_ms, C* self) noexcept;
+```
+
+That removes an invented name by reusing an upstream one — which is what clause
+2 asks for, and it is why this proposal has fewer inventions than the previous
+one.
+
+### What is invented, and why each is unavoidable
+
+| name | why upstream has nothing | tripwire |
+| --- | --- | --- |
+| `rclcpp::Timer` | ours is a HANDLE; upstream's `TimerBase`/`WallTimer` are a virtual hierarchy we have no vtable budget for **[1]** | absent upstream today; `TimerBase`/`WallTimer` are present, so the gate watches for `Timer` appearing |
+| `rclcpp::spin_once(timeout_ms)` | upstream's one-cycle verb is `spin_some(node)`, with no timeout and no return | absent in rclcpp — but **`rclpy.spin_once` exists with a different signature**, so the ledger row must say so |
+| `Node::init` / `Node::ok` | upstream throws; a no-exception target needs a channel **[1]** | absent upstream |
+| the out-ref `create_*` family | caller-owned storage has no upstream counterpart **[1]** | shares upstream's NAME, so it is a ported signature, not an invention |
+
+Each invented name carries a ledger row with `disposition: extension`, and the
+collision gate asserts none of them appears in the recorded upstream surface.
+
+### Usage — standalone, hosted (a ported file, unchanged)
+
+```cpp
+rclcpp::init(argc, argv);
+auto node = std::make_shared<rclcpp::Node>("talker");
+auto pub  = node->create_publisher<std_msgs::msg::String>("chatter", 10);
+auto timer = node->create_wall_timer(std::chrono::seconds(1), [pub]{ /* ... */ });
+rclcpp::spin(node);
+rclcpp::shutdown();
+```
+
+### Usage — standalone, freestanding
+
+```cpp
+if (!rclcpp::init().ok()) return 1;
+
+rclcpp::Node node("talker");          // no allocation; upstream's shape
+if (!node.ok()) return 1;             // replaces upstream's throw
+
+rclcpp::Publisher<std_msgs::msg::String> pub;   // inline storage
+if (!node.create_publisher(pub, "chatter").ok()) return 1;
+
+while (rclcpp::ok()) {
+    pub.publish(msg);
+    rclcpp::spin_once(100);
+}
+```
+
+Every line is `rclcpp::`. Nothing names `nros::`.
+
+### Usage — workspace component (the firmware recommendation)
+
+Unchanged in structure; only the spellings move. No allocator, no derivation, no
+vtable — the only one of the three shapes that compiles on every target we ship.
+
+```cpp
+class Talker {
+    rclcpp::Publisher<std_msgs::msg::Int32> pub_;
+    rclcpp::Timer                           timer_;
+    int count_ = 0;
+
+    void on_tick();
+
+  public:
+    rclcpp::Result configure(rclcpp::Node& node) {
+        NROS_TRY(node.create_publisher(pub_, "chatter"));
+        return node.create_wall_timer<Talker, &Talker::on_tick>(timer_, 1000, this);
+    }
+};
+```
+
+The generated entry constructs each component and calls `configure(node)` —
+upstream's manual composition with the `main` generated instead of written.
+
+### Usage — workspace component, hosted (a ported component, unchanged)
+
+```cpp
+class Talker : public rclcpp::Node {
+  public:
+    explicit Talker(const rclcpp::NodeOptions& opts) : Node("talker", opts) {
+        pub_ = create_publisher<std_msgs::msg::Int32>("chatter", 10);
+    }
+};
+```
+
+Same type. Deriving needs the hosted constructor, so it is hosted-only; on a
+freestanding target the answer is the shape above, which needs no derivation.
+
+### Outstanding loudness items this proposal creates
+
+Both are cases where a signature changed and the compiler does NOT force the
+edit, which the governing principle requires be made loud by other means:
+
+1. `Result` needs `[[nodiscard]]` (`NROS_NODISCARD` on C++14 targets) so
+   `rclcpp::init(argc, argv);` as a bare statement warns. `grep -n nodiscard`
+   on `result.hpp` returns nothing today.
+2. `Node::ok()` needs a story for the standalone `main` that never calls it.
+   The generated entry already checks; a hand-written `main` does not, and a
+   node that failed to create currently proceeds silently.
