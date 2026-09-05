@@ -565,6 +565,54 @@ is one road.
         closes "no backend keeps a bespoke vendoring path", and it re-adds the
         crate phase-321 W1.d removed — legitimately, since this one has two
         dependents, which is exactly what that deletion said it lacked.
+
+        **Scoped 2026-09-05, after issues 1068 and 1069 removed two of the four
+        mirrors.** What the two lanes still hold in duplicate, measured:
+
+        1. **The config-header generation.** `nros-rmw-xrce-cffi/build.rs` has
+           `generate_ucdr_config` / `generate_uxr_config`, which read the
+           upstream `config.h.in` templates and substitute by hand;
+           `nros-rmw-xrce/CMakeLists.txt` runs `configure_file` on the same two
+           templates. Two implementations of "fill in this template", and the
+           token VALUES are restated in both — MTUs (4096 / 512), the
+           `UCLIENT_PROFILE_*` flags, `XRCE_STREAM_HISTORY`, the `XRCE_MAX_*`
+           entity caps.
+        2. **The knob resolution, and this half is already BROKEN.** `zephyr/
+           Kconfig` defines six `CONFIG_NROS_XRCE_*` knobs — `TRANSPORT_MTU`,
+           `MAX_SUBSCRIBERS`, `MAX_SERVICE_SERVERS`, `MAX_SERVICE_CLIENTS`,
+           `BUFFER_SIZE`, `STREAM_HISTORY`. The cargo lane reads them (via env +
+           `$DOTCONFIG`); **the CMake lane reads zero of them** (`grep -c
+           CONFIG_NROS_XRCE nros-rmw-xrce/CMakeLists.txt` = 0) and hardcodes the
+           defaults instead. Kconfig line 992 says so out loud — "read by
+           nros-rmw-xrce-cffi/build.rs" — naming one lane. So an image that sets
+           `CONFIG_NROS_XRCE_TRANSPORT_MTU=1024` gets 1024 in the TUs cargo
+           compiles and 4096 in the TUs cmake compiles. That is issue 0460's
+           class in the mirror direction, and it is not hypothetical.
+           **Open question to settle FIRST, because it decides the severity:**
+           can one image contain TUs from both lanes? If yes this is also an
+           0135-class ABI split — flag-gated struct layouts disagreeing inside a
+           single link — and `examples/workspaces/mixed` is the entry that would
+           catch it. If no, it is "the C lane ignores its own Kconfig", which is
+           merely wrong rather than corrupting.
+        3. **The compile itself.** `cc::Build` → `nros_rmw_xrce_c_inline` on one
+           side, `add_library(nros_rmw_xrce STATIC …)` on the other, over the
+           same TUs from `xrce-sources.txt`, with each lane choosing its own
+           flags and defines.
+
+        So the remaining work is not "share a list" — 1068 did that — it is
+        **one build with one set of resolved knobs, consumed twice**. Sequence:
+        settle the open question in (2) first, since a positive answer makes
+        this urgent rather than tidy; then hoist the knob resolution to one
+        place; then the template substitution; then the compile.
+
+        **The zenoh invariant does NOT transfer here.** `check-zenoh-source-
+        manifest` can say "only `src/system/<platform>/` paths may be
+        conditional" because zenoh-pico's per-platform axis is visible in the
+        PATH. XRCE's `posix` / `posix_ip` groups hold ordinary `uxr`/`backend`
+        paths with no directory-shaped tell — the attachment fact there is
+        "which files need a POSIX libc", which a path cannot answer. Whatever
+        gates the XRCE vendor build needs a different predicate; do not copy
+        the zenoh one over and assume it holds.
       - zenoh: fold `zephyr/cmake/nros_rmw_zenoh.cmake`'s `GLOB_RECURSE` into the
         same source list `nros-zpico-build` computes. **LANDED 2026-09-05.**
         `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt` is the one list; neither
