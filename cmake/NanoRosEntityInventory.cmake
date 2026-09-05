@@ -122,8 +122,16 @@
 #   nros_derive_entity_inventory_knobs(
 #       CLI <path to nros>                  # required
 #       [METADATA <nros-metadata.json>]     # default ${CMAKE_BINARY_DIR}/...
+#       [MODEL <system_model.yaml>]         # resolved SystemModel, if any
 #       [OUTPUT_FILE <path>]                # default the knobs file below
 #       [QUIET])
+#
+# MODEL is a SECOND source of the same wiring, not a replacement: the verb
+# takes the larger of the two per component and per kind. The metadata
+# declaration knows the timers the model's schema cannot express; the model
+# knows the wiring an `ENTITIES` list can be silently short of. It is ignored
+# when the path is empty or missing, and the verb abstains on a model that
+# describes no wiring, so an image with no contract sees no change.
 #
 # Sets in the CALLER's scope:
 #
@@ -245,7 +253,7 @@ endmacro()
 
 # nros_derive_entity_inventory_knobs(...)  -- see the header comment.
 function(nros_derive_entity_inventory_knobs)
-    cmake_parse_arguments(_E "QUIET" "CLI;METADATA;OUTPUT_FILE" "" ${ARGN})
+    cmake_parse_arguments(_E "QUIET" "CLI;METADATA;MODEL;OUTPUT_FILE" "" ${ARGN})
 
     set(_metadata "${_E_METADATA}")
     if(NOT _metadata)
@@ -300,9 +308,18 @@ function(nros_derive_entity_inventory_knobs)
     # rule, the per-kind slot cost and the refusal all live in
     # `nros_cli_core::entity_inventory`, and this file only reads what it wrote.
     # A second count in cmake is how two green tools come to disagree.
+    # MODEL is optional and passed only when the file EXISTS. An entry that
+    # names no bringup resolves no model, and a path that is empty or absent
+    # must not reach the verb: `--model <missing>` is an error there, and the
+    # absence of a contract is a normal state, not a broken configure.
+    set(_model_arg "")
+    if(_E_MODEL AND EXISTS "${_E_MODEL}")
+        set(_model_arg --model "${_E_MODEL}")
+    endif()
     execute_process(
         COMMAND "${_E_CLI}" ws entity-inventory
                 --metadata "${_metadata}"
+                ${_model_arg}
                 --output-cmake "${_output}"
                 --output-json "${CMAKE_BINARY_DIR}/nros/entity_inventory.json"
         OUTPUT_VARIABLE _out
@@ -455,9 +472,13 @@ if(CMAKE_SCRIPT_MODE_FILE AND
     if(NOT DEFINED NROS_ENTITY_CLI OR NOT DEFINED NROS_ENTITY_METADATA)
         message(FATAL_ERROR
             "usage: cmake -DNROS_ENTITY_CLI=<nros> -DNROS_ENTITY_METADATA=<meta.json> "
-            "[-DNROS_ENTITY_OUTPUT=path] -P cmake/NanoRosEntityInventory.cmake")
+            "[-DNROS_ENTITY_MODEL=<system_model.yaml>] [-DNROS_ENTITY_OUTPUT=path] "
+            "-P cmake/NanoRosEntityInventory.cmake")
     endif()
     set(_args CLI "${NROS_ENTITY_CLI}" METADATA "${NROS_ENTITY_METADATA}")
+    if(DEFINED NROS_ENTITY_MODEL)
+        list(APPEND _args MODEL "${NROS_ENTITY_MODEL}")
+    endif()
     if(DEFINED NROS_ENTITY_OUTPUT)
         list(APPEND _args OUTPUT_FILE "${NROS_ENTITY_OUTPUT}")
     endif()

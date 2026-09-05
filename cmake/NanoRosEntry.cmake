@@ -1010,7 +1010,22 @@ function(_nros_entry_invoke_codegen)
     include("${_NROS_ENTRY_DIR}/NanoRosReconfigure.cmake")
     nros_entity_inventory_knobs_file(_entity_knobs_path)
     nros_reconfigure_snapshot("${_entity_knobs_path}" _entity_knobs_before)
-    nros_derive_entity_inventory_knobs(CLI "${_nros_bin}")
+    # phase-412 -- MODEL joins METADATA as a SECOND source of the wiring, and
+    # the verb takes the larger of the two per component and per kind.
+    #
+    # Neither source is complete, which is why it is a max and not a
+    # replacement. The `ENTITIES` lists in metadata are hand-maintained with
+    # nothing comparing them to the code, and on the safety island one of them
+    # declared six subscriptions for a node that creates seven -- every pool
+    # derived from it was short by one, and the eleventh subscription failed at
+    # boot with a transport error naming nothing. The MODEL's
+    # `structure.topics` comes from the contract sidecar the resolver folds in,
+    # so it states the wiring the launch tree cannot; but its schema has no
+    # timer entity, and the island runs four, so a model-only count is short by
+    # four callbacks. The verb ABSTAINS on a model that describes no wiring
+    # (`EntityInventory::from_model` returns None), so passing this for the 115
+    # images with no contract changes nothing.
+    nros_derive_entity_inventory_knobs(CLI "${_nros_bin}" MODEL "${_NRX_MODEL}")
     nros_reconfigure_on_change("${_entity_knobs_path}" "${_entity_knobs_before}"
         LABEL "this image's entity inventory")
     # issue 1033 — tell the deferred non-entry composer to stand down. An entry
