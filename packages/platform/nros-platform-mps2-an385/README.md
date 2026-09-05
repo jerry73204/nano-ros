@@ -9,11 +9,11 @@ board crates.
 ## Role
 
 Implements the trait family in
-[`nros-platform-api`](../../core/nros-platform-api) for a single-core
+[`nros-platform-api`](../nros-platform-api) for a single-core
 Cortex-M3 with no kernel: CMSDK Timer0 for the monotonic clock, a
 linker-script-defined heap region with a bump allocator, no threading
 (stubbed `task_*`, no-op mutex/condvar), no native networking — that
-ships from the board crate via [`nros-smoltcp`](../../drivers/nros-smoltcp).
+ships from the board crate via [`nros-smoltcp`](../../drivers/net/nros-smoltcp).
 
 ## Source layout
 
@@ -38,8 +38,8 @@ ships from the board crate via [`nros-smoltcp`](../../drivers/nros-smoltcp).
 - The bump allocator is one-shot — no `dealloc`, just leaks. Sized at
   config time via the `dds-heap` feature for DDS use cases.
 - Networking depends on a board crate wiring up
-  [`lan9118-smoltcp`](../../drivers/lan9118-smoltcp) +
-  [`nros-smoltcp`](../../drivers/nros-smoltcp) ; this crate provides
+  [`lan9118-smoltcp`](../../drivers/net/lan9118-smoltcp) +
+  [`nros-smoltcp`](../../drivers/net/nros-smoltcp) ; this crate provides
   only `PlatformNetworkPoll`.
 
 ## See also

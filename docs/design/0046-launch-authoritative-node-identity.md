@@ -27,7 +27,7 @@ the **launch file** (`<node name="…" namespace="…">`), which is the single s
 and the node's own code provides only a **fallback default** that the launch overrides (model A —
 rclcpp semantics). This identity resolution must be **identical across Rust, C, and C++**, applied
 at the one shared site both go through, so a multi-component launch yields per-component graph
-nodes named from the launch (the runtime half is [#105](../issues/0105-multi-node-per-node-graph-naming.md)).
+nodes named from the launch (the runtime half is [#105](../issues/archived/0105-multi-node-per-node-graph-naming.md)).
 
 This RFC extends RFC-0004 (the configuration model) on the node-identity axis and is the naming
 half of #105; #104 (node liveliness token) is the graph-declaration half.

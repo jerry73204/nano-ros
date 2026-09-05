@@ -241,4 +241,4 @@ for non-express topics.
   design iterated against the out-of-tree porter UX (self-contained
   platform packages, explicit chain, `config explain`, scaffolders) and
   the "Kconfig only where the native framework requires it" decision.
-  Work breakdown: [phase-290](../roadmap/phase-290-hierarchical-config.md).
+  Work breakdown: [phase-290](../roadmap/archived/phase-290-hierarchical-config.md).

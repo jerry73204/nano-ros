@@ -31,7 +31,7 @@ zero-copy borrow rather than dead inline stack.
 and `NROS_DEFAULT_STRING_CAPACITY = 256`, mirrored as `C_*` and `CPP_*` constants and
 referenced directly throughout `types.rs` and `generator/common.rs`. There is no
 override path. Consequences (issue
-[0007-seq-capacity-64](../issues/0007-seq-capacity-64.md)):
+[0007-seq-capacity-64](../issues/archived/0007-seq-capacity-64.md)):
 
 - Large sensor messages (`Image`, `PointCloud2`, `LaserScan`, `OccupancyGrid`) fail
   to deserialize — incoming data exceeds 64 elements → `DeserError::CapacityExceeded`.
@@ -409,7 +409,7 @@ Absent any file, the resolver uses built-in defaults — no behavior change.
 
 - 2026-06 — created (Draft). Brainstormed design captured at
   `docs/superpowers/specs/2026-06-09-per-field-message-capacity-config-design.md`;
-  work breakdown in [phase-229](../roadmap/phase-229-message-field-capacity-config.md).
+  work breakdown in [phase-229](../roadmap/archived/phase-229-message-field-capacity-config.md).
 - 2026-06 — added the "Borrowed mode" section (use cases, callback-scoped constraint,
   `sub_borrow`/`RecvView` integration, alignment caveat); resolved open question 3.
 - 2026-08 — **phase-390**: renamed the modes. `owned` -> `inline` (it did not

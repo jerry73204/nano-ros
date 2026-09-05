@@ -91,12 +91,12 @@ built (zephyr, native, qemu, freertos, nuttx, threadx_linux). The other two are
 new findings, both COMPILE/BUILD failures rather than runtime ones, and both are
 this issue's own thesis arriving one stage earlier than it predicted:
 
-* **[#1023](1023-sertype-hosted-includes-break-freestanding.md)** —
+* **[#1023](archived/1023-sertype-hosted-includes-break-freestanding.md)** —
   `threadx_riscv64` cannot compile `nros_sertype.cpp`: it includes `<memory>`
   and `<string>` and the target is freestanding. The file is new in issue 0970's
   commit, and `examples/fixtures.toml:3146` declares the coordinate, so this is
   a supported cell that has been unbuildable since it landed.
-* **[#1025](1025-esp32-flash-image-consumer-drops-the-row-variant.md)** — ESP32
+* **[#1025](archived/1025-esp32-flash-image-consumer-drops-the-row-variant.md)** — ESP32
   QEMU flash images cannot be packed. The ELF builds fine; the packer looks in
   `build/cargo-fixtures/qemu-esp32-baremetal/` while the build writes to
   `qemu-esp32-baremetal-4118800323`, because the packer asks
@@ -254,7 +254,7 @@ Rust)` is 10210, and the firmware's `Cargo.toml` bakes
 
 So the router is listening on the host and the guest is dialling the right
 gateway and port, and the connection still fails. The next suspect is
-[issue 0774](0774-*): the router is ROS's `rmw_zenohd`, which loads whatever
+[issue 0774](archived/0774-zenohd-loads-unpaired-libzenohc.md): the router is ROS's `rmw_zenohd`, which loads whatever
 `libzenohc.so` the loader finds and SEGVs mid-startup when the pairing is wrong
 — a router that binds, satisfies `wait_for_port`, and is gone by the time
 firmware connects would produce exactly this. Checking that means watching the
@@ -325,7 +325,7 @@ already there — the per-cell `heap=` / `zeth=` counts above are recorded so th
 next reader can tell them apart without taking anyone's word.
 ## The esp32 cluster, RUN for the first time 2026-09-04 (5 of the 12)
 
-These five could not run at all until [issue 1025](archived/1025-*) was fixed —
+These five could not run at all until [issue 1025](archived/1025-esp32-flash-image-consumer-drops-the-row-variant.md) was fixed —
 no ESP32 QEMU flash image could be packed. With that fixed and every image
 rebuilt (talker, listener and ws-entry all stamped within minutes of the run, so
 no stale-artifact confound):

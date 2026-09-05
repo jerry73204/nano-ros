@@ -77,7 +77,7 @@ Replace the row:
 ```
 with:
 ```
-| `examples/<plat>/<lang>/<example>/` | The standard cell. RMW is selected at **build time** (Cargo features / `-DNANO_ROS_RMW=` / Kconfig overlay), not encoded in the path. A single-package "app" example here is the canonical **starter** shape; the multi-package workspace shape (Node + Bringup + Entry pkgs) kicks in at ≥2 nodes — see [the workspace track](../getting-started/workspace-from-app-node.md). |
+| `examples/<plat>/<lang>/<example>/` | The standard cell. RMW is selected at **build time** (Cargo features / `-DNANO_ROS_RMW=` / Kconfig overlay), not encoded in the path. A single-package "app" example here is the canonical **starter** shape; the multi-package workspace shape (Node + Bringup + Entry pkgs) kicks in at ≥2 nodes — see [the workspace track](../../../book/src/getting-started/workspace-from-app-node.md). |
 ```
 
 - [ ] **Step 3: Fix `creating-examples.md` matrix sentence (line 18)**
@@ -161,7 +161,7 @@ into the Entry pkg directly.
 `<arg>`, `<node>`, `<param>`, `<remap>`, `<group>`, `<include>`, with
 `$(find <pkg>)` / `$(var)` / `$(env)` substitutions. Stock nav2/Autoware
 XML pastes in and Just Works (Python `.launch.py` is not supported yet).
-See [the workspace bringup tutorial](../getting-started/workspace-bringup.md).
+See [the workspace bringup tutorial](../../../book/src/getting-started/workspace-bringup.md).
 ````
 
 - [ ] **Step 5: Fix the `nros::main!` forms block (lines 72–95)**
@@ -276,7 +276,7 @@ In the `nros build` section, change the framing to: "`nros build` **delegates** 
 
 - [ ] **Step 5: Add a `system.toml` cross-reference note**
 
-Where root `nros.toml` is introduced, add one sentence: "Multi-node *topology* (which nodes, their wiring, per-target overrides) lives in a Bringup pkg's `system.toml` — see [Bringup](../getting-started/workspace-bringup.md). The root `nros.toml` carries deploy *targets* (`[deploy.<name>]`)." Do **not** delete `nros.toml` references.
+Where root `nros.toml` is introduced, add one sentence: "Multi-node *topology* (which nodes, their wiring, per-target overrides) lives in a Bringup pkg's `system.toml` — see [Bringup](../../../book/src/getting-started/workspace-bringup.md). The root `nros.toml` carries deploy *targets* (`[deploy.<name>]`)." Do **not** delete `nros.toml` references.
 
 - [ ] **Step 6: Verify every documented verb exists in the shipped binary**
 
@@ -316,7 +316,7 @@ Tutorial voice. Required content:
 | `ros2 run <pkg> <exe>` | run the Entry pkg binary (`cargo run`) | one Entry pkg per board |
 ```
 
-- A "Where to go next" list linking the next three pages + the [Node, Bringup & Entry Packages](../user-guide/component-and-entry-pkg.md) reference.
+- A "Where to go next" list linking the next three pages + the [Node, Bringup & Entry Packages](../../../book/src/user-guide/component-and-entry-pkg.md) reference.
 - Note the app-node shape stays perfectly valid for single-node work — don't make a workspace until you need one.
 
 - [ ] **Step 2: Verify cited paths exist**
@@ -361,7 +361,7 @@ default_namespace = "/"
 - A minimal `src/lib.rs` skeleton showing `nros::node!(Talker);` and the `Node`/`ExecutableNode` impl shape (cite `examples/stm32f4/rust/talker_pkg/src/lib.rs` for the full worked version; show ~15 lines, not the whole thing).
 - State: **no `fn main()`** in a Node pkg (it's a lib linked into an Entry pkg); codegen owns the spin loop.
 - Build: `cargo build` from the workspace root builds all Node pkgs.
-- Link to the [Node, Bringup & Entry Packages](../user-guide/component-and-entry-pkg.md) reference for the full API.
+- Link to the [Node, Bringup & Entry Packages](../../../book/src/user-guide/component-and-entry-pkg.md) reference for the full API.
 
 - [ ] **Step 2: Verify the cited example + macro line**
 
@@ -496,10 +496,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 After the `Your own message package` line and before `Troubleshooting — First 10 Minutes`, add:
 ```
-- [From an app node to a workspace](./getting-started/workspace-from-app-node.md)
-- [Prepare node packages](./getting-started/workspace-node-pkgs.md)
-- [Bringup: launch + system.toml](./getting-started/workspace-bringup.md)
-- [Entry package: boot on a board](./getting-started/workspace-entry-pkg.md)
+- [From an app node to a workspace](../../../book/src/getting-started/workspace-from-app-node.md)
+- [Prepare node packages](../../../book/src/getting-started/workspace-node-pkgs.md)
+- [Bringup: launch + system.toml](../../../book/src/getting-started/workspace-bringup.md)
+- [Entry package: boot on a board](../../../book/src/getting-started/workspace-entry-pkg.md)
 ```
 
 - [ ] **Step 2: Verify each linked file exists**
@@ -691,7 +691,7 @@ Expected: `CLEAN` (gitignores working).
 - [ ] **Step 12: Add pointer to the old template's README**
 
 In `examples/templates/multi-package-workspace/README.md`, add one line near the top:
-`> For the canonical 3-role (Node + Bringup + Entry) workspace pattern, see [`multi-node-workspace/`](../multi-node-workspace/). This template demonstrates a polyglot (Rust/C/C++) app-node workspace.`
+`> For the canonical 3-role (Node + Bringup + Entry) workspace pattern, see `multi-node-workspace/`. This template demonstrates a polyglot (Rust/C/C++) app-node workspace.`
 
 - [ ] **Step 13: Commit**
 

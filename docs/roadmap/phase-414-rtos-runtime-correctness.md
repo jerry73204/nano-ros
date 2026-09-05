@@ -85,7 +85,7 @@ Each is an existing issue. The item is "close it"; the issue holds the evidence.
   instances at once, keyed on the PLATFORM — right for pub/sub, wrong for
   request/response where the client asks ONCE. 3/3 failing at 72-92 s ->
   passing at 16.2 s.
-* **W3 — [issue 0870](../issues/0870-nuttx-cpp-action-client-transport-tx-failed.md),
+* **W3 — [issue 0870](../issues/archived/0870-nuttx-cpp-action-client-transport-tx-failed.md),
   NuttX C++ `create_action_client` fails. OPEN, and no longer blind.**
   **NOT shared with W2**, structurally: W2's fix covers all three languages
   (`rtos_e2e.rs:922`), so C++ has been starting after the server's banner all
@@ -146,7 +146,7 @@ Each is an existing issue. The item is "close it"; the issue holds the evidence.
   RESOLVED 2026-09-03 — the 28-byte sample is a FOREIGN peer's, on another
   host.** Everything below is the investigation that got there, kept because
   four of its steps were dead ends worth not repeating.
-* **W5 — [issue 0741](../issues/0741-xrce-service-reply-history-payload-too-small.md),
+* **W5 — [issue 0741](../issues/archived/0741-xrce-service-reply-history-payload-too-small.md),
   `test_xrce_service_ros2_client` fails on main — Fast-DDS refuses the
   request.** INTEROP with a real ROS 2 peer.
   **ROUTING DECIDED: it STAYS here. Not encoding, so not phase-303.** The

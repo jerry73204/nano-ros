@@ -10,7 +10,7 @@ status was written — re-read 303's correction before planning further work her
 
 Implements **[RFC-0056](../design/0056-ros-edition-axis.md)** (the ROS-edition
 axis / per-distro interop profile). Coordinates the two field-phases —
-**[phase-41](phase-41-iron-type-hash-support.md)** (RIHS01 type hash) and
+**[phase-41](archived/phase-41-iron-type-hash-support.md)** (RIHS01 type hash) and
 **[phase-303](phase-303-xcdr2-interop.md)** / **[RFC-0055](../design/0055-wire-encoding-xcdr2-extensibility.md)**
 (wire encoding) — into a finished axis, adds the **unified selection** and the
 **multi-distro test method**, and extends the enum beyond `humble`/`iron`. Roots:

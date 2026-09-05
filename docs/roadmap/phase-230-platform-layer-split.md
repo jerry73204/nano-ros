@@ -8,7 +8,7 @@ providers are dead code. Route the **allocator** through the ABI on all
 platforms first (the starter), then the other scalar services, dedupe the
 per-RMW bridge, and add a lint that keeps the boundary from re-rotting.
 The unified allocation funnel also yields the true heap stats that
-[issue 0006](../issues/0006-rtos-dual-heap.md) needs.
+[issue 0006](../issues/archived/0006-rtos-dual-heap.md) needs.
 
 **Status (2026-09-04). NOT "Planned" — Wave 0 and Wave 3 are marked DONE in
 this doc, the lint is on the fast line, and every scalar service Wave 2 names is
@@ -461,7 +461,7 @@ exact C+Rust total; `nros_heap_used_bytes()` reads it. **Mode B**
 the C side; expose the platform-native heap total (Zephyr `sys_heap`,
 FreeRTOS `xPortGetFreeHeapSize`) as the unified figure. Document which mode
 each platform is in. Update + close
-[issue 0006](../issues/0006-rtos-dual-heap.md).
+[issue 0006](../issues/archived/0006-rtos-dual-heap.md).
 
 #### 230.1.7 — Flip the lint to hard-fail  ✅ DONE
 `check-no-direct-kernel-alloc.sh` defaults to `HARD_FAIL=1`. The

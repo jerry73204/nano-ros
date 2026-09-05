@@ -479,5 +479,5 @@ int main(void)
 
 - [creating-examples.md](creating-examples.md) — How to create new examples
 - [message-generation.md](message-generation.md) — Message generation details
-- [docs/roadmap/phase-66-cpp-api.md](../roadmap/phase-66-cpp-api.md) — Phase 66 roadmap (design decisions)
+- [docs/roadmap/phase-66-cpp-api.md](../roadmap/archived/phase-66-cpp-api.md) — Phase 66 roadmap (design decisions)
 - [docs/design/0018-cpp-api-design.md](../design/0018-cpp-api-design.md) — Full design rationale

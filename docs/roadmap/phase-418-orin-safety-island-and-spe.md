@@ -133,7 +133,7 @@ Unresolved technical questions, in the order they will bite:
 3. **Float ABI.** NVIDIA's BSP is softfp; `armv7r-none-eabihf` is not. This is a
    link-time question, and phase-100 flagged it without settling it.
 4. **Whether the fork's `ivc.c` still builds against zenoh-pico 1.8.0.**
-   [phase-415](phase-415-zenoh-pico-1-8-0-patch-line.md) is bumping the patch
+   [phase-415](archived/phase-415-zenoh-pico-1-8-0-patch-line.md) is bumping the patch
    line; `ivc.c` is a carried patch, and the pin (`fa7ad0f5`) is behind the
    `nano-ros` branch tip (`0101b80d`). Nothing currently compiles that file, so
    a rebase can break it silently — exactly the class issue 1014 just recorded

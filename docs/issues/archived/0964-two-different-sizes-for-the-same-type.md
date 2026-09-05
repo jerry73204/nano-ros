@@ -170,7 +170,7 @@ it is a deliberate edit and not a drift.
 
 ## The bytes, measured 2026-09-04 — the delta issue 0896 closed without
 
-[Issue 0896](archived/0896-c-cpp-subscriptions-never-state-a-buffer-hint.md)
+[Issue 0896](0896-c-cpp-subscriptions-never-state-a-buffer-hint.md)
 closed on "the mechanism being correct, not on a measured saving", and said what
 was missing: the C++ receive buffers are STACK, so `just mem-report` cannot see
 them and "whoever wants the bytes needs two different instruments". This is one

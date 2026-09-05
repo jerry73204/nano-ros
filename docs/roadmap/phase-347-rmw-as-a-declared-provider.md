@@ -22,7 +22,7 @@ selection resolve through it. **The colcon convention is explicitly NOT in this
 phase** — see "Deliberately out of scope".
 
 **UNBLOCKED 2026-08-10.** This phase was blocked on
-[issue 0493](../issues/0493-two-workspace-roots-share-one-corrosion-target-dir-duplicate-no-mangle-symbols.md)
+[issue 0493](../issues/archived/0493-two-workspace-roots-share-one-corrosion-target-dir-duplicate-no-mangle-symbols.md)
 while its cause was unknown. It is known and fixed: corrosion **v0.5.1** sets the
 cargo target dir to a CONSTANT `${CMAKE_BINARY_DIR}/${build_dir}/cargo/build`, so
 two workspace roots configured into one binary dir shared one `deps/` and their

@@ -88,7 +88,7 @@ diverged.
 
 ## Why nothing caught it
 
-Same reason as [issue 0968](0968-tier2-runtime-failures-unreproduced.md), whose
+Same reason as [issue 0968](../0968-tier2-runtime-failures-unreproduced.md), whose
 step 1 is what surfaced this: tier-2 fixture builds do not run in CI
 (`post-submit`'s job is interlocked on an unset `vars.NROS_SELF_HOSTED_READY`,
 and `host-tests` has been red on 0967). This is a BUILD failure that a build
@@ -176,6 +176,6 @@ is what pins the narrowing, so a future edit cannot quietly widen it back.
 
 ### What it does NOT establish
 
-Whether the five esp32 tests in [issue 0968](0968-tier2-runtime-failures-unreproduced.md)
+Whether the five esp32 tests in [issue 0968](../0968-tier2-runtime-failures-unreproduced.md)
 pass now. They could not run at all before this; that they CAN run is not the
 same as their passing, and running them is 0968's work.

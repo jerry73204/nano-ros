@@ -1,7 +1,7 @@
 # #0267 live verification — the domain_bridge interop harness
 
 **What:** a lightweight, scriptable stand-in for the Autoware safety-island demo
-that surfaced issue [#0267](../issues/0267-cyclone-control-msg-corrupts-through-domain-bridge.md).
+that surfaced issue [#0267](../issues/archived/0267-cyclone-control-msg-corrupts-through-domain-bridge.md).
 Instead of running Autoware on ROS 2 Jazzy, it wires **simple ROS 2 test nodes**
 into the SAME topology that triggered the bug — a publisher on one DDS domain, a
 `domain_bridge` serialized-passthrough republish into another domain, and a

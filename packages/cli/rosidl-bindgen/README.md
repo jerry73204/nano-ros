@@ -132,4 +132,4 @@ Then rebuild `rosidl-bindgen` and regenerate bindings.
 
 - [rosidl-codegen](../rosidl-codegen/) - Template-based code generation engine
 - [rosidl-parser](../rosidl-parser/) - IDL parser for .msg/.srv/.action files
-- [cargo-ros2](../cargo-ros2/) - Build orchestrator that uses rosidl-bindgen
+- cargo-ros2 - Build orchestrator that uses rosidl-bindgen

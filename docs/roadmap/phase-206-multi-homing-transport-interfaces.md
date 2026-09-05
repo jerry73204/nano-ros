@@ -246,7 +246,7 @@ it delegates to (`nros_board_freertos::run_entry`, which carries the board
 **the board owns the devices and they are up before ROS exists.** What does not
 hold is that the two mixin traits are how it happens.
 
-Filed as [issue 1067](../issues/1067-board-device-contract-traits-have-no-callers.md)
+Filed as [issue 1067](../issues/archived/1067-board-device-contract-traits-have-no-callers.md)
 and **resolved by W4 below**: the two mixins are gone, and the contract is now
 `BoardEntry::run` — the one that runs.
 
@@ -722,7 +722,7 @@ does not belong in this phase.
       freertos, mps2-an385, esp32-qemu) and **no caller either**. Deleting a
       seam with no impl and no caller is a cleanup; deleting one with five impls
       is a decision about who writes a board's IP now the generator is gone.
-      Flagged on the trait and filed as [issue 1064](../issues/1064-board-transport-setters-have-impls-but-no-callers.md) rather than swept in here.
+      Flagged on the trait and filed as [issue 1064](../issues/archived/1064-board-transport-setters-have-impls-but-no-callers.md) rather than swept in here.
 ### 206.W6 — Fast DDS whitelist (unchanged: out of scope)
 - [ ] Not actionable; no Fast DDS backend exists. Under the new principle it
       needs no nano-ros work at all when one does — a Fast DDS user writes a Fast

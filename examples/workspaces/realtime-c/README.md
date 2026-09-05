@@ -32,4 +32,4 @@ ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicas
 ## Copy-out notes
 
 Standard workspace copy-out. Fixture id `workspace-c-native-realtime`.
-C++ siblings: [`ws-realtime-cpp`](../ws-realtime-cpp/) and its variants.
+C++ siblings: `ws-realtime-cpp` and its variants.

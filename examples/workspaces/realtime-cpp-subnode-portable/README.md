@@ -1,6 +1,6 @@
 # realtime-cpp-subnode-portable — tier names are deployment-owned
 
-The portability proof for [`realtime-cpp-subnode`](../realtime-cpp-subnode/):
+The portability proof for `realtime-cpp-subnode`:
 the **identical** `SubNode` component (same groups `ctrl`/`telem`, same
 topics) runs under a bringup whose tiers are named **`fast`/`bulk`** instead
 of `high`/`low`. The package carries only group IDs — tier names belong to the

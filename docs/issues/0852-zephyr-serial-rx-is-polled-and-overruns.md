@@ -281,7 +281,7 @@ campaign, not to this fix.
 
 Any zenoh-over-serial image whose executor is busy enough to hold a timeslice
 loses frames silently. Observed as session expiry at `2 x Z_TRANSPORT_LEASE`
-([issue 0839](0839-action-image-session-expires-every-20s.md)), because the
+([issue 0839](archived/0839-action-image-session-expires-every-20s.md)), because the
 dropped frames are the router's keepalives.
 
 ## Step 3 measured on the shipping pin: the ISR does not earn its place

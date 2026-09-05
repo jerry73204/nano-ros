@@ -41,7 +41,7 @@ being opt-in (W3c), Cyclone not consuming the hint (W3f), unbounded diagnostics
 and the TX/RX split (W3g) — are deliberately out of scope here and stay where
 they are.
 
-Carries [issue 0896](../issues/0896-c-cpp-subscriptions-never-state-a-buffer-hint.md).
+Carries [issue 0896](../issues/archived/0896-c-cpp-subscriptions-never-state-a-buffer-hint.md).
 
 ## The finding that changes the plan
 

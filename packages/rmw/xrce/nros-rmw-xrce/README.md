@@ -50,7 +50,7 @@ a static library + a single public header carrying the
   user's open / close / write / read. The drain-from-runtime path
   (`nros_rmw_xrce_init_custom_transport(framing)`) is a stub
   pending a `nros_rmw_take_custom_transport` C export from
-  `nros-rmw-cffi`; see [`docs/reference/xrce-known-limitations.md`](../../../docs/reference/xrce-known-limitations.md).
+  `nros-rmw-cffi`; see [`docs/reference/xrce-known-limitations.md`](../../../../docs/reference/xrce-known-limitations.md).
 - [ ] **115.K.2.5 — drop the Rust crate.** Once feature parity lands,
   remove `nros-rmw-xrce` and `xrce-sys` from the workspace; the
   CMake `-DNROS_C_RMW=xrce` selector switches over.

@@ -601,7 +601,7 @@ actually move — editing it now would describe a state the tree is not in.
       So six are real W4.a blockers, not 24: a bringup that cannot sync cannot
       regenerate its model. Detail, evidence and the "do not migrate blind"
       warning on the FreeRTOS descriptor are in
-      [issue 0392](../issues/0392-sync-blocked-fixtures.md).
+      [issue 0392](../issues/archived/0392-sync-blocked-fixtures.md).
 
       Original item: **W4.a** Remove all **120** tracked `*/config/*model.yaml` (80 under
       `examples/workspaces/`, 40 under test fixtures); add the build location

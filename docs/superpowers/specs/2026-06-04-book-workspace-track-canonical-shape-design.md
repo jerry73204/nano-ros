@@ -148,10 +148,10 @@ examples + the 3-role examples on disk, and links the cookbook (reference)
 
 Add under Getting Started (after line 14):
 ```
-- [From an app node to a workspace](./getting-started/workspace-from-app-node.md)
-- [Prepare node packages](./getting-started/workspace-node-pkgs.md)
-- [Bringup: launch + system.toml](./getting-started/workspace-bringup.md)
-- [Entry package: boot on a board](./getting-started/workspace-entry-pkg.md)
+- [From an app node to a workspace](../../../book/src/getting-started/workspace-from-app-node.md)
+- [Prepare node packages](../../../book/src/getting-started/workspace-node-pkgs.md)
+- [Bringup: launch + system.toml](../../../book/src/getting-started/workspace-bringup.md)
+- [Entry package: boot on a board](../../../book/src/getting-started/workspace-entry-pkg.md)
 ```
 
 ## Workstream C — runnable 3-role workspace template (owner-requested)

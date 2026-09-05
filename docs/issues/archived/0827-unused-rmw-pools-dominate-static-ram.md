@@ -50,7 +50,7 @@ The pools are unconditional `static mut` arrays in the backend crate. Linking
 the backend reserves all of them; nothing about the node's entity set reaches
 the decision. This is deliberate and correct as a starting point — a static pool
 is what makes the allocation statically provable, which is the property
-[phase 392](../roadmap/phase-392-static-memory-space-campaign.md) explicitly
+[phase 392](../../roadmap/phase-392-static-memory-space-campaign.md) explicitly
 protects when it declines to move payload buffers to the heap.
 
 The defect is not that the pools are static. It is that their SIZE is fixed at
@@ -63,7 +63,7 @@ is known. Two of the three inputs already exist:
   (`NROS_ARENA_REQUIRED`).
 - **The knobs already exist and are already enumerable.**
   `ZPICO_MAX_QUERYABLES`, `ZPICO_MAX_LARGE_SUBSCRIBERS`, `ZPICO_MAX_SUBSCRIBERS`
-  are in the [static pool inventory](../../book/src/reference/static-pool-inventory.md).
+  are in the static pool inventory.
   A node with no service server wants `ZPICO_MAX_QUERYABLES = 0`.
 
 So the saving is available without inventing a mechanism: it is one more
@@ -281,7 +281,7 @@ native cargo fixture never goes through CMake at all. The knob is read by
 `nros-rmw-zenoh/build.rs` from the ENVIRONMENT, and on this path nothing sets
 it.
 
-That is this repo's recurring shape, and [phase 412](../roadmap/phase-412-derived-counts-and-sizes.md)
+That is this repo's recurring shape, and [phase 412](../../roadmap/phase-412-derived-counts-and-sizes.md)
 names it in its own opening: *a mechanism that is correct, tested, and
 unreachable from a real build* — `rx_buffer_hint` sizing nothing (0896), the
 bound inventory with no reader (0963), a cap that could not reach codegen

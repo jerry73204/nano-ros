@@ -433,7 +433,7 @@ builds and links.
 
 **W5 — a static component pool in `node_runtime`, so the `heap-free` tier is
 USEFUL rather than merely reachable.**
-[Issue 0843](../issues/0843-node-runtime-forces-alloc-on-every-cffi-image.md)
+[Issue 0843](../issues/archived/0843-node-runtime-forces-alloc-on-every-cffi-image.md)
 decoupled the allocation gate from the transport gate, so a cffi image now links
 without `alloc`. What it did not do is leave anything useful behind: with
 `alloc` off, `node_runtime` is gated out entirely, and it is the only path to a
@@ -841,7 +841,7 @@ probes have already passed that gate vacuously at `symbols read: 1`.
 
 ## Related, not owned here
 
-- [issue 0812](../issues/0812-publisher-loan-heap-allocates-per-loan.md) —
+- [issue 0812](../issues/archived/0812-publisher-loan-heap-allocates-per-loan.md) —
   `Box::new` per loan. As written, `lending` and `heap-free` are mutually
   exclusive for no inherent reason. Fixing it is a precondition for the loan
   API existing on the heap-free tier.
@@ -861,6 +861,6 @@ holds the evidence, the item is *close it*.
 | issue | why it belongs here |
 | --- | --- |
 | [#0816](../issues/0816-no-alloc-claimed-but-unenforced.md) | the book promises no-alloc integrations and nothing checks the linked image |
-| [#0827](../issues/0827-unused-rmw-pools-dominate-static-ram.md) | static RAM is a property of the RMW, not of the node |
+| [#0827](../issues/archived/0827-unused-rmw-pools-dominate-static-ram.md) | static RAM is a property of the RMW, not of the node |
 | [#0857](../issues/0857-cell-registry-inline-capacity-heap-regression.md) | ComponentCell's inline registries cost worst-case x biggest-payload heap per component |
 

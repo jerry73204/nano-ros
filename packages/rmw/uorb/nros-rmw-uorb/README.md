@@ -62,5 +62,5 @@ checkout.
 - K.4.5: remove the legacy Rust stack (`nros-rmw-uorb`,
   `nros-px4`, `third-party/px4/px4-rs`).
 
-See [`docs/roadmap/phase-115-runtime-transport-vtable.md` §D.7](../../../docs/roadmap/phase-115-runtime-transport-vtable.md)
+See [`docs/roadmap/phase-115-runtime-transport-vtable.md` §D.7](../../../../docs/roadmap/archived/phase-115-runtime-transport-vtable.md)
 for the detailed plan.

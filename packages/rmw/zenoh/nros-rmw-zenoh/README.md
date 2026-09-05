@@ -28,7 +28,7 @@ new backend, read this crate first.
   client-router topologies, any combination of TCP / UDP / Serial /
   smoltcp transports.
 - ROS 2 interoperability (with `rmw_zenoh_cpp`) — see
-  [docs/reference/rmw_zenoh_interop.md](../../../docs/reference/rmw_zenoh_interop.md).
+  [docs/reference/rmw_zenoh_interop.md](../../../../docs/reference/rmw_zenoh_interop.md).
 
 Pick a different backend (XRCE-DDS / dust-DDS / uORB) only when the
 deployment specifically requires it.
@@ -38,10 +38,10 @@ deployment specifically requires it.
 `PublishLoan` is implemented via `z_bytes_from_static_buf` so the
 publisher can hand the user a slot in zenoh-pico's outbound buffer
 without an extra copy. See the
-[Zero-copy raw API design](../../../docs/roadmap/phase-99-0010-zero-copy-raw-api.md).
+Zero-copy raw API design.
 
 ## See also
 
-- [Custom RMW Backend porting guide](../../../book/src/porting/custom-rmw.md)
+- [Custom RMW Backend porting guide](../../../../book/src/porting/custom-rmw.md)
 - [`nros-rmw` trait surface](../../../core/nros-rmw)
 - Source on GitHub: <https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/zenoh/nros-rmw-zenoh>

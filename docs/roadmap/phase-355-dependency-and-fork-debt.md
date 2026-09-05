@@ -16,8 +16,9 @@ a backlog line.
 (**RESOLVED 2026-08-17** — its last item was "seed the `1.7.2-nros2` asset", which
 [phase-362](archived/phase-362-zenoh-router-from-ros-not-vendored.md) made moot by
 retiring the vendored router; the fork-debt framing below no longer applies to it),
-[issue 0507](../issues/0507-cyclonedds-fork-carries-two-unupstreamed-changes.md),
-[issue 0524](../issues/0524-anyhow-unmaintained-transitive-deps-remain.md).
+[issue 0507](../issues/archived/0507-cyclonedds-fork-carries-two-unupstreamed-changes.md),
+[issue 0524](../issues/archived/0524-anyhow-unmaintained-transitive-deps-remain.md)
+(**RESOLVED** — see the issue for what closed it).
 
 **Related:** [RFC-0014](../design/0014-nros-setup-toolchain-management.md) (`nros
 setup` / SDK index — #374 is a promise made there),
@@ -84,7 +85,7 @@ issue), or documented as permanently-ours with the reason it cannot go upstream.
 **DONE 2026-08-15 — decision recorded; PRs are the maintainer's step.** The
 census found **15** fork-only commits against `origin/releases/0.10.x`, not two:
 this item was scoped to the newest pair. Each is now classified in
-[issue 0507](../issues/0507-cyclonedds-fork-carries-two-unupstreamed-changes.md)
+[issue 0507](../issues/archived/0507-cyclonedds-fork-carries-two-unupstreamed-changes.md)
 with its reason —
 
 * **offer upstream (10):** the striped addrset locks (`942dda3c`, the strongest

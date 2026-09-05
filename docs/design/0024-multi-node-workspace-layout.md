@@ -234,7 +234,7 @@ Untouched. Per-RTOS shells at `integrations/<rtos>/` (Phase 139/140) re-export r
 
 **OPEN:** does the orchestration pkg's `system.toml` get baked into MCU firmware (like `app_config.h` today)? Or is `system.toml` purely host-side (host-tool reads to drive deploy/flash)? Leaning host-side. Per-node `[package.metadata.nros.component]` in component crate's `Cargo.toml` stays the bake source.
 
-**Node-pkg `crate-type` is deployment-path-specific (corrected 2026-06-12, [RFC-0032 §3.1](0032-entry-codegen-pipeline.md), [issue 0045](../issues/0045-freertos-entry-component-staticlib-panic-handler.md)).** An earlier draft listed `crate-type = ["rlib", "staticlib"]` as an *irreducible* Node-pkg item; that conflated two build paths:
+**Node-pkg `crate-type` is deployment-path-specific (corrected 2026-06-12, [RFC-0032 §3.1](0032-entry-codegen-pipeline.md), [issue 0045](../issues/archived/0045-freertos-entry-component-staticlib-panic-handler.md)).** An earlier draft listed `crate-type = ["rlib", "staticlib"]` as an *irreducible* Node-pkg item; that conflated two build paths:
 
 - **Pure-cargo Entry path** (Rust-native FreeRTOS / NuttX / ThreadX) — the Entry pkg links the Node as an **rlib** only. The Node declares `crate-type = ["rlib"]`. A redundant `staticlib` here is dead weight that still forces rustc to demand a no_std `#[panic_handler]` the rlib must not carry (it would collide with the board-owned handler — RFC-0032 §3.1).
 - **cmake / Corrosion path** (C-owned firmware, RFC-0003 bake) — the C firmware links the Node's **staticlib**. The Node declares `crate-type = ["staticlib"]` (the threadx fixtures already do, host-linked). Corrosion 0.5 `CRATE_TYPES` only selects from *declared* types, so this path must declare the staticlib.

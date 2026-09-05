@@ -1,7 +1,7 @@
 # RFC-0070 — Build caches: one root, one vocabulary, one derivation
 
 **Status:** Draft (2026-08-06)
-**Implements:** [phase-334](../roadmap/phase-334-build-cache-layout.md) W2
+**Implements:** [phase-334](../roadmap/archived/phase-334-build-cache-layout.md) W2
 **Relates to:** [RFC-0065](0065-colcon-like-workspace-builder.md) — that RFC decides who
 *owns* a user workspace's `build/`; this one decides what every build cache in
 this repository is *called* and *where it lives*.

@@ -33,7 +33,7 @@ INFO  [nros_uorb_bridge] forwarded 100 samples (key=velx value=99.0)
 `debug_key_value` by default.)
 
 Getting here fixed five real defects — see
-[issue 0436](../../../../docs/issues/0436-px4-bridge-init-transport-error.md):
+[issue 0436](../../../../docs/issues/archived/0436-px4-bridge-init-transport-error.md):
 
 1. **Two copies of zenoh-pico** in one image (umbrella core + a complete second
    from the platform archive), each with its own statics — `z_open` failed having

@@ -2,7 +2,7 @@
 
 Native C implementation of the nano-ros canonical platform ABI (`<nros/platform.h>`) for [Espressif ESP-IDF](https://docs.espressif.com/projects/esp-idf/).
 
-Sibling to [`nros-platform-freertos-c`](../nros-platform-freertos-c) — ESP-IDF ships its own FreeRTOS fork (with SMP support on ESP32 / ESP32-S3), so the threading layer reuses the same `xTaskCreate` + `xSemaphore*` shape. The differences from vanilla FreeRTOS:
+Sibling to `nros-platform-freertos-c` — ESP-IDF ships its own FreeRTOS fork (with SMP support on ESP32 / ESP32-S3), so the threading layer reuses the same `xTaskCreate` + `xSemaphore*` shape. The differences from vanilla FreeRTOS:
 
 | Capability | ESP-IDF override |
 |---|---|

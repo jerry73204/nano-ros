@@ -73,7 +73,7 @@ stated precedence".
   RESOLVER READS the image" — this needs a code wave before a data wave.
   This entry also named `examples/workspaces/mixed`'s `[deploy.freertos]` as
   carrying a duplicate `board`; it does not — it carries `kind` and a `.nros`
-  block and NO board, which is [issue 0940](0940-deploy-site-config-unreachable-without-board.md).
+  block and NO board, which is [issue 0940](archived/0940-deploy-site-config-unreachable-without-board.md).
   The duplicated pair there is `[deploy.mps2-an385-freertos]` vs
   `[image.freertos]`.
 * **R11** — `[system].features` vs the typed `[safety]`/`[param_services]`

@@ -5,7 +5,7 @@ took ~2.5 h and looked test-bound. It is not: on that lane the slowest test was
 15.9 s and the wall was dominated by fixture building and the gate/check lane.
 The opportunities below are real but should be sized against that before anyone
 spends a day on them. Build-side work lives in
-[phase-371](phase-371-build-cpu-utilization.md).
+[phase-371](archived/phase-371-build-cpu-utilization.md).
 
 ## What the tier-2 run actually showed
 

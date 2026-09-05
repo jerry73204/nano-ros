@@ -320,12 +320,12 @@ Things to **NOT** do:
 
 ## See also
 
-- [`docs/roadmap/phase-115-runtime-transport-vtable.md`](../roadmap/phase-115-runtime-transport-vtable.md)
+- [`docs/roadmap/phase-115-runtime-transport-vtable.md`](../roadmap/archived/phase-115-runtime-transport-vtable.md)
   § A.1 — the no-`dyn` rationale that motivates this whole review.
 - [`docs/research/sdk-ux/SYNTHESIS.md`](../research/sdk-ux/SYNTHESIS.md)
   UX-22 — the original "users-fork-board-crates" pain that Phase
   115 addresses. R6's multi-language smoke test reduces the same
   pain for backend authors.
-- [`book/src/internals/rmw-api-design.md`](../../book/src/internals/rmw-api-design.md)
+- `book/src/internals/rmw-api-design.md`
   — current RMW-API doc; needs an L0/L1/L2 update once Phase 117
   lands.

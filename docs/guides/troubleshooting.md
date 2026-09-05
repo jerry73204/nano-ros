@@ -107,7 +107,7 @@ The zenoh protocol may have changed, causing transport-level incompatibilities.
 
 ### Solution
 
-Upgrade zenoh-pico to match zenohd version. See [docs/roadmap/phase-15-zenoh-pico-upgrade.md](../roadmap/phase-15-zenoh-pico-upgrade.md) for the upgrade plan.
+Upgrade zenoh-pico to match zenohd version. See [docs/roadmap/phase-15-zenoh-pico-upgrade.md](../roadmap/archived/phase-15-zenoh-pico-upgrade.md) for the upgrade plan.
 
 **Temporary workaround**: Install an older zenohd version:
 ```bash

@@ -11,7 +11,7 @@ superseded-by: null
 
 # RFC-0069 — The action payload envelope
 
-> Filed from [issue 0418](../issues/0418-action-payload-envelope-not-ros-compatible.md),
+> Filed from [issue 0418](../issues/archived/0418-action-payload-envelope-not-ros-compatible.md),
 > found during phase-338 W3.
 >
 > **ACCEPTED and IMPLEMENTED 2026-08-05 (maintainer: option A).** The

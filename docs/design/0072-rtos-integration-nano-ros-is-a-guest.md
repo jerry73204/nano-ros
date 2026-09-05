@@ -705,7 +705,7 @@ Both are RESOLVED (2026-08-13), so this work inherits neither.
   migration to upstream's `CMakeLists.txt` changes nothing for anyone already
   writing `GCC_ARM_CM3`.
 * **Zephyr unselectable by the zpico resolver** —
-  [issue 0529](../issues/0529-zephyr-platform-knobs-never-resolve.md). The
+  [issue 0529](../issues/archived/0529-zephyr-platform-knobs-never-resolve.md). The
   resolver gap was real and is fixed.
 
   **The severity asserted in this section's first draft was wrong.** It claimed

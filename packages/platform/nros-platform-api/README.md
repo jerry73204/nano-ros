@@ -2,7 +2,7 @@
 
 Trait surface defining the platform abstraction layer for nano-ros.
 **Internal porting boundary** — user applications depend on
-[`nros`](../nros), not on this crate directly.
+`nros`, not on this crate directly.
 
 ## Role
 
@@ -14,7 +14,7 @@ optionally networking. Each platform crate
 [`nros-platform-zephyr`](../nros-platform-zephyr),
 [`nros-platform-nuttx`](../nros-platform-nuttx),
 [`nros-platform-threadx`](../nros-platform-threadx),
-the bare-metal crates under [`config/`](../../platforms))
+the bare-metal crates under `config/`)
 implements the subset its target supports.
 
 ## Source layout

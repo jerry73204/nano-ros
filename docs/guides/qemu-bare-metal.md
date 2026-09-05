@@ -288,6 +288,6 @@ let mut iface = Interface::new(iface_config, &mut eth, instant);
 
 ## See Also
 
-- [Phase 12 Roadmap](roadmap/phase-12-qemu-bare-metal-tests.md)
-- [Embedded Integration](embedded-integration.md)
-- [smoltcp Integration](architecture/smoltcp-zenoh-pico-integration.md)
+- [Phase 12 Roadmap](../roadmap/archived/phase-12-qemu-bare-metal-tests.md)
+- [Embedded Integration](../design/archived/embedded-integration.md)
+- [smoltcp Integration](../design/archived/smoltcp-zenoh-pico-integration.md)

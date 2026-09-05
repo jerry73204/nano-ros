@@ -353,7 +353,7 @@ mismatch, it does not resolve it.
 
 Filed from a measurement — `ARENA_SIZE` is 74,240 bytes on every generated
 config in the tree — and only afterwards met
-[phase-392](../roadmap/phase-392-static-memory-space-campaign.md)'s **W2,
+[phase-392](../../roadmap/phase-392-static-memory-space-campaign.md)'s **W2,
 "precise executor arena"**, which had already planned this work and even
 anticipated the runtime-measurement half:
 

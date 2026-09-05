@@ -117,7 +117,7 @@ spin/exit).
 A no_std firmware needs **exactly one** `#[panic_handler]` in its crate graph,
 and the `OwnedSpin`-RTOS split (Entry pkg + Node pkg + board crate) must guarantee
 it without collision. Two boot-scaffold rules close this (design-of-record;
-surfaced by FreeRTOS Entry-pkg bring-up, [issue 0045](../issues/0045-freertos-entry-component-staticlib-panic-handler.md)):
+surfaced by FreeRTOS Entry-pkg bring-up, [issue 0045](../issues/archived/0045-freertos-entry-component-staticlib-panic-handler.md)):
 
 1. **The embedded panic handler is board-owned, cfg-gated.** The per-board family
    crate (e.g. `nros-board-mps2-an385-freertos`) carries
