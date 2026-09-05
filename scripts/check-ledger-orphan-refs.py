@@ -57,29 +57,38 @@ def scan(files):
     return bad
 
 
-def main():
-    if "--self-test" in sys.argv:
-        import tempfile
+def self_test():
+    """Negative control, on the NORMAL path.
 
-        d = pathlib.Path(tempfile.mkdtemp())
-        (d / "planted.json").write_text(
-            json.dumps(
-                {
-                    "cpp:real": {"why": "see packages/api/nros-cpp/include/nros/qos.hpp for the table"},
-                    "cpp:orphan": {"why": "see packages/api/nros-cpp/include/nros/rclcpp_compat.hpp:428"},
-                    "cpp:upstream": {"why": "upstream rclcpp/qos.hpp says otherwise"},
-                }
-            )
+    `check-gate-selftests` requires this and it is right to: a control nobody
+    runs decays into a comment. It also matters specifically here — the path
+    regex is the whole gate, and a regex that quietly stops matching would
+    leave a permanently green check over a growing pile of dead references.
+    """
+    import tempfile
+
+    d = pathlib.Path(tempfile.mkdtemp())
+    (d / "planted.json").write_text(
+        json.dumps(
+            {
+                "cpp:real": {"why": "see packages/api/nros-cpp/include/nros/qos.hpp for the table"},
+                "cpp:orphan": {"why": "see packages/api/nros-cpp/include/nros/rclcpp_compat.hpp:428"},
+                "cpp:upstream": {"why": "upstream rclcpp/qos.hpp says otherwise"},
+            }
         )
-        hits = scan([d / "planted.json"])
-        keys = [k for _, k, _ in hits]
-        assert "cpp:orphan" in keys, "self-test: the planted dead path was not caught: %s" % keys
-        assert "cpp:real" not in keys, "self-test: a live path was flagged: %s" % keys
-        assert "cpp:upstream" not in keys, (
-            "self-test: an UPSTREAM path was flagged; only repo-relative paths are ours: %s" % keys
-        )
-        print("check-ledger-orphan-refs --self-test: 3 case(s) OK")
-        return 0
+    )
+    hits = scan([d / "planted.json"])
+    keys = [k for _, k, _ in hits]
+    assert "cpp:orphan" in keys, "self-test: the planted dead path was not caught: %s" % keys
+    assert "cpp:real" not in keys, "self-test: a live path was flagged: %s" % keys
+    assert "cpp:upstream" not in keys, (
+        "self-test: an UPSTREAM path was flagged; only repo-relative paths are ours: %s" % keys
+    )
+    print("check-ledger-orphan-refs --self-test: 3 case(s) OK")
+
+
+def main():
+    self_test()
 
     files = sorted(LEDGER.glob("*.json"))
     if not files:
