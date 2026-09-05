@@ -1101,10 +1101,5 @@
   "rust:Executor::clear_release_jitter_stats": {
     "verdict": "extension",
     "why": "Sibling of `Executor::release_jitter`, same commit, same reason there is no upstream name. Resets the window (`executor/spin.rs:2163`) so monitoring code can log-and-clear per period; without it a single early outlier pins the maximum for the life of the process, which is the failure mode that makes a max-only statistic useless on a long-running image."
-  },
-  "rust:Executor::set_min_stack_headroom_bytes": {
-    "verdict": "extension",
-    "why": "declare the fewest bytes a spin thread may leave unused before the executor reports a violation. rclrs has no equivalent because a hosted thread's stack grows on demand; an RTOS task's is a fixed buffer the entry handed over, and overflowing it corrupts whichever component's state sits next to it. The executor cannot infer the bound -- no portable query returns a task's TOTAL stack, so only the party that spawned the thread knows what it gave -- which is why this is a setter and not a derived percentage. Feeds the same monitor ring as the other spin rules; see `rust:Executor::*monitor_table`.",
-    "bucket": "ours-only"
   }
 }
