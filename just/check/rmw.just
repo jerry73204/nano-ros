@@ -382,3 +382,23 @@ xrce-config-manifest:
 [private]
 zenoh-lane-ownership:
     @python3 scripts/check-zenoh-lane-ownership.py
+
+# phase-420 W9 step 4 — the third XRCE mirror gate, one axis over. Its siblings
+# ask WHICH FILES (`xrce-source-manifest`) and WITH WHAT VALUES
+# (`xrce-config-manifest`); this one asks WHO COMPILES THEM.
+#
+# micro-XRCE-DDS-Client and micro-CDR were compiled twice from the same manifest
+# rows — cc-rs for six target families on one side, `add_library(… STATIC …)` on
+# the other — with each lane choosing its own flags. The CMake copy reached NO
+# image (dispatch maps `xrce` to the cargo crate everywhere, the Zephyr hook is a
+# no-op, nothing add_subdirectory()s the project), so `just check rmw-xrce` was
+# validating objects no image contains. That project now LINKS the cargo lane's
+# archive, and this asserts the arrangement holds: each lane declares the trees
+# it compiles and USES that declaration as its filter, the shipping lane declares
+# all of them, the CMake lane declares no vendored one and cannot even name their
+# source roots, and the pointer file the two exchange has one statement of its
+# name and keys on each side. Direction is checked, not just the count: swapping
+# the two declarations leaves every tree compiled exactly once and ships an
+# archive with no XRCE in it. Buildless, ~0.05 s.
+xrce-one-vendored-compile:
+    @python3 scripts/check-xrce-one-vendored-compile.py

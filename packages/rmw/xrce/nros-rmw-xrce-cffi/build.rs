@@ -22,6 +22,43 @@
 
 use std::{env, fs, path::PathBuf};
 
+// NROS-XRCE-COMPILED-TREES-BEGIN
+/// The `xrce-sources.txt` trees THIS lane compiles — phase-420 W9 step 4.
+///
+/// All three, and that is the point: the archive this script produces is the
+/// one both lanes link, so it has to hold every TU. `nros-rmw-xrce/CMakeLists.txt`
+/// declares the complementary set (`_xrce_compiled_trees`, `backend` only) and
+/// LINKS this archive for the vendored halves instead of compiling them a second
+/// time. Gate: `just check xrce-one-vendored-compile`.
+///
+/// Load-bearing, not a comment: the row loop asserts membership, so dropping a
+/// tree here fails the build rather than silently shrinking the archive.
+///
+/// Why the split cannot go the other way — measured, phase-420 W9 step 4: the
+/// backend TU `platform_aliases.c` DEFINES `uxr_millis`/`uxr_nanos`, which the
+/// vendored `uxr` TUs call, while the backend TUs call the vendored session API.
+/// The two halves are mutually recursive at link time, so they cannot be two
+/// archives without `--start-group`, which rustc does not emit. One archive, or
+/// a link that resolves by luck of ordering.
+const COMPILED_TREES: &[&str] = &["uxr", "ucdr", "backend"];
+// NROS-XRCE-COMPILED-TREES-END
+
+/// The name of the pointer file this script writes into `OUT_DIR`.
+///
+/// `nros-rmw-xrce/CMakeLists.txt` links the archive cc-rs produces here, and
+/// the archive's NAME and the generated headers' LOCATION are facts of this
+/// script — so this script states them, in the one place a consumer can find
+/// them from `OUT_DIR` alone. `just check rmw-xrce` locates `OUT_DIR` itself,
+/// out of `cargo build --message-format=json`'s `build-script-executed`
+/// message; it is NOT globbed, because `<hash>` is not predictable and taking
+/// the first match of a glob is issue 0500's defect.
+///
+/// NOT `cargo::metadata=` — measured 2026-09-05: with no `links` key that
+/// channel's `env` array comes back EMPTY in the JSON, and a `links` key buys
+/// nothing here because the consumer is a CMake project, which can read no
+/// `DEP_<LINKS>_*` at all.
+const VENDOR_BUILD_POINTER: &str = "nros-xrce-vendor-build.txt";
+
 // phase-420 W9 — this script OWNS NO CONFIGURATION VALUE either. The MTU
 // defaults that used to live here as `XRCE_TRANSPORT_MTU_DEFAULT` /
 // `XRCE_SERIAL_MTU_DEFAULT`, every other `@TOKEN@` the two upstream
@@ -266,6 +303,15 @@ fn main() {
 
     let mut compiled = 0usize;
     for row in &manifest.rows {
+        assert!(
+            COMPILED_TREES.contains(&row.tree.as_str()),
+            "nros-rmw-xrce-cffi: {} has a row in tree `{}`, which COMPILED_TREES does not \
+             list. This lane compiles EVERY tree — the archive it produces is the one \
+             `nros-rmw-xrce/CMakeLists.txt` links, so a tree missing here is a tree missing \
+             from that link. phase-420 W9 step 4.",
+            manifest_path.display(),
+            row.tree,
+        );
         if condition(manifest.condition_of(&row.group, &manifest_path)) {
             build.file(tree_root(&row.tree).join(&row.path));
             compiled += 1;
@@ -299,7 +345,49 @@ fn main() {
         }
     }
 
-    build.compile("nros_rmw_xrce_c_inline");
+    let archive_stem = "nros_rmw_xrce_c_inline";
+    build.compile(archive_stem);
+
+    // phase-420 W9 step 4 — SAY WHERE THE ARCHIVE IS, in the one place a
+    // consumer reaching `OUT_DIR` can read it.
+    //
+    // `nros-rmw-xrce/CMakeLists.txt` used to compile the vendored
+    // micro-XRCE-DDS-Client and micro-CDR TUs a SECOND time, from the same
+    // manifest with its own flags, so its CTest harness validated objects no
+    // image contains. It now links THIS archive. Two facts have to cross that
+    // seam — what cc-rs called the archive, and where `generate_config` put the
+    // headers those objects were compiled against — and both are facts of this
+    // file, so this file states them rather than the consumer guessing.
+    //
+    // A `#`-commented `key=value` file, the same dependency-free shape as
+    // `xrce-sources.txt` / `xrce-config.txt`, so the reader needs no parser.
+    let archive = out_dir.join(format!("lib{archive_stem}.a"));
+    assert!(
+        archive.is_file(),
+        "nros-rmw-xrce-cffi: cc-rs did not leave `{}` where this script expects it. \
+         `nros-rmw-xrce/CMakeLists.txt` links that path.",
+        archive.display()
+    );
+    let pointer = out_dir.join(VENDOR_BUILD_POINTER);
+    fs::write(
+        &pointer,
+        format!(
+            "# Written by nros-rmw-xrce-cffi/build.rs — phase-420 W9 step 4.\n\
+             # Read by nros-rmw-xrce/CMakeLists.txt, which LINKS this archive instead of\n\
+             # compiling the vendored micro-XRCE-DDS-Client / micro-CDR sources again.\n\
+             # Do not hand-edit: it is regenerated on every build of this crate.\n\
+             archive={}\n\
+             include={}\n",
+            archive.display(),
+            out_dir.join("include").display(),
+        ),
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "nros-rmw-xrce-cffi: cannot write {} ({e})",
+            pointer.display()
+        )
+    });
 
     // Phase 129.NET.3 — `transport_nros_udp.c` references the
     // canonical `nros_platform_udp_*` ABI. Ship the sibling

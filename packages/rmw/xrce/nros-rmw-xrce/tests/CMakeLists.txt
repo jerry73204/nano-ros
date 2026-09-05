@@ -5,11 +5,14 @@
 # nros-rmw-cffi Rust crate; the scaffold doesn't link against the
 # Rust runtime).
 
+# phase-420 W9 step 4 — `nros_rmw_xrce` is now an INTERFACE target over the
+# CARGO LANE'S archive, so what this binary links is what an image ships. It
+# also carries every include directory a consumer of that archive needs (the
+# nros-rmw-cffi + platform headers, the vendored public and private headers, and
+# the GENERATED `<uxr/client/config.h>` those objects were compiled against), so
+# the restatements that used to live here are gone.
 add_executable(nros_rmw_xrce_c_smoke smoke.c)
 target_link_libraries(nros_rmw_xrce_c_smoke PRIVATE nros_rmw_xrce)
-target_include_directories(nros_rmw_xrce_c_smoke PRIVATE
-    ${NROS_RMW_CFFI_DIR}
-)
 
 add_test(NAME nros_rmw_xrce_c_smoke COMMAND nros_rmw_xrce_c_smoke)
 
@@ -22,20 +25,12 @@ add_test(NAME nros_rmw_xrce_c_smoke COMMAND nros_rmw_xrce_c_smoke)
 # the issue asks for exactly that, because a crash after the last line of output
 # reads as a clean run to anything that greps stdout.
 add_executable(nros_rmw_xrce_entity_lifetime entity_lifetime.c)
+# `internal.h` includes <uxr/client/client.h> and the private backend headers.
+# Those used to be PRIVATE on a STATIC `nros_rmw_xrce` and were restated here;
+# since W9 step 4 the target is an INTERFACE over the cargo archive and carries
+# them, INCLUDING the generated config headers that archive was built against —
+# so this TU and those objects agree on `uxr_session_t`'s layout by
+# construction rather than by two `configure_file`s happening to match.
 target_link_libraries(nros_rmw_xrce_entity_lifetime PRIVATE nros_rmw_xrce)
-# `internal.h` includes <uxr/client/client.h>, so this target needs the same
-# private include set the library uses -- they are PRIVATE on `nros_rmw_xrce`
-# (correctly: they are not part of the installed surface), so linking the
-# library does not inherit them and they are restated here.
-target_include_directories(nros_rmw_xrce_entity_lifetime PRIVATE
-    ${NROS_RMW_CFFI_DIR}
-    ${NROS_PLATFORM_CFFI_INCLUDE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${MICROXRCEDDS_CLIENT_DIR}/include
-    ${MICROXRCEDDS_CLIENT_DIR}/src/c
-    ${MICROCDR_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}/../uxr_generated
-    ${CMAKE_CURRENT_BINARY_DIR}/../ucdr_generated
-)
 
 add_test(NAME nros_rmw_xrce_entity_lifetime COMMAND nros_rmw_xrce_entity_lifetime)

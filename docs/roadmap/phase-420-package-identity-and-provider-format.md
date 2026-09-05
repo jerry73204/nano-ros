@@ -566,6 +566,16 @@ is one road.
         crate phase-321 W1.d removed — legitimately, since this one has two
         dependents, which is exactly what that deletion said it lacked.
 
+        **DELIVERED IN A DIFFERENT SHAPE — read the Scoped block below before
+        this sketch.** There is no new `xrce-sys/` vendor build and no re-added
+        crate: `nros-rmw-xrce` is a CMake project and can consume neither a
+        cargo `links` crate nor a `DEP_<LINKS>_*`, so the one compile lives
+        where it already was (the cargo lane, which is the lane that ships) and
+        the CMake project LINKS its archive. The XRCE half of this remainder is
+        closed; the zenoh-pico half — `zephyr/cmake/nros_rmw_zenoh.cmake`'s
+        second compile of the same submodule — is not, which is why this item
+        is still `[~]`.
+
         **Scoped 2026-09-05, after issues 1068 and 1069 removed two of the four
         mirrors.** What the two lanes still hold in duplicate, measured:
 
@@ -709,26 +719,129 @@ is one road.
         unread, and a reader that stops PARSING the manifest reports the
         manifest as unconsumed.
 
-        **Step 3 (one compile) NOT attempted, and this item's sketch of it is
-        wrong in one respect.** It reads "a cargo `links` crate … consumed by
-        both `nros-rmw-xrce` and `nros-rmw-xrce-cffi`". `nros-rmw-xrce` is not
-        a cargo crate — it is a CMake project — so it cannot consume a cargo
-        `links` crate or its `DEP_<LINKS>_*` at all. "One compile consumed by
-        both" therefore has to be a CMake project plus a cargo crate that
-        drives it (Corrosion, or a build script that shells to cmake), which is
-        a different design from the one written here and needs deciding before
-        it is built. Three further reasons to leave it:
+        **Step 4 (one compile) LANDED 2026-09-05, and this item's sketch of
+        it was wrong in one respect.** It read "a cargo `links` crate … consumed
+        by both `nros-rmw-xrce` and `nros-rmw-xrce-cffi`". `nros-rmw-xrce` is
+        not a cargo crate — it is a CMake project — so it can consume neither a
+        cargo `links` crate nor its `DEP_<LINKS>_*`. Measured 2026-09-05: with
+        no `links` key the `build-script-executed` message's `env` array comes
+        back EMPTY, and adding one would still not help a consumer that runs no
+        cargo. The direction is the other one: **the CMake project consumes the
+        artifact the cargo lane produces.**
 
-        - it changes how every XRCE fixture builds, so it costs a tier-2 sweep
-          to believe, and steps 1-2 are worth landing on their own;
-        - the two compiles are not yet equivalent and nothing says which is the
-          contract: the cargo lane builds for six target families at `-Os` with
-          `-ffunction-sections` and `UCLIENT_PLATFORM_NO_POSIX`, the CMake lane
-          is POSIX-only at `-Wall -Wextra -Wpedantic`;
-        - the measurement above shrinks the prize. Since the CMake lane reaches
-          no image, one compile buys correctness for nothing that ships; its
-          value is that the CTest harness compiles what images compile, which
-          is real and much smaller than "the risky one" implies.
+        **Why that direction, and not cargo driving cmake.** The cargo lane is
+        the one that ships (`cmake/NanoRosRmwDispatch.cmake` maps `xrce` to
+        `nros-rmw-xrce-cffi` for every image) and the one that cross-compiles to
+        six target families through cc-rs; making it shell out to cmake would
+        put cmake plus a toolchain file in the path of every cross build, for
+        nothing. The premise was re-verified, not assumed: `git grep` still
+        finds no `add_subdirectory()` or `find_package()` of this project
+        anywhere, `zephyr/cmake/nros_rmw_xrce.cmake` is still a no-op, and the
+        only configure of it is `just check rmw-xrce`.
+
+        **Why the archive is not split.** "Vendored objects in one archive,
+        backend objects in another" was the tidier shape and does not link:
+        `platform_aliases.c` (backend) DEFINES `uxr_millis`/`uxr_nanos`, which
+        the vendored `uxr` TUs call, while the backend TUs call the vendored
+        session API. The two halves are mutually recursive at link time, so
+        rustc — which emits no `--start-group` — would resolve them by luck of
+        ordering. One archive holds both, and the CMake project links it whole.
+
+        **Locating it.** cc-rs writes to
+        `target/<profile>/build/nros-rmw-xrce-cffi-<hash>/out/`, where `<hash>`
+        is neither stable nor predictable. It is NOT globbed — taking the first
+        match of a glob is issue 0500's defect, one directory over. `just check
+        rmw-xrce` reads `OUT_DIR` out of `cargo build --message-format=json`'s
+        `build-script-executed` message (exactly one such message for that
+        package, or the recipe fails saying how many it saw) and passes it as
+        `-DNROS_XRCE_CFFI_OUT_DIR`. The build script writes
+        `nros-xrce-vendor-build.txt` into that directory naming the archive and
+        the generated-header dir, so neither the recipe nor the CMakeLists
+        restates a cc-rs fact, and the gate checks the two ends agree.
+
+        **The recipe BUILDS the crate; it does not require it prebuilt.** The
+        compile moved lane, not stage — this recipe already compiled the same C
+        — and `check-lane-contracts` forbids a gate that resolves an artifact
+        its own lane does not build. There is no "prebuild it first" instruction
+        to get wrong, and when `NROS_XRCE_CFFI_OUT_DIR` is unset or its pointer
+        file absent, the configure FATAL_ERRORs naming the command. There is
+        deliberately NO fallback compile: a fallback restores the duplication
+        while every symptom says it is fixed.
+
+        **What the CMake project still compiles, and why it is not the
+        duplication coming back.** `nros_rmw_xrce` is now an INTERFACE target
+        over the cargo archive — the CTest binaries link the objects images
+        ship, which is the whole prize. Beside it sits
+        `nros_rmw_xrce_warnings`, an OBJECT library over `nros-rmw-xrce/src/*.c`
+        ONLY (`_xrce_compiled_trees` = `backend`), linked by nothing. `just
+        check rmw-xrce` is the only place those TUs are compiled with warnings
+        on — the cargo lane sets `warnings(false)` because the vendored TUs
+        beside them are noisy — and issue 0787 created this recipe to get
+        exactly that. Dropping it would lose a diagnostic silently, which is
+        worse than ten files compiled twice.
+
+        **A diagnostic moved UP, not down.** Those `-Wall -Wextra -Wpedantic`
+        never really ran over the vendored sources: the same target carried
+        `-Wno-unused-parameter` and `-Wno-pedantic` precisely because vendored
+        code tripped them. Now that only our own C is in the target, both
+        suppressions are gone and the bar over `nros-rmw-xrce/src/*.c` is the
+        full one — measured clean at the time this landed.
+
+        **The one new hazard, and its check.** Two lanes' generated config
+        headers now meet inside ONE binary (this project's own TUs against its
+        `configure_file` output, the archive's objects against the cargo lane's).
+        A disagreement there IS an issue-0135 ABI split, which the W9
+        measurement had ruled out only because no single image held TUs from
+        both lanes. So the byte-identity that steps 1-2 verified BY HAND once is
+        now asserted at configure time: `cmake -E compare_files` on both header
+        pairs, FATAL_ERROR naming both files and the `diff` command.
+
+        **Gate: `just check xrce-one-vendored-compile`**
+        (`scripts/check-xrce-one-vendored-compile.py`, fast line, buildless).
+        Each lane DECLARES the `xrce-sources.txt` trees it compiles inside a
+        `NROS-XRCE-COMPILED-TREES` block and USES that declaration as its filter
+        (build.rs asserts row membership; the CMakeLists tests `IN_LIST`), the
+        shipping lane declares all of them, the CMake lane declares no vendored
+        one and no longer locates their source roots at all, and the pointer
+        file's name and keys have one statement per side that must agree.
+        Direction is checked, not merely the count: **swapping the two
+        declarations leaves every vendored tree compiled exactly once and ships
+        an archive with no XRCE in it**, so "exactly once" alone is a rule that
+        passes its own worst case. Mutation-tested eight ways; the first version
+        of the no-fallback rule (`NROS_XRCE_CFFI_OUT_DIR` within 400 characters
+        of a `FATAL_ERROR`) was shape-valid and wired to nothing — degrading the
+        unset arm to `message(STATUS …)` left it green — and now the rule reads
+        inside the arm.
+
+        **A sixth rule, added in review after a mutation the first five all
+        missed:** NO CONSUMER RESTATES A cc-rs FACT. Replacing
+        `IMPORTED_LOCATION "${NROS_XRCE_VENDOR_ARCHIVE}"` with
+        `"${NROS_XRCE_CFFI_OUT_DIR}/libnros_rmw_xrce_c_inline.a"` leaves the
+        shape perfect — one declaration per lane, the pointer file still read,
+        each vendored tree still compiled once — and quietly puts a mirror back.
+        It is LATENT rather than live (the spelling happens to be right, and a
+        rename trips the `EXISTS` check at configure rather than linking
+        something stale), which is exactly how issues 1068 and 1069 started: a
+        comment promising a property and nothing checking it — and this file's
+        comment does promise it, in those words. The rule now covers both
+        consumers: neither `nros-rmw-xrce/CMakeLists.txt` nor the `rmw-xrce`
+        recipe may name the archive stem, and the only path either builds off
+        `NROS_XRCE_CFFI_OUT_DIR` is the pointer file itself. Three more
+        mutations cover it, including the same restatement one file out in the
+        recipe.
+
+        **Not re-measured, and worth saying:** the tier-2 sweep this item warned
+        about is still owed. Nothing outside `packages/rmw/xrce/**` changed and
+        the cargo lane's compile is byte-for-byte what it was (the build script
+        gained a declaration, an assert and a pointer file, no flag and no
+        source), so no fixture's inputs moved — but that is an argument, not a
+        sweep.
+
+        **Also contradicted, filed as issue 1097:** `just xrce check-rust-rmw`
+        still does `cd packages/rmw/xrce/nros-rmw-xrce && cargo check`, and that
+        directory has held no `Cargo.toml` since phase-140. Pre-existing,
+        outside this change, and on no lane that runs — which is how a recipe
+        that cannot succeed survived several phases while reading as coverage.
 
         **Also found, not fixed (pre-existing).** The five XRCE pool knobs that
         size ~86 % of `xrce_session_state_t` — `NROS_XRCE_MAX_SUBSCRIBERS`,
@@ -803,6 +916,179 @@ is one road.
         (one declaration, one lane — no mirror to drift), and the in-repo TUs
         (`zpico.c`, `zpico_zephyr.c`, `platform_aliases.c`, `size_probe.c`),
         which are not part of the vendored tree.
+
+        **Step 4 (one compile) — MEASURED 2026-09-05, and the answer says the
+        compile unification is the wrong shape here. What landed instead is the
+        gate that makes the measured invariant hold.**
+
+        **The question W9 asked first: can ONE Zephyr image contain zenoh-pico
+        TUs from BOTH lanes?** It mattered because unlike XRCE next door, this
+        cmake lane IS reached from a real image build
+        (`zephyr/CMakeLists.txt:165` → `nros_zephyr_configure_rmw_zenoh()`), so
+        a positive answer would have been an issue-0135 ABI split — two
+        independently-resolved `Z_FEATURE_*` sets deciding flag-gated struct
+        layouts inside one link.
+
+        **Answer: NO. The lanes are DISJOINT, per platform — measured, not
+        inferred from directory names.** The evidence:
+
+        - `packages/platform/nros-platform-zephyr/nros-platform.toml` declares
+          `[build.zenoh] compiled_by = "platform"`, and
+          `nros-zpico-build/src/runner.rs:1255` gates the whole vendored-tree
+          compile on `resolved.compiled_by == CompiledBy::Cargo` (issue 0534),
+          with a second `!use_zephyr` filter above it (issue 0541);
+        - built and captured with a compiler wrapper, not read off the source.
+          `cargo build -p zpico-sys` compiles **131** `zenoh-pico/src/*.c` plus
+          three in-repo TUs; `cargo build -p zpico-sys --features zephyr`
+          compiles **0** vendored `.c` and exactly one in-repo TU,
+          `zpico-sys/c/zpico/platform_aliases.c`. Same result through the real
+          Zephyr feature chain — `cargo build -p nros-c --features
+          rmw-cffi,cffi-zenoh-cffi,platform-zephyr,ros-humble` (the literal
+          string `zephyr/CMakeLists.txt:305` passes) reaches
+          `nros-rmw-zenoh/platform-zephyr → zpico-sys/zephyr` and compiles zero;
+        - that one cargo-compiled TU includes **no vendored header** — only
+          `nros/platform.h`, `nros/platform_net.h` and the in-repo
+          `nros_zenoh_generic_platform.h` — and its network section is
+          `#ifdef`-elided on Zephyr, so no flag-gated zenoh-pico struct crosses
+          the lane boundary even there;
+        - `zephyr/cmake/nros_rmw_zenoh.cmake` is the ONLY cmake compile of the
+          vendored tree in the repo (grepped). The other candidate,
+          `integrations/px4/NanoRosPx4Module.cmake`, is the SAME hazard already
+          closed: issue 0436 removed a second zenoh-pico from that link and its
+          comment says "Linking both put two copies of zenoh-pico in one" image.
+
+        The cargo lane could not take Zephyr over even if we wanted it to:
+        `system/platform/zephyr.h` includes `version.h`, which only the west
+        build generates — issue 0541 is exactly that failure, measured.
+
+        **So "one build of the vendored tree consumed by both lanes" is refused,
+        with the reason.** There is no duplicate compile to remove: there is a
+        per-platform SPLIT, one compiler per platform, which is what the
+        `version.h` dependency forces. Unifying would mean making a west-built
+        artifact feed cc-rs or vice versa, for zero platforms that currently
+        build twice.
+
+        **What the evidence DOES support, and what landed.** The split is
+        load-bearing and nothing was checking it. It rests on three statements
+        that must agree — a TOML field, a Rust guard, and which lane answers a
+        manifest condition token — and a Zephyr C/C++ image links with
+        `-Wl,--allow-multiple-definition` (`zephyr/CMakeLists.txt`, for the
+        Rust-staticlib allocator collision), so if both lanes ever did compile
+        the tree the duplicate symbols would **not stop the link**: one lane's
+        objects would silently win. Gate: **`just check zenoh-lane-ownership`**
+        (`scripts/check-zenoh-lane-ownership.py`) — every platform declares its
+        zenoh owner; `compiled_by = "platform"` ⟺ a non-cargo lane compiles the
+        tree for it, both directions; that lane reads the shared manifest AND
+        feeds the expansion to a compile; the cargo guard is live; and the
+        cross-wire check below.
+
+        **The cross-wire check, which is why this is a second gate rather than
+        more of `check-zenoh-source-manifest`.** That gate asserts both lanes
+        answer the same SET of condition tokens and says nothing about which WAY
+        either answers. Two mutations keep the set identical and break the
+        build: `set(_zenoh_cond_zephyr FALSE)` drops
+        `system/zephyr/network.c` from every Zephyr image (phase 160.C —
+        `Transport(ConnectionFailed)` at session open), and `"zephyr" => true`
+        in the cargo lane compiles that Zephyr-only TU into every OTHER
+        platform. So a platform token must be answered TRUE-capable by exactly
+        the lane that OWNS that platform, the cargo arm must reference a binding
+        proven to be `platform == "<p>"`, and a record under
+        `src/system/<dir>/` must sit in a group whose token names a platform
+        `<dir>` serves.
+
+        **Two more checks, added after review found a hole the first version did
+        not see.** Swapping the two groups' CONDITIONS —
+
+            -group zephyr_system  zephyr          +group zephyr_system  zephyr_isotp
+            -group zephyr_isotp   zephyr_isotp    +group zephyr_isotp   zephyr
+
+        — leaves every token declared, used, answered by both lanes and counted
+        exactly as before, so the sibling is green; and both tokens name
+        `zephyr`, so checks (5) and (6) are green too. What it does is compile
+        `system/zephyr/network.c` **only when ISO-TP is enabled** and
+        `system/zephyr/isotp.c` on **every** Zephyr build — and the manifest's
+        own comment says why the first half is serious: network.c must come from
+        zenoh-pico's Zephyr backend rather than the alias TU, because the two
+        see different socket and endpoint layouts (phase 129 / phase 160.C), so
+        a non-ISO-TP Zephyr image would lose it and fail at session open.
+
+        The invariants, stated in words in the manifest header as well as the
+        gate, and chosen to be reasons rather than a hash of today's layout:
+
+        - **(8) a group's NAME must agree with its CONDITION**, on platform and
+          on feature. The group name is what a reader uses to understand a
+          record, so a group called `zephyr_system` gated on an ISO-TP feature
+          is a lie in the file itself. Precisely: same platform on both sides;
+          if the condition narrows by a feature the name carries that feature;
+          if it does not narrow, the name may not claim a feature some other
+          condition narrows by. (`zephyr_system` stays legal because nothing is
+          gated on `system` — that qualifier is a description, not a promise.)
+        - **(9) the MIRROR — a feature-gated group holds the TUs that IMPLEMENT
+          that feature.** (8) alone leaves the swap's other spelling, in which
+          the groups are named and gated perfectly and the two RECORDS trade
+          places. Upstream names its TUs after what they implement, so a record
+          in a `<platform>_<feature>` group names that feature in its path and a
+          base-platform group holds none that do. A property of upstream's
+          layout rather than a law, so it has a stated escape hatch,
+          `FEATURE_TU_EXCEPTIONS` — empty today, which is itself the finding.
+
+        **Mutation-tested against the real tree, M1–M15, both gates run on
+        each; all fifteen caught, and the sibling was green on fourteen of
+        them** (only M4, which changes the token set, is visible to it). The
+        swap is M13 (4 messages: two from (8), two from (9)); its mirror is M14
+        (2 messages, from (9) alone, since (8) is silent by construction there);
+        M15 renames a group without renaming its condition and (8) reports it.
+        Three holes were found and fixed this way, two in the first version and
+        one by review: commenting out `zephyr_library_sources(...)` left the
+        substring in the file (comments are stripped now); the first "wrong
+        group" mutation was caught by the sibling rather than by this gate, so
+        it was replaced with M9, the consistent rename of `zephyr` to
+        `freertos` across the manifest AND both lanes; and the condition swap
+        above, which nothing saw.
+
+        **Verified:** `cargo build -p zpico-sys` compiles the same 138 `.c`
+        before and after (compiler-wrapper capture, sorted, `diff` empty).
+
+        **Found while measuring, and it contradicts this item AND the shared
+        manifest's own header: the tree is compiled THREE times, not twice —
+        issue 1096.** `scripts/qemu/build-zenoh-pico.sh` cross-compiles it for
+        Cortex-M3, is live (`build-all.mk:79`, `just/qemu-baremetal.just:460`),
+        and carries its own copy of three things: the nine-directory selection
+        (a `for dir in api collections link net protocol session transport
+        utils` loop), the generated config header (~40 `Z_FEATURE_*` in a
+        heredoc whose comment says *"Matches the config header generated by
+        zpico-sys/build.rs"*), and the shim slot defaults (*"matches ShimConfig
+        defaults in build.rs"*). So
+        `check-zenoh-source-manifest`'s check (4) — "NEITHER LANE NAMES A PATH
+        INSIDE THE VENDORED TREE" — was true of the two lanes it knows and false
+        of the repository. Severity is low, not medium, because the `.a` is a
+        build-READINESS artifact that no image links (the script says so), so
+        drift there buys a false green rather than a wrong image. Not fixed here
+        — the file is outside this change's ownership and the right fix is a
+        choice between three (read the manifest / become a `fixtures.toml` row /
+        stay) that the issue lays out. It is now a TRACKED debt rather than a
+        silence: `check-zenoh-lane-ownership`'s check (7) enumerates every
+        tracked file naming the vendored source root and requires each to be a
+        declared lane or carry an issue id, so a FOURTH copy fails while this
+        one is visible.
+
+        **Found, not fixed — and it is NOT the issue-0460 class.** The two lanes
+        do resolve the zenoh config macros independently, but by different
+        mechanisms and for disjoint platforms, so it is not XRCE's live defect:
+        the cargo lane GENERATES a config header stating ~50 `Z_FEATURE_*`; the
+        cmake lane states 8 explicitly plus 13 mapped from `CONFIG_NROS_ZENOH_*`
+        and lets the vendored `config.h` `#ifndef` defaults supply the rest. The
+        axis that WOULD be 0460 — the `ZPICO_*` pool knobs, which do cross the
+        boundary because Rust and the cmake-compiled `zpico.c` share that ABI —
+        is already unified: `nros_resolve_knobs()` exports `NROS_RESOLVED_*`
+        that both consume, `KCONFIG_KNOBS` in `runner.rs` reads `$DOTCONFIG`,
+        and `check-kconfig-knob-forwarding` holds the two lists together (issues
+        0460/0626 closed exactly this). What remains is that a `Z_FEATURE_*`
+        decision made in the cargo lane (`Z_FEATURE_RX_CACHE`,
+        `Z_FEATURE_BATCHING`, `Z_FEATURE_PERIODIC_TASKS` …) silently does not
+        apply to Zephyr, which is a per-platform behaviour divergence with no
+        statement anywhere. Unifying it would change every Zephyr image's
+        behaviour and is a wave of its own; recorded here rather than started.
       Both are build-affecting and need the submodules checked out and both lanes
       built; neither is a documentation change, and neither should be attempted
       in the same commit as the identity above.
