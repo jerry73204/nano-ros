@@ -7,23 +7,27 @@ hand-curated `EXTRA_CONF_FILE` / `DTC_OVERLAY_FILE` / hardcoded board
 id list / hand-rolled FVP launch flags on the consumer side. FVP
 AEMv8-R is the driving case; the shape is generic across boards.
 
-**Status (2026-09-05).** OPEN, and **the in-repo half is done** — 27 of 38
-boxes, up from 20 after an audit found seven that had landed and were never
-ticked (A.1, A.3, B.2, B.3, D.4, I.1, I.2). Each carries its witness now; the
-schema, the `nano_ros_use_board()` import, the `west fvp` delegation and the
-book page were all in the tree while the doc read as unstarted work.
+**Status (2026-09-06).** **The nano-ros feature is DONE** — a board crate is
+importable in one line by any Zephyr consumer, and 27 of the 30 boxes that are
+this repo's to tick are ticked. The ASI-specific half moved OUT (see 215.H),
+which is what this status used to be measuring against.
 
-**What is actually left splits in two**, and neither half is nano-ros
-engineering:
+**Three acceptance bullets remain, and none is code**:
 
-* **215.H / 215.J.5 — the ASI side.** `actuation_module/CMakeLists.txt`,
-  `build.sh`, `fvp/NOTES.md`, `bootstrap-asi.sh`. External repo; this phase's
-  worktree cannot verify or land them.
-* **The acceptance bullets that need a RUN.** `west fvp run -d build/`
-  launching `FVP_BaseR_AEMv8R` end to end, and the 215.E fixture building in
-  CI — the fixture and its build test landed, and the build is
-  gated-pending-Zephyr-SDK in this environment, so the test skips loudly rather
+* a Zephyr app calling `nano_ros_use_board(<n>)` and *nothing else* of
+  board-specific shape — `examples/workspaces/realtime-cpp/src/fvp_entry` and
+  the `board_import_fvp` fixture both do; whether an entry layering its OWN
+  config over the board's counts as "nothing else" is a judgement the phase
+  owner should make rather than a gate;
+* `west fvp run` launching `FVP_BaseR_AEMv8R` end to end — needs the simulator;
+* the 215.E fixture building in CI — the fixture and its build test landed and
+  the build is gated-pending-Zephyr-SDK here, so the test skips loudly rather
   than passing vacuously.
+
+**Priority note.** The `P1` below rests on "unblocks ASI's actuation consumption
+story". ASI has consumed it since its phase 2.C and its FVP lane is green across
+five variants, so that justification is spent; what is left is worth doing on
+its own terms, not because a downstream is waiting.
 
 Driven by ASI's Phase 190 follow-up — ASI today hand-glues every layer Phase 215
 collapses.
@@ -314,27 +318,34 @@ against drift.
   (new, gated), `just/zephyr-setup.just` (build/run recipes),
   `.config/nextest.toml` (zephyr-fvp group override).
 
-### 215.H — ASI migration (consumer landing)
+### 215.H — ASI migration — MOVED to the ASI repo (2026-09-06)
 
-External landing in `github.com/NEWSLabNTU/autoware-safety-island`:
-- [ ] **215.H.1** Bump nano-ros pin to the commit landing 215.A-D.
-- [ ] **215.H.2** `actuation_module/CMakeLists.txt` — add
-      `nano_ros_use_board(fvp-aemv8r-smp)` immediately after the
-      `project()` call; delete the hand-written board overlay
-      includes + the `-DNANO_ROS_RMW=cyclonedds` defines.
-- [ ] **215.H.3** `actuation_module/boards/<hwv2-id>.conf` /
-      `.overlay` — only ASI-specific deltas remain (e.g. autoware
-      msg sizing); nano-ros base layered via 215.B.
-- [ ] **215.H.4** `build.sh` — drop the ZEPHYR_TARGET_LIST hardcode
-      for FVP (the value comes from `board.cmake`); keep the
-      s32z270dc2 entry as-is until that board crate lands too.
-- [ ] **215.H.5** Replace `west build && manual FVP launch` with
-      `west build -d build && west fvp run -d build`.
-- [ ] **215.H.6** `fvp/NOTES.md` cross-refs the new path; AVH cloud
-      path stays separate.
-- **Files** (external, ASI repo): `actuation_module/CMakeLists.txt`,
-  `actuation_module/west.yml` (nano-ros pin), `build.sh`,
-  `fvp/NOTES.md`.
+This block tracked work inside
+`github.com/NEWSLabNTU/autoware-safety-island`: the pin bump, the
+`nano_ros_use_board()` call, that repo's per-board confs, its `build.sh`
+target list, its FVP launch path and its `fvp/NOTES.md`. None of it is a
+nano-ros change, and this phase could neither verify nor land any of it — the
+worktree cannot see that repo, so six boxes sat open describing a state nobody
+here could read.
+
+**Taken over as ASI phase-5 W7** (`docs/roadmap/phase-5-legacy-cleanup.md`,
+"ASI plumbing replaceable by nano-ros features"), which is where a consumer's
+adoption of a nano-ros feature belongs. What the handover found, recorded there
+with evidence:
+
+* the `nano_ros_use_board()` call has been in
+  `actuation_module/CMakeLists.txt` since ASI phase 2.C — this block listed it
+  as outstanding for months;
+* the per-board conf/overlay item was MIS-SCOPED. The board's own glue does
+  come from the crate now; what remains in that repo is its own variant matrix
+  (CAN loopback, tap network, tracing), which a consumer is supposed to layer;
+* the `build.sh` target-list hardcode is real, small, and ASI's;
+* two items named files that exist on neither ASI branch and were dropped
+  rather than carried.
+
+**What nano-ros keeps is the general feature**, which is 215.A-F and 215.I: a
+board crate is importable in one line by any Zephyr consumer. ASI is the first
+one; the phase is not a plan for ASI.
 
 ### 215.I — Book chapter
 
@@ -407,10 +418,10 @@ consumer's tree, board-driven.
       symbol only; the lang-rust CMake `_rust_map_target → aarch64-unknown-none`
       mapping is NOT a Kconfig symbol and stays supplied by
       `aarch64-rust-patch.sh` via J.2 step (b).)
-- [ ] **215.J.5** ASI `bootstrap-asi.sh` delegates to `nros setup board
-      fvp-aemv8r-smp --zephyr-workspace $ZEPHYR_BASE` (replaces the inline
-      west-fragment + ISN-poke + manual rust-module the real-run added as
-      stopgaps). Consumer proof = the FVP build/boot (240.7 / 242.5.2).
+- MOVED to ASI phase-5 W7 (2026-09-06), with 215.H: `bootstrap-asi.sh`
+  delegating to `nros setup board` is a change in that repo, and the file it
+  names does not exist on either ASI branch. `nros setup board` itself — the
+  nano-ros half — is J.1-J.4 above and stays here.
 
 **Files.** `packages/boards/nros-board-*/board.cmake` (+ `Cargo.toml`),
 `packages/cli/nros-cli-core/src/cmd/setup.rs` (the `board --zephyr-workspace`
@@ -430,11 +441,12 @@ a board Kconfig overlay module, `docs/reference/board-cmake-schema.md`.
       from BOTH `board.cmake` and `Cargo.toml`; `--check-drift`
       exits 0 when they agree, non-zero with a clear field-by-field
       diff on drift. _(verified: exit 0 clean, exit 1 on injected drift.)_
-- [ ] ASI's `actuation_module/CMakeLists.txt` includes
-      `nano_ros_use_board(fvp-aemv8r-smp)` and builds clean against
-      Zephyr 3.7 floor without ASI carrying any nano-ros-base
-      Kconfig fragment. _(215.H — external ASI repo; not in this phase's
-      worktree.)_
+- MOVED to ASI phase-5 W7 (2026-09-06): whether ASI's
+  `actuation_module/CMakeLists.txt` builds clean is ASI's acceptance to state.
+  For the record, it does — the call is at `CMakeLists.txt:154-155` and that
+  repo's CI runs the FVP lane green across five variants (run 33961168979,
+  2026-09-05). nano-ros's own acceptance for the same capability is the
+  `board_import_fvp` fixture below.
 - [ ] Phase 215.E fixture builds in CI; the fixture's
       `CMakeCache.txt` carries the expected `NROS_BOARD_*` keys.
       _(fixture + build test landed; **build gated-pending-Zephyr-SDK**
