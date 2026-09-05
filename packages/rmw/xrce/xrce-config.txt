@@ -188,8 +188,13 @@ flag   uxr  UCLIENT_PLATFORM_WINDOWS           never
 flag   uxr  UCLIENT_PLATFORM_FREERTOS_PLUS_TCP never
 flag   uxr  UCLIENT_PLATFORM_RTEMS_BSD_NET     never
 # 129.C.1 — the Zephyr transport is `transport_nros_udp.c` through the platform
-# ABI, not upstream's Zephyr platform. `transport_zephyr_udp.c` is compiled by
-# nobody (issue 1073) and this toggle went with it.
+# ABI, not upstream's Zephyr platform, so this toggle has read `never` in both
+# lanes since that phase. It gated `transport_zephyr_udp.c`, which issue 1073
+# DELETED (2026-09-05): that TU's whole body sat behind
+# `#if defined(UCLIENT_PLATFORM_ZEPHYR)`, so with this row `never` no lane could
+# have got a symbol out of it even had one compiled it. The row itself is
+# unchanged and still correct — it selects upstream's Zephyr PLATFORM, which we
+# do not use, and never named our TU.
 flag   uxr  UCLIENT_PLATFORM_ZEPHYR            never
 
 # ---- backend compile defines --------------------------------------------------

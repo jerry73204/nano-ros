@@ -84,14 +84,20 @@ LANE_SOURCE_ALLOWLIST = {
 }
 
 # Backend `.c` files that are deliberately compiled by NEITHER lane.
-NOT_COMPILED = {
-    # 129.C.1 — superseded by `transport_nros_udp.c`, which reaches the same
-    # sockets through the platform ABI. `build.rs` still carries the
-    # `feat_zephyr = false` that turned it off. Kept on disk, compiled nowhere;
-    # listed here so "nothing builds it" is a recorded fact rather than a
-    # silence.
-    "transport_zephyr_udp.c": "129.C.1 — superseded by transport_nros_udp.c",
-}
+#
+# EMPTY, and that is the intended steady state — every backend TU is in
+# `xrce-sources.txt`. The mechanism stays because check (5) needs somewhere to
+# point: a file the tree grows and neither lane builds must be declared with a
+# reason, not merely tolerated. Its only ever entry was
+# `transport_zephyr_udp.c`, which issue 1073 DELETED after establishing that
+# 129.C.1 had both stopped compiling it (the `platform-zephyr` feature went)
+# and switched off the `UCLIENT_PLATFORM_ZEPHYR` its entire body sat behind —
+# so it could not have contributed a symbol even if a lane had compiled it.
+#
+# Adding a row here is a claim about a file that WOULD compile to something.
+# A TU whose body is entirely behind an `#if` this repo defines as `never`
+# (see `xrce-config.txt`) is not that; it is dead, and belongs deleted.
+NOT_COMPILED: dict[str, str] = {}
 
 # The delimited block in each lane that answers the condition tokens.
 _BEGIN = "NROS-XRCE-CONDITIONS-BEGIN"
