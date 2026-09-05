@@ -36,6 +36,7 @@ byte figure, and the table says so rather than implying zero.
 Run:  python3 scripts/gen-pool-inventory.py [--check] [--self-test]
 """
 
+import importlib.util
 import os
 import re
 import subprocess
@@ -136,10 +137,134 @@ KNOB_ANY = re.compile(r'\b(?:env_usize(?:_compat|_min)?|knob)\(\s*"([A-Z0-9_]+)"
 # transport), so a single number here would be a claim this file cannot make.
 LADDER_ENV_KEY = re.compile(r'=>\s*"([A-Z][A-Z0-9_]+)"\s*,')
 
+# ---------------------------------------------------------------------------
+# The XRCE backend's knobs, which have no Rust declaration site at all.
+#
+# Issue 1078. Five knobs that between them size ~86 % of `xrce_session_state_t`
+# (`NROS_XRCE_MAX_SUBSCRIBERS`, `_MAX_SERVICE_SERVERS`, `_MAX_SERVICE_CLIENTS`,
+# `_SUBSCRIBER_RING_DEPTH`, `_BUFFER_SIZE`) appeared nowhere in this table,
+# before phase-420 W9 and after it. Every pattern above matches a Rust CALL,
+# and these are `-D<MACRO>=<n>` arguments both XRCE lanes pass to a C compiler:
+# there is no `env_usize(...)` anywhere to find. The enumeration failure issue
+# 0271 measured at ~145 KB, in the one backend whose knobs are not Rust.
+#
+# phase-420 W9 made this cheap: `packages/rmw/xrce/xrce-config.txt` is the ONE
+# statement of that configuration, read by both lanes, and its `knob` and
+# `define` records carry the env name. So this reads the manifest rather than
+# restating five rows here — restatement is the shape W9 spent itself removing.
+#
+# The DEFAULT comes from neither this file nor the manifest:
+#
+#   * a `knob` row states its own default (it fills a `@TOKEN@` in an upstream
+#     `config.h.in`, which has no default of its own to hold);
+#   * a `define` row deliberately has NO default column — xrce-config.txt says
+#     so in as many words, because `nros-rmw-xrce/src/internal.h` holds it in
+#     an `#ifndef` and "that is the one statement of it". So the `#ifndef`
+#     block is what this reads.
+#
+# Both lanes' env names, both lanes' defaults, zero new copies.
+XRCE_MANIFEST = "packages/rmw/xrce/xrce-config.txt"
+XRCE_DEFAULTS_H = "packages/rmw/xrce/nros-rmw-xrce/src/internal.h"
 
-def scan(files=None):
+# `#ifndef XRCE_FOO` … `#define XRCE_FOO 8` — the guarded default, not a bare
+# `#define`. A bare one is a constant nobody can override, so it is not a knob
+# and must not be reported as one. The backreference anchors the pair, so an
+# intervening comment block (every one of these has one) does not break it.
+_IFNDEF_DEFAULT = re.compile(
+    r"^#ifndef\s+([A-Za-z_][A-Za-z0-9_]*)\s*$.*?^#define\s+\1\s+([0-9]+)\s*$",
+    re.M | re.S,
+)
+
+
+def _xrce_parse_manifest(text, where):
+    """The manifest's own parser, imported — never a second one.
+
+    `scripts/check-xrce-config-manifest.py` is the gate over this file and
+    already implements the grammar its header documents. A reader with its own
+    copy is how two parsers come to disagree about a record the gate accepts,
+    which is the class this repo keeps paying for; so this borrows that one.
+    """
+    mod = _xrce_parse_manifest.__dict__.get("_mod")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location(
+            "_xrce_config_manifest", os.path.join(ROOT, "scripts", "check-xrce-config-manifest.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _xrce_parse_manifest._mod = mod
+    return mod.parse_manifest(text, where)
+
+
+def xrce_knobs(manifest_text, header_text, manifest_rel=XRCE_MANIFEST):
+    """XRCE env knobs from the manifest → {name: (default, rel, line, conflict)}.
+
+    A `knob` row's default is its own column; a `define` row's is the `#ifndef`
+    in `internal.h`, keyed by the MACRO the row binds — so a row rewired to a
+    different macro reports that macro's default, and a row naming a macro with
+    no guarded default reports no figure rather than inventing one.
+    """
+    _values, knob_rows, _flags, define_rows = _xrce_parse_manifest(manifest_text, manifest_rel)
+    guarded = {m: int(n) for m, n in _IFNDEF_DEFAULT.findall(header_text)}
+
+    line_of = {}
+    for n, raw in enumerate(manifest_text.splitlines(), 1):
+        f = raw.split("#", 1)[0].split()
+        if f and f[0] in ("knob", "define"):
+            line_of.setdefault((f[0], f[1] if f[0] == "define" else f[2]), n)
+
+    out = {}
+    for _template, token, env, default, _min in knob_rows:
+        _xrce_record(out, env, default, manifest_rel, line_of.get(("knob", token), 0))
+    for macro, env, _min in define_rows:
+        _xrce_record(
+            out, env, guarded.get(macro), manifest_rel, line_of.get(("define", macro), 0)
+        )
+    return out
+
+
+def _xrce_record(out, env, default, rel, line):
+    """One env name, possibly bound by several rows.
+
+    `NROS_XRCE_TRANSPORT_MTU` legitimately drives both the UDP and the TCP MTU,
+    so the same name arrives twice; agreeing rows collapse. Rows that DISAGREE
+    are the issue-0135 shape one layer up — one env, two values — and get the
+    same `conflicting defaults` flag every other reader does.
+    """
+    if env in out:
+        if out[env][0] != default:
+            out[env] = (out[env][0], out[env][1], out[env][2], True)
+        return
+    out[env] = (default, rel, line, False)
+
+
+def xrce_sources():
+    """(manifest text, header text). Both files are tracked; a missing one is a
+    broken checkout, not a configuration, so this raises rather than reporting
+    an XRCE backend with no knobs."""
+    with open(os.path.join(ROOT, XRCE_MANIFEST), encoding="utf8") as fh:
+        manifest = fh.read()
+    with open(os.path.join(ROOT, XRCE_DEFAULTS_H), encoding="utf8") as fh:
+        header = fh.read()
+    return manifest, header
+
+
+def scan_xrce():
+    """`xrce_knobs` over the real files."""
+    return xrce_knobs(*xrce_sources())
+
+
+def scan(files=None, xrce=True):
     """(knobs, pools) — knobs: name -> (default, file, line); pools: list."""
     knobs, pools = {}, []
+    if xrce:
+        # FIRST, deliberately. Two of these names are also reached by the
+        # RFC-0049 ladder's `xrce_env_key` match in `platform_config.rs`, which
+        # can state no figure (`LADDER_ENV_KEY` yields a computed default), and
+        # the Rust scans below only ever `setdefault`. Seeding the manifest
+        # first is what makes `NROS_XRCE_CUSTOM_TRANSPORT_MTU` render as 4096
+        # and `NROS_XRCE_STREAM_HISTORY` as 16 instead of as a line number in
+        # a generated table.
+        knobs.update(scan_xrce())
     for rel in files if files is not None else tracked_rust():
         try:
             with open(os.path.join(ROOT, rel), encoding="utf8", errors="replace") as fh:
@@ -283,14 +408,67 @@ def self_test():
         '// nros-pool: Q = NROS_PROBE_DEPTH * NROS_PROBE_SLOTS\n'
         'let z = knob("NROS_PROBE_LADDER", rungs.thing, 9);\n'
         'let w = knob("NROS_PROBE_PLAIN", 7);\n'
+        # The RFC-0049 ladder's front-end match, verbatim in shape — the ONLY
+        # place `NROS_XRCE_STREAM_HISTORY` is named in Rust, and it can state
+        # no figure. It is here to pin the PRECEDENCE below.
+        'fn xrce_env_key(k: &str) -> &\'static str { match k {\n'
+        '    "stream_history" => "NROS_XRCE_STREAM_HISTORY",\n'
+        '    _ => "",\n} }\n'
     )
     tmp = os.path.join(ROOT, "tmp")
     os.makedirs(tmp, exist_ok=True)
     p = os.path.join(tmp, "_pool_probe.rs")
     with open(p, "w") as fh:
         fh.write(probe)
-    k, pl = scan([os.path.relpath(p, ROOT)])
+    k, pl = scan([os.path.relpath(p, ROOT)], xrce=False)
+    # The same probe WITH the XRCE manifest seeded — the integration, over the
+    # real `xrce-config.txt` and `internal.h`, because a scanner that parses
+    # perfectly and is never called publishes exactly the table issue 1078
+    # filed. And the PRECEDENCE: the ladder line above reaches
+    # `NROS_XRCE_STREAM_HISTORY` with no figure, so seeding the manifest second
+    # would put a line number back in the default column.
+    ki, _ = scan([os.path.relpath(p, ROOT)], xrce=True)
     os.unlink(p)
+    # A RELATION, not a list of numbers. Naming the five defaults here would
+    # put `internal.h`'s figures in a THIRD file — the generator would then
+    # disagree with the tree by construction the moment someone legitimately
+    # retunes one, and the failure would tell them to edit the generator. That
+    # is the second home this whole change exists to avoid, one level up in the
+    # tooling. So state the property instead: every `define` row's published
+    # default IS the `#ifndef` guard for the macro that row binds, and every
+    # `knob` row's IS its own column. A retune moves both sides together; a
+    # broken wire moves only one.
+    man_text, hdr_text = xrce_sources()
+    _v, knob_rows, _f, define_rows = _xrce_parse_manifest(man_text, XRCE_MANIFEST)
+    guarded = {m: int(n) for m, n in _IFNDEF_DEFAULT.findall(hdr_text)}
+    assert define_rows and knob_rows, (
+        f"{XRCE_MANIFEST} parsed to no `define`/`knob` rows — the relation below "
+        "would hold vacuously, which is the shape `check-no-vacuous-tests` bans"
+    )
+    for macro, env, _min in define_rows:
+        # xrce-config.txt's own documented invariant: a `define` row has no
+        # default column BECAUSE `internal.h` holds it in an `#ifndef`, "and
+        # that is the one statement of it". A row whose macro has no guard is
+        # that statement missing, not a figure this file may supply.
+        assert macro in guarded, (
+            f"{XRCE_MANIFEST} binds `-D{macro}`, but {XRCE_DEFAULTS_H} has no "
+            f"`#ifndef {macro}` guarding a default. The manifest states no default "
+            "for a `define` on purpose; with neither file stating one, the knob "
+            "reaches this table with no figure at all."
+        )
+        assert ki.get(env, (None,))[0] == guarded[macro], (
+            f"issue 1078: `{env}` must reach the inventory at {XRCE_DEFAULTS_H}'s "
+            f"`#ifndef {macro}` guard ({guarded[macro]}); got {ki.get(env)}. Either "
+            f"{XRCE_MANIFEST} is not seeded into `scan`, or it is seeded AFTER the "
+            "Rust scans and the ladder's computed default won."
+        )
+    for _t, _token, env, default, _min in knob_rows:
+        if ki.get(env, (None, None, None, False))[3]:
+            continue  # conflicting rows carry the table's own flag, not one figure
+        assert ki.get(env, (None,))[0] == default, (
+            f"issue 1078: `{env}` must reach the inventory at the `knob` row's own "
+            f"default ({default}); got {ki.get(env)}"
+        )
     assert k.get("NROS_PROBE_SLOTS", (None,))[0] == 12, "knob not scanned"
     assert k.get("NROS_PROBE_DEPTH", (None,))[0] == 3, (
         "env_usize_min knob not scanned — its DEFAULT is the reported figure, "
@@ -310,6 +488,73 @@ def self_test():
     assert pool_bytes(by_name["Q"], k)[0] == 36, (
         "a pool sized by an env_usize_min knob must resolve to bytes"
     )
+
+    # --- issue 1078: the XRCE knobs, which have no Rust declaration site -----
+    #
+    # Synthetic manifest + header, so this tests the WIRING and not today's
+    # contents: a `knob` row's default is its own column, a `define` row's is
+    # the `#ifndef` guarding the MACRO IT NAMES, and one env bound twice
+    # collapses only when the two agree.
+    man = (
+        "# comment\n"
+        "value  ucdr CONFIG_MACHINE_ENDIANNESS 1\n"
+        "knob   uxr  UCLIENT_UDP_TRANSPORT_MTU NROS_XRCE_TRANSPORT_MTU 4096 128\n"
+        "knob   uxr  UCLIENT_TCP_TRANSPORT_MTU NROS_XRCE_TRANSPORT_MTU 4096 128\n"
+        "flag   uxr  UCLIENT_PROFILE_UDP posix_ip\n"
+        "define XRCE_BUFFER_SIZE  NROS_XRCE_BUFFER_SIZE  64\n"
+        "define XRCE_MAX_SUBSCRIBERS NROS_XRCE_MAX_SUBSCRIBERS 0\n"
+        "define XRCE_UNGUARDED    NROS_XRCE_UNGUARDED    1\n"
+    )
+    hdr = (
+        "#ifndef XRCE_BUFFER_SIZE\n/* prose */\n#define XRCE_BUFFER_SIZE 1024\n#endif\n"
+        "#ifndef XRCE_MAX_SUBSCRIBERS\n#define XRCE_MAX_SUBSCRIBERS 8\n#endif\n"
+        "#define XRCE_UNGUARDED 77\n"  # not overridable ⇒ not a knob's default
+    )
+    xk = xrce_knobs(man, hdr, "M")
+    assert xk["NROS_XRCE_BUFFER_SIZE"][0] == 1024, (
+        "a `define` row's default is internal.h's `#ifndef`, not the manifest's "
+        "MINIMUM column — reading column 4 would publish 64 for a 1024-byte buffer"
+    )
+    assert xk["NROS_XRCE_MAX_SUBSCRIBERS"][0] == 8, "guarded default not paired"
+    assert xk["NROS_XRCE_TRANSPORT_MTU"][:2] == (4096, "M"), (
+        "one env bound by two agreeing rows collapses to one row: %r"
+        % (xk["NROS_XRCE_TRANSPORT_MTU"],)
+    )
+    assert xk["NROS_XRCE_TRANSPORT_MTU"][2] == 3, "first binding row wins the citation"
+    assert xk["NROS_XRCE_UNGUARDED"][0] is None, (
+        "a macro with no `#ifndef` guard is not overridable, so this file has no "
+        "default to publish — say `computed`, never invent one"
+    )
+    assert "NROS_XRCE_STREAM_HISTORY" not in xk, "only rows in the manifest"
+    assert "CONFIG_MACHINE_ENDIANNESS" not in xk and "UCLIENT_PROFILE_UDP" not in xk, (
+        "`value` and `flag` rows are not env knobs — nobody sets them"
+    )
+
+    # THE CROSSED WIRE. Shape stays perfectly valid: same record types, same
+    # columns, same macros, same envs. `NROS_XRCE_BUFFER_SIZE` is simply bound
+    # to the other macro, and the published default must move with it — a check
+    # that only rejects malformed rows would pass this, which is the hole every
+    # gate written in this area this week had.
+    crossed = man.replace(
+        "define XRCE_BUFFER_SIZE  NROS_XRCE_BUFFER_SIZE  64",
+        "define XRCE_MAX_SERVICE_SERVERS NROS_XRCE_BUFFER_SIZE 64",
+    )
+    xc = xrce_knobs(crossed, hdr + "#ifndef XRCE_MAX_SERVICE_SERVERS\n"
+                    "#define XRCE_MAX_SERVICE_SERVERS 4\n#endif\n", "M")
+    assert xc["NROS_XRCE_BUFFER_SIZE"][0] == 4, (
+        "the default must follow the MACRO the row binds; reporting 1024 here "
+        "would mean the pairing is by env name and a rewire is invisible"
+    )
+
+    # Disagreeing rows on one env are the issue-0135 shape one layer up.
+    split = man.replace(
+        "knob   uxr  UCLIENT_TCP_TRANSPORT_MTU NROS_XRCE_TRANSPORT_MTU 4096 128",
+        "knob   uxr  UCLIENT_TCP_TRANSPORT_MTU NROS_XRCE_TRANSPORT_MTU 512 128",
+    )
+    assert xrce_knobs(split, hdr, "M")["NROS_XRCE_TRANSPORT_MTU"][3] is True, (
+        "one env, two defaults, no flag — setting it would move half the tree"
+    )
+
     sys.stdout.write("gen-pool-inventory self-test: OK\n")
 
 
