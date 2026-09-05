@@ -271,3 +271,78 @@ kind and its own default is AUTOMATIC; XRCE lowers no liveliness field; zenoh
 emits empty liveliness and lease positions for every profile. A backend that
 starts honouring liveliness later now sees "the middleware's choice" instead of
 an unrequested AUTOMATIC.
+
+
+## W13 [rmw] — discovery becomes a maintained SET, not a per-call query
+
+The structural fix behind issue 1087. Two wrong answers preceded it, both mine,
+so the reasoning is recorded and not just the conclusion.
+
+### Why our shape diverged from upstream's
+
+`rmw_service_server_is_available(node, client, bool *out)` answers immediately
+upstream **because DDS maintains a discovery cache** — the middleware already
+knows which endpoints are matched, and no query is issued at call time.
+
+Ours answers with a QUERY: `z_liveliness_get`, which is start-then-poll. That
+is why the `start_server_discovery` / `poll_server_discovery` pair exists, why
+it is asynchronous, and why a synchronous `service_is_ready` had nothing to
+return but a latch. **The shape mismatch is downstream of not keeping the state
+upstream keeps.**
+
+Both earlier proposals are wrong:
+
+* *"Delete the pair in favour of `service_server_is_available`"* — written into
+  issue 1087 by me. It removes the only mechanism in the tree that issues a
+  real discovery query, leaving a synchronous method that can never answer
+  `true` on the one backend implementing discovery honestly.
+  `wait_for_service` would go from "wrong answer instantly" to "correct answer
+  never".
+* *"Give the pair two vtable slots"* — better, but it standardises OUR
+  invention into the ABI. Clause 3 where clause 2 is available.
+
+### The fix
+
+Zenoh liveliness subscriptions deliver **PUT** (declared) and **DELETE**
+(dropped). The shim already runs a session-side
+`z_liveliness_declare_subscriber` — `shim/subscriber.rs:1203` consumes it for
+`LivelinessChanged` — so the stream exists and is used for one purpose only.
+
+Feed a **matched-queryable set** from that same subscription: declared →
+insert, dropped → remove, `service_is_ready()` → synchronous set lookup.
+
+| today | after |
+| --- | --- |
+| `server_seen` latch, never cleared | a set with removal; the DELETE sample IS the invalidation |
+| async pair, no vtable slot, C-ABI backends inherit a default | **deleted** — nothing needs it |
+| `service_is_ready` returns a stale bool or `Unsupported` | the current answer, synchronously |
+| our invented pair (clause 3) | upstream's shape (clause 2) |
+
+Deleting the pair is correct AFTER this and a regression before it. The blocker
+was never the deletion; it was that nothing else could answer the question.
+
+### Work
+
+* **W13.a [zenoh]** — the matched set, fed by the existing liveliness
+  subscriber. Bounded (one entry per matched service server), so it fits a
+  fixed arena and needs no new zenoh resource.
+  *Acceptance:* a server that stops and restarts reads unavailable in between;
+  today it reads available forever.
+* **W13.b [zenoh]** — `service_is_ready` reads the set. The
+  `#[cfg(not(feature = "platform-bare-metal"))]` gate on the liveliness
+  subscriber decides bare-metal's answer: if the subscriber cannot run there,
+  bare-metal returns `Err(Unsupported)` and the caller waits, which is honest.
+* **W13.c [cyclone, xrce]** — fill the `service_server_is_available` vtable
+  slot. It EXISTS and both leave it NULL, which is why they answered without
+  asking. Cyclone is cheap: DDS has the cache natively.
+* **W13.d [core]** — delete the pair from the trait and its six call sites,
+  once a–c land. *Acceptance:* `grep -rn "poll_server_discovery"` returns
+  nothing, and a cyclone client's `wait_for_service` answers from the DDS cache
+  rather than timing out.
+
+### What already landed on `fix/1087-1088-server-availability`
+
+The optimistic default is `Ok(None)`; the two comments claiming an rclcpp
+"snapshot semantic" are corrected (there is none —
+`ClientBase::service_is_ready()` calls rcl on every invocation); the zenoh latch
+returns `Err(Unsupported)` instead of a permanent yes. W13 is what closes 1087.
