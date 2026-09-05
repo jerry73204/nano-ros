@@ -1203,3 +1203,67 @@ one that reaches further is the one with no `std::` in it.
 capability upstream does not have, so each keeps our namespace and a ledger row
 with a disposition. Giving them upstream spellings would be the compile-and-differ
 this RFC exists to forbid.
+
+
+## Settled: `nros::` is phased out entirely; ours-only names take `rclcpp::` too (2026-09-05)
+
+The previous section kept `nros::create_node`, `nros::bind_timer`,
+`nros::Timer` and `nros::spin_once` in our namespace on the grounds that they
+are ours-only. **That is overturned.** The goal is that a user writes `rclcpp::`
+and never learns a second vocabulary, and a half-migrated API fails that goal
+just as surely as a wrong signature does. `nros::` is phased out; the ours-only
+names move to `rclcpp::` with the rest.
+
+Two sub-cases, and only the second needed deciding:
+
+* **Has an upstream counterpart** — moves, unconditionally. This was already
+  the rule.
+* **Has no upstream counterpart** — also moves. A user of nano-ros is writing
+  against nano-ros; making them spell one capability `nros::` and its neighbour
+  `rclcpp::` teaches a distinction that serves the implementer, not them.
+
+The ODR objection is retired for the reason already recorded: we do not link
+our `rclcpp` against ROS 2's in one image.
+
+### The real hazard, and why it is not a reason to refuse
+
+Taking a namespace we do not own means **upstream may later define a name we
+have already taken**, with different semantics. Then a ported file's
+`rclcpp::X` silently binds ours — compile-and-differ, deferred in time, which
+is exactly what this RFC forbids.
+
+It is not hypothetical. `spin_once` is not in rclcpp, but **`rclpy.spin_once`
+exists**, with a different signature (`spin_once(node, timeout_sec=None)`)
+against our `spin_once(timeout_ms) -> Result`. A user arriving from rclpy reads
+our name and brings rclpy's meaning. And `Timer` is free in rclcpp today only
+because upstream spells it `TimerBase` / `WallTimer` — a future `rclcpp::Timer`
+is entirely plausible.
+
+**So the decision comes with a tripwire rather than a hope.** We already record
+the upstream surface (`docs/reference/api-surface/rclcpp.json`, 198 distinct
+names today) and already diff our surface against it every `check-api-parity`
+run. A new gate asserts:
+
+> no name we define in `rclcpp::` as an OURS-ONLY extension may appear in the
+> recorded upstream surface.
+
+Today that passes: `Timer`, `spin_once` and `create_node` are absent upstream
+while `TimerBase`, `WallTimer` and `Node` are present. The value is what happens
+on the next `--refresh`: if upstream adds `rclcpp::Timer`, the refresh turns a
+silent semantic collision into a hard red naming the symbol, at the moment the
+recorded surface moves, and the response is a rename on our side. That is the
+earliest point the defect is knowable, which is this RFC's own rule applied to
+itself.
+
+Every such name also keeps a ledger row with `disposition: extension` and prose
+saying it is ours in upstream's namespace, so the parity report cannot be read
+as "upstream has this".
+
+### The cost, stated
+
+The drop-in becomes **one-directional, and always was**. A ROS 2 file compiles
+here unchanged; a nano-ros file using `rclcpp::spin_once` or the out-ref
+`create_publisher` does not compile against real ROS 2. That is the correct
+direction for the campaign — the goal is ROS 2 code running on nano-ros, not
+the reverse — but users will assume symmetry, so the book must say it plainly
+rather than letting a build failure say it later.
