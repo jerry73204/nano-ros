@@ -159,9 +159,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_borrow_loaned_message</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty del'>void * *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty del'>void * * ros_message</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>borrow_loaned_message</span><span class=pu>)</span><span class=pu>(</span>
@@ -175,8 +175,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_client_request_publisher_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>client_request_publisher_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -188,8 +188,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_client_response_subscription_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>client_response_subscription_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -201,9 +201,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_client_set_on_new_response_callback</span><span class=pu>(</span>
-  <span class='ty'>rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_event_callback_t</span><span class=pu>,</span>
-  <span class='ty'>const void *</span>
+  <span class='ty'>rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty'>rmw_event_callback_t callback</span><span class=pu>,</span>
+  <span class='ty'>const void * user_data</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as rmw_service_set_on_new_request_callback (issue 0960).</td>
@@ -211,9 +211,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_compare_gids_equal</span><span class=pu>(</span>
-  <span class='ty'>const rmw_gid_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_gid_t *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span>
+  <span class='ty'>const rmw_gid_t * gid1</span><span class=pu>,</span>
+  <span class='ty'>const rmw_gid_t * gid2</span><span class=pu>,</span>
+  <span class='ty'>bool * result</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_compare_gids_equal</span><span class=pu>(</span>
@@ -225,7 +225,7 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_context_fini</span><span class=pu>(</span><span class='ty del'>rmw_context_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_context_fini</span><span class=pu>(</span><span class='ty del'>rmw_context_t * context</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>destroy_session</span><span class=pu>)</span><span class=pu>(</span><span class='ty add'>rmw_session_t *session</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · 2 upstream → 1 slot</div><b>renamed</b> — the slot is <code>destroy_session</code>.<br><br><b>the SESSION is the seam</b> — As `rmw_node_t`: upstream&#x27;s context is the process-wide init state, and ours is the session the slot is being called on.</td>
@@ -233,9 +233,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_count_publishers</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>size_t * count</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>count_publishers</span><span class=pu>)</span><span class=pu>(</span>
@@ -248,9 +248,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_count_subscribers</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>size_t * count</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>count_subscribers</span><span class=pu>)</span><span class=pu>(</span>
@@ -263,10 +263,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_client_t *</span>
 <span class='fn'>rmw_create_client</span><span class=pu>(</span>
-  <span class='ty'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rosidl_service_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>const rosidl_service_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const char * service_name</span><span class=pu>,</span>
+  <span class='ty'>const rmw_qos_profile_t * qos_policies</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>create_client</span><span class=pu>)</span><span class=pu>(</span>
@@ -281,16 +281,16 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_guard_condition_t *</span>
-<span class='fn'>rmw_create_guard_condition</span><span class=pu>(</span><span class='ty'>rmw_context_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_create_guard_condition</span><span class=pu>(</span><span class='ty'>rmw_context_t * context</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · executor</div><div class=answers><div class=ans>executor: EntryKind::GuardCondition</div></div>EntryKind::GuardCondition; no transport variation, and once `wait` is declined there is no backend consumer</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_node_t *</span>
 <span class='fn'>rmw_create_node</span><span class=pu>(</span>
-  <span class='ty del'>rmw_context_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span>
+  <span class='ty del'>rmw_context_t * context</span><span class=pu>,</span>
+  <span class='ty'>const char * name</span><span class=pu>,</span>
+  <span class='ty'>const char * namespace_</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>create_node</span><span class=pu>)</span><span class=pu>(</span>
@@ -304,11 +304,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_publisher_t *</span>
 <span class='fn'>rmw_create_publisher</span><span class=pu>(</span>
-  <span class='ty'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_qos_profile_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_publisher_options_t *</span>
+  <span class='ty'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>const rmw_qos_profile_t * qos_profile</span><span class=pu>,</span>
+  <span class='ty'>const rmw_publisher_options_t * publisher_options</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>create_publisher</span><span class=pu>)</span><span class=pu>(</span>
@@ -325,10 +325,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_service_t *</span>
 <span class='fn'>rmw_create_service</span><span class=pu>(</span>
-  <span class='ty'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rosidl_service_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>const rosidl_service_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const char * service_name</span><span class=pu>,</span>
+  <span class='ty'>const rmw_qos_profile_t * qos_profile</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>create_service</span><span class=pu>)</span><span class=pu>(</span>
@@ -344,11 +344,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_subscription_t *</span>
 <span class='fn'>rmw_create_subscription</span><span class=pu>(</span>
-  <span class='ty'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_qos_profile_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_subscription_options_t *</span>
+  <span class='ty'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>const rmw_qos_profile_t * qos_policies</span><span class=pu>,</span>
+  <span class='ty'>const rmw_subscription_options_t * subscription_options</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>create_subscription</span><span class=pu>)</span><span class=pu>(</span>
@@ -365,8 +365,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_wait_set_t *</span>
 <span class='fn'>rmw_create_wait_set</span><span class=pu>(</span>
-  <span class='ty'>rmw_context_t *</span><span class=pu>,</span>
-  <span class='ty'>size_t</span>
+  <span class='ty'>rmw_context_t * context</span><span class=pu>,</span>
+  <span class='ty'>size_t max_conditions</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · executor</div><div class=answers><div class=ans>executor: the arena entry table, allocated once</div></div>the executor&#x27;s arena entry table IS the set, allocated once; a per-wait set would be heap on the spin path</td>
@@ -374,9 +374,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_deserialize</span><span class=pu>(</span>
-  <span class='ty'>const rmw_serialized_message_t *</span><span class=pu>,</span>
-  <span class='ty'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>void *</span>
+  <span class='ty'>const rmw_serialized_message_t * serialized_message</span><span class=pu>,</span>
+  <span class='ty'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>void * ros_message</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · 1 → 2</div><div class=answers><div class=ans>nros-serdes: Deserialize / DeserializeView</div><div class=ans>codegen packs</div></div>as rmw_serialize</td>
@@ -384,8 +384,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_destroy_client</span><span class=pu>(</span>
-  <span class='ty del'>rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_client_t *</span>
+  <span class='ty del'>rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>rmw_client_t * client</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>destroy_client</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_client_t *client</span><span class=pu>)</span></pre></td>
@@ -393,13 +393,13 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_destroy_guard_condition</span><span class=pu>(</span><span class='ty'>rmw_guard_condition_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_destroy_guard_condition</span><span class=pu>(</span><span class='ty'>rmw_guard_condition_t * guard_condition</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · executor</div><div class=answers><div class=ans>executor: EntryKind::GuardCondition</div></div>as rmw_create_guard_condition</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_destroy_node</span><span class=pu>(</span><span class='ty'>rmw_node_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_destroy_node</span><span class=pu>(</span><span class='ty'>rmw_node_t * node</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>destroy_node</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_node_t *node</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-same'>● same</div></td>
@@ -407,8 +407,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_destroy_publisher</span><span class=pu>(</span>
-  <span class='ty del'>rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_publisher_t *</span>
+  <span class='ty del'>rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>rmw_publisher_t * publisher</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>destroy_publisher</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_publisher_t *publisher</span><span class=pu>)</span></pre></td>
@@ -417,8 +417,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_destroy_service</span><span class=pu>(</span>
-  <span class='ty del'>rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_service_t *</span>
+  <span class='ty del'>rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>rmw_service_t * service</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>destroy_service</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_service_t *server</span><span class=pu>)</span></pre></td>
@@ -427,8 +427,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_destroy_subscription</span><span class=pu>(</span>
-  <span class='ty del'>rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_subscription_t *</span>
+  <span class='ty del'>rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>rmw_subscription_t * subscription</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>destroy_subscription</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_subscription_t *subscription</span><span class=pu>)</span></pre></td>
@@ -436,16 +436,16 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_destroy_wait_set</span><span class=pu>(</span><span class='ty'>rmw_wait_set_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_destroy_wait_set</span><span class=pu>(</span><span class='ty'>rmw_wait_set_t * wait_set</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · executor</div><div class=answers><div class=ans>executor: the arena entry table, allocated once</div></div>as rmw_create_wait_set</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_event_set_callback</span><span class=pu>(</span>
-  <span class='ty del'>rmw_event_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_event_callback_t</span><span class=pu>,</span>
-  <span class='ty del'>const void *</span>
+  <span class='ty del'>rmw_event_t * event</span><span class=pu>,</span>
+  <span class='ty del'>rmw_event_callback_t callback</span><span class=pu>,</span>
+  <span class='ty del'>const void * user_data</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>publisher_event_init</span><span class=pu>)</span><span class=pu>(</span>
@@ -459,31 +459,31 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr class=inert>
 <td class=c><pre><span class=ret>bool</span>
-<span class='fn'>rmw_feature_supported</span><span class=pu>(</span><span class='ty'>rmw_feature_t</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_feature_supported</span><span class=pu>(</span><span class='ty'>rmw_feature_t feature</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>bool</span>
 <span class=pu>(*</span><span class='fn'>feature_supported</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_feature_t feature</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped</div><div class=answers><div class=ans>per-capability slots, answered by nullity or a dedicated probe</div></div><b>inert</b> — declared, written and read by nothing.</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_fini_publisher_allocation</span><span class=pu>(</span><span class='ty'>rmw_publisher_allocation_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_fini_publisher_allocation</span><span class=pu>(</span><span class='ty'>rmw_publisher_allocation_t * allocation</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as above</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_fini_subscription_allocation</span><span class=pu>(</span><span class='ty'>rmw_subscription_allocation_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_fini_subscription_allocation</span><span class=pu>(</span><span class='ty'>rmw_subscription_allocation_t * allocation</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as above</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_client_names_and_types_by_node</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * node_name</span><span class=pu>,</span>
+  <span class='ty'>const char * node_namespace</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * service_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_client_names_and_types_by_node</span><span class=pu>)</span><span class=pu>(</span>
@@ -497,8 +497,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_gid_for_publisher</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_gid_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty'>rmw_gid_t * gid</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_gid_for_publisher</span><span class=pu>)</span><span class=pu>(</span>
@@ -517,9 +517,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_node_names</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_string_array_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_string_array_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_string_array_t * node_names</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_string_array_t * node_namespaces</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_node_names</span><span class=pu>)</span><span class=pu>(</span>
@@ -531,10 +531,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_node_names_with_enclaves</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_string_array_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_string_array_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_string_array_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_string_array_t * node_names</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_string_array_t * node_namespaces</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_string_array_t * enclaves</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>get_node_names</span><span class=pu>)</span><span class=pu>(</span>
@@ -546,12 +546,12 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_publisher_names_and_types_by_node</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>bool</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * node_name</span><span class=pu>,</span>
+  <span class='ty'>const char * node_namespace</span><span class=pu>,</span>
+  <span class='ty'>bool no_demangle</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * topic_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_publisher_names_and_types_by_node</span><span class=pu>)</span><span class=pu>(</span>
@@ -566,11 +566,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_publishers_info_by_topic</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>bool</span><span class=pu>,</span>
-  <span class='ty del'>rmw_topic_endpoint_info_array_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>bool no_mangle</span><span class=pu>,</span>
+  <span class='ty del'>rmw_topic_endpoint_info_array_t * publishers_info</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_publishers_info_by_topic</span><span class=pu>)</span><span class=pu>(</span>
@@ -591,9 +591,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_serialized_message_size</span><span class=pu>(</span>
-  <span class='ty'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const rosidl_runtime_c__Sequence__bound *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span>
+  <span class='ty'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const rosidl_runtime_c__Sequence__bound * message_bounds</span><span class=pu>,</span>
+  <span class='ty'>size_t * size</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · serdes</div><div class=answers><div class=ans>nros-serdes: size.rs (size_bound / max_serialized_size)</div></div>nros-serdes `size.rs` — `size_bound` / `max_serialized_size` / `buffer_fits` / `serialized_size`, per TYPE and `const` where the type is bounded (phase-380 W1, issue 0776, resolved). Not a vtable slot and never will be: upstream takes a `rosidl_message_type_support_t *`, declined ABI-wide since W3.c, so the symbol cannot cross this seam — but the CAPABILITY it provides is answered, which is what `layer` records. This read `gap` until 2026-08-27, after 0776 had closed</td>
@@ -601,9 +601,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_service_names_and_types</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * service_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_service_names_and_types</span><span class=pu>)</span><span class=pu>(</span>
@@ -615,11 +615,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_service_names_and_types_by_node</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * node_name</span><span class=pu>,</span>
+  <span class='ty'>const char * node_namespace</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * service_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_service_names_and_types_by_node</span><span class=pu>)</span><span class=pu>(</span>
@@ -633,12 +633,12 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_subscriber_names_and_types_by_node</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>bool</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * node_name</span><span class=pu>,</span>
+  <span class='ty'>const char * node_namespace</span><span class=pu>,</span>
+  <span class='ty'>bool no_demangle</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * topic_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_subscriber_names_and_types_by_node</span><span class=pu>)</span><span class=pu>(</span>
@@ -653,11 +653,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_subscriptions_info_by_topic</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>const char *</span><span class=pu>,</span>
-  <span class='ty'>bool</span><span class=pu>,</span>
-  <span class='ty del'>rmw_topic_endpoint_info_array_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>const char * topic_name</span><span class=pu>,</span>
+  <span class='ty'>bool no_mangle</span><span class=pu>,</span>
+  <span class='ty del'>rmw_topic_endpoint_info_array_t * subscriptions_info</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_subscriptions_info_by_topic</span><span class=pu>)</span><span class=pu>(</span>
@@ -671,10 +671,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_get_topic_names_and_types</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty del'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>bool</span><span class=pu>,</span>
-  <span class='ty del'>rmw_names_and_types_t *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty del'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>bool no_demangle</span><span class=pu>,</span>
+  <span class='ty del'>rmw_names_and_types_t * topic_names_and_types</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>get_topic_names_and_types</span><span class=pu>)</span><span class=pu>(</span>
@@ -687,8 +687,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_init</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_init_options_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_context_t *</span>
+  <span class='ty del'>const rmw_init_options_t * options</span><span class=pu>,</span>
+  <span class='ty del'>rmw_context_t * context</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>create_session</span><span class=pu>)</span><span class=pu>(</span>
@@ -704,23 +704,23 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_init_options_copy</span><span class=pu>(</span>
-  <span class='ty'>const rmw_init_options_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_init_options_t *</span>
+  <span class='ty'>const rmw_init_options_t * src</span><span class=pu>,</span>
+  <span class='ty'>rmw_init_options_t * dst</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · build time</div><div class=answers><div class=ans>build time: `copy` is `=`</div></div>as rmw_init_options_init — &quot;copy&quot; is `=`</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_init_options_fini</span><span class=pu>(</span><span class='ty'>rmw_init_options_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_init_options_fini</span><span class=pu>(</span><span class='ty'>rmw_init_options_t * init_options</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · build time</div><div class=answers><div class=ans>build time: `fini` is nothing</div></div>as rmw_init_options_init — &quot;fini&quot; is nothing</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_init_options_init</span><span class=pu>(</span>
-  <span class='ty'>rmw_init_options_t *</span><span class=pu>,</span>
-  <span class='ty'>rcutils_allocator_t</span>
+  <span class='ty'>rmw_init_options_t * init_options</span><span class=pu>,</span>
+  <span class='ty'>rcutils_allocator_t allocator</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · build time</div><div class=answers><div class=ans>build time: rmw_init_options_t is a POD</div></div>upstream needs the init/copy/fini trio because its options OWN heap and carry an rcutils_allocator_t, which cannot cross this seam; ours is a build-time POD. Does NOT decide what the options CARRY: `localhost_only` and `enclave` are gaps (issue 0785, shape deferred to 0331), `security_options` is declined on the target (a DDS-SROS2 keystore path, no filesystem and no security plugin there), and `discovery_options` is an IRON field this Humble contract does not have</td>
@@ -728,9 +728,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_init_publisher_allocation</span><span class=pu>(</span>
-  <span class='ty'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const rosidl_runtime_c__Sequence__bound *</span><span class=pu>,</span>
-  <span class='ty'>rmw_publisher_allocation_t *</span>
+  <span class='ty'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const rosidl_runtime_c__Sequence__bound * message_bounds</span><span class=pu>,</span>
+  <span class='ty'>rmw_publisher_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>upstream&#x27;s first two parameters are a `rosidl_message_type_support_t *` and a `rosidl_runtime_c__Sequence__bound *`. The sequence bound is declined ABI-wide (it is a rosidl runtime type), and the third parameter is an `rmw_publisher_allocation_t`, whose body is `{const char *implementation_identifier; void *data;}` — an opaque handle whose contents only the implementation that made it can read. Nothing crosses this seam usefully. THREE earlier reasons here were wrong, and the corrections are the record worth keeping: &#x27;pools are baked&#x27; (false for four backends of five — issue 0777, now RESOLVED with the finding that every deviation reason built on that clause was false); &#x27;upstream pre-sizes an rcutils_allocator_t the caller owns&#x27; (false — verified against Humble&#x27;s rmw/types.h); and, until phase-406, a tail deferring the capability question to 0777 as though it were still open. It is not: 0777 closed, and the pre-sizing CAPABILITY for cyclonedds is a separate question that needs its own issue if anyone wants it, not a citation here.</td>
@@ -738,16 +738,16 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_init_subscription_allocation</span><span class=pu>(</span>
-  <span class='ty'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>const rosidl_runtime_c__Sequence__bound *</span><span class=pu>,</span>
-  <span class='ty'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>const rosidl_runtime_c__Sequence__bound * message_bounds</span><span class=pu>,</span>
+  <span class='ty'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as above</td>
 </tr>
 <tr class=inert>
 <td class=c><pre><span class=ret>const rmw_guard_condition_t *</span>
-<span class='fn'>rmw_node_get_graph_guard_condition</span><span class=pu>(</span><span class='ty del'>const rmw_node_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_node_get_graph_guard_condition</span><span class=pu>(</span><span class='ty del'>const rmw_node_t * node</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>node_get_graph_guard_condition</span><span class=pu>)</span><span class=pu>(</span>
   <span class='ty add'>rmw_session_t *session</span><span class=pu>,</span>
@@ -759,9 +759,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publish</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>const void *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_publisher_allocation_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>const void * ros_message</span><span class=pu>,</span>
+  <span class='ty del'>rmw_publisher_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publish</span><span class=pu>)</span><span class=pu>(</span>
@@ -773,9 +773,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publish_loaned_message</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_publisher_allocation_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_message</span><span class=pu>,</span>
+  <span class='ty del'>rmw_publisher_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publish_loaned_message</span><span class=pu>)</span><span class=pu>(</span>
@@ -788,9 +788,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publish_serialized_message</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>const rmw_serialized_message_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_publisher_allocation_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>const rmw_serialized_message_t * serialized_message</span><span class=pu>,</span>
+  <span class='ty del'>rmw_publisher_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>publish</span><span class=pu>)</span><span class=pu>(</span>
@@ -801,7 +801,7 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_publisher_assert_liveliness</span><span class=pu>(</span><span class='ty'>const rmw_publisher_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_publisher_assert_liveliness</span><span class=pu>(</span><span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publisher_assert_liveliness</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>const rmw_publisher_t *publisher</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-same'>● same</div></td>
@@ -809,8 +809,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publisher_count_matched_subscriptions</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty'>size_t * subscription_count</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publisher_count_matched_subscriptions</span><span class=pu>)</span><span class=pu>(</span>
@@ -822,9 +822,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publisher_event_init</span><span class=pu>(</span>
-  <span class='ty del'>rmw_event_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_event_type_t</span>
+  <span class='ty del'>rmw_event_t * rmw_event</span><span class=pu>,</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty'>rmw_event_type_t event_type</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publisher_event_init</span><span class=pu>)</span><span class=pu>(</span>
@@ -839,8 +839,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publisher_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publisher_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -852,9 +852,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publisher_get_network_flow_endpoints</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_network_flow_endpoint_array_t *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>rmw_network_flow_endpoint_array_t * network_flow_endpoint_array</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>DECLINED, phase-407: reporting the transport&#x27;s 5-tuples is diagnostics, and the value is in a multi-homed deployment with dynamic discovery — the case least like this ABI&#x27;s target, where one interface and a static config mean the answer is already in the file you wrote. Landed in phase-376 W5 for shape parity, never filled, never read (issue 0956). Cheap to revisit for Cyclone alone if `ros2` tooling ever needs to introspect a nano-ros node: it is read-only and has no wire effect.</td>
@@ -862,8 +862,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr class=inert>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_publisher_wait_for_all_acked</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_time_t</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>rmw_time_t wait_timeout</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>publisher_wait_for_all_acked</span><span class=pu>)</span><span class=pu>(</span>
@@ -875,11 +875,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_qos_profile_check_compatible</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_qos_profile_t</span><span class=pu>,</span>
-  <span class='ty del'>const rmw_qos_profile_t</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_compatibility_type_t *</span><span class=pu>,</span>
-  <span class='ty'>char *</span><span class=pu>,</span>
-  <span class='ty'>size_t</span>
+  <span class='ty del'>const rmw_qos_profile_t publisher_profile</span><span class=pu>,</span>
+  <span class='ty del'>const rmw_qos_profile_t subscription_profile</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_compatibility_type_t * compatibility</span><span class=pu>,</span>
+  <span class='ty'>char * reason</span><span class=pu>,</span>
+  <span class='ty'>size_t reason_size</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_qos_profile_check_compatible</span><span class=pu>(</span>
@@ -894,8 +894,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_return_loaned_message_from_publisher</span><span class=pu>(</span>
-  <span class='ty'>const rmw_publisher_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span>
+  <span class='ty'>const rmw_publisher_t * publisher</span><span class=pu>,</span>
+  <span class='ty del'>void * loaned_message</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>return_loaned_message_from_publisher</span><span class=pu>)</span><span class=pu>(</span>
@@ -907,8 +907,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_return_loaned_message_from_subscription</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>void * loaned_message</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>return_loaned_message_from_subscription</span><span class=pu>)</span><span class=pu>(</span>
@@ -920,9 +920,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_send_request</span><span class=pu>(</span>
-  <span class='ty'>const rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty del'>const void *</span><span class=pu>,</span>
-  <span class='ty'>int64_t *</span>
+  <span class='ty'>const rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty del'>const void * ros_request</span><span class=pu>,</span>
+  <span class='ty'>int64_t * sequence_id</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>send_request</span><span class=pu>)</span><span class=pu>(</span>
@@ -935,9 +935,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_send_response</span><span class=pu>(</span>
-  <span class='ty'>const rmw_service_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_request_id_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span>
+  <span class='ty'>const rmw_service_t * service</span><span class=pu>,</span>
+  <span class='ty del'>rmw_request_id_t * request_header</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_response</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>send_response</span><span class=pu>)</span><span class=pu>(</span>
@@ -950,9 +950,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_serialize</span><span class=pu>(</span>
-  <span class='ty'>const void *</span><span class=pu>,</span>
-  <span class='ty'>const rosidl_message_type_support_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_serialized_message_t *</span>
+  <span class='ty'>const void * ros_message</span><span class=pu>,</span>
+  <span class='ty'>const rosidl_message_type_support_t * type_support</span><span class=pu>,</span>
+  <span class='ty'>rmw_serialized_message_t * serialized_message</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · 1 → 2</div><div class=answers><div class=ans>nros-serdes: Serialize</div><div class=ans>codegen packs</div></div>nros-serdes (`Serialize`/`Deserialize`/`DeserializeView`) plus the per-language codegen packs; CDR for an IDL type is fixed by ROS interop, so a per-backend answer would be a DEFECT. Not a slot for the same reason it is not per-backend, and because upstream&#x27;s parameters are two things this ABI declined anyway — a typesupport pointer and an `rmw_serialized_message_t`, which is an `rcutils_uint8_array_t` carrying an ALLOCATOR, at a seam with no allocator</td>
@@ -960,8 +960,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_service_request_subscription_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_service_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_service_t * service</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>service_request_subscription_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -973,8 +973,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_service_response_publisher_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_service_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_service_t * service</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>service_response_publisher_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -986,9 +986,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_service_server_is_available</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_node_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span>
+  <span class='ty del'>const rmw_node_t * node</span><span class=pu>,</span>
+  <span class='ty'>const rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty'>bool * is_available</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>service_server_is_available</span><span class=pu>)</span><span class=pu>(</span>
@@ -1000,23 +1000,23 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_service_set_on_new_request_callback</span><span class=pu>(</span>
-  <span class='ty'>rmw_service_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_event_callback_t</span><span class=pu>,</span>
-  <span class='ty'>const void *</span>
+  <span class='ty'>rmw_service_t * service</span><span class=pu>,</span>
+  <span class='ty'>rmw_event_callback_t callback</span><span class=pu>,</span>
+  <span class='ty'>const void * user_data</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>DECLINED, phase-407: readiness belongs to the EXECUTOR here, not to the backend. `set_wake_callback` says &quot;something on this session moved&quot; and `spin_once` then walks its entry table calling `has_data` per entity — one vtable call each, on images whose entity count is single digits. Upstream&#x27;s per-entity callback carries `number_of_events`, so honouring it means every backend tracking per-entity pending DEPTH: new state on a target where static RAM is already the pressure (issue 0827 measures a talker reserving 275 KB), bought for a scan nobody has measured as costly and a consumer that does not exist. If rclcpp `EventsExecutor` compatibility is ever wanted, that is a phase with a stated goal, not three slots kept warm (issue 0960).</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_set_log_severity</span><span class=pu>(</span><span class='ty'>rmw_log_severity_t</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_set_log_severity</span><span class=pu>(</span><span class='ty'>rmw_log_severity_t severity</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>set_log_severity</span><span class=pu>)</span><span class=pu>(</span><span class='ty'>rmw_log_severity_t severity</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-same'>● same</div></td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_shutdown</span><span class=pu>(</span><span class='ty del'>rmw_context_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_shutdown</span><span class=pu>(</span><span class='ty del'>rmw_context_t * context</span><span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>destroy_session</span><span class=pu>)</span><span class=pu>(</span><span class='ty add'>rmw_session_t *session</span><span class=pu>)</span></pre></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · 2 upstream → 1 slot</div><b>renamed</b> — the slot is <code>destroy_session</code>.<br><br><b>the SESSION is the seam</b> — As `rmw_node_t`: upstream&#x27;s context is the process-wide init state, and ours is the session the slot is being called on.</td>
@@ -1024,8 +1024,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_count_matched_publishers</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>size_t * publisher_count</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>subscription_count_matched_publishers</span><span class=pu>)</span><span class=pu>(</span>
@@ -1037,9 +1037,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_event_init</span><span class=pu>(</span>
-  <span class='ty del'>rmw_event_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_event_type_t</span>
+  <span class='ty del'>rmw_event_t * rmw_event</span><span class=pu>,</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>rmw_event_type_t event_type</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>subscription_event_init</span><span class=pu>)</span><span class=pu>(</span>
@@ -1054,8 +1054,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_get_actual_qos</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_qos_profile_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>rmw_qos_profile_t * qos</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>subscription_get_actual_qos</span><span class=pu>)</span><span class=pu>(</span>
@@ -1067,9 +1067,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_get_content_filter</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_subscription_content_filter_options_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>rmw_subscription_content_filter_options_t * options</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as rmw_subscription_set_content_filter — declined with it, since a getter for a filter nothing can set is not a capability (issue 0956).</td>
@@ -1077,9 +1077,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_get_network_flow_endpoints</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>rcutils_allocator_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_network_flow_endpoint_array_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>rcutils_allocator_t * allocator</span><span class=pu>,</span>
+  <span class='ty'>rmw_network_flow_endpoint_array_t * network_flow_endpoint_array</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as rmw_publisher_get_network_flow_endpoints (issue 0956).</td>
@@ -1087,8 +1087,8 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_set_content_filter</span><span class=pu>(</span>
-  <span class='ty'>rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_subscription_content_filter_options_t *</span>
+  <span class='ty'>rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>const rmw_subscription_content_filter_options_t * options</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>DECLINED, phase-407: network-side content filtering needs a DDS feature our pinned Cyclone does not have. 0.10.5 exposes `dds_set_topic_filter{,_and_arg,_extended}` — a LOCAL sample callback applied after the message arrives — and not `dds_create_topic_filtered`, which is the one that propagates the predicate to the writer. Shipping the local filter under this name would promise saved BANDWIDTH and deliver saved CPU, which is the class of deviation reason W4 spent its time undoing. The slot existed from phase-376 W5 to 2026-08-31 and no backend ever filled it (issue 0956).</td>
@@ -1096,9 +1096,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_subscription_set_on_new_message_callback</span><span class=pu>(</span>
-  <span class='ty'>rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_event_callback_t</span><span class=pu>,</span>
-  <span class='ty'>const void *</span>
+  <span class='ty'>rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>rmw_event_callback_t callback</span><span class=pu>,</span>
+  <span class='ty'>const void * user_data</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-not-supported'>✕ not-supported · by decision</div>as rmw_service_set_on_new_request_callback — and note the header had argued, correctly, that `set_wake_callback` does NOT cover this trio: it is session-scoped and serves subscriptions, services and clients identically. That is why these are DECLINED rather than re-mapped: nothing else answers them, and we have decided not to (issue 0960).</td>
@@ -1106,10 +1106,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take</span><span class=pu>)</span><span class=pu>(</span>
@@ -1122,9 +1122,9 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_event</span><span class=pu>(</span>
-  <span class='ty del'>const rmw_event_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span>
+  <span class='ty del'>const rmw_event_t * event_handle</span><span class=pu>,</span>
+  <span class='ty del'>void * event_info</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>subscription_take_event</span><span class=pu>)</span><span class=pu>(</span>
@@ -1138,10 +1138,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_loaned_message</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>void * *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>void * * loaned_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_loaned_message</span><span class=pu>)</span><span class=pu>(</span>
@@ -1155,11 +1155,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr class=inert>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_loaned_message_with_info</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>void * *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty'>rmw_message_info_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>void * * loaned_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty'>rmw_message_info_t * message_info</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_loaned_message_with_info</span><span class=pu>)</span><span class=pu>(</span>
@@ -1174,10 +1174,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_request</span><span class=pu>(</span>
-  <span class='ty'>const rmw_service_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_service_info_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span>
+  <span class='ty'>const rmw_service_t * service</span><span class=pu>,</span>
+  <span class='ty del'>rmw_service_info_t * request_header</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_request</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_request</span><span class=pu>)</span><span class=pu>(</span>
@@ -1191,10 +1191,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_response</span><span class=pu>(</span>
-  <span class='ty'>const rmw_client_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_service_info_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span>
+  <span class='ty'>const rmw_client_t * client</span><span class=pu>,</span>
+  <span class='ty del'>rmw_service_info_t * request_header</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_response</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_response</span><span class=pu>)</span><span class=pu>(</span>
@@ -1208,12 +1208,12 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_sequence</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty'>size_t</span><span class=pu>,</span>
-  <span class='ty del'>rmw_message_sequence_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_message_info_sequence_t *</span><span class=pu>,</span>
-  <span class='ty'>size_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty'>size_t count</span><span class=pu>,</span>
+  <span class='ty del'>rmw_message_sequence_t * message_sequence</span><span class=pu>,</span>
+  <span class='ty del'>rmw_message_info_sequence_t * message_info_sequence</span><span class=pu>,</span>
+  <span class='ty'>size_t * taken</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_sequence</span><span class=pu>)</span><span class=pu>(</span>
@@ -1229,10 +1229,10 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_serialized_message</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_serialized_message_t *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>rmw_serialized_message_t * serialized_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>take</span><span class=pu>)</span><span class=pu>(</span>
@@ -1245,11 +1245,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr class=inert>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_serialized_message_with_info</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_serialized_message_t *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty'>rmw_message_info_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>rmw_serialized_message_t * serialized_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty'>rmw_message_info_t * message_info</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn ren'>take_with_info</span><span class=pu>)</span><span class=pu>(</span>
@@ -1263,11 +1263,11 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 <tr class=inert>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_take_with_info</span><span class=pu>(</span>
-  <span class='ty'>const rmw_subscription_t *</span><span class=pu>,</span>
-  <span class='ty del'>void *</span><span class=pu>,</span>
-  <span class='ty'>bool *</span><span class=pu>,</span>
-  <span class='ty'>rmw_message_info_t *</span><span class=pu>,</span>
-  <span class='ty del'>rmw_subscription_allocation_t *</span>
+  <span class='ty'>const rmw_subscription_t * subscription</span><span class=pu>,</span>
+  <span class='ty del'>void * ros_message</span><span class=pu>,</span>
+  <span class='ty'>bool * taken</span><span class=pu>,</span>
+  <span class='ty'>rmw_message_info_t * message_info</span><span class=pu>,</span>
+  <span class='ty del'>rmw_subscription_allocation_t * allocation</span>
 <span class=pu>)</span></pre></td>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class=pu>(*</span><span class='fn'>take_with_info</span><span class=pu>)</span><span class=pu>(</span>
@@ -1280,20 +1280,20 @@ text-transform:uppercase;margin:0 0 .45rem;opacity:.95}
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
-<span class='fn'>rmw_trigger_guard_condition</span><span class=pu>(</span><span class='ty'>const rmw_guard_condition_t *</span><span class=pu>)</span></pre></td>
+<span class='fn'>rmw_trigger_guard_condition</span><span class=pu>(</span><span class='ty'>const rmw_guard_condition_t * guard_condition</span><span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · platform</div><div class=answers><div class=ans>platform: the wake primitive, via GuardCondition::trigger</div></div>GuardCondition::trigger -&gt; the platform wake primitive; ISR-safety is a platform-ABI guarantee no backend makes</td>
 </tr>
 <tr>
 <td class=c><pre><span class=ret>rmw_ret_t</span>
 <span class='fn'>rmw_wait</span><span class=pu>(</span>
-  <span class='ty'>rmw_subscriptions_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_guard_conditions_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_services_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_clients_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_events_t *</span><span class=pu>,</span>
-  <span class='ty'>rmw_wait_set_t *</span><span class=pu>,</span>
-  <span class='ty'>const rmw_time_t *</span>
+  <span class='ty'>rmw_subscriptions_t * subscriptions</span><span class=pu>,</span>
+  <span class='ty'>rmw_guard_conditions_t * guard_conditions</span><span class=pu>,</span>
+  <span class='ty'>rmw_services_t * services</span><span class=pu>,</span>
+  <span class='ty'>rmw_clients_t * clients</span><span class=pu>,</span>
+  <span class='ty'>rmw_events_t * events</span><span class=pu>,</span>
+  <span class='ty'>rmw_wait_set_t * wait_set</span><span class=pu>,</span>
+  <span class='ty'>const rmw_time_t * wait_timeout</span>
 <span class=pu>)</span></pre></td>
 <td class=c><span class=nosig>—</span></td>
 <td class=why><div class='st s-re-mapped'>◆ re-mapped · 1 → 5</div><div class=answers><div class=ans>has_data</div><div class=ans>has_request</div><div class=ans>drive_io</div><div class=ans>set_wake_callback</div><div class=ans>next_deadline_ms</div></div>has_data/has_request + drive_io + set_wake_callback + next_deadline_ms ARE this, decomposed. A vtable `wait` would add only the BLOCK, moved from the platform into a backend that can only block on its own handles — while one executor drives sessions from several backends, timers fire off the platform clock, and guard conditions fire from an ISR</td>

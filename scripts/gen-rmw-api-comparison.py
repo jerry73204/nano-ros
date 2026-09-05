@@ -333,7 +333,13 @@ def build():
     shared_targets = {k for k, n in _claims.items() if n > 1}
 
     contract = parity.read_contract()
+    # TWO views of the same extract. The comparison is on TYPES — a renamed
+    # argument is not an ABI difference — while the page RENDERS names, because
+    # our column beside it shows them and a bare `const rmw_publisher_t *` next
+    # to `const rmw_publisher_t *publisher` reads as though upstream declared it
+    # nameless. It does not; the extract simply used to drop them.
     upstream = shape.upstream_signatures()
+    upstream_named = shape.upstream_signatures(with_names=True)
     slots, rets = shape.vtable_slots()
     globs = global_signatures()
     slots_named = vtable_slots_named()
@@ -347,6 +353,9 @@ def build():
     for sym in contract:
         where, detail = parity.MAP.get(sym, ("gap", ""))
         up_ret, up_params = upstream.get(sym, ("?", []))
+        # What the page prints for the upstream side. `up_params` stays the
+        # type-only list every comparison below is computed from.
+        up_display = upstream_named.get(sym, (up_ret, up_params))[1]
         mechanical = sym[4:] if sym.startswith("rmw_") else sym
 
         our_html = ""
@@ -389,11 +398,12 @@ def build():
                 types=our_params,
             )
             up_html = fmt_sig(
-                up_ret, up_params, sym, False,
+                up_ret, up_display, sym, False,
                 dropped=dropped if not identical else (),
+                types=up_params,
             )
         else:
-            up_html = fmt_sig(up_ret, up_params, sym, False)
+            up_html = fmt_sig(up_ret, up_display, sym, False, types=up_params)
 
         map_row = parity.MAP_ROWS.get(sym, {})
         cstatus, answers = status_of(
