@@ -85,7 +85,7 @@ endfunction()
 
 # ---------------------------------------------------------------------------
 # nano_ros_add_executable(<name> <sources…> [DEPLOY <target>…] [BOARD <board>]
-#     [LAUNCH <pkg:launch.xml>] [TYPED])
+#     [BRINGUP <dir>] [LAUNCH <launch.xml>] [TYPED])
 #
 # Standalone entry. DEPLOY/BOARD default to the package.xml `<export>` tuple in
 # W4; until then DEPLOY defaults to `native` and an embedded board is passed
@@ -100,13 +100,13 @@ function(nano_ros_add_executable name)
     # phase-405 W1 — LOCATOR and ARGS dropped in lockstep with
     # `nano_ros_entry`. A verb that still accepted them would forward keywords
     # the callee no longer parses, which lands them in SOURCES.
-    cmake_parse_arguments(_NRE "TYPED" "BOARD;LAUNCH;MODEL;HOST;LANG" "DEPLOY;SOURCES" ${ARGN})
+    cmake_parse_arguments(_NRE "TYPED" "BOARD;BRINGUP;LAUNCH;MODEL;HOST;LANG" "DEPLOY;SOURCES" ${ARGN})
     set(_srcs ${_NRE_SOURCES} ${_NRE_UNPARSED_ARGUMENTS})
-    if(NOT _srcs AND NOT _NRE_LAUNCH AND NOT _NRE_MODEL)
+    if(NOT _srcs AND NOT _NRE_LAUNCH AND NOT _NRE_BRINGUP AND NOT _NRE_MODEL)
         message(FATAL_ERROR
             "nano_ros_add_executable(${name}): no sources given "
-            "(a LAUNCH-generated entry may omit sources; anything else "
-            "needs at least one).")
+            "(a BRINGUP/LAUNCH-generated entry may omit sources; anything "
+            "else needs at least one).")
     endif()
     _nros_infer_lang(_lang ${_srcs})
 
@@ -145,10 +145,23 @@ function(nano_ros_add_executable name)
     # Entry-carrier knobs (LAUNCH-generated multi-node entries + typed
     # components + connection overrides) forward verbatim.
     set(_entry_extra "")
+    # phase-330 W7 — BRINGUP is the INPUT-addressed spelling and the one a
+    # human writes: it names the package the user authors (system.toml +
+    # launch/ + the launch file's contract sidecar), and `nano_ros_entry`
+    # resolves the SystemModel BUILD ARTIFACT from it via `nros model-path`.
+    # It was parsed by `nano_ros_entry` and NOT by this verb, so every caller
+    # reaching the entry through the ament verb had no way to spell it and
+    # was pushed back onto MODEL — which names a resolved artifact directly
+    # and is exactly what phase-405 W4 retired for letting an entry build
+    # from a stale model.
+    if(_NRE_BRINGUP)
+        list(APPEND _entry_extra BRINGUP ${_NRE_BRINGUP})
+    endif()
     if(_NRE_LAUNCH)
         list(APPEND _entry_extra LAUNCH ${_NRE_LAUNCH})
     endif()
-    # R1 / W4.2 — the canonical resolved-model input (RFC-0052).
+    # R1 / W4.2 — the canonical resolved-model input (RFC-0052). Deprecated
+    # expert override; prefer BRINGUP.
     if(_NRE_MODEL)
         list(APPEND _entry_extra MODEL ${_NRE_MODEL})
     endif()
