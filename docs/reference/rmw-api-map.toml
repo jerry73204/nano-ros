@@ -182,7 +182,7 @@ reason = "get_node_names — W4. A VISITOR (`rmw_node_visit_fn`), not an out-arr
 [rmw_get_node_names_with_enclaves]
 where = "vtable"
 nano = "get_node_names"
-reason = "get_node_names — grouped, and HOLLOW: nothing in this ABI accepts an enclave, so the visitor argument is structurally always NULL (issue 0785, RESOLVED — the enclave argument was ADDED to the visitor there, and it is still structurally NULL because nothing in this ABI accepts an enclave to put in it). The slot is also inert — issue 0800 (RESOLVED) is where `produced` stopped being read as `working`, and this is one of the rows that distinction exists for"
+reason = "get_node_names — grouped, and the enclave half is HOLLOW: issue 0785 ADDED the argument to the visitor, and every producer passes NULL. Nothing in this ABI accepts an enclave to put in one, so there is no path by which a caller could supply it — but on zenoh it is also a CHOICE: the liveliness token carries an enclave, ours is always the root, and reporting a value we do not track would be worse than saying we do not (`shim/session.rs`). Cyclone passes `nullptr` from its adapter. The SLOT itself is `produced`, not inert — zenoh and cyclonedds both fill it; the earlier `inert` claim here predated the producer scan and was the stale half of the very distinction issue 0800 (RESOLVED) drew between `produced` and `working`"
 
 [rmw_get_publisher_names_and_types_by_node]
 where = "vtable"
