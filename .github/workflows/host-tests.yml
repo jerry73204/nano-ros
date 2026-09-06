@@ -169,6 +169,34 @@ jobs:
           "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
           echo "$GITHUB_WORKSPACE/packages/cli/target/release" >> "$GITHUB_PATH"
 
+      # phase-437 — the fixture builders' rustc fan-out, DERIVED.
+      #
+      # Every consumer below used the literal "2". That number was measured on
+      # the 2-vCPU / 7 GB runner of issue #57 and this job no longer runs on
+      # one: `just ci tier1` in this same job sets no cap and its own summary
+      # reports `249 gate(s) ran at -P4`, because `run-gates-parallel.sh` asks
+      # `nproc`. So the cap was halving exactly the two steps that are most of
+      # this job's wall clock, to respect a machine that is gone.
+      #
+      # The bound is MEMORY, not CPU, and that is why this is not simply
+      # `nproc`. What issue #57 saw was the OOM killer taking rustc mid-compile;
+      # cores were never the scarce thing. ~2 GB per concurrent rustc is the
+      # rule of thumb this uses, so the runner is free to grow in either
+      # dimension and the cap follows whichever runs out first.
+      #
+      # Written to $GITHUB_ENV rather than repeated per step: the fixture builds
+      # and `just ci tier1` must agree, and three literals that must match is
+      # how they stop matching.
+      - name: Derive the build parallelism
+        run: |
+          cpus="$(nproc)"
+          mem_gb="$(awk '/MemTotal/ {print int($2 / 1024 / 1024)}' /proc/meminfo)"
+          by_mem=$(( mem_gb / 2 ))
+          [ "$by_mem" -lt 1 ] && by_mem=1
+          jobs=$(( cpus < by_mem ? cpus : by_mem ))
+          echo "NROS_CI_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "runner: ${cpus} cpu, ${mem_gb} GiB -> NROS_CI_BUILD_JOBS=${jobs}"
+
       # phase-413 W5 — provision with the SCOPE VERB, not four hand-rolled
       # steps. `just setup native` is what a user runs, and it expands to the
       # same sequence this lane spelled out: `nros setup --build-sources` (the
@@ -203,12 +231,49 @@ jobs:
       # fixture steps only (never the job — test-integration asserts on symbols).
       - name: Build rust core fixtures
         env:
-          CARGO_PROFILE_RELEASE_LTO: "off"
-          RUSTFLAGS: "-C debuginfo=0"
-          # Issue #57 Cause-1: cap the fixture builder's rustc fan-out — the
-          # 2-vCPU / 7 GB runner OOM-kills rustc mid-compile otherwise.
-          NROS_BUILD_JOBS: "2"
-          CARGO_BUILD_JOBS: "2"
+          # `CARGO_PROFILE_RELEASE_LTO: "off"` USED TO BE HERE. It was the only
+          # thing that differed between this step and "Build workspace fixtures"
+          # below, and it is what made the two share NOTHING: cargo hashes the
+          # profile into `-C metadata`, so every crate they have in common was
+          # compiled twice — across the two steps that are ~53 of this job's ~91
+          # minutes.
+          #
+          # It was also an in-place MUTATION of `profile.release` through the
+          # environment, which is worse than a slow build: the artifacts landed
+          # in `target/release/` while not being release builds, so nothing
+          # downstream could tell this tree from a real one. The repo has a
+          # named profile for exactly this shape (`nros-iterate` = release with
+          # `lto = "off"`), reached through `NROS_CARGO_PROFILE` / `nros
+          # profile`, and an env override reaches around it.
+          #
+          # Dropping it rather than naming a profile, because naming one keeps
+          # the two steps in different profile directories and the duplication
+          # with them. Plain `release` for both is the only spelling that lets
+          # the workspace step start warm. The trade is real and one-directional:
+          # THIS step gets slower (it now pays fat LTO), and the step below
+          # should save more than that by reusing it. If CI says otherwise,
+          # the answer is a shared named profile for both steps — never this
+          # env var back on one of them.
+          #
+          # `RUSTFLAGS: "-C debuginfo=0"` is gone for a different reason: it is
+          # redundant. Cargo's `release` default is already `debug = false`, and
+          # `[profile.release]` in `Cargo.toml` does not override it.
+          #
+          # Issue #71 is UNAFFECTED: it forbids `lto = "off"` on the workspace
+          # step (two Rust staticlibs each bundle `std`, and without LTO's DCE
+          # both keep `rust_begin_unwind` -> `multiple definition`). This change
+          # removes an `lto = "off"`; it does not add one.
+          #
+          # Issue #57 Cause-1: cap the fixture builder's rustc fan-out — a rustc
+          # OOM-killed mid-compile is what this prevents. DERIVED, not "2":
+          # the literal was measured on the 2-vCPU / 7 GB runner this job no
+          # longer gets (it runs 4 vCPU / ~16 GB today — `just ci tier1` in the
+          # step below sets no cap and its own summary line reports `-P4`), so
+          # the cap was halving the two steps that are most of this job's wall
+          # clock. See "Derive the build parallelism" above for how it is
+          # computed and why the bound is MEMORY rather than CPU.
+          NROS_BUILD_JOBS: ${{ env.NROS_CI_BUILD_JOBS }}
+          CARGO_BUILD_JOBS: ${{ env.NROS_CI_BUILD_JOBS }}
         run: |
           source ./activate.sh
           mkdir -p build/ci-logs
@@ -230,9 +295,12 @@ jobs:
           # native C++/mixed workspace Entry links two Rust staticlibs that each
           # bundle `std`; the FFI crate's `lto = true` DCE-strips the redundant
           # `rust_begin_unwind`. Forcing LTO off keeps it → `multiple definition`.
-          RUSTFLAGS: "-C debuginfo=0"
-          NROS_BUILD_JOBS: "2"
-          CARGO_BUILD_JOBS: "2"
+          # `RUSTFLAGS: "-C debuginfo=0"` dropped: redundant. Cargo's `release`
+          # default is `debug = false` and `[profile.release]` does not override
+          # it, so this set a flag that changed nothing while making RUSTFLAGS a
+          # fingerprint input the step above had to match exactly.
+          NROS_BUILD_JOBS: ${{ env.NROS_CI_BUILD_JOBS }}
+          CARGO_BUILD_JOBS: ${{ env.NROS_CI_BUILD_JOBS }}
         run: |
           source ./activate.sh
           just native build-workspace-fixtures > build/ci-logs/workspace.log 2>&1 \
@@ -265,7 +333,7 @@ jobs:
       # does not provision them.
       - name: just ci tier1
         env:
-          CARGO_BUILD_JOBS: "2"
+          CARGO_BUILD_JOBS: ${{ env.NROS_CI_BUILD_JOBS }}
           # This lane builds a DELIBERATE SUBSET of the native fixtures --
           # `build-fixture-rust-core` + `build-workspace-fixtures`, with the
           # ~52 GB extras omitted so test-integration does not hit ENOSPC (see
