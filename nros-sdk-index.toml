@@ -1117,8 +1117,8 @@ check = { cmd = "libgcrypt-config", pkg_config = "libgcrypt" }
 
 [prereq.ros-rmw-zenoh-cpp]
 role = "package"
-why = "the zenoh ROS interop lanes: the peer runs `source /opt/ros/<distro>/setup.bash && export RMW_IMPLEMENTATION=rmw_zenoh_cpp`, so the RMW must resolve in the ROS prefix. Without it those lanes report `[SKIPPED:capability]`, which reads as green rather than as absent coverage (2026-08-17: three issues closed unverifiable that way). NOTE the apt name is DISTRO-PARAMETRIC — `ros-<distro>-rmw-zenoh-cpp`; humble is declared here because it is the documented default, and `just doctor` probes $ROS_DISTRO rather than assuming it."
-apt = ["ros-humble-rmw-zenoh-cpp"]
+why = "the zenoh ROS interop lanes: the peer runs `source /opt/ros/<distro>/setup.bash && export RMW_IMPLEMENTATION=rmw_zenoh_cpp`, so the RMW must resolve in the ROS prefix. Without it those lanes report `[SKIPPED:capability]`, which reads as green rather than as absent coverage (2026-08-17: three issues closed unverifiable that way). The apt name is DISTRO-PARAMETRIC, and `{ros_distro}` is how the index says so (issue 1128): it expands from $ROS_DISTRO, defaulting to humble. Before that placeholder existed this row could only spell one distro, so it pinned humble and every consumer that cared composed `ros-${DISTRO}-...` itself — two spellings of one package, agreeing only on humble."
+apt = ["ros-{ros_distro}-rmw-zenoh-cpp"]
 # No dnf/pacman: ROS 2 is not packaged there, and docs/development/ros2-on-non-ubuntu.md
 # routes those hosts through an Ubuntu distrobox, whose setup script installs this.
 #

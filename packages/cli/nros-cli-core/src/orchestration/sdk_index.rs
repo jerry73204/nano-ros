@@ -225,8 +225,12 @@ impl PrereqDep {
         }
     }
 
+    /// The native package list for `manager`, **as declared** — placeholders
+    /// unexpanded. For anything a user acts on, use [`Self::packages_for`].
+    ///
+    /// Exists for the gates, which have to read what the index SAYS.
     #[must_use]
-    pub fn packages_for(&self, manager: &str) -> &[String] {
+    pub fn packages_declared(&self, manager: &str) -> &[String] {
         match manager {
             "apt" => &self.apt,
             "dnf" => &self.dnf,
@@ -234,6 +238,65 @@ impl PrereqDep {
             "brew" => &self.brew,
             _ => &[],
         }
+    }
+
+    /// The native package list for `manager`, resolved against `ctx`.
+    ///
+    /// Issue 1128 — a ROS package name is DISTRO-PARAMETRIC
+    /// (`ros-<distro>-rmw-zenoh-cpp`) and the index could spell only one, so it
+    /// pinned humble and every consumer that cared composed the name itself:
+    /// `just ci provision-zenohd`, `scripts/ros/domain-bridge-repro.sh` and
+    /// `docker/ros-editions/Dockerfile` each build `ros-${DISTRO}-…` by hand.
+    /// Two spellings of one package that agree only when the distro is humble.
+    ///
+    /// `{ros_distro}` is the whole vocabulary, deliberately. It reuses the
+    /// `{prefix}` idiom `[tool.*.source]` install lines already use, so this is
+    /// one more placeholder rather than a template language — and
+    /// `check-prereq-placeholders` refuses any other, which is what keeps it
+    /// from becoming one.
+    #[must_use]
+    pub fn packages_for(&self, manager: &str, ctx: &PrereqContext) -> Vec<String> {
+        self.packages_declared(manager)
+            .iter()
+            .map(|p| ctx.expand(p))
+            .collect()
+    }
+}
+
+/// What a `[prereq.*]` package name may be resolved against — issue 1128.
+///
+/// A struct rather than a `std::env` read inside [`PrereqDep::packages_for`]:
+/// the expansion is then a pure function of its inputs, and its tests need no
+/// `set_var` — a process-global that leaks between parallel tests (issue 1101).
+/// The environment is read ONCE, at the CLI edge, by [`Self::from_env`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrereqContext {
+    /// The ROS distribution whose packages are being named.
+    pub ros_distro: String,
+}
+
+impl PrereqContext {
+    /// The default distro when `$ROS_DISTRO` is unset.
+    ///
+    /// humble, because that is what the index documented and what every lane
+    /// that did not set the variable was already installing — so this changes
+    /// nothing on a host that never chose.
+    pub const DEFAULT_ROS_DISTRO: &'static str = "humble";
+
+    /// Read `$ROS_DISTRO`, falling back to [`Self::DEFAULT_ROS_DISTRO`].
+    #[must_use]
+    pub fn from_env() -> Self {
+        let ros_distro = std::env::var("ROS_DISTRO")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_ROS_DISTRO.to_string());
+        Self { ros_distro }
+    }
+
+    /// Substitute the placeholders this context knows.
+    #[must_use]
+    pub fn expand(&self, s: &str) -> String {
+        s.replace("{ros_distro}", &self.ros_distro)
     }
 }
 
@@ -1488,6 +1551,74 @@ check = { cmd = "west" }
         );
     }
 
+    /// Issue 1128 — `{ros_distro}` expands, and the default is humble.
+    ///
+    /// The context is CONSTRUCTED here rather than read from the environment,
+    /// which is the point of it being a struct: the expansion is a pure
+    /// function of its inputs, so this test needs no `set_var` — a
+    /// process-global that leaks between parallel tests (issue 1101).
+    #[test]
+    fn a_prereq_package_name_expands_the_ros_distro() {
+        let dep = PrereqDep {
+            apt: vec!["ros-{ros_distro}-rmw-zenoh-cpp".to_string()],
+            ..PrereqDep::default()
+        };
+        let jazzy = PrereqContext {
+            ros_distro: "jazzy".to_string(),
+        };
+        assert_eq!(dep.packages_for("apt", &jazzy), ["ros-jazzy-rmw-zenoh-cpp"]);
+
+        // The DECLARED form is what the gates read, and it is untouched.
+        assert_eq!(
+            dep.packages_declared("apt"),
+            ["ros-{ros_distro}-rmw-zenoh-cpp"]
+        );
+
+        // A name with no placeholder is returned unchanged — the other 45 keys.
+        let plain = PrereqDep {
+            apt: vec!["doxygen".to_string()],
+            ..PrereqDep::default()
+        };
+        assert_eq!(plain.packages_for("apt", &jazzy), ["doxygen"]);
+
+        // An unmapped manager is still empty, placeholder or not.
+        assert!(dep.packages_for("pacman", &jazzy).is_empty());
+    }
+
+    /// The default is humble, and a blank `$ROS_DISTRO` is not a distro.
+    #[test]
+    fn an_absent_ros_distro_defaults_to_humble() {
+        assert_eq!(PrereqContext::DEFAULT_ROS_DISTRO, "humble");
+        let ctx = PrereqContext {
+            ros_distro: PrereqContext::DEFAULT_ROS_DISTRO.to_string(),
+        };
+        assert_eq!(ctx.expand("ros-{ros_distro}-x"), "ros-humble-x");
+    }
+
+    /// The real index's parametric row resolves, so this is not a test about a
+    /// fixture that no longer matches what ships.
+    #[test]
+    fn the_shipped_zenoh_prereq_is_parametric() {
+        let idx = SdkIndex::load(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../nros-sdk-index.toml"),
+        )
+        .expect("load nros-sdk-index.toml");
+        let dep = idx
+            .prereqs()
+            .get("ros-rmw-zenoh-cpp")
+            .cloned()
+            .expect("[prereq.ros-rmw-zenoh-cpp]");
+        assert_eq!(
+            dep.packages_declared("apt"),
+            ["ros-{ros_distro}-rmw-zenoh-cpp"],
+            "the index row stopped being parametric — issue 1128"
+        );
+        let iron = PrereqContext {
+            ros_distro: "iron".to_string(),
+        };
+        assert_eq!(dep.packages_for("apt", &iron), ["ros-iron-rmw-zenoh-cpp"]);
+    }
+
     #[test]
     fn host_key_is_os_dash_arch() {
         let k = host_key();
@@ -1523,16 +1654,18 @@ mod prereq_tests {
         assert_eq!(d.provider, Provider::System, "the default and the alias");
         assert_eq!(d.provider_chain(), vec![Provider::System]);
         assert_eq!(d.why.as_deref(), Some("runtime dep of the qemu dist"));
-        assert_eq!(d.packages_for("apt"), ["libslirp0"]);
-        assert_eq!(d.packages_for("dnf"), ["libslirp"]);
-        assert_eq!(d.packages_for("pacman"), ["libslirp"]);
-        assert_eq!(d.packages_for("brew"), ["libslirp"]);
+        // These names carry no placeholder, so any context resolves them the
+        // same way — `packages_declared` is what the assertion is about.
+        assert_eq!(d.packages_declared("apt"), ["libslirp0"]);
+        assert_eq!(d.packages_declared("dnf"), ["libslirp"]);
+        assert_eq!(d.packages_declared("pacman"), ["libslirp"]);
+        assert_eq!(d.packages_declared("brew"), ["libslirp"]);
         assert_eq!(
             d.check.as_ref().and_then(|c| c.sharedlib.as_deref()),
             Some("libslirp.so.0"),
             "the probe is the half that makes a miss diagnosable"
         );
-        assert!(d.packages_for("zypper").is_empty(), "unmapped manager");
+        assert!(d.packages_declared("zypper").is_empty(), "unmapped manager");
     }
 
     /// A key in both tables is a migration in progress, and the NEW entry is
