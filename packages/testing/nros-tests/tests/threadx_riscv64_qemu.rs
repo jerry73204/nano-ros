@@ -38,24 +38,31 @@ use nros_tests::fixtures::{
 // Prerequisite checks
 // =============================================================================
 
-/// Skip test if ThreadX RISC-V build prerequisites are not available
-fn require_threadx_riscv64() -> bool {
+/// Require the ThreadX RISC-V prerequisites; skip loudly (naming which one).
+///
+/// Issue 1135 — this returned `bool` and every caller wrote
+/// `if !require_threadx_riscv64() { nros_tests::skip!("require_threadx_riscv64 check failed"); }`. That is the
+/// CORRECT verdict spelled uninformatively: the real reason was an
+/// `eprintln!` inside the helper, and `--failure-output never` (what the
+/// `just` recipes pass) eats it, so the log said only "check failed". A guard
+/// that skips where it KNOWS the reason names the reason, and cannot be
+/// misused by a caller who writes a bare `return` instead.
+fn require_threadx_riscv64() {
     if !is_threadx_available() {
-        eprintln!("Skipping test: THREADX_DIR not set or invalid");
-        eprintln!("Run: just setup-threadx && source .envrc");
-        return false;
+        nros_tests::skip!(
+            "THREADX_DIR not set or invalid — run `just setup-threadx` + `source .envrc`"
+        );
     }
     if !is_netx_available() {
-        eprintln!("Skipping test: NETX_DIR not set or invalid");
-        eprintln!("Run: just setup-threadx && source .envrc");
-        return false;
+        nros_tests::skip!(
+            "NETX_DIR not set or invalid — run `just setup-threadx` + `source .envrc`"
+        );
     }
     if !is_riscv_gcc_available() {
-        eprintln!("Skipping test: riscv64-unknown-elf-gcc not found");
-        eprintln!("Install: sudo apt install gcc-riscv64-unknown-elf");
-        return false;
+        nros_tests::skip!(
+            "riscv64-unknown-elf-gcc not found — install it              (`sudo apt install gcc-riscv64-unknown-elf`)"
+        );
     }
-    true
 }
 
 // =============================================================================
@@ -106,9 +113,7 @@ fn require_threadx_riscv64() -> bool {
 /// retransmission covers any cross-process loss on the mcast path.
 #[test]
 fn test_threadx_riscv64_cyclonedds_two_qemu_pubsub() {
-    if !require_threadx_riscv64() {
-        nros_tests::skip!("require_threadx_riscv64 check failed");
-    }
+    require_threadx_riscv64();
     if !is_qemu_riscv64_available() {
         nros_tests::skip!("qemu-system-riscv64 not found");
     }
@@ -235,9 +240,7 @@ fn test_threadx_riscv64_cyclonedds_two_qemu_pubsub() {
 fn test_threadx_riscv64_cyclonedds_two_qemu_rust_pubsub() {
     use nros_tests::fixtures::{Rmw, build_threadx_rv64_rust_example_rmw};
 
-    if !require_threadx_riscv64() {
-        nros_tests::skip!("require_threadx_riscv64 check failed");
-    }
+    require_threadx_riscv64();
     if !is_qemu_riscv64_available() {
         nros_tests::skip!("qemu-system-riscv64 not found");
     }
@@ -356,9 +359,7 @@ fn test_threadx_riscv64_cyclonedds_two_qemu_rust_pubsub() {
 /// (`test_threadx_linux_cyclonedds_cpp_talker_to_native_listener`).
 #[test]
 fn test_threadx_riscv64_cyclonedds_two_qemu_cpp_pubsub() {
-    if !require_threadx_riscv64() {
-        nros_tests::skip!("require_threadx_riscv64 check failed");
-    }
+    require_threadx_riscv64();
     if !is_qemu_riscv64_available() {
         nros_tests::skip!("qemu-system-riscv64 not found");
     }
@@ -470,9 +471,7 @@ fn test_threadx_riscv64_cyclonedds_two_qemu_cpp_pubsub() {
 /// pass here.
 #[test]
 fn test_threadx_riscv64_errno_is_per_thread() {
-    if !require_threadx_riscv64() {
-        nros_tests::skip!("require_threadx_riscv64 check failed");
-    }
+    require_threadx_riscv64();
     if !is_qemu_riscv64_available() {
         nros_tests::skip!("qemu-system-riscv64 not found");
     }

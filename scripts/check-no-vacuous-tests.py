@@ -51,6 +51,28 @@ effects are exhausted by printing.
 If the probe is a precondition, put it where it can stop the run:
 `nros_tests::skip!("qemu-system-arm not found")`. If it is a property, assert
 it. If it is neither, it is a `log` line in someone else's test, not a test.
+
+## The sibling shape this gate does NOT catch — issue 1135
+
+A body that does plenty on the passing path but opens with
+
+    if !require_node_discoverable(&locator) {
+        return;
+    }
+
+is the same lie and is invisible here: the body is full of real effects, so
+"prints only" never fires. It cost four green `ros2 param *` tests on a host
+where our node was missing from the graph.
+
+The call site is not statically separable from its legitimate twin — both spell
+`if <cond> { return; }`, and only the meaning of `<cond>` says whether the
+return follows a probe FAILING or a check SUCCEEDING (`actions.rs` and
+`services.rs` both return on success, correctly). Measured across the tree, a
+blanket "no bare `return;` in a test body" rule flags 40 sites, mostly the
+legitimate form, and would buy a 40-entry authored allowlist.
+
+So the sibling rule keys on the HELPER's signature instead, where it is both
+decidable and load-bearing: `scripts/check-test-precondition-guards.py`.
 """
 
 from __future__ import annotations

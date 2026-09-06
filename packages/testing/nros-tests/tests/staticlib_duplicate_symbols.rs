@@ -82,13 +82,18 @@ fn single_archive_links_via_u_force_without_allow_multiple_definition() {
     // `set -e`, so the presence of `lkproof` here IS the link-success proof. This
     // test asserts the resulting symbol shape.
 
-    // Symbol checks need an `nm`; skip them (link already proven) if absent.
+    // Symbol checks need an `nm`. Issue 1135 — this used to `eprintln!` and
+    // `return`, i.e. report PASS. The link half is already proven above, but
+    // the two assertions BELOW are the substance this test is named for (the
+    // register entry got forced in; there is exactly one `REGISTRY`), and a
+    // green with neither of them run claims coverage nobody measured. On any
+    // host with binutils the skip never fires.
     let Some(nm) = nm_tool() else {
-        eprintln!(
-            "D3 single-runtime: libnros_c.a links with `-u` + NO `--allow-multiple-definition` \
-             (no nm on PATH — skipped the register/REGISTRY symbol assertions)."
+        nros_tests::skip_class!(
+            capability,
+            "no `nm` on PATH — the link itself succeeded at the build stage (lkproof exists), \
+             but the register/REGISTRY symbol assertions cannot run"
         );
-        return;
     };
 
     let syms = Command::new(&nm).arg(&exe).output().unwrap();

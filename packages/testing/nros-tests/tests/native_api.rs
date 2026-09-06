@@ -160,14 +160,22 @@ fn stdbuf_command(binary: &Path) -> Command {
 }
 
 /// Skip-guard shared by every test in this file.
-fn require_native_env() -> bool {
+/// Skip-or-proceed guard: returns normally ONLY when every precondition holds.
+///
+/// Issue 1135 — this returned `bool` and every one of its ~20 callers wrote
+/// `if !require_native_env() { return; }`. Both arms already skip, so `false`
+/// was unreachable and the guard branch was dead code — but it is the same
+/// SHAPE as the live defect in `params.rs`, where a bool-returning `require_*`
+/// let four call sites turn an unmet precondition into a green `#[test]`. The
+/// dead branch was a standing invitation to add a third arm that returns
+/// `false` instead of skipping. Returning `()` removes the invitation.
+fn require_native_env() {
     if !require_zenohd() {
         nros_tests::skip!("zenohd not found");
     }
     if !require_cmake() {
         nros_tests::skip!("cmake not found");
     }
-    true
 }
 
 // =============================================================================
@@ -194,9 +202,7 @@ fn test_native_talker_starts(
     zenohd_unique: ZenohRouter,
     #[values(Language::C, Language::Cpp)] lang: Language,
 ) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let binary = lang.talker_binary();
     let mut talker = spawn_native(&binary, lang, "talker", &locator);
@@ -220,9 +226,7 @@ fn test_native_listener_starts(
     zenohd_unique: ZenohRouter,
     #[values(Language::C, Language::Cpp)] lang: Language,
 ) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let binary = lang.listener_binary();
     let mut listener = spawn_native(&binary, lang, "listener", &locator);
@@ -243,9 +247,7 @@ fn test_native_service_server_starts(
     zenohd_unique: ZenohRouter,
     #[values(Language::C, Language::Cpp)] lang: Language,
 ) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let binary = lang.service_server_binary();
     let mut server = spawn_native(&binary, lang, "service-server", &locator);
@@ -266,9 +268,7 @@ fn test_native_action_server_starts(
     zenohd_unique: ZenohRouter,
     #[values(Language::C, Language::Cpp)] lang: Language,
 ) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let binary = lang.action_server_binary();
     let mut server = spawn_native(&binary, lang, "action-server", &locator);
@@ -300,9 +300,7 @@ fn test_native_service_communication_callback(
     zenohd_unique: ZenohRouter,
     #[values(Language::C, Language::Cpp)] lang: Language,
 ) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let server_bin = lang.service_server_binary();
     let client_bin = match lang {
@@ -399,9 +397,7 @@ fn service_callback_interop_body(
 /// C callback client ↔ C++ service server.
 #[rstest]
 fn test_service_callback_interop_c_client_cpp_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let server_bin = Language::Cpp.service_server_binary();
     let client_bin = build_c_service_client_callback()
         .unwrap_or_else(|e| skip_missing_fixture("C service client (callback)", e))
@@ -417,9 +413,7 @@ fn test_service_callback_interop_c_client_cpp_server(zenohd_unique: ZenohRouter)
 /// C++ callback client ↔ C service server.
 #[rstest]
 fn test_service_callback_interop_cpp_client_c_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let server_bin = Language::C.service_server_binary();
     let client_bin = build_cpp_service_client_callback()
         .unwrap_or_else(|e| skip_missing_fixture("C++ service client (callback)", e))
@@ -480,9 +474,7 @@ fn rust_callback_interop_body(locator: &str, server_bin: &Path, server_lang: Lan
 /// Rust callback client ↔ C service server.
 #[rstest]
 fn test_service_callback_interop_rust_client_c_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let server_bin = Language::C.service_server_binary();
     rust_callback_interop_body(&zenohd_unique.locator(), &server_bin, Language::C);
 }
@@ -490,9 +482,7 @@ fn test_service_callback_interop_rust_client_c_server(zenohd_unique: ZenohRouter
 /// Rust callback client ↔ C++ service server.
 #[rstest]
 fn test_service_callback_interop_rust_client_cpp_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let server_bin = Language::Cpp.service_server_binary();
     rust_callback_interop_body(&zenohd_unique.locator(), &server_bin, Language::Cpp);
 }
@@ -572,17 +562,13 @@ fn native_action_communication_body(lang: Language, locator: &str) {
 
 #[rstest]
 fn test_c_action_communication(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_action_communication_body(Language::C, &zenohd_unique.locator());
 }
 
 #[rstest]
 fn test_cpp_action_communication(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_action_communication_body(Language::Cpp, &zenohd_unique.locator());
 }
 
@@ -597,9 +583,7 @@ fn test_cpp_action_communication(zenohd_unique: ZenohRouter) {
 /// callback, and the full Fibonacci result sequence delivered via the callback.
 #[rstest]
 fn test_cpp_action_communication_callback(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let server_bin = Language::Cpp.action_server_binary();
     let client_bin = build_cpp_action_client_callback()
@@ -662,9 +646,7 @@ fn test_cpp_action_communication_callback(zenohd_unique: ZenohRouter) {
 /// C++ callback action client ↔ C action server.
 #[rstest]
 fn test_action_callback_interop_cpp_client_c_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let server_bin = build_c_action_server()
         .unwrap_or_else(|e| skip_missing_fixture("C action server", e))
@@ -715,9 +697,7 @@ fn test_action_callback_interop_cpp_client_c_server(zenohd_unique: ZenohRouter) 
 /// build).
 #[rstest]
 fn test_action_callback_interop_c_client_cpp_server(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let server_bin = build_cpp_action_server()
         .unwrap_or_else(|e| skip_missing_fixture("C++ action server", e))
@@ -761,9 +741,7 @@ fn test_action_callback_interop_c_client_cpp_server(zenohd_unique: ZenohRouter) 
 
 #[rstest]
 fn test_cpp_action_goal_rejection(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     let locator = zenohd_unique.locator();
     let server_bin = Language::Cpp.action_server_binary();
     let client_bin = Language::Cpp.action_client_binary();
@@ -894,17 +872,13 @@ fn native_rust_pubsub_interop(lang: Language, locator: &str) {
 
 #[rstest]
 fn test_c_rust_pubsub_interop(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_rust_pubsub_interop(Language::C, &zenohd_unique.locator());
 }
 
 #[rstest]
 fn test_cpp_rust_pubsub_interop(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_rust_pubsub_interop(Language::Cpp, &zenohd_unique.locator());
 }
 
@@ -1341,17 +1315,13 @@ fn native_rust_service_interop(lang: Language, locator: &str) {
 
 #[rstest]
 fn test_c_rust_service_interop(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_rust_service_interop(Language::C, &zenohd_unique.locator());
 }
 
 #[rstest]
 fn test_cpp_rust_service_interop(zenohd_unique: ZenohRouter) {
-    if !require_native_env() {
-        return;
-    }
+    require_native_env();
     native_rust_service_interop(Language::Cpp, &zenohd_unique.locator());
 }
 

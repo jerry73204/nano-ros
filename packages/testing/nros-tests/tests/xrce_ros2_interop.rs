@@ -11,16 +11,20 @@
 //! so ROS 2 nodes using the same DDS domain can discover and communicate
 //! with them via standard DDS multicast.
 //!
-//! **Note:** These tests are diagnostic/informational — they report interop
-//! status but do not hard-fail the test suite, because DDS interop between
-//! the XRCE Agent's bundled Fast-DDS and the system's ROS 2 Fast-DDS can
-//! have version-dependent issues. Same pattern as `rmw_interop.rs`.
+//! **These tests HARD-FAIL.** This note used to say the opposite — that they
+//! were "diagnostic/informational" and reported interop status without failing
+//! the suite. That stopped being true: every case here ends in an `assert!` on
+//! what actually crossed the bus, and the only non-failing exits are explicit
+//! `nros_tests::skip!`s for an absent prerequisite (no XRCE Agent, no ROS 2 DDS,
+//! a peer that would not start). A stale "does not hard-fail" line invites the
+//! next reader to dismiss a red here as noise, which is precisely the
+//! false-PASS reading issue 1135 is about.
 //!
 //! Prerequisites:
 //!   just build-xrce-agent        # Build Micro-XRCE-DDS Agent
 //!   ROS 2 Humble installed       # /opt/ros/humble/
 //!   rmw_fastrtps_cpp available   # Default in Humble
-//!   example_interfaces installed # For AddTwoInts service type
+//!   example_interfaces installed # AddTwoInts service + Fibonacci action types
 
 use nros_tests::{
     count_pattern,
@@ -586,17 +590,22 @@ fn test_ros2_action_xrce_client(xrce_action_client_binary: PathBuf) {
     let addr = agent.addr();
     let domain_id = unique_ros_domain_id();
 
-    let mut ros2_server = match Ros2DdsProcess::action_server_fibonacci_with_domain(
-        DEFAULT_ROS_DISTRO,
-        domain_id,
-    ) {
-        Ok(p) => p,
-        Err(e) => {
-            nros_tests::skip!(
-                "ROS 2 DDS fibonacci action server could not start (action_tutorials_py not installed?): {e}"
-            );
-        }
-    };
+    let mut ros2_server =
+        match Ros2DdsProcess::action_server_fibonacci_with_domain(DEFAULT_ROS_DISTRO, domain_id) {
+            Ok(p) => p,
+            Err(e) => {
+                // NOT `action_tutorials_py` — this peer is an inline rclpy script
+                // (`Ros2DdsProcess::action_server_fibonacci_with_domain`) whose only
+                // import is `example_interfaces.action.Fibonacci`, chosen precisely
+                // so the cell does not depend on the tutorials package. Naming the
+                // wrong package sends the reader to install something that would
+                // not have helped.
+                nros_tests::skip!(
+                    "ROS 2 DDS fibonacci action server (inline rclpy, needs rclpy + \
+                 example_interfaces) could not start: {e}"
+                );
+            }
+        };
     // Issue 0687 — WAIT for the server to say it is ready; do not sleep a
     // constant and hope.
     //
