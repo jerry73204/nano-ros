@@ -132,15 +132,38 @@ and reports no error.
 |------------------------------------|-----------------------------------------------------------------------------|---------|-----|---------------|
 | `NROS_XRCE_BUFFER_SIZE`            | Per-slot receive buffer. See the note below — this is the receive ceiling.   | `1024`  | 64  | nros-rmw-xrce |
 | `NROS_XRCE_SUBSCRIBER_RING_DEPTH`  | Queued samples per subscriber                                               | `32`    | 1   | nros-rmw-xrce |
-| `NROS_XRCE_MAX_SUBSCRIBERS`        | Max concurrent subscribers                                                  | `8`     | 1   | nros-rmw-xrce |
-| `NROS_XRCE_MAX_SERVICE_SERVERS`    | Max concurrent service servers                                              | `4`     | 1   | nros-rmw-xrce |
-| `NROS_XRCE_MAX_SERVICE_CLIENTS`    | Max concurrent service clients                                              | `4`     | 1   | nros-rmw-xrce |
+| `NROS_XRCE_MAX_SUBSCRIBERS`        | Max concurrent subscribers. On Zephyr, DERIVED — see below.                 | `8`     | 0   | nros-rmw-xrce |
+| `NROS_XRCE_MAX_SERVICE_SERVERS`    | Max concurrent service servers. On Zephyr, DERIVED — see below.             | `4`     | 0   | nros-rmw-xrce |
+| `NROS_XRCE_MAX_SERVICE_CLIENTS`    | Max concurrent service clients                                              | `4`     | 0   | nros-rmw-xrce |
 | `NROS_XRCE_STREAM_HISTORY`         | Reliable stream history depth; sizes the per-session output buffer          | `16`    | 4   | nros-rmw-xrce |
 | `NROS_XRCE_CUSTOM_TRANSPORT_MTU`   | Custom transport MTU; stream buffers are `MTU x STREAM_HISTORY`             | `4096`  | 128 | nros-rmw-xrce |
 
 Dropping `MAX_SUBSCRIBERS`, `MAX_SERVICE_*` and `SUBSCRIBER_RING_DEPTH` to 1,
 `BUFFER_SIZE` to 256, `STREAM_HISTORY` to 4 and `CUSTOM_TRANSPORT_MTU` to 512
 takes the session struct from ~390 KB to ~10-20 KB.
+
+#### On Zephyr the three entity caps DERIVE, and the minimum is 0
+
+`CONFIG_NROS_XRCE_MAX_SUBSCRIBERS` and `CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS`
+default to `-1`, which means *take the number from the entities this image
+declares* (`nano_ros_node_register(... ENTITIES ...)`). A listener that declares
+one subscription and no service is built with one subscriber slot and zero
+service-server slots, which is what took the session struct from 427,968 bytes
+to 59,088 on the zephyr cpp listener ([issue
+1033](https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/archived/1033-xrce-subscriber-slots-budget-eight-for-one.md)).
+Stating a number in Kconfig or the environment still wins over the derivation,
+in both directions.
+
+Zero is a legal, honoured value for all three caps — it is not rounded up to 1.
+So creating an entity the image never declared does not truncate silently: the
+create fails with `InvalidConfig` and the backend logs which cap it hit, which
+knob moves it, and that the count came from the declaration.
+
+`NROS_XRCE_SUBSCRIBER_RING_DEPTH` is deliberately NOT derivable — no inventory
+knows how deep a burst a subscriber must survive — but it does now have a
+Kconfig symbol. It did not before issue 1033, which made it unsettable on
+Zephyr however it was spelled: a Zephyr cargo build sees only the knobs
+`nros_cargo_build.cmake` forwards, and shell exports do not survive that.
 
 #### `NROS_XRCE_BUFFER_SIZE` is the XRCE receive ceiling
 

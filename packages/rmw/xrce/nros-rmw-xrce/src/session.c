@@ -28,6 +28,7 @@
 #include <uxr/client/core/session/object_id.h>
 #include <uxr/client/util/ping.h>
 
+#include <stdarg.h>
 #include <stdint.h>
 #include <time.h>
 #include <stdio.h>
@@ -36,13 +37,62 @@
 
 /* ---- Helpers ------------------------------------------------------- */
 
+/* issue 1033 — the ONE place this backend renders a diagnostic. Both reporters
+ * below funnel through it so there is a single answer to "where does an XRCE
+ * capacity failure come out", and adding a third reporter does not add a third
+ * spelling of the delivery.
+ *
+ * The buffer is a local, sized for a name at `XRCE_DDS_NAME_BUF_SIZE` plus the
+ * fixed prose. `snprintf` truncates rather than overflowing, and a truncated
+ * diagnostic is still strictly more than the nothing these paths printed
+ * before. Never called from the topic/request callbacks — only from the create
+ * paths and session open — so the stack cost is not on the RX path. */
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
+static void
+xrce_log_error(const char* fmt, ...) {
+    char msg[352];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        return;
+    }
+    size_t len = ((size_t)n < sizeof(msg)) ? (size_t)n : sizeof(msg) - 1;
+    static const char kLogger[] = "nros_rmw_xrce";
+    nros_platform_log_write(XRCE_LOG_ERROR, (const uint8_t*)kLogger, sizeof(kLogger) - 1,
+                            (const uint8_t*)msg, (uintptr_t)len);
+}
+
+void xrce_report_capacity_exhausted(const char* kind, const char* name, unsigned cap,
+                                    const char* knob) {
+    xrce_log_error("no free %s slot for '%s': this image was BUILT with %s=%u. "
+                   "The default is DERIVED from the entities this image declares "
+                   "(nano_ros_node_register(... ENTITIES ...)), so an entity created "
+                   "without being declared is not counted. State CONFIG_%s, or declare "
+                   "it. Not truncating; the create fails.",
+                   kind, (name != NULL) ? name : "(unnamed)", knob, cap, knob);
+}
+
+void xrce_report_session_alloc_failed(size_t bytes) {
+    xrce_log_error("xrce_session_state_t (%lu bytes) did not fit. Its size is decided "
+                   "at BUILD time by NROS_XRCE_MAX_SUBSCRIBERS x "
+                   "NROS_XRCE_SUBSCRIBER_RING_DEPTH x NROS_XRCE_BUFFER_SIZE, plus the "
+                   "service server/client slots; it is ONE allocation, so a heap larger "
+                   "than the shortfall does not help. Lower a cap or raise the platform "
+                   "heap (CONFIG_NROS_ZEPHYR_HEAP_SIZE on Zephyr).",
+                   (unsigned long)bytes);
+}
+
 uxrObjectId xrce_alloc_entity_id(xrce_session_state_t* st, uint8_t type) {
     uint16_t id = st->next_entity_id++;
     return uxr_object_id(id, type);
 }
 
 rmw_ret_t xrce_confirm_entities(xrce_session_state_t* st, const uint16_t* requests,
-                                     uint8_t* statuses, size_t count) {
+                                uint8_t* statuses, size_t count) {
     bool ok = uxr_run_session_until_all_status(&st->session, XRCE_ENTITY_CREATION_TIMEOUT_MS,
                                                requests, statuses, count);
     if (!ok) {
@@ -341,8 +391,8 @@ static const char* locator_serial_path(const char* locator) {
 }
 
 rmw_ret_t xrce_session_create(const char* locator, uint8_t mode, uint32_t domain_id,
-                                 const char* node_name,
-                                 const rmw_session_options_t* options, rmw_session_t* out) {
+                              const char* node_name, const rmw_session_options_t* options,
+                              rmw_session_t* out) {
     /* XRCE has no discovery to restrict and no enclave. */
     (void)mode;
     if (out == NULL || node_name == NULL) {
@@ -361,8 +411,13 @@ rmw_ret_t xrce_session_create(const char* locator, uint8_t mode, uint32_t domain
         return NROS_RMW_RET_ERROR;
     }
 
-    xrce_session_state_t* st = (xrce_session_state_t*)nros_xrce_calloc(1, sizeof(xrce_session_state_t));
+    xrce_session_state_t* st =
+        (xrce_session_state_t*)nros_xrce_calloc(1, sizeof(xrce_session_state_t));
     if (st == NULL) {
+        /* issue 1033 — say the SIZE. This is the request that dominated the
+         * struct and it is the one an oversized cap kills; a bare BAD_ALLOC
+         * names neither the number nor the knobs behind it. */
+        xrce_report_session_alloc_failed(sizeof(xrce_session_state_t));
         return NROS_RMW_RET_BAD_ALLOC;
     }
     st->next_entity_id = 2; /* id 1 reserved for the participant */
@@ -426,8 +481,7 @@ rmw_ret_t xrce_session_create(const char* locator, uint8_t mode, uint32_t domain
          * cannot express NULL through a string-literal macro). Treat both the
          * same: fall back to the local agent host, with the port defaulting
          * to XRCE_DEFAULT_AGENT_PORT just below. */
-        const char* addr_locator =
-            (locator != NULL && locator[0] != '\0') ? locator : "127.0.0.1";
+        const char* addr_locator = (locator != NULL && locator[0] != '\0') ? locator : "127.0.0.1";
         (void)locator_strip_udp_prefix(&addr_locator);
 
         char host[64];

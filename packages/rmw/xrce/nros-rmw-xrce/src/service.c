@@ -121,7 +121,14 @@ rmw_ret_t xrce_service_create(const rmw_node_t* node,
         }
     }
     if (slot == NULL) {
-        return NROS_RMW_RET_ERROR;
+        /* issue 1033 — see subscriber.c. This cap derives from
+         * NROS_DERIVED_MAX_QUERYABLES, which is 0 on an image that declared no
+         * served endpoint, so "the image was built with 0" is the common case
+         * here and it must not read as an internal error. */
+        xrce_report_capacity_exhausted("service server", service_name,
+                                       (unsigned)XRCE_MAX_SERVICE_SERVERS,
+                                       "NROS_XRCE_MAX_SERVICE_SERVERS");
+        return NROS_RMW_RET_INVALID_CONFIG;
     }
 
     xrce_service_server_state* ss =
@@ -566,7 +573,14 @@ rmw_ret_t xrce_client_create(const rmw_node_t* node, const rmw_service_type_supp
         }
     }
     if (slot == NULL) {
-        return NROS_RMW_RET_ERROR;
+        /* issue 1033 — see subscriber.c. Service CLIENTS are the one cap of the
+         * three that is still STATED rather than derived (no audited aggregate
+         * counts them, and the raw count would under-size an action client), so
+         * the remedy named here is the only one there is. */
+        xrce_report_capacity_exhausted("service client", service_name,
+                                       (unsigned)XRCE_MAX_SERVICE_CLIENTS,
+                                       "NROS_XRCE_MAX_SERVICE_CLIENTS");
+        return NROS_RMW_RET_INVALID_CONFIG;
     }
 
     xrce_service_client_state* cs =
@@ -654,7 +668,8 @@ rmw_ret_t xrce_client_destroy(rmw_client_t* client) {
     if (!xrce_session_is_closed(st)) {
         /* Phase 376 W5 — see xrce_publisher_destroy: fire-and-forget by design,
          * so a buffering failure is the only verdict this frame can have. */
-        uint16_t req = uxr_buffer_delete_entity(&st->session, st->output_reliable, cs->requester_oid);
+        uint16_t req =
+            uxr_buffer_delete_entity(&st->session, st->output_reliable, cs->requester_oid);
         (void)uxr_run_session_time(&st->session, 0);
         ret = req == UXR_INVALID_REQUEST_ID ? NROS_RMW_RET_ERROR : NROS_RMW_RET_OK;
     }

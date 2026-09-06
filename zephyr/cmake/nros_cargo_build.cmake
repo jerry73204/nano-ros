@@ -710,6 +710,29 @@ function(nros_resolve_knobs)
             "entity inventory" "${CMAKE_BINARY_DIR}/nros/entity_inventory.cmake")
         _nros_resolve_knob(NROS_XRCE_MAX_SERVICE_CLIENTS
             "${CONFIG_NROS_XRCE_MAX_SERVICE_CLIENTS}")
+        # issue 1033 — the slot COUNT above is half the arithmetic; this is the
+        # other half. A slot is RING_DEPTH x BUFFER_SIZE, and BUFFER_SIZE was
+        # forwarded while RING_DEPTH was not, so the 32 in `32 x 1024` was the
+        # one factor of `subscriber_slots` no Zephyr image could touch.
+        #
+        # `nros-rmw-xrce-cffi/build.rs` has read this knob since phase-207 and
+        # the book documented it with a default and a minimum, which is what
+        # made it look live. It was not: this resolver decides what reaches the
+        # cargo command (`NROS_RESOLVED_KNOBS` -> `_nros_knob_env`), a knob it
+        # never resolves reaches no build script, and a shell export does not
+        # survive the curated environment. Issue 0460's class, in the direction
+        # `check-kconfig-knob-forwarding` does not look: that gate asks whether
+        # every FORWARDED knob has a reader, never whether every READ knob is
+        # forwarded.
+        #
+        # NOT on the derivable ladder, deliberately. The count is a fact about
+        # the image ("how many subscriptions does it declare"); the depth is a
+        # policy about bursts ("how many samples must survive one
+        # `uxr_run_session_time` batch"), which no inventory knows. Default 32
+        # is what every Zephyr XRCE image has always compiled, so this makes the
+        # knob reachable without moving any image.
+        _nros_resolve_knob(NROS_XRCE_SUBSCRIBER_RING_DEPTH
+            "${CONFIG_NROS_XRCE_SUBSCRIBER_RING_DEPTH}")
         _nros_resolve_knob(NROS_XRCE_BUFFER_SIZE "${CONFIG_NROS_XRCE_BUFFER_SIZE}")
         _nros_resolve_knob(NROS_XRCE_STREAM_HISTORY
             "${CONFIG_NROS_XRCE_STREAM_HISTORY}")

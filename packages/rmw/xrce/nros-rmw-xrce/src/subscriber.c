@@ -102,7 +102,11 @@ xrce_subscription_create(const rmw_node_t* node, const rmw_message_type_support_
         }
     }
     if (slot == NULL) {
-        return NROS_RMW_RET_ERROR;
+        /* issue 1033 — LOUD, and a code that says "rebuild", not the generic
+         * one. See `xrce_report_capacity_exhausted` in internal.h. */
+        xrce_report_capacity_exhausted("subscriber", topic_name, (unsigned)XRCE_MAX_SUBSCRIBERS,
+                                       "NROS_XRCE_MAX_SUBSCRIBERS");
+        return NROS_RMW_RET_INVALID_CONFIG;
     }
 
     xrce_subscriber_state* ss =
@@ -211,7 +215,8 @@ rmw_ret_t xrce_subscription_destroy(rmw_subscription_t* subscriber) {
          * agent acks), so the only failure this frame can see is a request that
          * would not BUFFER. That is worth reporting; the agent's own verdict is
          * not available at any price this path is willing to pay. */
-        uint16_t req = uxr_buffer_delete_entity(&st->session, st->output_reliable, ss->datareader_oid);
+        uint16_t req =
+            uxr_buffer_delete_entity(&st->session, st->output_reliable, ss->datareader_oid);
         (void)uxr_run_session_time(&st->session, 0);
         ret = req == UXR_INVALID_REQUEST_ID ? NROS_RMW_RET_ERROR : NROS_RMW_RET_OK;
     }
