@@ -1,7 +1,7 @@
 //! The target-concrete, language-neutral IR (RFC-0068 Stage 2 output).
 //!
 //! `lower()` takes a [`ResolvedMessage`], the capacity [`CapacityResolver`]
-//! (CodegenConfig) and a [`TargetProfile`], and computes the per-field facts a
+//! (CodegenConfig), and computes the per-field facts a
 //! renderer must not re-derive: storage decision, plainness, alignment, the CDR
 //! op, and the field order. Language spelling is NOT here — a template maps the
 //! neutral facts to `u32`/`uint32_t`/`write_u32`/… (RFC-0068 Stage 3).
@@ -11,40 +11,14 @@ use rosidl_resolve::ResolvedMessage;
 
 use crate::config::{CapacityResolver, FieldKind, FieldStorage, StorageMode};
 
-/// A build target's layout parameters. CDR scalar sizes are wire-fixed and do
-/// not vary by target; what varies is pointer width and how a `repr(C)` enum is
-/// sized (ARM EABI short-enums pack an enum to 1 byte where x86_64 uses 4 —
-/// project memory / RFC-0054). Carried so a layout fact is computed for the
-/// target being built, never assumed host-64-bit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetProfile {
-    pub name: String,
-    /// Pointer width in bytes (4 or 8).
-    pub ptr_width: usize,
-    /// `repr(C)` enum width in bytes (1 under short-enums, else 4).
-    pub enum_width: usize,
-}
-
-impl TargetProfile {
-    /// The host development target (x86_64 / aarch64 hosted): 8-byte pointers,
-    /// 4-byte enums.
-    pub fn host() -> Self {
-        Self {
-            name: "host".into(),
-            ptr_width: 8,
-            enum_width: 4,
-        }
-    }
-
-    /// An ARM EABI bare-metal target: 4-byte pointers, 1-byte short-enums.
-    pub fn arm_eabi() -> Self {
-        Self {
-            name: "arm-eabi".into(),
-            ptr_width: 4,
-            enum_width: 1,
-        }
-    }
-}
+/// Stand-in alignment for a nested struct field.
+///
+/// phase-432 W1.1 — this used to be `TargetProfile::ptr_width`, which is why
+/// that profile read as target-critical. It is not: `align` is consumed only
+/// to decide `plain`, and a nested field is never plain, so no value here can
+/// change an outcome. Written down as a constant so the next reader does not
+/// have to re-derive that.
+const NESTED_ALIGN_STANDIN: usize = 8;
 
 /// Neutral CDR read/write op for a scalar. A renderer maps this to its own
 /// method name (`write_u32` / `z_serialize_uint32` / …) — the op itself is
@@ -211,19 +185,18 @@ pub struct LoweredType {
     /// POD-blit eligible: every field plain AND all fields share one alignment
     /// (else `repr(C)` inserts inter-field padding and the blit is unsound).
     pub plain: bool,
-    /// The target this was lowered for.
-    pub target: TargetProfile,
 }
 
-/// Lower a resolved message for `target` under the capacity `config`.
-pub fn lower(
-    resolved: &ResolvedMessage,
-    config: &CapacityResolver,
-    target: &TargetProfile,
-) -> LoweredType {
+/// Lower a resolved message under the capacity `config`.
+///
+/// Target-agnostic: nothing here depends on pointer width or enum width, and
+/// phase-432 W1.1 removed the `TargetProfile` that suggested otherwise. Layout
+/// is the target compiler's to decide; where two languages must AGREE on a
+/// representation, the generated source pins it (RFC-0091 §5).
+pub fn lower(resolved: &ResolvedMessage, config: &CapacityResolver) -> LoweredType {
     // `pkg/msg/Name` → (pkg, Name) for the config lookup keys.
     let (package, message) = split_type_name(&resolved.type_name);
-    let fields = lower_fields(package, message, &resolved.parsed.fields, config, target);
+    let fields = lower_fields(package, message, &resolved.parsed.fields, config);
 
     let align = fields.iter().map(|f| f.align).max().unwrap_or(1).max(1);
     // Plain iff every field is plain AND all fields share one alignment (uniform
@@ -240,7 +213,6 @@ pub fn lower(
         fields,
         align,
         plain,
-        target: target.clone(),
     }
 }
 
@@ -252,11 +224,10 @@ pub fn lower_fields(
     message: &str,
     fields: &[rosidl_parser::ast::Field],
     config: &CapacityResolver,
-    target: &TargetProfile,
 ) -> Vec<LoweredField> {
     fields
         .iter()
-        .map(|f| lower_field(&f.name, &f.field_type, package, message, config, target))
+        .map(|f| lower_field(&f.name, &f.field_type, package, message, config))
         .collect()
 }
 
@@ -266,7 +237,6 @@ fn lower_field(
     package: &str,
     message: &str,
     config: &CapacityResolver,
-    target: &TargetProfile,
 ) -> LoweredField {
     let (shape, storage, cdr_op, align, plain) = match ft {
         FieldType::Primitive(p) => {
@@ -296,7 +266,7 @@ fn lower_field(
             false,
         ),
         FieldType::Array { element_type, size } => {
-            let (op, elem_align, elem_plain) = element_facts(element_type, target);
+            let (op, elem_align, elem_plain) = element_facts(element_type);
             (
                 FieldShape::Array { len: *size },
                 LoweredStorage::Inline,
@@ -307,7 +277,7 @@ fn lower_field(
             )
         }
         FieldType::Sequence { element_type } => {
-            let (op, elem_align, _) = element_facts(element_type, target);
+            let (op, elem_align, _) = element_facts(element_type);
             let s = config.resolve(package, message, name, FieldKind::Sequence);
             let storage = match s.mode {
                 StorageMode::Inline => LoweredStorage::Bounded { cap: s.cap },
@@ -320,7 +290,7 @@ fn lower_field(
             element_type,
             max_size,
         } => {
-            let (op, elem_align, _) = element_facts(element_type, target);
+            let (op, elem_align, _) = element_facts(element_type);
             (
                 FieldShape::Sequence,
                 LoweredStorage::Bounded { cap: *max_size },
@@ -333,10 +303,13 @@ fn lower_field(
             FieldShape::Nested,
             LoweredStorage::Inline,
             None,
-            // A nested struct's alignment is unknown without its own lowering;
-            // use pointer width as a conservative stand-in (it never makes a
-            // plain struct — nested fields set plain=false).
-            target.ptr_width,
+            // A nested struct's alignment is unknown without its own
+            // lowering, so this is a conservative stand-in — and its VALUE
+            // cannot matter: `plain` is false for every nested field (the
+            // `false` below), and `align` is only ever read to decide
+            // plainness. It was `TargetProfile::ptr_width` until phase-432
+            // W1.1, which is the whole reason that profile looked load-bearing.
+            NESTED_ALIGN_STANDIN,
             false,
         ),
     };
@@ -354,7 +327,7 @@ fn lower_field(
 
 /// Facts about an array/sequence element: its CDR op (None if nested), its
 /// alignment, and whether it is plain.
-fn element_facts(elem: &FieldType, target: &TargetProfile) -> (Option<CdrOp>, usize, bool) {
+fn element_facts(elem: &FieldType) -> (Option<CdrOp>, usize, bool) {
     match elem {
         FieldType::Primitive(p) => {
             let op = CdrOp::from_primitive(*p);
@@ -364,11 +337,11 @@ fn element_facts(elem: &FieldType, target: &TargetProfile) -> (Option<CdrOp>, us
         | FieldType::WString
         | FieldType::BoundedString(_)
         | FieldType::BoundedWString(_) => (Some(CdrOp::String), 4, false),
-        FieldType::NamespacedType { .. } => (None, target.ptr_width, false),
+        FieldType::NamespacedType { .. } => (None, NESTED_ALIGN_STANDIN, false),
         // Nested arrays/sequences of arrays are not a ROS .msg shape.
         FieldType::Array { element_type, .. }
         | FieldType::Sequence { element_type }
-        | FieldType::BoundedSequence { element_type, .. } => element_facts(element_type, target),
+        | FieldType::BoundedSequence { element_type, .. } => element_facts(element_type),
     }
 }
 
@@ -403,7 +376,7 @@ string<=8    str_bounded
 ";
         let msg = parse_message(src).unwrap();
         let r = ResolvedMessage::resolve("shapes_msgs/msg/Shapes", &msg, no_deps).unwrap();
-        lower(&r, &CapacityResolver::empty(), &TargetProfile::host())
+        lower(&r, &CapacityResolver::empty())
     }
 
     fn field<'a>(t: &'a LoweredType, name: &str) -> &'a LoweredField {
@@ -460,12 +433,21 @@ string<=8    str_bounded
         );
     }
 
+    /// phase-432 W1.1 — the negative control for deleting `TargetProfile`.
+    ///
+    /// This replaces `same_resolved_message_lowers_differently_per_target`,
+    /// which asserted that a nested field's `align` was 8 on host and 4 on
+    /// arm-eabi. That was true, and it was the reason the profile READ as
+    /// target-critical — but the same test also asserted `!plain` for both,
+    /// which is the fact that made the difference unobservable: `align` is
+    /// consumed only to decide plainness, and a nested field is never plain.
+    ///
+    /// So the invariant worth holding is not "align tracks the target" but
+    /// "align cannot change an outcome here". If a future change makes a
+    /// nested field plain, or makes `align` reachable by anything else, this
+    /// fails and the deletion has to be revisited.
     #[test]
-    fn same_resolved_message_lowers_differently_per_target() {
-        // "hash once, lower per target" (RFC-0068): one ResolvedMessage, two
-        // TargetProfiles. A nested field's payload alignment follows the
-        // target's pointer width — 8 on host, 4 on arm-eabi — while the hash
-        // (a Resolve fact) is identical across both lowerings.
+    fn a_nested_field_is_never_plain_so_its_align_cannot_matter() {
         let inner = parse_message("int32 a\n").unwrap();
         let outer = parse_message("test_msgs/Inner child\nint32 tag\n").unwrap();
         let resolve = |fqn: &str| -> Option<rosidl_parser::Message> {
@@ -476,17 +458,15 @@ string<=8    str_bounded
             }
         };
         let r = ResolvedMessage::resolve("test_msgs/msg/Outer", &outer, resolve).unwrap();
+        let lowered = lower(&r, &CapacityResolver::empty());
 
-        let host = lower(&r, &CapacityResolver::empty(), &TargetProfile::host());
-        let arm = lower(&r, &CapacityResolver::empty(), &TargetProfile::arm_eabi());
-
-        // Hash is a Resolve fact — same for both targets.
-        assert_eq!(host.type_hash, arm.type_hash);
-        // The nested field's alignment tracks the target pointer width.
-        assert_eq!(field(&host, "child").align, 8);
-        assert_eq!(field(&arm, "child").align, 4);
-        // Neither is plain (a nested field is never plain).
-        assert!(!host.plain && !arm.plain);
+        // The hash is a Resolve fact and never a lowering one.
+        assert!(!lowered.type_hash.is_empty());
+        // A nested field is not plain, and neither is the struct holding it.
+        assert!(!field(&lowered, "child").plain);
+        assert!(!lowered.plain);
+        // Its align is the stand-in, and nothing downstream reads it.
+        assert_eq!(field(&lowered, "child").align, NESTED_ALIGN_STANDIN);
     }
 
     #[test]
@@ -497,14 +477,14 @@ string<=8    str_bounded
         // A uniform-alignment all-scalar struct IS plain.
         let msg = parse_message("uint32 a\nint32 b\nfloat32 c\n").unwrap();
         let r = ResolvedMessage::resolve("m/msg/AllU32", &msg, no_deps).unwrap();
-        let t = lower(&r, &CapacityResolver::empty(), &TargetProfile::host());
+        let t = lower(&r, &CapacityResolver::empty());
         assert!(t.plain, "all-4-byte-scalar struct should be plain");
         assert_eq!(t.align, 4);
 
         // Mixed alignment (u8 + u32) → padding → not plain.
         let msg2 = parse_message("uint8 a\nuint32 b\n").unwrap();
         let r2 = ResolvedMessage::resolve("m/msg/Mixed", &msg2, no_deps).unwrap();
-        let t2 = lower(&r2, &CapacityResolver::empty(), &TargetProfile::host());
+        let t2 = lower(&r2, &CapacityResolver::empty());
         assert!(!t2.plain, "mixed-alignment struct must not be plain");
     }
 }
