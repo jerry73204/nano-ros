@@ -5,7 +5,7 @@ WHY THIS EXISTS (issue 1103). Auditing the eleven oldest phase docs still in
 `docs/roadmap/` found phase-215 reading 20 of 38 boxes with a `**Status.** OPEN`
 line implying the schema work had not started. It was 27 of 38: seven boxes had
 landed and were never ticked -- the `board.cmake` schema, the
-`nano_ros_use_board()` import, the `west fvp` delegation and the book page were
+`nano_ros_use_board()` import, the FVP run delegation and the book page were
 all in the tree while the doc read as available work. Phase 215 is `P1`, so
 anyone scanning for something to pick up saw seven finished items.
 

@@ -1,0 +1,51 @@
+# Board descriptor for the Arm Fast Models AEMv8-R FVP (Cortex-A AArch64 SMP).
+#
+# RFC-0064 revision 5 / phase-215.K.1. This board used to keep its facts in a
+# private `board.cmake` — 14 `NROS_BOARD_*` cmake variables, the only file of
+# its kind in the tree, beside eleven other boards using this format. It had no
+# descriptor at all: it resolved because `attach_bundle_aliases` read that
+# `board.cmake` and pushed the bundle name onto the `zephyr` descriptor as an
+# ALIAS, so the FVP board BORROWED the native_sim board's descriptor.
+#
+# Eight authored keys here replace those fourteen. What is derived, and by what
+# rule, is documented on `BoardZephyr` in `board_descriptor.rs`.
+
+[[board]]
+names = ["fvp-aemv8r-smp"]
+platform = "zephyr"
+toolchain = "stable"
+platform_feature = "platform-zephyr"
+local_aliases = ["platform-zephyr"]
+link_kind = "none"
+entry_kind = "zephyr-staticlib"
+# The FVP's networking is Zephyr's `ethernet` L2 over the model's virtual NIC,
+# owned by Zephyr rather than by us — so this board makes no netstack choice.
+# An empty list is a statement (phase-351 W4): a deploy naming one is refused.
+supported_netstacks = []
+
+[board.zephyr]
+west_board = "fvp_baser_aemv8r/fvp_aemv8r_aarch64/smp"
+sdk_abi = "aarch64-zephyr-elf"
+default_rmw = "cyclonedds"
+default_transport = "ethernet"
+# STATED because it differs from what Zephyr's own board definition selects.
+# `armfvp` drives Zephyr's stock `cmake/emu/armfvp.cmake`, which spawns
+# `FVP_BaseR_AEMv8R` with UART on stdout, given `ARMFVP_BIN_PATH`.
+runner = "armfvp"
+
+[board.provisioning]
+zephyr_line = "3.7"
+# AArch64 AEMv8-R: zephyr-lang-rust's `_rust_map_target` returns this triple
+# (see scripts/zephyr/aarch64-rust-patch.sh). `requires_rust` is DERIVED from
+# this list being non-empty rather than restated.
+rust_targets = ["aarch64-unknown-none"]
+rmw_source = "cyclonedds-src"
+# Arm Fast Models is licence-gated (Arm Development Studio, or the standalone
+# FVP package). Declared, never downloaded: `[gated.arm-fvp]` in
+# `nros-sdk-index.toml` carries the version and the `ARM_FVP_DIR` env var.
+gated = ["arm-fvp"]
+
+[board.capabilities]
+heap = true
+atomics = true
+threads = true

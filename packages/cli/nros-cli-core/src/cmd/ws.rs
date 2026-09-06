@@ -6908,6 +6908,8 @@ rustflags = [
             capabilities: None,
             cmake: None,
             source: Some("packages/boards/nros-board-nuttx-qemu/nros-board.toml".into()),
+            zephyr: None,
+            provisioning: None,
         }
     }
 

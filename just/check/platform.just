@@ -101,6 +101,23 @@ board-facts-delivery:
 # and a `[package.metadata.nros.board]` table, run `nros board info
 # <name> --check-drift` and fail on any field-by-field drift between the
 # cmake face and the Cargo face. Skips when the in-tree `nros` CLI isn't
+
+# RFC-0064 R5 D4 / phase-375 W7 — a board states its facts ONCE.
+#
+# The two retired faces: a `board.cmake` sidecar (14 `NROS_BOARD_*` variables)
+# and a `[package.metadata.nros.board]` mirror in Cargo.toml. cmake now reads a
+# mechanical projection of `nros-board.toml` instead (`nros board cmake-vars`,
+# written into the build dir per configure), so there is nothing to write twice.
+#
+# A gate rather than a note because the pressure is real: cmake cannot read
+# TOML, and the shortest path from that to a working build is to write the
+# values again in a language cmake speaks. That is how the first face appeared,
+# and its drift audit then examined zero boards for two independent reasons
+# while reporting OK.
+[private]
+board-descriptor-single-source:
+    @python3 scripts/check-board-descriptor-single-source.py
+
 # built (the packages/cli phase215_f integration test still covers it).
 [private]
 board-manifest-drift:

@@ -289,6 +289,24 @@ pub struct BoardDescriptor {
     /// toolchain file — their preset carries only `nano_ros_ROOT`.
     #[serde(default)]
     pub cmake: Option<BoardCmake>,
+    /// `[board.zephyr]` — what a Zephyr build needs to know about this board.
+    ///
+    /// RFC-0064 R5 D3. Before this block the same facts had two homes and
+    /// neither was the descriptor: `fvp-aemv8r-smp` kept them in a private
+    /// `board.cmake` (14 `NROS_BOARD_*` variables), and `qemu_cortex_a53` kept
+    /// them nowhere at all — an inline `board = "…"` string in
+    /// `examples/fixtures.toml` plus a `.conf` copied into every example leaf
+    /// that wanted it.
+    #[serde(default)]
+    pub zephyr: Option<BoardZephyr>,
+    /// `[board.provisioning]` — what `nros setup board` must fetch first.
+    ///
+    /// RFC-0064 R5 D3. Only meaningful for a board a downstream consumer
+    /// provisions into its OWN Zephyr workspace, which is why it is separate
+    /// from `[board.zephyr]`: the build facts are needed by every consumer, the
+    /// provisioning facts only by one that does not inherit nano-ros's tree.
+    #[serde(default)]
+    pub provisioning: Option<BoardProvisioning>,
     /// phase-341 W2 — the `nros-board.toml` this descriptor was read from,
     /// workspace-relative. Set by [`BoardCatalog::load`], `None` for
     /// in-memory descriptors. Recorded rather than derived from
@@ -309,6 +327,76 @@ pub struct BoardDescriptor {
     /// is real and someone else owns it"; omitting it would have said "typo".
     #[serde(default)]
     pub priority_plan: Option<toml::Value>,
+}
+
+/// `[board.zephyr]` — the Zephyr facts, and only the ones no convention gives.
+///
+/// RFC-0064 R5 D3 + D6. What is DERIVED and therefore absent here:
+///
+/// * `prj.conf` — the file beside the descriptor, if it exists.
+/// * `boards/<west_board with `/` and `@` replaced by `_`>.{conf,overlay}` —
+///   the per-board Kconfig fragment and DTS overlay. `board.cmake` stated this
+///   rule in a comment and then hand-wrote both paths anyway.
+/// * `zephyr-rust-support/` — the Kconfig module that enables `RUST_SUPPORTED`
+///   for this board's arch. Present-if-exists, and its whole body is
+///   `default y if BOARD_<UPPER(first segment of west_board)>`, so
+///   `nros board cmake-vars` GENERATES it rather than a board author writing
+///   three lines of Kconfig per board.
+/// * `requires_rust` — `!rust_targets.is_empty()`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BoardZephyr {
+    /// Zephyr `BOARD` string, hwv2 `<board>/<soc>/<variant>` form.
+    ///
+    /// The one irreducible fact. Note it is also what `names` was being used to
+    /// smuggle: the `zephyr` descriptor declares
+    /// `names = ["zephyr", "native_sim/native/64"]`, a real name beside a
+    /// Zephyr id, because there was nowhere else to put the second one.
+    pub west_board: String,
+    /// Zephyr-SDK toolchain ABI target (`aarch64-zephyr-elf`). `None` for a
+    /// board built with the SDK's default for its arch.
+    #[serde(default)]
+    pub sdk_abi: Option<String>,
+    /// Default RMW backend. A consumer overrides with `-DNANO_ROS_RMW=<rmw>`.
+    #[serde(default)]
+    pub default_rmw: Option<String>,
+    /// Default transport (`ethernet`, `serial`, …).
+    #[serde(default)]
+    pub default_transport: Option<String>,
+    /// West runner, stated ONLY when it differs from what Zephyr's own board
+    /// definition already selects.
+    ///
+    /// `armfvp` is the case that needs it. `qemu` does not: Zephyr's
+    /// `qemu_cortex_a53` board already declares its emulator, and restating it
+    /// here would be a second spelling of a fact Zephyr owns.
+    #[serde(default)]
+    pub runner: Option<String>,
+}
+
+/// `[board.provisioning]` — what a downstream consumer's Zephyr tree needs.
+///
+/// RFC-0064 R5 D3. Drives `nros setup board <name> --zephyr-workspace <dir>`.
+/// An `import:false` consumer does not inherit nano-ros's toolchain
+/// provisioning, so the board package is the single source for what its tree
+/// must gain before it can build.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BoardProvisioning {
+    /// Zephyr support line — selects `scripts/zephyr/patches/<line>.sh`.
+    #[serde(default)]
+    pub zephyr_line: Option<String>,
+    /// rustup target triples the board's Zephyr build compiles for. Empty
+    /// means the board needs no Rust, which is also how `requires_rust` is
+    /// derived — one fact, stated once.
+    #[serde(default)]
+    pub rust_targets: Vec<String>,
+    /// `nros-sdk-index.toml` `[source.*]` name for the board's RMW source tree.
+    #[serde(default)]
+    pub rmw_source: Option<String>,
+    /// `nros-sdk-index.toml` `[gated.*]` packages this board needs. Licence-
+    /// gated, so they are declared and never downloaded.
+    #[serde(default)]
+    pub gated: Vec<String>,
 }
 
 /// `[board.cmake]` — CMake toolchain facts for the ament-shape preset flow.
@@ -348,6 +436,25 @@ pub enum NetstackError {
 }
 
 impl BoardDescriptor {
+    /// Does this board answer to `key`?
+    ///
+    /// Its declared `names`, plus its Zephyr board id when it has one. The
+    /// second is a DERIVATION, not a second place to write a name: a Zephyr
+    /// build is configured with `BOARD=<id>`, so an id has to resolve, and
+    /// before RFC-0064 R5 the id was smuggled into `names` instead — the
+    /// `zephyr` descriptor still reads
+    /// `names = ["zephyr", "native_sim/native/64"]`, one real name beside a
+    /// board id, because there was nowhere else to put the second.
+    ///
+    /// It also replaces what `attach_bundle_aliases` used to do by reading a
+    /// bundle's `board.cmake` and pushing its `NROS_BOARD_ZEPHYR_ID` onto
+    /// ANOTHER board's descriptor as an alias. That file is gone; this is the
+    /// same capability, taken from the board's own descriptor.
+    pub fn answers_to(&self, key: &str) -> bool {
+        self.names.iter().any(|n| n == key)
+            || self.zephyr.as_ref().is_some_and(|z| z.west_board == key)
+    }
+
     /// Board-crate path relative to the workspace root, applying the
     /// `packages/boards/<board_crate>` default.
     pub fn crate_path_rel(&self) -> Option<String> {
@@ -551,12 +658,7 @@ impl BoardCatalog {
             // `NROS_BOARD_TOML` consumers keep working unchanged.
             Self::load_root(root, None, &mut descriptors)?;
         }
-        let mut catalog = Self { descriptors };
-        catalog.attach_bundle_aliases(&boards_dir);
-        for root in extra_roots {
-            catalog.attach_bundle_aliases(root);
-        }
-        Ok(catalog)
+        Ok(Self { descriptors })
     }
 
     /// [`Self::load`] plus board descriptors carried by the USER's own
@@ -794,61 +896,7 @@ impl BoardCatalog {
     /// existing descriptor already claims that name and exactly ONE descriptor
     /// matches the family, so a hand-authored claim always wins and an
     /// ambiguous family attaches nothing rather than guessing.
-    fn attach_bundle_aliases(&mut self, boards_dir: &Path) {
-        let Ok(entries) = std::fs::read_dir(boards_dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let family_dir = entry.path();
-            let Some(family) = family_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_prefix("nros-board-"))
-                .map(String::from)
-            else {
-                continue;
-            };
-            let Ok(bundles) = std::fs::read_dir(family_dir.join("boards")) else {
-                continue;
-            };
-            for bundle in bundles.flatten() {
-                let board_cmake = bundle.path().join("board.cmake");
-                if !board_cmake.is_file() {
-                    continue;
-                }
-                let mut aliases: Vec<String> = Vec::new();
-                if let Some(name) = bundle.path().file_name().and_then(|n| n.to_str()) {
-                    aliases.push(name.to_string());
-                }
-                if let Ok(raw) = std::fs::read_to_string(&board_cmake)
-                    && let Some(id) = crate::orchestration::board_metadata::parse_board_cmake(&raw)
-                        .get("NROS_BOARD_ZEPHYR_ID")
-                {
-                    aliases.push(id.clone());
-                }
-                for alias in aliases {
-                    if self
-                        .descriptors
-                        .iter()
-                        .any(|d| d.names.iter().any(|n| n == &alias))
-                    {
-                        continue;
-                    }
-                    let mut family_matches = self
-                        .descriptors
-                        .iter_mut()
-                        .filter(|d| d.platform.kebab() == family);
-                    let (Some(target), None) = (family_matches.next(), family_matches.next())
-                    else {
-                        continue;
-                    };
-                    target.names.push(alias);
-                }
-            }
-        }
-    }
 
-    /// Build a catalog from already-parsed descriptors (tests / in-memory).
     pub fn from_descriptors(descriptors: Vec<BoardDescriptor>) -> Self {
         Self { descriptors }
     }
@@ -868,7 +916,7 @@ impl BoardCatalog {
         let named: Vec<&BoardDescriptor> = self
             .descriptors
             .iter()
-            .filter(|d| d.names.iter().any(|n| n == board))
+            .filter(|d| d.answers_to(board))
             .collect();
         if !named.is_empty() {
             // Prefer a target-qualified match, then the unconstrained one.
@@ -918,7 +966,7 @@ impl BoardCatalog {
         let by_name: Vec<&BoardDescriptor> = self
             .descriptors
             .iter()
-            .filter(|d| d.names.iter().any(|n| n == deploy))
+            .filter(|d| d.answers_to(deploy))
             .collect();
         match by_name.len() {
             1 => return DeployResolution::Board(by_name[0]),
@@ -1380,7 +1428,7 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
     /// resolve as a deploy token, both by its bundle dir name and by its
     /// Zephyr board id, to its family's descriptor.
     #[test]
-    fn a_conf_bundle_board_resolves_to_its_family_descriptor() {
+    fn a_bundle_board_resolves_to_its_own_descriptor() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
             .nth(3)
@@ -1389,11 +1437,28 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
         let cat = BoardCatalog::load(&root).expect("load real board catalog");
         for token in ["fvp-aemv8r-smp", "fvp_baser_aemv8r/fvp_aemv8r_aarch64/smp"] {
             match cat.resolve_deploy(token) {
-                DeployResolution::Board(d) => assert_eq!(
-                    d.platform,
-                    PlatformKind::Zephyr,
-                    "bundle `{token}` must land on the zephyr family descriptor"
-                ),
+                DeployResolution::Board(d) => {
+                    assert_eq!(d.platform, PlatformKind::Zephyr);
+                    // RFC-0064 R5: it lands on the FVP's OWN descriptor now.
+                    // It used to land on the `zephyr` (native_sim) descriptor,
+                    // because `attach_bundle_aliases` read the bundle's
+                    // `board.cmake` and pushed both these tokens onto it as
+                    // aliases -- so the FVP board had no descriptor and
+                    // borrowed one, and every fact about it that the borrowed
+                    // descriptor also stated was simply the wrong board's.
+                    assert!(
+                        d.names.iter().any(|n| n == "fvp-aemv8r-smp"),
+                        "`{token}` landed on {:?}, not the FVP board",
+                        d.names
+                    );
+                    // And the Zephyr id resolves because the descriptor DECLARES
+                    // it in `[board.zephyr] west_board`, not because a name list
+                    // restates it.
+                    assert_eq!(
+                        d.zephyr.as_ref().map(|z| z.west_board.as_str()),
+                        Some("fvp_baser_aemv8r/fvp_aemv8r_aarch64/smp")
+                    );
+                }
                 other => panic!("bundle `{token}` did not resolve: {other:?}"),
             }
         }
@@ -1652,6 +1717,8 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             capabilities: None,
             cmake: None,
             source: None,
+            zephyr: None,
+            provisioning: None,
         };
         let rendered = descriptor.cargo_config_rendered(Path::new("/ws")).unwrap();
         assert_eq!(rendered, "inc = \"/ws/third-party/x\"");
@@ -1875,6 +1942,8 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             capabilities: None,
             cmake: None,
             source: None,
+            zephyr: None,
+            provisioning: None,
         });
         let cat = BoardCatalog::from_descriptors(boards);
         let d = cat

@@ -67,51 +67,35 @@ function(nano_ros_use_board NAME)
     # consumer board no longer has to be copied into the checkout. Board keys
     # stay GLOBAL — a name found under more than one root is a fatal
     # ambiguity, never shadowed by search order.
-    set(_board_roots "${NROS_REPO_DIR}/packages/boards")
-    set(_extra_raw "${NROS_EXTRA_BOARD_PATH}")
-    if(_extra_raw STREQUAL "" AND DEFINED ENV{NROS_EXTRA_BOARD_PATH})
-        set(_extra_raw "$ENV{NROS_EXTRA_BOARD_PATH}")
-    endif()
-    if(NOT _extra_raw STREQUAL "")
-        string(REPLACE ":" ";" _extra_list "${_extra_raw}")
-        foreach(_extra IN LISTS _extra_list)
-            if(NOT _extra STREQUAL "" AND IS_DIRECTORY "${_extra}")
-                list(APPEND _board_roots "${_extra}")
-            endif()
-        endforeach()
+    # RFC-0064 R5 D4 — the board's cmake variables are a PROJECTION of its
+    # `nros-board.toml`, generated here into the build directory and never
+    # committed. What this replaced was a second AUTHORED file per board
+    # (`board.cmake`, 14 `NROS_BOARD_*` variables) whose agreement with the
+    # descriptor was watched by a drift gate that checked zero boards.
+    #
+    # Via the CLI, for `cmake/NanoRosBoardFacts.cmake`'s reason: resolution
+    # needs the board catalog (names, aliases, `$NROS_EXTRA_BOARD_PATH`, a
+    # consumer's own workspace boards), and a second implementation in cmake
+    # would drift from it. The search-root handling this block used to do by
+    # hand now lives there, in one place, for every consumer.
+    include("${NROS_REPO_DIR}/cmake/NanoRosCodegenCore.cmake" OPTIONAL)
+    nros_resolve_cli(_nros_cli CONTEXT "nano_ros_use_board(${NAME})")
+
+    set(_board_vars "${CMAKE_CURRENT_BINARY_DIR}/nros-board-${NAME}.cmake")
+    execute_process(
+        COMMAND "${_nros_cli}" board cmake-vars "${NAME}"
+                --workspace "${NROS_REPO_DIR}"
+                --out "${_board_vars}"
+        RESULT_VARIABLE _rc
+        ERROR_VARIABLE _err
+        OUTPUT_VARIABLE _out)
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR
+            "nano_ros_use_board(${NAME}): could not project the board "
+            "descriptor.\n${_err}${_out}")
     endif()
 
-    set(_board_candidates "")
-    foreach(_root IN LISTS _board_roots)
-        if(EXISTS "${_root}/nros-board-${NAME}/board.cmake")
-            list(APPEND _board_candidates "${_root}/nros-board-${NAME}/board.cmake")
-        endif()
-        file(GLOB _bundle_candidates "${_root}/*/boards/${NAME}/board.cmake")
-        list(APPEND _board_candidates ${_bundle_candidates})
-    endforeach()
-    list(LENGTH _board_candidates _board_count)
-    if(_board_count GREATER 1)
-        message(FATAL_ERROR
-            "nano_ros_use_board(${NAME}): ambiguous — ${NAME} resolves under "
-            "more than one board search root (packages/boards + "
-            "NROS_EXTRA_BOARD_PATH):\n"
-            "  ${_board_candidates}\n"
-            "Board keys are global; rename one.")
-    elseif(_board_count EQUAL 1)
-        list(GET _board_candidates 0 _board_cmake)
-        get_filename_component(_board_dir "${_board_cmake}" DIRECTORY)
-    else()
-        message(FATAL_ERROR
-            "nano_ros_use_board(${NAME}): no board.cmake for board ${NAME}.\n"
-            "Looked in these roots for a board crate "
-            "`nros-board-${NAME}/board.cmake` and a conf bundle "
-            "`*/boards/${NAME}/board.cmake`:\n"
-            "  ${_board_roots}\n"
-            "Check the board name (or set NROS_EXTRA_BOARD_PATH for an "
-            "out-of-tree board), or run `nros board info ${NAME}` "
-            "to validate the manifest.")
-    endif()
-    include("${_board_cmake}")
+    include("${_board_vars}")
 
     # 4. BOARD — set if empty, warn on mismatch. CACHE FORCE so it
     # propagates to find_package(Zephyr)'s board-resolution scope.
@@ -177,7 +161,7 @@ function(nano_ros_use_board NAME)
         set(EXTRA_CONF_FILE "${EXTRA_CONF_FILE}" PARENT_SCOPE)
     endif()
 
-    # 8. Cache the runner so `west fvp run` reads it from CMakeCache.txt
+    # 8. Cache the runner so a launcher can read it from CMakeCache.txt
     # (Phase 215.D).
     set(NROS_BOARD_RUNNER "${NROS_BOARD_RUNNER}" CACHE STRING
         "nano-ros board runner (armfvp / qemu / native / …)" FORCE)

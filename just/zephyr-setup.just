@@ -196,7 +196,7 @@ build-fvp-ws-entry:
 
 # phase-298 W3.1 (issue 0232) — run the realtime-cpp workspace Entry
 # (the canonical ASI-consumption mirror: nano_ros_use_board + MODEL +
-# run_tiers) on the FVP via `west fvp run`. The publish-success markers are
+# run_tiers) on the FVP via stock `west build -t run`. The publish-success markers are
 # `[ctrl] tick=` / `[telem] tick=` (printed only on publish().ok());
 # `fvp_runtime_ws.rs` greps them. NROS_REPO_DIR is exported because
 # `west build -t run` may reconfigure, and the entry's CMakeLists include()s
@@ -209,12 +209,16 @@ run-fvp-ws-entry:
     source scripts/build/lane-skip.sh
     set -e
     # phase-320 W1.d/W1.f — the model itself is license-walled and USER-SUPPLIED,
-    # so its absence is a skip, not a failure. Without this the recipe reached
-    # `west fvp run`, whose `self.die()` (scripts/west_commands/fvp.py) turned
-    # into a hard `set -e` failure — while the book promised these recipes
-    # "skip with a clear hint". Same resolver the runner uses, so there is one
-    # spelling of "where is the FVP", not two.
-    if ! bash scripts/zephyr/resolve-fvp-bin.sh >/dev/null 2>&1; then
+    # so its absence is a skip, not a failure, and the book promises these
+    # recipes "skip with a clear hint".
+    #
+    # RFC-0064 R5 D4 / phase-215.K.4 — the resolver's output is now EXPORTED and
+    # the launch is stock `west build -t run`. It used to be `west fvp run`, a
+    # 117-line west extension whose entire body was: read NROS_BOARD_RUNNER from
+    # CMakeCache, run this same resolver, export ARMFVP_BIN_PATH, and then
+    # `os.execvpe('west', ['west','build','-t','run'])`. Two of those four steps
+    # are below; the other two were the verb's whole reason to exist.
+    if ! _fvp_bin="$(bash scripts/zephyr/resolve-fvp-bin.sh 2>/dev/null)"; then
         nros_lane_skip "ARM FVP model not resolvable (set ARM_FVP_DIR / ARMFVP_BIN_PATH; license-gated, user-supplied)"
     fi
     # issue 0698 follow-up — the Zephyr venv is this lane's, not the session's.
@@ -236,7 +240,8 @@ run-fvp-ws-entry:
     export ZEPHYR_SDK_INSTALL_DIR="$nros_root/scripts/zephyr/sdk/zephyr-sdk-0.16.8"
     export NROS_REPO_DIR="$nros_root"
     export ARMFVP_EXTRA_FLAGS="-C cache_state_modelled=0"
-    west fvp run -d build-fvp-ws-entry
+    export ARMFVP_BIN_PATH="$_fvp_bin"
+    west build -d build-fvp-ws-entry -t run
 
 # phase-298 W3.3 (issue 0232) — the maintainer pre-release gate: build the
 # ws-entry image, then run the `fvp_runtime_ws` assertion test. One command
@@ -308,7 +313,7 @@ build-fvp-board-import:
     echo "Phase 215.G.1 FVP board-import fixture build OK"
 
 # Phase 215.G.1 — run the board-import fixture on the FVP THROUGH the
-# import surface (`west fvp run` reads `NROS_BOARD_RUNNER=armfvp` from
+# import surface (the board's `[board.zephyr] runner` reaches `NROS_BOARD_RUNNER` in
 # the CMakeCache that `nano_ros_use_board()` cached). Same resolver +
 # west delegation as the other `run-fvp-*` recipes; different build dir.
 # The Phase 215.G integration test (`phase215_g_fvp_smoke`) drives this
@@ -320,12 +325,16 @@ run-fvp-board-import:
     source scripts/build/lane-skip.sh
     set -e
     # phase-320 W1.d/W1.f — the model itself is license-walled and USER-SUPPLIED,
-    # so its absence is a skip, not a failure. Without this the recipe reached
-    # `west fvp run`, whose `self.die()` (scripts/west_commands/fvp.py) turned
-    # into a hard `set -e` failure — while the book promised these recipes
-    # "skip with a clear hint". Same resolver the runner uses, so there is one
-    # spelling of "where is the FVP", not two.
-    if ! bash scripts/zephyr/resolve-fvp-bin.sh >/dev/null 2>&1; then
+    # so its absence is a skip, not a failure, and the book promises these
+    # recipes "skip with a clear hint".
+    #
+    # RFC-0064 R5 D4 / phase-215.K.4 — the resolver's output is now EXPORTED and
+    # the launch is stock `west build -t run`. It used to be `west fvp run`, a
+    # 117-line west extension whose entire body was: read NROS_BOARD_RUNNER from
+    # CMakeCache, run this same resolver, export ARMFVP_BIN_PATH, and then
+    # `os.execvpe('west', ['west','build','-t','run'])`. Two of those four steps
+    # are below; the other two were the verb's whole reason to exist.
+    if ! _fvp_bin="$(bash scripts/zephyr/resolve-fvp-bin.sh 2>/dev/null)"; then
         nros_lane_skip "ARM FVP model not resolvable (set ARM_FVP_DIR / ARMFVP_BIN_PATH; license-gated, user-supplied)"
     fi
     # issue 0698 follow-up — the Zephyr venv is this lane's, not the session's.
@@ -345,7 +354,8 @@ run-fvp-board-import:
     cd "$workspace"
     export PATH="$(nros sdk-path make)/bin:$(nros sdk-path ninja)/bin:$PATH"
     export ZEPHYR_SDK_INSTALL_DIR="$nros_root/scripts/zephyr/sdk/zephyr-sdk-0.16.8"
-    west fvp run -d build-fvp-board-import
+    export ARMFVP_BIN_PATH="$_fvp_bin"
+    west build -d build-fvp-board-import -t run
 
 # phase-337 W7.b — the S32Z270-DC RTU0 board left the tree with the other
 # scaffolds: `nros-board-s32z270dc2-r52` had ZERO cargo consumers, its
