@@ -785,7 +785,7 @@
   "rust:Client::notify_on_service_ready": {
     "verdict": "declined",
     "disposition": "refuse-loud",
-    "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport. The event form is `ClientTrait::poll_server_discovery`."
+    "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport. The event form is a `ClientTrait::service_is_ready` check between spins -- phase-428 W13 deleted the asynchronous `start_server_discovery` / `poll_server_discovery` pair (issue 1087): the zenoh backend now keeps a matched-server set fed by liveliness PUT/DELETE, so readiness is a synchronous read, as it is upstream."
   },
   "rust:Client::service_is_ready": {
     "verdict": "rename",
@@ -811,6 +811,10 @@
   "rust:ClientDispatch::call_raw": {
     "verdict": "extension",
     "why": "the generated dispatch path for a raw client call. Machinery `nros::node!` expands into; see issue 0784."
+  },
+  "rust:ClientDispatch::service_is_ready": {
+    "verdict": "extension",
+    "why": "the dispatch-path form of `rust:Client::service_is_ready` for a tick (phase-428 W13): the same three answers, reached through the entity name because a tick holds no client handle. Machinery `nros::node!` expands into; see issue 0784."
   },
   "rust:ClientOptions": {
     "verdict": "divergence",
@@ -839,10 +843,6 @@
     "disposition": "absent",
     "why": "DELETED 2026-09-03 (phase-379 W6 decision 2) -- this was the collapse WITHOUT the exception channel that makes it safe upstream. Its trait default was `true` and only zenoh overrode it, so every cffi-backed image (cyclonedds, XRCE, uORB) answered \"ready\" without asking: `wait_for_service` returned `Ok(true)` immediately, never waiting. Issue 1008. the ours-only half of `rust:Client::service_is_ready`."
   },
-  "rust:ClientTrait::poll_server_discovery": {
-    "verdict": "extension",
-    "why": "advances discovery a step without blocking, so a polling task can wait for a server without giving up its loop. rclrs waits on a future."
-  },
   "rust:ClientTrait::register_waker": {
     "verdict": "extension",
     "why": "see `c:client_set_wake_callback`."
@@ -854,10 +854,6 @@
   "rust:ClientTrait::send_request_raw": {
     "verdict": "divergence",
     "why": "the RMW SEAM, one layer below the user API -- what a backend implements, not what a node calls. rclrs has no equivalent because rcl is its only backend. Exported from `nros::` alongside the user API, which is issue 0784's complaint. The raw form; see the pubsub stage's `c:publish_raw`."
-  },
-  "rust:ClientTrait::start_server_discovery": {
-    "verdict": "extension",
-    "why": "see `rust:ClientTrait::poll_server_discovery`."
   },
   "rust:EmbeddedServiceClient": {
     "verdict": "divergence",

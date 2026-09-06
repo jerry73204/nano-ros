@@ -332,29 +332,69 @@ was never the deletion; it was that nothing else could answer the question.
 
 ### Work
 
-* **W13.a [zenoh]** — the matched set, fed by the existing liveliness
-  subscriber. Bounded (one entry per matched service server), so it fits a
-  fixed arena and needs no new zenoh resource.
-  *Acceptance:* a server that stops and restarts reads unavailable in between;
-  today it reads available forever.
-* **W13.b [zenoh]** — `service_is_ready` reads the set. The
-  `#[cfg(not(feature = "platform-bare-metal"))]` gate on the liveliness
-  subscriber decides bare-metal's answer: if the subscriber cannot run there,
-  bare-metal returns `Err(Unsupported)` and the caller waits, which is honest.
-* **W13.c [cyclone, xrce]** — fill the `service_server_is_available` vtable
-  slot. It EXISTS and both leave it NULL, which is why they answered without
-  asking. Cyclone is cheap: DDS has the cache natively.
-* **W13.d [core]** — delete the pair from the trait and its six call sites,
-  once a–c land. *Acceptance:* `grep -rn "poll_server_discovery"` returns
-  nothing, and a cyclone client's `wait_for_service` answers from the DDS cache
-  rather than timing out.
+* **W13.a [zenoh] — DONE (2026-09-06).** The matched set IS the graph cache
+  (phase-381 / issue 0903): the standing `z_liveliness_declare_subscriber` on
+  `@ros2_lv/<domain>/**` with `history = true`, PUT inserts and DELETE removes.
+  It was already the right structure; what it lacked was a reader on the
+  service path and a start before the first client. `ZenohSession::create_client`
+  now starts it (once per session, idempotent). The set mutation is the pure
+  `zpico_graph_set_apply`, split out of the sample handler like
+  `zpico_entry_at`, and `zpico-sys`'s `graph_set_put_then_delete_round_trips`
+  drives PUT / duplicate PUT / DELETE / absent DELETE / overflow through the
+  real C. Not a per-service arena: the domain-wide cache was resident (64 KiB,
+  `ZPICO_GRAPH_CACHE_SIZE`) in every session already, so the static RAM delta
+  is zero and a second, narrower subscriber would have been a second spelling.
+  *Acceptance met at the set level* (a DELETE removes the entry, so the answer
+  can go back to false); the stop-and-restart of a live server is not observed
+  by any cell yet — the interop client is single-shot.
+* **W13.b [zenoh] — DONE.** `ZenohServiceClient::service_is_ready` walks the
+  cache through the ONE walk, `session::graph_cache_for_each` (shared with the
+  ten graph slots' `for_each_entity`), and matches an `SS` token on
+  `(mangled service name, DDS type name)` — the pair `rmw_zenoh_cpp` keys a
+  service on (`liveliness_utils.cpp`, `Entity::Entity`, humble 0.1.9; the
+  parser is now pinned to a REAL token of each shape in
+  `parse_reads_real_rmw_zenoh_tokens`). `Ok(true)` / `Ok(false)` /
+  `Err(Unsupported)` when the cache is not running OR has dropped tokens. There
+  was no `platform-bare-metal` gate to decide — `Z_FEATURE_LIVELINESS 1` is
+  unconditional in the generated zenoh config on every platform (the gate in
+  `subscriber.rs` is on the publisher-side `LivelinessChanged` poll, not the
+  subscriber); a platform whose C shim stubs the cache gets `Err` from the same
+  `count < 0` check.
+* **W13.c [cyclone, xrce]** — OPEN. Fill the `service_server_is_available`
+  vtable slot. It EXISTS and both leave it NULL, which is why they answered
+  without asking. Cyclone is cheap: DDS has the cache natively. Until it lands,
+  `wait_for_service` on those backends waits out its budget and reports
+  `false` — honest, and slower than the cache could answer.
+* **W13.d [core] — DONE**, ahead of W13.c and deliberately: with a–b in, the
+  pair had no backend left that could answer through it better than
+  `service_is_ready` does, so keeping it for cyclone/XRCE would have kept a
+  "cannot say" spelled two ways. Deleted from `ClientTrait`, the zenoh shim
+  (`server_seen`, `discovery_handle`, `discovery_keyexpr`,
+  `service_server_keyexpr_wildcard`), `ActionClientCore`, and all six wait
+  loops, which are now one shape: spin, ask, `Ok(true)` returns, else wait to
+  the deadline. `SERVER_DISCOVERY_PROBE_TIMEOUT_MS` went with it.
+  *Acceptance:* `grep -rn "poll_server_discovery" packages/` returns nothing
+  (met). "A cyclone client answers from the DDS cache" is W13.c's.
+
+Also in this wave: the native Rust `service-client` example gates its first
+request on a new `TickCtx::service_is_ready_for_name` (rclcpp's
+`while (!wait_for_service(1s)) "service not available, waiting again..."`, one
+check per timer tick, `Err` = call anyway), and the `ZenohServiceRos2Server`
+interop cell starts the client BEFORE the ROS 2 server so it observes both
+halves: the waiting line with no request sent, then the result once the `SS`
+token lands. `services.rs`'s two no-server tests assert the waiting marker on
+this binary. **Unrun** in the landing session (no fixture build); compiled.
+
+Issue 1087 is resolved and archived by this wave; 1008 stays as filed.
 
 ### What already landed on `fix/1087-1088-server-availability`
 
-The optimistic default is `Ok(None)`; the two comments claiming an rclcpp
+Carried into the W13 PR as its first two commits (the branch had no PR): the
+optimistic default is `Ok(None)`; the two comments claiming an rclcpp
 "snapshot semantic" are corrected (there is none —
 `ClientBase::service_is_ready()` calls rcl on every invocation); the zenoh latch
-returns `Err(Unsupported)` instead of a permanent yes. W13 is what closes 1087.
+returns `Err(Unsupported)` instead of a permanent yes. W13 then deleted both
+the default and the latch.
 
 ## W5 — the findings, recorded (2026-09-05)
 
