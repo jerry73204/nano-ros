@@ -43,6 +43,32 @@ fn command_is_guarded(name: &str) -> bool {
     )
 }
 
+/// Does the WORKSPACE check apply to this verb? — issue filed by phase-413 W2.
+///
+/// The staleness check (case 1) asks about the BINARY and applies to every
+/// guarded verb. This one asks "which checkout is my cwd in", and that question
+/// is meaningless for the build-tool verbs: cmake invokes `nros codegen` with
+/// the tool path it was CONFIGURED with (`-D_NANO_ROS_CODEGEN_TOOL`), so the
+/// caller has already answered "which binary", and the cwd is wherever the
+/// build system put its output.
+///
+/// It fired on exactly that. The tier-2 `zephyr` lane builds into a west
+/// workspace which, on the CI runner, sits under a DIFFERENT nano-ros tree from
+/// the one being built — the runner's checkout and the workspace root are two
+/// separate directories, and `NROS_ZEPHYR_WORKSPACE` may point anywhere.
+///
+/// So the refusal read: running `<runner checkout>/packages/cli/target/release/
+/// nros`, checkout `<the west workspace's parent>`. The binary was the runner
+/// checkout's own — correct, freshly built — and the guard refused it because
+/// the cwd walked up into another checkout. A build OUTPUT directory is not a
+/// consumer workspace, and nothing tells the two apart by path alone.
+///
+/// The verbs a USER types in their own workspace keep the check, which is what
+/// phase-431 W1 was for: `sync`, `plan`, `ws`, `setup`.
+fn workspace_check_applies(name: &str) -> bool {
+    !matches!(name, "codegen" | "codegen-system" | "generate-rust")
+}
+
 /// Refuse to run when this binary is older than the sources it was built from,
 /// or when it is a FOREIGN binary being run against a checkout.
 ///
@@ -79,8 +105,10 @@ pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
     // decision is a pure function of two paths and its tests need no
     // `set_current_dir` — a process-global that leaks between parallel tests
     // (issue 1101 is that hazard, one crate over).
-    if let Ok(cwd) = std::env::current_dir() {
-        refuse_if_foreign_to_workspace(&exe, &cwd)?;
+    if workspace_check_applies(command_name) {
+        if let Ok(cwd) = std::env::current_dir() {
+            refuse_if_foreign_to_workspace(&exe, &cwd)?;
+        }
     }
     let Some(root) = checkout_root_of(&exe) else {
         return Ok(());
@@ -218,6 +246,28 @@ pub fn stamp_pair() -> Option<(String, String)> {
 
 #[cfg(test)]
 mod foreign_binary_tests {
+    /// The build-tool verbs are exempt from the WORKSPACE check — the
+    /// regression phase-413 W2 found on the tier-2 lane.
+    ///
+    /// cmake invokes `nros codegen` with the tool it was configured with, and
+    /// the cwd is wherever the build put its output. On the CI runner the
+    /// zephyr west workspace lives under a different nano-ros tree, so the cwd
+    /// walked up into a checkout the binary did not come from and a correct,
+    /// freshly built binary was refused.
+    #[test]
+    fn the_build_tool_verbs_skip_the_workspace_check() {
+        for verb in ["codegen", "codegen-system", "generate-rust"] {
+            assert!(!workspace_check_applies(verb), "{verb} must be exempt");
+            // …but they are still STALENESS-guarded: that question is about the
+            // binary, and is the one that protects a build-time emitter.
+            assert!(command_is_guarded(verb), "{verb} must stay stale-guarded");
+        }
+        // What a user types in their own workspace keeps the check.
+        for verb in ["sync", "plan", "ws", "setup"] {
+            assert!(workspace_check_applies(verb), "{verb} must keep the check");
+        }
+    }
+
     use super::*;
     use std::fs;
 
