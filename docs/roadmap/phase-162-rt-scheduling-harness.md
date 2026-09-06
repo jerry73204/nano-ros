@@ -7,7 +7,23 @@ work; this phase owns the host-side / kernel-side / board-side
 setup that turns the parked acceptance criteria into runnable
 gates.
 
-**Status.** Not Started.
+**Status.** Not Started — re-audited against the tree 2026-09-06.
+
+None of this phase's six new deliverables exist (`rt-harness`,
+`nuttx-sched-sporadic`, `just/rt.just`, the RT chapter, the procurement doc),
+so "Not Started" is accurate for the WORK. Four of its PREMISES had drifted,
+and are corrected in place below rather than left to mislead the next reader:
+
+| premise as written | tree, 2026-09-06 |
+| --- | --- |
+| 162.B.1 adds `CONFIG_SCHED_SPORADIC=y` to the arm defconfig | **already `=y`, in all THREE** — `arm`, `arm-smp`, `riscv` |
+| 162.C.4 lands a number in `wake-latency-cortex-m3/README.md` | that README **does not exist**; the crate has none |
+| 162.C.4 patches `wake_alloc.rs::nros_rmw_runtime_wake_cb` | `wake_alloc.rs` is **gone**; the symbol is `executor/spin.rs:706` |
+| the bench "already produces a P99 histogram" | true, but it had ROTTED into no build lane (issue 0317) and was resurrected by phase-313; it now has a `fixtures.toml` row and builds in the `freertos` group |
+
+The blockers are unchanged and are the reason nothing has moved: a
+`CAP_SYS_NICE`/RT-kernel host, real Cortex-M3 silicon, and a NuttX kernel built
+with sporadic scheduling. Stock CI provides none of them.
 
 **Priority.** P2 — the runtime is shipping today on every
 CI-tested target with the documented "soft-RT only" caveat
@@ -86,7 +102,12 @@ augmented `sched_param`. Verification harness:
 
 Phase 141.D bench crate
 (`packages/testing/nros-bench/wake-latency-cortex-m3/`)
-already produces a P99 histogram via DWT CYCCNT. Phase 162:
+already produces a P99 histogram via DWT CYCCNT — but note its history before
+relying on that sentence: it had rotted into NO build lane and did not compile
+(issue 0317: retired `_start` entry, phase-230 feature drift, a libc-stub
+duplicate symbol), and was resurrected by phase-313. It now carries a
+`fixtures.toml` row and builds in the `freertos` group, so the QEMU flow this
+item calls "the CI fallback" is real again. Phase 162:
 
 1. Procurement-tracking checklist for MPS2-AN385 or
    STM32F4-Discovery dev kit.
@@ -144,7 +165,16 @@ Contents:
 ### 162.B — NuttX SCHED_SPORADIC verification
 
 - [ ] **162.B.1** Add `CONFIG_SCHED_SPORADIC=y` to the
-      `nros-board-nuttx-qemu` arm defconfig.
+      `nros-board-nuttx-qemu` arm defconfig. **NOTHING TO DO — already true in
+      the tree as of 2026-09-06, and wider than this item asked**: set in
+      `arm`, `arm-smp` AND `riscv` defconfigs. Verified, not assumed.
+
+      Left UNTICKED deliberately. The box tracks work this phase performs, and
+      this phase has performed none; the setting arrived from elsewhere. A tick
+      here would also contradict the header (`check-roadmap-claims` R1 catches
+      exactly that, and did). So B is smaller than it reads — the Kconfig half
+      needs nobody, and only the bench (B.2) and the budget assertion (B.3)
+      remain.
 - [ ] **162.B.2** Bench binary in
       `packages/testing/nros-bench/nuttx-sched-sporadic/` that
       runs the same scenario as 162.A.5 against NuttX QEMU.
@@ -166,12 +196,19 @@ Contents:
 - [ ] **162.C.3** Run the bench on real hardware; assert P99
       ≤ 100 µs across all three Phase 141.D scenarios. Closes
       Phase 141 spec-acceptance gate (parked in 141 archive).
-- [ ] **162.C.4** Capture the 10× baseline:
-      patch `wake_alloc.rs::nros_rmw_runtime_wake_cb` to no-op,
-      measure pre-141 P99 on the same hardware, restore. Land
-      the baseline number as a static reference in
-      `wake-latency-cortex-m3/README.md`. Closes Phase 141 10×
-      baseline acceptance.
+- [ ] **162.C.4** Capture the 10× baseline: patch
+      `nros-node/src/executor/spin.rs:706::nros_rmw_runtime_wake_cb` to no-op,
+      measure pre-141 P99 on the same hardware, restore. Land the baseline
+      number as a static reference in a **new**
+      `wake-latency-cortex-m3/README.md`. Closes Phase 141 10× baseline
+      acceptance.
+
+      *Corrected 2026-09-06:* this item named `wake_alloc.rs`, which no longer
+      exists — the symbol moved to `executor/spin.rs` (and there is a second,
+      `nros_rmw_runtime_wake_cb_from_isr` at :916, which a no-op patch must
+      also cover or the ISR path keeps waking). It also said "land the number
+      IN `README.md`" as though editing one; the crate has no README, so C.4
+      creates it.
 
 ### 162.D — PiCAS evaluation (optional / deferred)
 
@@ -210,15 +247,24 @@ acceptance items (Phase 110 line 521-522) land here.
   NuttX SCHED_SPORADIC bench.
 - `book/src/internals/0002-rt-execution-model.md`: chapter.
 - `docs/reference/hardware-procurement.md`: dev-board
-  procurement + flashing checklist.
+  procurement + flashing checklist. (162.C.1 calls this a "new section"; the
+  FILE does not exist, so it is a new file.)
+- `packages/testing/nros-bench/wake-latency-cortex-m3/README.md`: hardware
+  capture path + the 10× baseline number. Listed under *Modified* until
+  2026-09-06; the crate has never had a README.
 - `just/rt.just`: `just rt-test` recipe + capability detection.
 
 ### Modified
 
-- `packages/boards/nros-board-nuttx-qemu/nuttx-config/arm/`: defconfig adds
-  `CONFIG_SCHED_SPORADIC=y`.
-- `packages/testing/nros-bench/wake-latency-cortex-m3/README.md`:
-  hardware capture path, 10× baseline number.
+- ~~`packages/boards/nros-board-nuttx-qemu/nuttx-config/arm/`: defconfig adds
+  `CONFIG_SCHED_SPORADIC=y`.~~ **Done already** (all three defconfigs).
+- `packages/core/nros-node/src/executor/spin.rs`: the 10× baseline needs
+  `nros_rmw_runtime_wake_cb` (:706) AND `..._from_isr` (:916) no-op'd for the
+  measurement, then restored. (This list previously named `wake_alloc.rs`,
+  which no longer exists.)
+
+`wake-latency-cortex-m3/README.md` moved to the NEW list above: the crate has
+no README to modify.
 
 ---
 
