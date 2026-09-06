@@ -403,7 +403,7 @@ fn cmake_summary_to_component_config(summary: &CmakeNodeSummary) -> ComponentCon
         package: summary.package.clone(),
         component: summary.component.clone(),
         class: None,
-        language: summary.language.clone(),
+        language: summary.language,
         linkage: ComponentLinkage::default(),
         metadata: ComponentMetadataConfig {
             source_metadata: format!("metadata/{}.json", summary.component),

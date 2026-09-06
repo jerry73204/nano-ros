@@ -48,24 +48,14 @@ mod golden;
 pub mod metadata;
 mod render;
 
-/// Target language for the emitted TU.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Lang {
-    Rust,
-    Cpp,
-    C,
-}
-
-impl Lang {
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "rust" => Ok(Lang::Rust),
-            "cpp" | "c++" | "cxx" => Ok(Lang::Cpp),
-            "c" => Ok(Lang::C),
-            other => bail!("unknown --lang `{other}` (expected one of: rust, cpp, c)"),
-        }
-    }
-}
+/// The entry emitters' target language.
+///
+/// phase-432 W2.1 — an ALIAS now, not a second declaration. This enum and
+/// `orchestration::ComponentLanguage` were the same three variants with no
+/// relationship between them, so a language added to one was invisible to the
+/// other; issue #1062 is that already shipped. `Lang::parse` moved to
+/// `nros_lang::Language::parse` with it, aliases (`c++`, `cxx`) intact.
+pub type Lang = nros_lang::Language;
 
 /// Resolved plan handed to one of the three emitters.
 #[derive(Clone, Debug, PartialEq, Eq)]

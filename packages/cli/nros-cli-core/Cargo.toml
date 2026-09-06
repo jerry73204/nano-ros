@@ -43,6 +43,7 @@ nros-pkg-index = { path = "../nros-pkg-index" }
 nros-launch-parser = { path = "../nros-launch-parser" }
 thiserror = { workspace = true }
 minijinja = { workspace = true }
+nros-lang = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = "0.10"
