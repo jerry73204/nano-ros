@@ -56,6 +56,14 @@
 #      every reader on every configure, so "cheap and silent when nothing is
 #      armed" is part of the contract.
 #
+#   J. THE PRODUCER RUNS ONCE PER PACKAGE, and the answer must not depend on
+#      how many packages there are. `nros_find_interfaces()` is called from
+#      every leaf that declares an interface dependency, so cases G/H -- which
+#      call it once -- test a shape no image in this tree has. Issue 1119: the
+#      second call settled the date the first had armed and snapshotted the
+#      bytes the first had written, so a two-package image got 2 configures
+#      where it needs 3 and shipped the pass-2 size.
+#
 # PRECONDITIONS ARE HARD FAILURES. This script never prints-and-returns: a green
 # here is read as "the re-configure mechanism works". Skipping belongs in the
 # `just` recipe's check ledger, which is a different claim from "it passed".
@@ -516,8 +524,11 @@ log_header "H. the value the BUILD USES settles, not just the fragment (issue 10
 # after pass 2 and compiles at 1496, the island's 103160-byte overflow, while
 # case G reports 13/13 green. Measured, 2026-09-05.
 
+# `$2` is HOW MANY TIMES the bounds producer runs in one configure, which is
+# case J's whole subject: `nros_find_interfaces()` is called once per package
+# that declares an interface dependency, not once per image. Case H passes 1.
 write_chain_project() {
-    local dir="$1"
+    local dir="$1" calls="${2:-1}"
     mkdir -p "$dir"
     cat > "$dir/CMakeLists.txt" <<EOF
 cmake_minimum_required(VERSION 3.20)
@@ -546,13 +557,24 @@ if("\${_delivered}" STREQUAL "")
 endif()
 
 # ---- STAGE P1: the bounds producer, as \`nros_find_interfaces()\` runs it ------
-nros_reconfigure_snapshot("\${_bounds}" _bounds_before)
-nros_derive_message_bound_knobs(
-    FRAGMENTS "$BOUNDS_FRAG"
-    OUTPUT_FILE "\${_bounds}"
-    ENTITY_INVENTORY "\${_entity}")
-nros_reconfigure_on_change("\${_bounds}" "\${_bounds_before}"
-    LABEL "this image's derived message-bound sizes")
+# Body and ORDER copied from \`nros_find_interfaces()\`: settle both fragments,
+# snapshot the bounds one, derive, arm. Wrapped in a function and called
+# \${calls} times because that verb runs ONCE PER PACKAGE.
+function(probe_find_interfaces)
+    nros_reconfigure_settle("\${_entity}")
+    nros_reconfigure_settle("\${_bounds}")
+    nros_reconfigure_snapshot("\${_bounds}" _bounds_before)
+    nros_derive_message_bound_knobs(
+        FRAGMENTS "$BOUNDS_FRAG"
+        OUTPUT_FILE "\${_bounds}"
+        ENTITY_INVENTORY "\${_entity}")
+    nros_reconfigure_on_change("\${_bounds}" "\${_bounds_before}"
+        LABEL "this image's derived message-bound sizes")
+endfunction()
+
+foreach(_call RANGE 1 $calls)
+    probe_find_interfaces()
+endforeach()
 
 # ---- STAGE P2: the entity producer, as \`nano_ros_entry()\` runs it ------------
 nros_reconfigure_snapshot("\${_entity}" _entity_before)
@@ -577,7 +599,7 @@ run_chain() {
 
 CHAIN_SRC="$TEST_TMPDIR/chain-src"
 CHAIN_BUILD="$TEST_TMPDIR/chain-build"
-write_chain_project "$CHAIN_SRC"
+write_chain_project "$CHAIN_SRC" 1
 NROS_STUB_BODY="$ENTITY_BODY" \
     cmake -G Ninja -S "$CHAIN_SRC" -B "$CHAIN_BUILD" >/dev/null 2>&1
 run_chain "$CHAIN_SRC" "$CHAIN_BUILD" "$ENTITY_BODY"
@@ -692,6 +714,84 @@ else
   build of this chain already spends 2 of NROS_RECONFIGURE_MAX_PASSES, which
   leaves room for exactly one edit."
 fi
+
+log_header "J. a producer called ONCE PER PACKAGE still delivers (issue 1119)"
+
+# Case H drives the chain with ONE bounds producer call per configure. No image
+# in this tree has that shape: `nros_find_interfaces()` runs from every leaf
+# that declares an interface dependency, so a two-package image calls it twice
+# in one configure and a workspace calls it once per node package.
+#
+# MEASURED on the safety island (MR-CANHUBK344, clean build dir, one
+# `west build`) and reproduced by this case exactly:
+#
+#   configures actually run     2      <- should be 3
+#   re-configures armed         3
+#   value the build was sized from  1496, the pass-2 answer
+#
+# Two per-CALL side effects did it, and either alone is enough:
+#
+#   * the SETTLE at the head of the verb cleared the future date the PREVIOUS
+#     call in the same configure had armed, so `build.ninja` came out newer
+#     than the fragment and ninja had nothing stale to re-run cmake for;
+#   * the per-call snapshot took the bytes the PREVIOUS call wrote as its
+#     "before", so a fragment that HAD changed since the readers ran compared
+#     equal, reported itself settled, and cleared the pass counter.
+#
+# On the island that shipped a 70296-byte arena where 46272 is correct: 24 KB
+# on a 320 KB part, and both images boot, which is why nobody saw it.
+#
+# WHAT THIS ASSERTS THAT CASE H CANNOT: the number of configures and the
+# delivered value are invariant in HOW MANY TIMES the producer runs per pass.
+# That is the property, not "three configures" -- three is the chain's depth and
+# case H owns it. Run at 2 and 3 calls, because 1 is case H and the defect is
+# "the second call undoes the first".
+
+for _calls in 2 3; do
+    _j_src="$TEST_TMPDIR/multi$_calls-src"
+    _j_build="$TEST_TMPDIR/multi$_calls-build"
+    write_chain_project "$_j_src" "$_calls"
+    NROS_STUB_BODY="$ENTITY_BODY" \
+        cmake -G Ninja -S "$_j_src" -B "$_j_build" >/dev/null 2>&1
+    run_chain "$_j_src" "$_j_build" "$ENTITY_BODY"
+
+    check
+    if [ "$CHAIN_RC" -ne 0 ]; then
+        fail "the $_calls-package chain build failed (rc=$CHAIN_RC):
+$CHAIN_OUT"
+    elif [ "$CHAIN_DELIVERED" = "880" ] && [ "$CHAIN_RERUNS" -eq 2 ]; then
+        log_success "$_calls producer calls per configure: still 3 configures, still SIZED FROM 880"
+    else
+        fail "with the bounds producer called $_calls times per configure the build was
+  sized from '$CHAIN_DELIVERED' after $((CHAIN_RERUNS + 1)) configure(s); expected 880 after 3.
+
+  That is issue 1119. The pass BASELINE and the ARM must belong to the
+  configure, not to one call of the producer: a later call must not settle a
+  date an earlier one armed, and must not measure itself against what the
+  earlier one wrote. 1496 with 2 configures is the island's measurement.
+$CHAIN_OUT"
+    fi
+
+    # And the extra calls must not cost extra passes of the bound, or an image
+    # with enough leaves exhausts NROS_RECONFIGURE_MAX_PASSES on a CLEAN build
+    # dir and ships the previous answer with a warning.
+    check
+    if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+        fail "$_calls producer calls per configure exhausted the pass bound on a clean build dir:
+$CHAIN_OUT"
+    else
+        log_success "and $_calls calls per configure spent no more of the bound than 1 does"
+    fi
+
+    run_chain "$_j_src" "$_j_build" "$ENTITY_BODY"
+    check
+    if [ "$CHAIN_RERUNS" -eq 0 ] && [ "$CHAIN_DELIVERED" = "880" ]; then
+        log_success "and it reaches the same FIXPOINT -- a second build re-configures 0 times"
+    else
+        fail "no fixpoint at $_calls calls: a second build re-ran cmake $CHAIN_RERUNS time(s), delivered '$CHAIN_DELIVERED':
+$CHAIN_OUT"
+    fi
+done
 
 log_header "Result"
 if [ "$FAILURES" -eq 0 ]; then

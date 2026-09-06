@@ -263,17 +263,24 @@ set(NROS_KNOB_DERIVE_SENTINEL -1)
 #   pass 2  entity=real         ->  sizes re-derived over the SUBSCRIBED set
 #   pass 3                          this loader finally reads them
 #
-# Issue 1119 -- this used to say ninja runs all three before the build starts,
-# so a `west build` on a clean dir is correct. Measured on the safety island
-# 2026-09-06, it gets TWO configures against three arming requests and links
-# with the pass-2 value: the fragment on disk states the derived size while
-# `NROS_RESOLVED_*` in the cache still holds the closure one. A HAND-driven
-# `cmake -S -B` that stops after two is in the same state, and so is a clean
-# `west build`. Both look correct, because over-sizing is silent.
+# Issue 1119 -- FIXED, and the cause was not ninja. Measured on the safety
+# island 2026-09-06, a clean `west build` got TWO configures against three
+# arming requests and linked with the pass-2 value: 70296 bytes of arena where
+# 46272 is correct. `nros_find_interfaces()` is called ONCE PER PACKAGE that
+# declares an interface dependency -- the island's image has six -- and
+# `NanoRosReconfigure.cmake` kept its state per CALL, so the second call
+# settled the future date the first had armed and measured itself against the
+# bytes the first had written. The arm was raised and then taken back inside
+# one configure, so `build.ninja` came out newer than the fragment and ninja
+# had nothing stale to re-run cmake for.
 #
-# `check-knob-delivery <build-dir>` is the check that answers it; run it before
-# trusting a size out of a build dir. Case H of
-# `tests/cmake-reconfigure-tests.sh` measures the arming, not the restart.
+# The baseline and the arm are per PASS now, so the three passes above happen
+# inside one `west build` however many packages call the verb. Case J of
+# `tests/cmake-reconfigure-tests.sh` is the control: it reproduces the island's
+# 2-configures/1496 on the old module and requires 3/880 on this one.
+#
+# `check-knob-delivery <build-dir>` still answers "did the value ARRIVE" for a
+# build dir directly, and is the thing to run before trusting a size out of one.
 function(_nros_load_derived_message_bounds)
     nros_message_bounds_knobs_file(_knobs)
     if(NOT EXISTS "${_knobs}")

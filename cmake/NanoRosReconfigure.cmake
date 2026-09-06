@@ -77,33 +77,75 @@
 # a defect in the ARMING -- the bound below was counting the wrong thing, and
 # that half was real.
 #
-# But the claim issue 1002 replaced it with, that "ninja re-runs cmake until
-# `build.ninja` stops being stale, so all three passes happen inside ONE `west
-# build`", IS NOT TRUE, and issue 1119 measures it: a clean island build dir
-# gets 2 configures against 3 arming requests and links with the pass-2 value.
-# The arming works; the third restart does not happen. On the safety island
-# that shipped a 70296-byte arena where 46272 is correct -- silent, because
-# over-sizing always is. Do not read the table below as a description of what
-# one `west build` delivers.
-#
 # The rule, so the next producer does not re-derive it: a fragment needs one
 # arm per producer UPSTREAM of it in the chain, and the number of configures is
-# one more than the longest such chain. Case H of
-# `tests/cmake-reconfigure-tests.sh` measures it rather than restating it, so a
+# one more than the longest such chain. Cases H and J of
+# `tests/cmake-reconfigure-tests.sh` measure it rather than restating it, so a
 # third producer moves a number in a test instead of in folklore.
+#
+# =============================================================================
+# ONE ARM PER FRAGMENT PER PASS -- issue 1119, and why the arm is not per CALL
+# =============================================================================
+#
+# Issue 1002 left the claim that ninja runs all three of those passes before
+# the build starts. Measured on the safety island 2026-09-06, a clean build dir
+# got TWO configures against THREE arming requests and linked with the pass-2
+# value: 70296 bytes of arena where 46272 is correct, silent, because
+# over-sizing always is.
+#
+# The cause is not ninja, not west and not the clock. It is that a producer
+# here is called ONCE PER PACKAGE, not once per configure --
+# `nros_find_interfaces()` runs from every leaf that declares an interface
+# dependency, and the island's image has six -- while this module's state was
+# per CALL. That made both halves of one call a hazard to the call before it:
+#
+#   * the SETTLE at the head of `nros_find_interfaces()` cleared the future date
+#     the PREVIOUS call in the same configure had just armed, so `build.ninja`
+#     came out newer than the fragment and ninja found nothing stale; and
+#   * the per-call `nros_reconfigure_snapshot` took the bytes the previous call
+#     wrote as its "before", so a fragment that HAD changed since the readers
+#     ran compared equal, reported itself settled, and cleared the pass counter.
+#
+# Two calls were enough. Reproduced minimally (a five-line project, no Zephyr,
+# no board): with one producer call per configure the chain converges in 3
+# configures and delivers 880; with two it takes 2 configures, arms 3 times and
+# delivers 1496 -- the island's numbers, digit for digit.
+#
+# So the baseline and the arm are now properties of the PASS. The first thing in
+# a configure to touch a fragment records the digest the READERS of that pass
+# consumed, in a GLOBAL property, and every later call in that configure
+# compares against THAT:
+#
+#   * `nros_reconfigure_settle` clears a date at most once per fragment per
+#     configure. A later reader cannot undo an arm this pass raised.
+#   * `nros_reconfigure_on_change` measures against the pass baseline, so the
+#     Nth producer call sees what the readers saw, not what call N-1 wrote.
+#   * a second call that still differs from the baseline RE-DATES the fragment
+#     (its own write moved the mtime to now) without spending another pass of
+#     the bound -- it is the same pass.
+#   * a call that takes the fragment BACK to the baseline clears the date an
+#     earlier call in the same pass armed, because that pass no longer needs a
+#     re-configure.
+#
+# GLOBAL properties, not cache entries, are the right lifetime here: they are
+# born and die with one configure, which is exactly the scope "what the readers
+# of this pass consumed" has. The cache is the wrong one and issue 1002 already
+# paid for using it that way.
 #
 # Two bounds, because a mechanism that can re-run the configure must not be
 # able to re-run it forever:
 #
-#   * `NROS_RECONFIGURE_MAX_PASSES` (default 3) caps how many CONSECUTIVE times
-#     ONE fragment may arm a re-configure. Past that the answer is not
-#     converging, which is a bug in the producer, and the module says so and
+#   * `NROS_RECONFIGURE_MAX_PASSES` (default 3) caps how many CONSECUTIVE
+#     PASSES ONE fragment may arm a re-configure for. Past that the answer is
+#     not converging, which is a bug in the producer, and the module says so and
 #     stops rather than looping. CONSECUTIVE is issue 1002's other half: the
 #     counter lives in the cache, so it used to accumulate over the build dir's
 #     whole LIFETIME, and a clean build of the chain above spends 2 of the 3
-#     before anyone edits anything. The count is reset by the first pass in
-#     which the producer writes what the readers already had -- that pass IS
-#     the fixpoint, and a producer that never reaches one still hits the bound.
+#     before anyone edits anything. PASSES is issue 1119's half: it used to
+#     count CALLS, so an image with N interface-declaring leaves spent N of the
+#     bound per pass. The count is reset by the first pass in which the producer
+#     leaves the fragment as the readers already had it -- that pass IS the
+#     fixpoint, and a producer that never reaches one still hits the bound.
 #   * `NROS_RECONFIGURE_FUTURE_SECONDS` (default 120) is how far ahead the
 #     fragment is dated. It has to exceed the REMAINDER of the configure, since
 #     that is when `build.ninja` lands. Too small and this degrades to the
@@ -127,6 +169,11 @@
 # `snapshot` hashes CONTENT, not mtime, so a producer that rewrites identical
 # bytes every configure -- which several of ours do -- arms nothing.
 #
+# A producer may be called any number of times in one configure and needs to
+# know nothing about that: the `_before` it passes is used only when NOTHING
+# else in the configure has touched the fragment yet, which is the lane with no
+# earlier reader. Otherwise the pass baseline wins.
+#
 # The mechanism is deliberately ONE file. Two spellings of "make cmake run
 # again" is how one of them stops working and nobody notices, which is the
 # defect this module exists to fix.
@@ -136,8 +183,21 @@ include_guard(GLOBAL)
 set(NROS_RECONFIGURE_FUTURE_SECONDS 120 CACHE STRING
     "issue 0991: how far ahead a changed nano-ros fragment is dated so ninja re-runs cmake. Must exceed the remainder of the configure; too small only means the lag does not close.")
 set(NROS_RECONFIGURE_MAX_PASSES 3 CACHE STRING
-    "issue 0991/1002: how many CONSECUTIVE times ONE fragment may force a re-configure before nano-ros calls it non-convergent and stops. Reset by the first pass in which that fragment settles, so it bounds one convergence episode and not the build dir's lifetime.")
+    "issue 0991/1002/1119: how many CONSECUTIVE PASSES ONE fragment may force a re-configure for before nano-ros calls it non-convergent and stops. Reset by the first pass in which that fragment settles, so it bounds one convergence episode and not the build dir's lifetime; counted per PASS, so a producer called once per package does not spend it once per package.")
 mark_as_advanced(NROS_RECONFIGURE_FUTURE_SECONDS NROS_RECONFIGURE_MAX_PASSES)
+
+# _nros_reconfigure_name(<path> <out_var>)
+#
+# One fragment's identity, as a cmake-identifier-safe uppercase name. ONE
+# spelling, because the cache key and the two per-pass GLOBAL properties all
+# need it and a second derivation of the same name is how two of them end up
+# talking about different fragments.
+function(_nros_reconfigure_name _path _out_var)
+    get_filename_component(_name "${_path}" NAME_WE)
+    string(REGEX REPLACE "[^A-Za-z0-9]" "_" _name "${_name}")
+    string(TOUPPER "${_name}" _name)
+    set(${_out_var} "${_name}" PARENT_SCOPE)
+endfunction()
 
 # _nros_reconfigure_key(<path> <out_var>)
 #
@@ -151,10 +211,57 @@ mark_as_advanced(NROS_RECONFIGURE_FUTURE_SECONDS NROS_RECONFIGURE_MAX_PASSES)
 # defect. `nros_reconfigure_on_change` unsets this key the moment the fragment
 # settles; see the note there.
 function(_nros_reconfigure_key _path _out_var)
-    get_filename_component(_name "${_path}" NAME_WE)
-    string(REGEX REPLACE "[^A-Za-z0-9]" "_" _name "${_name}")
-    string(TOUPPER "${_name}" _name)
+    _nros_reconfigure_name("${_path}" _name)
     set(${_out_var} "NROS_RECONFIGURE_PASSES_${_name}" PARENT_SCOPE)
+endfunction()
+
+# _nros_reconfigure_pass_props(<path> <basis_out> <armed_out>)
+#
+# The two GLOBAL properties that hold THIS configure's state for one fragment.
+#
+# Issue 1119. A configure has exactly one answer to "what did the readers of
+# this pass consume" and exactly one answer to "has this pass already asked for
+# another configure", and both were being kept per CALL, in function-scope
+# variables the caller supplied. A producer that runs once per package then had
+# one of each per package, and the later ones overwrote the earlier ones'
+# effects. A GLOBAL property is born and dies with the configure, which is the
+# lifetime both answers actually have -- the CACHE outlives it (issue 1002) and
+# a normal variable does not survive the frame pop.
+function(_nros_reconfigure_pass_props _path _basis_out _armed_out)
+    _nros_reconfigure_name("${_path}" _name)
+    set(${_basis_out} "NROS_RECONFIGURE_PASS_BASIS_${_name}" PARENT_SCOPE)
+    set(${_armed_out} "NROS_RECONFIGURE_PASS_ARMED_${_name}" PARENT_SCOPE)
+endfunction()
+
+# _nros_reconfigure_future_date(<path> <label> <ok_out>)
+#
+# Date the fragment far enough ahead that `build.ninja`, which the generate step
+# writes after every file a configure wrote, still comes out OLDER. That is the
+# one lever ninja's regeneration rule responds to; see the header.
+function(_nros_reconfigure_future_date _path _label _ok_out)
+    string(TIMESTAMP _now_epoch "%s" UTC)
+    math(EXPR _future "${_now_epoch} + ${NROS_RECONFIGURE_FUTURE_SECONDS}")
+    execute_process(
+        COMMAND touch -d "@${_future}" "${_path}"
+        RESULT_VARIABLE _touch_rc
+        ERROR_VARIABLE _touch_err
+        OUTPUT_QUIET)
+    if(_touch_rc EQUAL 0)
+        set(${_ok_out} TRUE PARENT_SCOPE)
+        return()
+    endif()
+    # Degrade to the OLD behaviour and name it, rather than letting a build
+    # silently keep the stale answer while this file claims it does not.
+    # The answer on disk is correct either way; what is lost is the
+    # automatic second pass.
+    message(WARNING
+        "nros: ${_label} changed, and this configure could not date the "
+        "fragment forward to make ninja re-run cmake "
+        "(`touch -d` failed: ${_touch_err}).\n"
+        "  The fragment on disk is CORRECT; the readers of this pass used "
+        "the previous one. Configure again before trusting a size or a "
+        "count from this build (issue 0991).")
+    set(${_ok_out} FALSE PARENT_SCOPE)
 endfunction()
 
 # nros_reconfigure_snapshot(<path> <out_var>)
@@ -173,17 +280,34 @@ endfunction()
 
 # nros_reconfigure_settle(<path>)
 #
-# Clear a future date left by a previous pass. Call it from every READER, before
-# the `include()`, and as early in the configure as the reader runs: this is
-# what bounds the window in which a future-dated file exists. A configure that
-# fails after this point leaves nothing armed.
+# Clear a future date left by a PREVIOUS pass, and record what the readers of
+# THIS pass consume. Call it from every READER, before the `include()`, and as
+# early in the configure as the reader runs: this is what bounds the window in
+# which a future-dated file exists. A configure that fails after this point
+# leaves nothing armed.
 #
 # A no-op on a file whose mtime is not in the future, which is every file on
 # every ordinary configure.
+#
+# Issue 1119 -- and a no-op on EVERY call after the first in one configure,
+# whatever the mtime says. Past that point a future date is one THIS pass
+# armed, and clearing it is how the island lost its third configure: the second
+# `nros_find_interfaces()` settled the fragment the first had just dated
+# forward, `build.ninja` came out newer, and ninja had nothing to re-run for.
+# The first call also takes the pass BASELINE, which is what
+# `nros_reconfigure_on_change` measures every producer of this pass against.
 function(nros_reconfigure_settle _path)
     if(NOT EXISTS "${_path}")
         return()
     endif()
+    _nros_reconfigure_pass_props("${_path}" _basis_prop _armed_prop)
+    get_property(_have GLOBAL PROPERTY ${_basis_prop} SET)
+    if(_have)
+        return()
+    endif()
+    nros_reconfigure_snapshot("${_path}" _basis)
+    set_property(GLOBAL PROPERTY ${_basis_prop} "${_basis}")
+
     file(TIMESTAMP "${_path}" _ts "%Y%m%d%H%M%S" UTC)
     string(TIMESTAMP _now "%Y%m%d%H%M%S" UTC)
     if(NOT _ts STRGREATER "${_now}")
@@ -199,6 +323,14 @@ endfunction()
 #
 # Arm a re-configure when the producer's answer differs from what this pass's
 # readers consumed. Silent and free when it does not.
+#
+# `<before_digest>` is the caller's own snapshot. Issue 1119: it is used only
+# when NOTHING in this configure has touched the fragment yet -- the lane with
+# no earlier reader, where this producer IS the first toucher and its snapshot
+# therefore IS what the readers of the pass consumed. Once a pass has a
+# baseline, that baseline wins, because a producer called once per package would
+# otherwise measure itself against the bytes the previous package wrote and call
+# a changed fragment settled.
 function(nros_reconfigure_on_change _path _before)
     cmake_parse_arguments(_R "" "LABEL" "" ${ARGN})
     set(_label "${_R_LABEL}")
@@ -207,9 +339,19 @@ function(nros_reconfigure_on_change _path _before)
     endif()
 
     _nros_reconfigure_key("${_path}" _key)
+    _nros_reconfigure_pass_props("${_path}" _basis_prop _armed_prop)
+
+    get_property(_have_basis GLOBAL PROPERTY ${_basis_prop} SET)
+    if(_have_basis)
+        get_property(_basis GLOBAL PROPERTY ${_basis_prop})
+    else()
+        set(_basis "${_before}")
+        set_property(GLOBAL PROPERTY ${_basis_prop} "${_basis}")
+    endif()
+    get_property(_armed GLOBAL PROPERTY ${_armed_prop})
 
     nros_reconfigure_snapshot("${_path}" _after)
-    if(_after STREQUAL _before)
+    if(_after STREQUAL _basis)
         # SETTLED. The producer wrote what this pass's readers had already
         # consumed, so this convergence episode is over -- and the counter goes
         # back to zero.
@@ -229,9 +371,36 @@ function(nros_reconfigure_on_change _path _before)
         # The bound exists to stop a producer whose answer NEVER settles, which
         # is a property of one episode. Nothing about a build dir that converged
         # yesterday should shrink the budget of a build today.
+        #
+        # Issue 1119: an EARLIER call in this same configure may have armed on
+        # an intermediate answer that this one takes back. Clear that date -- a
+        # pass whose fragment ends where the readers found it needs no
+        # re-configure, and leaving it armed buys a pass that can only settle.
+        if(_armed STREQUAL "armed")
+            file(TOUCH "${_path}")
+        endif()
+        set_property(GLOBAL PROPERTY ${_armed_prop} "")
         if(DEFINED ${_key})
             unset(${_key} CACHE)
         endif()
+        return()
+    endif()
+
+    # Issue 1119 -- this pass has already answered "another configure, please".
+    # The write above moved the mtime back to now, so the date has to go back
+    # on, but the BOUND is per pass and this is still the same pass: counting
+    # here is what let an image with N interface leaves spend N of the budget
+    # per configure.
+    if(_armed STREQUAL "armed")
+        _nros_reconfigure_future_date("${_path}" "${_label}" _redated)
+        if(NOT _redated)
+            set_property(GLOBAL PROPERTY ${_armed_prop} "refused")
+        endif()
+        return()
+    endif()
+    if(_armed STREQUAL "refused")
+        # This pass already tried and could not, and said so once. Repeating the
+        # warning once per package turns one problem into N.
         return()
     endif()
 
@@ -245,6 +414,7 @@ function(nros_reconfigure_on_change _path _before)
         # Not converging. Say so instead of looping: a fragment whose answer
         # still moves after this many passes is a producer bug, and the number
         # the build is about to use is the one this pass's readers saw.
+        set_property(GLOBAL PROPERTY ${_armed_prop} "refused")
         message(WARNING
             "nros: ${_label} changed again on re-configure "
             "${_passes} of this build dir, past "
@@ -256,29 +426,14 @@ function(nros_reconfigure_on_change _path _before)
         return()
     endif()
     set(${_key} "${_passes}" CACHE INTERNAL
-        "issue 0991: re-configures ${_path} has forced in this build dir")
+        "issue 0991: passes ${_path} has forced a re-configure for in this build dir")
 
-    string(TIMESTAMP _now_epoch "%s" UTC)
-    math(EXPR _future "${_now_epoch} + ${NROS_RECONFIGURE_FUTURE_SECONDS}")
-    execute_process(
-        COMMAND touch -d "@${_future}" "${_path}"
-        RESULT_VARIABLE _touch_rc
-        ERROR_VARIABLE _touch_err
-        OUTPUT_QUIET)
-    if(NOT _touch_rc EQUAL 0)
-        # Degrade to the OLD behaviour and name it, rather than letting a build
-        # silently keep the stale answer while this file claims it does not.
-        # The answer on disk is correct either way; what is lost is the
-        # automatic second pass.
-        message(WARNING
-            "nros: ${_label} changed, and this configure could not date the "
-            "fragment forward to make ninja re-run cmake "
-            "(`touch -d` failed: ${_touch_err}).\n"
-            "  The fragment on disk is CORRECT; the readers of this pass used "
-            "the previous one. Configure again before trusting a size or a "
-            "count from this build (issue 0991).")
+    _nros_reconfigure_future_date("${_path}" "${_label}" _dated)
+    if(NOT _dated)
+        set_property(GLOBAL PROPERTY ${_armed_prop} "refused")
         return()
     endif()
+    set_property(GLOBAL PROPERTY ${_armed_prop} "armed")
 
     message(STATUS
         "nros: ${_label} changed after the readers of this pass had run, so "
