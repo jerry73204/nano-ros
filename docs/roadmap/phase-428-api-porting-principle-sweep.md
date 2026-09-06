@@ -748,3 +748,117 @@ extracted surfaces, stripping the disposition from `cpp:NodeOptions`,
 it looks: `--check --require-disposition` needs clang and nightly rustdoc, and
 `check-api-parity` is run by no workflow on any event (issue 1066). It is a
 local gate on `just ci l1`, not a merge-gating one.
+
+## Q1 follow-through (2026-09-06) — the `refuse-loud` field was wrong in both directions
+
+A read-only audit classified every `"disposition": "refuse-loud"` row against
+the code. Of 144 rows carrying the label, three named a refusal that exists.
+The rest split two ways, and the ledger was also wrong in the opposite
+direction: the refusals that *do* exist mostly had no row.
+
+### What was measured
+
+Row set: `disposition == "refuse-loud"` over `docs/reference/api-parity-ledger/*.json`.
+Presence: `scripts/api-parity.py --lang {c,cpp,rust} --show same --show all`
+(the `same` bucket is hidden unless named, which is why an earlier join
+reported four `same` rows as absent from the report), joined on key. Every
+`theirs-only` hit was cross-checked with a non-comment declaration grep on the
+key's leaf name over `nros-c/{include,src}`, `nros-cpp/include` and
+`packages/**/*.rs`; the 15 keys that produced a hit were all the same leaf name
+on a different receiver (`std::make_shared`, `Node::create_client` for the
+`LifecycleNode::` member, `QoSProfile`'s builders for `IntoPrimitiveOptions::*`).
+
+| class | count | what a porting user actually gets |
+| --- | ---: | --- |
+| absent, labelled refuse-loud | 130 | `undeclared identifier` / `no member named` — honest, names nothing |
+| exists and differs, labelled refuse-loud | 8 | a compile error the compiler chooses, or nothing at all |
+| implemented refusal with a row | 3 | the diagnostic the label promises |
+| implemented refusal with NO refuse-loud row | ~23 sites, 20 keys | the diagnostic, unrecorded |
+
+The structural cause of the last row is RFC-0089's own observation that a
+refusal is a declaration: once a name refuses it correlates `same` or
+`ours-only`, `--check` stops demanding a row, and nobody writes one.
+
+### What changed, per commit
+
+1. **130 rows → `absent`.** 129 correlate `theirs-only`; `cpp:SubscriptionContentFilterOptions`
+   is on neither surface. `why` kept everywhere; the seven `NodeOptions::{allocator,
+   context, append_parameter_override, parameter_event_qos, parameter_overrides,
+   parameter_event_publisher_options, rosout_qos}` rows shared a sentence claiming a
+   `= delete` overload that `options.hpp` never declared, replaced with what is there.
+   Edited row-wise through a loader with a duplicate-key-raising `object_pairs_hook`;
+   every shard round-trips byte-for-byte, so the diff is 130 disposition lines and 7 whys.
+2. **The eight exists-and-differs rows.** `c:get_zero_initialized_{service,client}` →
+   `adopt` (exported under rcl's own name, correlate `same`: verdict bugs).
+   `c:{service,client}_init_default`, `cpp:spin_until_future_complete`,
+   `cpp:Subscription::Subscription<M>`, `rust:Executor::spin_async` → `adopt-bounded`,
+   each naming what the compiler points at (argument 3's typesupport type; the
+   `int32_t` timeout against a `chrono::duration`; the constructor set; arity with no
+   `SpinOptions`) and the envelope it does not. `spin_async` was argued rather than
+   defaulted: it is a working entry point the `Promise` pattern relies on, so
+   `refuse-loud` would claim a `compile_error!` that does not exist.
+   **`rust:init_with_args` is now loud in code** (`packages/api/nros/src/init.rs`):
+   `args_have_ros_args` (exact match, unit-tested against the prefix mutation) →
+   `nros_log::log_error!` → panic carrying `REFUSE_INIT_ARGS`, the C++
+   `NROS_RCLCPP_REFUSE_INIT_ARGV` text with Rust spellings. Two `#[should_panic]` tests,
+   one pass-through, `cargo test -p nros --features env,std`.
+3. **Every live refusal site has a row.** Eight `NodeOptions` members that only
+   inherited the type's disposition get their own rows citing both `static_assert`
+   lines; `enable_logger_service` and `start_parameter_services` re-cited;
+   `SystemDefaultsQoS` cites `qos.hpp:767`; `Node::create_service` / `create_client`
+   become `divergence` + `adopt-bounded` citing the `shared_ptr`-handler overload at
+   `nros.hpp:955` / `:990` (and note the W5 discarded-`Result` finding is closed by
+   `require_created`); five `cpp:RCLCPP_*_THROTTLE` macro rows in `other.json`, which no
+   report lists because the extractor emits no macros; `cpp:init`'s citations refreshed
+   to `:415` / `:427`.
+4. **Six pre-existing unledgered rows** that made `just check api-parity` red before
+   this branch touched anything: `c:{node,subscription,service,client}_init` are
+   `divergence` + `absent` (rcl's five-argument spelling has no symbol here; the old
+   forwarders were retired at phase-417 stage 6 step B, and the rclc-layer
+   `*_init_default` is where the bounded adoption lives — `absent`, not the
+   `adopt-bounded` first guessed, because that label promises the name exists);
+   `c:node_get_serialization_format` / `cpp:Node::serialization_format` are
+   `extension` with no disposition, like every other ours-only row.
+5. **Two new rejections on `--check --require-disposition`.**
+   `misdeclared_refusals`: a `refuse-loud` row whose key correlates `theirs-only`
+   (looks through inheritance, reports the member). `unreferenced_refusals`: a
+   `#define NROS_RCLCPP_REFUSE_*` in `nros-cpp/include/nros/*.hpp` cited by no row's
+   `why`. The full "refusing declaration whose row is not refuse-loud" rule needs a C++
+   parse — the `shared_ptr` refusal is the third overload of a verb whose row is
+   legitimately `adopt-bounded`, and the throttle refusal is a `detail::` template five
+   macros expand to — so it was skipped and the docstring says so. Self-tests on the
+   normal path: four planted rows (each also alone), an inheritance pair, both directions
+   of the macro check, the `#define` reader, and a guard that the reader finds something
+   under the real include dir. Mutation controls: widening the bucket test → 4 red;
+   returning `[]` from the macro check → 1 red; end-to-end, flipping
+   `cpp:Clock::wait_until_started` to refuse-loud and appending a planted `#define` to
+   `log.hpp` each turn `--check --require-disposition` red naming the row / macro.
+
+### Census
+
+| disposition | before (`9c492403d`) | after |
+| --- | ---: | ---: |
+| refuse-loud | 144 | 20 |
+| absent | 518 | 652 |
+| adopt | 96 | 96 |
+| adopt-bounded | 20 | 27 |
+| (none) | 1908 | 1910 |
+| rows | 2686 | 2705 |
+
+The 20 refuse-loud rows now: `cpp:NodeOptions` and its ten refused members,
+`cpp:SystemDefaultsQoS` and its constructor, the five `RCLCPP_*_THROTTLE` macros,
+`rust:init_with_args`, and `rust:Node`. The last is the one this pass did not touch
+and does not fully believe: its diagnostic is rustc's "expected struct, found trait",
+which names neither the constraint nor the alternative, and the row says so.
+
+### What the gate still cannot see
+
+`rust:init_with_args` is on no measured surface: `env` is not in
+`extract_rust.NROS_FEATURES`, so `init_with_args`, `init_with_launch*`, `Context::config`
+and nine other names are invisible to the correlator. Adding `env` was measured (12
+rows appear, `Context` moves `theirs-only` → `same`, most of them unledgered) and is its
+own item, not this one. Until then `misdeclared_refusals` cannot vouch for that row
+either way. Also left as found, and stated so nobody trusts them: `rust:init`'s `why`
+is about `nros::logging::init` (the orphan-refs gate already records this), and the
+`cpp:Node::create_{publisher,subscription,wall_timer}` rows still describe the
+discarded-`Result` state that `require_created` closed.
