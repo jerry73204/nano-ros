@@ -29,12 +29,10 @@ names = ["mps3-an536-freertos", "an536", "AN536"]
 platform = "freertos"
 toolchain = "stable"
 platform_feature = "platform-freertos"
-local_aliases = ["platform-freertos"]
 link_kind = "none"
 entry_kind = "board-run"
 supported_netstacks = ["lwip"]
 board_crate = "nros-board-mps3-an536-freertos"
-capability_features = ["safety-e2e"]
 cargo_config = '''
 [target.armv8r-none-eabihf]
 runner = "qemu-system-arm -machine mps3-an536 -nographic -semihosting-config enable=on,target=native -kernel"
@@ -46,8 +44,6 @@ rustflags = [
 '''
 
 [board.entry]
-crate_name = "nros_board_mps3_an536_freertos"
-signature = "#[unsafe(no_mangle)]\nextern \"C\" fn main() -> !"
 
 [board.capabilities]
 heap = true

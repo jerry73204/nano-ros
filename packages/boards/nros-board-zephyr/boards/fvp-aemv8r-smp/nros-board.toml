@@ -15,7 +15,6 @@ names = ["fvp-aemv8r-smp"]
 platform = "zephyr"
 toolchain = "stable"
 platform_feature = "platform-zephyr"
-local_aliases = ["platform-zephyr"]
 link_kind = "none"
 entry_kind = "zephyr-staticlib"
 # The FVP's networking is Zephyr's `ethernet` L2 over the model's virtual NIC,

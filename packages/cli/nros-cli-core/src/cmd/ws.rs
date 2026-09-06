@@ -6900,7 +6900,6 @@ rustflags = [
             board_crate: Some("nros-board-nuttx-qemu".into()),
             crate_path: None,
             board_features: vec![],
-            capability_features: vec![],
             priority_plan: None,
             cargo_config: cargo_config.map(str::to_string),
             entry: None,

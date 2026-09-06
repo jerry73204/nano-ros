@@ -15,7 +15,6 @@ supported_netstacks = ["smoltcp"]
 chip = "esp32c3"
 board_crate = "nros-board-esp32-qemu"
 # Phase 252 (issue 0072) — forwards [safety] to its zenoh backend.
-capability_features = ["safety-e2e"]
 cargo_config = '''
 [build]
 target = "riscv32imc-unknown-none-elf"
@@ -36,8 +35,6 @@ build-std = ["core", "alloc"]
 '''
 
 [board.entry]
-crate_name = "nros_board_esp32_qemu"
-comment = "// Phase 126.M5.esp32 — esp-hal `#[main]` entry. The board's `run()`\n// initialises the chip + network + log writer, then drives the user\n// closure and loops forever (ESP32 has no process exit). The board\n// `Config` carries the zenoh locator + domain id (defaults from the\n// board crate; override via a config.toml the generator could embed\n// in a follow-up)."
 signature = "#[esp_hal::main]\nfn main() -> !"
 crate_root_extra = "use esp_backtrace as _;\nnros_board_esp32_qemu::esp_bootloader_esp_idf::esp_app_desc!();"
 # `esp_backtrace` is the panic handler; `nros_board_esp32_qemu` is the board

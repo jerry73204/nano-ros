@@ -37,9 +37,6 @@ THREADX_EXTRA_INCLUDES = { value = "${workspace}/third-party/threadx/kernel/port
 '''
 
 [board.entry]
-crate_name = "nros_board_threadx_qemu_riscv64"
-comment = "// Phase 126.M5.threadx-riscv64 — bare-metal ThreadX on QEMU RISC-V\n// virt. Entry is `#[no_mangle] extern \"C\" fn main` (the board's\n// `link.lds` jumps `_start -> main`). `run()` boots the ThreadX\n// kernel + NetX Duo over virtio-net then invokes the closure;\n// referencing it pins the board rlib + its kernel/NetX archives +\n// the linker script into the image."
-signature = "#[unsafe(no_mangle)]\nextern \"C\" fn main() -> !"
 
 # RFC-0042 D2 / phase-241 wave C — declared capabilities (SSoT). Bare-metal
 # ThreadX but HAS a heap (CFFI alloc/dealloc) — this is the #38 board; heap=true

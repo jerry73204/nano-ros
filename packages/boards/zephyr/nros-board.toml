@@ -10,7 +10,6 @@ names = ["zephyr", "native_sim/native/64"]
 platform = "zephyr"
 toolchain = "stable"
 platform_feature = "platform-zephyr"
-local_aliases = ["platform-zephyr"]
 link_kind = "none"
 entry_kind = "zephyr-staticlib"
 # phase-351 W4 — this board makes NO netstack choice: Zephyr's own IP stack is not a nano-ros choice. An empty
