@@ -139,6 +139,11 @@ KNOB_CLASS = {
     # --- infra ---
     "NROS_DECLARED_INFRA_QUERYABLES": ("infra", "a COUNT the resolver passes down, not a knob"),
     "NROS_DECLARED_SERVICE_SERVERS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    # issue 1122 — the same shape one pool over: cmake DERIVES the large-payload
+    # class count and this carries it to the build script as a DEFAULT on lanes
+    # with no Kconfig. Not a knob: `ZPICO_MAX_LARGE_SUBSCRIBERS` is the knob and
+    # still outranks it.
+    "NROS_DECLARED_LARGE_SUBSCRIBERS": ("infra", "a COUNT the resolver passes down, not a knob"),
     "NROS_PICOLIBC_SYSROOT": ("infra", "path"),
     "NROS_RISCV64_PREFIX": ("infra", "toolchain prefix"),
     "NROS_SDK_STORE": ("infra", "path"),

@@ -9,6 +9,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZPICO_SUBSCRIBER_LARGE_SIZE");
     println!("cargo:rerun-if-env-changed=ZPICO_SUBSCRIBER_SIZE_THRESHOLD");
     println!("cargo:rerun-if-env-changed=ZPICO_MAX_LARGE_SUBSCRIBERS");
+    // issue 1122 — WATCH what we READ. Consuming a declared fact without
+    // declaring it is what let the queryable tables go stale (the note on
+    // `resolve_queryable_default` one crate over): an image that gains or
+    // loses a subscription keeps its previously-sized pool until something
+    // else forces a rebuild, and the sizing then reads as applied while being
+    // stale.
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_LARGE_SUBSCRIBERS");
     println!("cargo:rerun-if-env-changed=NROS_EXECUTOR_MAX_NODES");
     println!("cargo:rerun-if-env-changed=ZPICO_PUBLISHER_TX_BUFFER_SIZE");
 
@@ -75,7 +82,23 @@ fn main() {
     // small class. `alloc_payload_block` refuses a hint that no class can hold,
     // so getting it wrong fails at `create_subscription` rather than dropping
     // every sample at the transport.
-    let max_large: usize = env_usize("ZPICO_MAX_LARGE_SUBSCRIBERS", 2);
+    //
+    // issue 1122 — the DEFAULT comes from the declaration when cmake made one.
+    // `nros_derive_message_bound_knobs()` derives this correctly on every lane
+    // and, before 1122, only the Zephyr lane could deliver it; the number was
+    // computed, written to disk and discarded everywhere else. It now travels
+    // as `NROS_DECLARED_LARGE_SUBSCRIBERS`, on the same lane-independent
+    // carrier `NROS_DECLARED_SERVICE_SERVERS` already uses.
+    //
+    // It is the DEFAULT and not the value, so rung 1 of the ladder survives: a
+    // consumer who names `ZPICO_MAX_LARGE_SUBSCRIBERS` still wins. Setting the
+    // knob itself in the child environment would have made the named override
+    // unreachable, silently.
+    let max_large: usize = env_usize_rung(
+        "ZPICO_MAX_LARGE_SUBSCRIBERS",
+        declared_large_subscribers(),
+        2,
+    );
     // Phase 268 — per-session per-node NN liveliness token cap. One zenoh
     // session hosts at most the executor's node cap of graph nodes, so this
     // tracks `nros-node`'s `NROS_EXECUTOR_MAX_NODES` (default 4); keep them in
@@ -208,4 +231,22 @@ fn env_usize(name: &str, default: usize) -> usize {
 /// does.
 fn env_usize_rung(name: &str, rung: Option<usize>, default: usize) -> usize {
     env_usize(name, rung.unwrap_or(default))
+}
+
+/// issue 1122 — the large-payload class count cmake derived for THIS image.
+///
+/// `None` when cmake made no claim, which is every build that is not driven by
+/// our CMake lanes (a bare `cargo build`, a Rust leaf) and every configure
+/// whose message-bound join REFUSED or answered on the `closure` basis. The
+/// carrier is only written under `derived` + `subscribed`
+/// (`_nros_payload_facts_env` in `cmake/NanoRosEntityFacts.cmake`), so an
+/// absent variable is "no answer" and never "zero".
+///
+/// That distinction is the whole point: `0` is a legal and meaningful value
+/// here -- it says this image's types all fit the small class -- so it cannot
+/// share a spelling with "nobody told me".
+fn declared_large_subscribers() -> Option<usize> {
+    std::env::var("NROS_DECLARED_LARGE_SUBSCRIBERS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
 }

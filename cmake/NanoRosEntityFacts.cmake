@@ -154,16 +154,90 @@ function(_nros_entity_facts_flush)
     endforeach()
 endfunction()
 
+# _nros_payload_facts_env(<out-var>)
+#
+# issue 1122 — carry the DERIVED large-payload class count across the lane
+# boundary, as a DECLARED fact.
+#
+# `nros_derive_message_bound_knobs()` already computes this correctly on every
+# lane and writes it to `${CMAKE_BINARY_DIR}/nros/message_bound_knobs.cmake`.
+# Its only consumer in the tree is `_nros_resolve_derivable_knob` in
+# `zephyr/cmake/nros_cargo_build.cmake`, reached only through
+# `zephyr/CMakeLists.txt`, so on FreeRTOS / ThreadX / NuttX / posix the number
+# was computed, written to disk, and discarded. Measured on the first
+# out-of-tree consumer: `LARGE_PAYLOADS` was 131,072 B of bss on a node that
+# never calls `declare_subscriber`, while the same build dir held
+# `set(NROS_DERIVED_MAX_LARGE_SUBSCRIBERS 0)`.
+#
+# The FILE and not a variable: this runs at the deferred flush, in the
+# top-level scope, where `nros_find_interfaces()`'s variables are not visible.
+#
+# TWO CONDITIONS, and they are the whole safety argument. `derived` says the
+# join answered rather than refusing; `subscribed` says it answered over the
+# subscriptions this image DECLARES. On the `closure` basis the count is a
+# count of large TYPES in the linked closure, which under-counts an image with
+# two subscriptions on one large type -- so we refuse there and leave the
+# crate default alone. Under-sizing this pool is a `SubscriberCreationFailed`
+# at `create_subscription`, and picking that up by accident is worse than the
+# bytes.
+#
+# It travels as `NROS_DECLARED_*`, not `ZPICO_MAX_LARGE_SUBSCRIBERS`, so it is
+# a DEFAULT the build script may override rather than a value set in the child
+# environment. Setting the knob itself would silently break rung 1 of the
+# ladder: a consumer who names `ZPICO_MAX_LARGE_SUBSCRIBERS` must still win.
+function(_nros_payload_facts_env _out_var)
+    set(${_out_var} "" PARENT_SCOPE)
+    if(NOT COMMAND nros_message_bounds_knobs_file)
+        return()
+    endif()
+    nros_message_bounds_knobs_file(_knobs)
+    if(NOT EXISTS "${_knobs}")
+        return()
+    endif()
+    # Read into THIS function's scope; the file is a plain list of `set()`s.
+    include("${_knobs}")
+    if(NOT NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS STREQUAL "derived")
+        return()
+    endif()
+    if(NOT NROS_MESSAGE_BOUNDS_BASIS STREQUAL "subscribed")
+        return()
+    endif()
+    if(NOT DEFINED NROS_DERIVED_MAX_LARGE_SUBSCRIBERS)
+        return()
+    endif()
+    set(${_out_var}
+        "NROS_DECLARED_LARGE_SUBSCRIBERS=${NROS_DERIVED_MAX_LARGE_SUBSCRIBERS}"
+        PARENT_SCOPE)
+endfunction()
+
 # nros_entity_facts_env(<target>)
 #
 # Attach this configure's accumulated entity facts to a Corrosion target's cargo
 # invocation. Called once, after every entry has been processed.
 function(nros_entity_facts_env _target)
+    # issue 1122 — the payload fact is INDEPENDENT of the entity facts below.
+    # An image with no LAUNCH entry still links interface packages and still
+    # gets a message-bound derivation, so this is computed before the
+    # queryable-table early return rather than after it.
+    _nros_payload_facts_env(_payload_env)
+
     get_property(_seen GLOBAL PROPERTY NROS_ENTITY_FACTS_SEEN)
     if(NOT _seen)
         # Not a warning: a pure-C workspace with no LAUNCH entry, or a
         # configure whose models are not resolved yet, has always sized the
-        # table from the backend's own default and still does.
+        # table from the backend's own default and still does. The payload
+        # fact still travels, when there is one.
+        if(_payload_env)
+            if(NOT COMMAND corrosion_set_env_vars)
+                message(FATAL_ERROR
+                    "nros_entity_facts_env(${_target}): Corrosion not loaded")
+            endif()
+            nros_corrosion_env_target("${_target}" _target)
+            corrosion_set_env_vars(${_target} ${_payload_env})
+            message(STATUS
+                "nano-ros: large-payload class sized from the declaration — "
+                "${_payload_env} (issue 1122)")
+        endif()
         return()
     endif()
 
@@ -203,8 +277,16 @@ function(nros_entity_facts_env _target)
     endif()
     # issue 0657 — attach to the target the cargo command actually READS.
     nros_corrosion_env_target("${_target}" _target)
+    if(_payload_env)
+        list(APPEND _env "${_payload_env}")
+    endif()
     corrosion_set_env_vars(${_target} ${_env})
     message(STATUS
         "nano-ros: queryable table sized from the declaration — "
         "infrastructure ${_infra}, ${_app} (phase-392 W5)")
+    if(_payload_env)
+        message(STATUS
+            "nano-ros: large-payload class sized from the declaration — "
+            "${_payload_env} (issue 1122)")
+    endif()
 endfunction()
