@@ -454,3 +454,30 @@ this class should NOT exist.
 Each row above needs a ledger entry with a `disposition`. That is the authoring
 step, and it is deliberately separate from this record: recording the finding
 protects it from loss, ledgering it is what makes `--check` enforce it.
+
+
+## CORRECTION 2026-09-06 — this document overstated CI coverage
+
+Notes above assert that `node-std-tests` became merge-gating in PR #438, and
+reason from it that a class of reds can no longer reach `main`. **The step was
+written, verified locally, described in three places as landed, and merged
+nowhere** — `grep -c "node-std-tests" .github/workflows/gate.yml` returns 0 on
+`origin/main` and 0 at #438's merge commit. Exactly one commit in the repo ever
+contained it, on a branch that was still open.
+
+So the fourth red did not slip past a gate; it reached `main` through the
+absence of one. Every "that class is now gated" conclusion downstream is
+unsupported until `ci/land-node-std-gate` (`00e8f3087`) merges.
+`check-api-parity` remains run by no workflow on any event (issue 1066), which
+was correctly stated and is unchanged.
+
+The diagnosis is kept because the wrong turn is the instructive part. The red
+IS a descendant of #438's merge, so the tested tree would have carried the step
+had it existed — which looked like a hole, and produced two elaborate
+explanations (an in-flight queue batch, an environment-dependent test) before
+the simplest check. One `git merge-base --is-ancestor` and one `grep -c`
+settled it.
+
+**A guarantee asserted from having WRITTEN the code rather than from having
+OBSERVED it in the tree that ships** is the mechanism this phase catalogues,
+turned on its author.
