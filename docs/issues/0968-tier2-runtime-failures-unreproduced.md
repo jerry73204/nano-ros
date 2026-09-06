@@ -529,3 +529,69 @@ unverified. `test_esp32_workspace_entry_e2e` does NOT — it fails before
   row, so a probe must be built with that env and must not grow the image; the
   board's re-exported `esp_println` is what makes a dependency-free probe
   possible.
+
+
+## The esp32 cluster, re-run 2026-09-06 — the cause was a chain of four, and it was never the board
+
+Run `33996315057`, a dispatched nightly on `main` carrying the apt fix, with the
+esp32 job reaching its tests for the first time in this whole sequence:
+
+| test | verdict |
+| --- | --- |
+| `test_esp32_qemu_talker_boots` | **PASS** |
+| `test_esp32_talker_listener_e2e` | **PASS** |
+| `test_esp32_to_native` | FAIL |
+| `test_native_to_esp32` | FAIL |
+| `test_esp32_workspace_entry_e2e` | skipped, missing fixture |
+
+**`test_esp32_talker_listener_e2e` passing is the headline.** The table above
+records it FAIL. That was issue 1052 — the talker took an instruction-access
+fault right after network bringup — and its cause was a stack overflow: on that
+board `.stack` is the linker LEFTOVER after `.bss`, `.bss` had grown to 295,444 B,
+and the stack was down to 18,572 B against node.rs's ~67 KB budget. Fixed by
+deriving the pool budgets from what each leaf declares, and gated by
+`check-stack-floor` so it cannot silently return.
+
+### The other two were never esp32 failures
+
+Both fail in 0.36–0.41 s across three retries, and the junit says why:
+
+```
+Failed to build native listener: BuildFailed("Test fixture binary not prebuilt:
+  .../build/cargo-fixtures/linux/nros-relwithdebinfo/listener")
+```
+
+Each test starts ONE esp32 image and ONE **host** binary. The host half is a
+`linux` fixture the esp32 lane never built. Reported under `esp32_emulator`, in
+the esp32 job, on a lane whose previous reds were genuine board defects — so
+every signal pointed at the board and none of it was about the board. Issue 1112;
+the lane stages both peers now.
+
+The workspace entry is the same shape plus one more: its fixture was missing AND
+the test laundered the resolver's `Err` into a `skip!`, so the gap reported as
+coverage while the skip-budget check complained every run. Also 1112.
+
+### What this leaves
+
+Four of the five are explained. Three of the four fixes (issue 1112, both
+halves) have **not yet been confirmed by a run** — the causes are identified and
+the code is on `main` or queued, but the next SCHEDULED nightly is the evidence,
+not this table. Recorded that way deliberately: this issue exists because
+unverified claims about these twelve were made before.
+
+### The chain, because it is the durable lesson
+
+Four faults sat stacked in one job, each invisible until the one in front was
+fixed:
+
+| # | issue | what it was |
+| --- | --- | --- |
+| 1 | 1025 | the packer read a directory the build never wrote |
+| 2 | 1070 | `--sudo` required `--system` in clap, so the provisioning line exited 2 on a usage error |
+| 3 | 1106 | `apt-get install` with an empty index reports a bad package NAME |
+| 4 | 1112 | the lane never built the native half of its own interop tests |
+
+Every fix moved the failure one step earlier in the job and revealed the next.
+None of the four was in the esp32 code. A lane that is uniformly red has no
+signal capacity — a new fault and yesterday's fault are the same colour — and
+that is what let four accumulate behind one symptom.
