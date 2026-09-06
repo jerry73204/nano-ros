@@ -1,3 +1,9 @@
+# The six Rust roles this lane builds. ONE list: it was written out three times
+# (the codegen pre-sync, the Corrosion fan-out, the fixture loop), and a role
+# added to two of the three is a leaf that silently never gets synced or never
+# gets built — the "one shared spelling, not a second one" rule.
+RV64_RUST_ROLES := "talker listener service-server service-client action-server action-client"
+
 set working-directory := '..'
 
 default:
@@ -223,6 +229,26 @@ build-fixture-extras:
     if [ -z "$(nros_riscv64_prefix)" ]; then
         nros_lane_skip_note threadx-riscv64 "no riscv64 bare-metal gcc (run: nros setup qemu-riscv64-threadx)"; exit 0
     fi
+    # issue 1038 follow-up — sync the six rust roles' message crates BEFORE
+    # cmake ever configures them.
+    #
+    # `nros_ensure_central_patch` above (and again, idempotently, before the
+    # `logging-smoke` cargo row below) fixes the include-target half of issue
+    # 0463 for this lane, but talker/listener/service-{server,client}/
+    # action-{server,client} each also patch a generated message crate
+    # (`std_msgs`, `builtin_interfaces`, …) that ONLY `nros sync` — not
+    # `ws central-patch` — materialises. They build through
+    # `nros_threadx_rv64_rust_app` (Corrosion/CMake), the one seam in this repo
+    # that never goes through `fixtures-build.sh`'s per-row presync, so nothing
+    # else in this lane ever ran it. Serial, once per role, before the six
+    # leaves fan out below — same shape as `nros_presync_row_dirs`.
+    for _rc_sync in {{RV64_RUST_ROLES}}; do
+        _rc_sync_dir="examples/qemu-riscv64-threadx/rust/$_rc_sync"
+        if [ -d "$_rc_sync_dir" ]; then
+            echo "  → (role codegen) $_rc_sync_dir"
+            nros_ensure_leaf_synced "$_rc_sync_dir"
+        fi
+    done
     echo "Building ThreadX-RV64 test fixtures..."
     # Phase 176 — cmake parallelism via the fifo jobserver when present.
     if [ "${NROS_JOBSERVER:-}" = "1" ] || [ "${NROS_INHERIT_JOBSERVER:-}" = "1" ]; then unset CMAKE_BUILD_PARALLEL_LEVEL; else export CMAKE_BUILD_PARALLEL_LEVEL="${NROS_BUILD_JOBS:-8}"; fi
@@ -400,7 +426,7 @@ build-fixture-extras:
             _tx_jobs="$(nros_cargo_frontend_jobs)"
             _tx_status_dir="$(mktemp -d)"
             _tx_n=0
-            for _rc in talker listener service-server service-client action-server action-client; do
+            for _rc in {{RV64_RUST_ROLES}}; do
                 if [ -d "examples/qemu-riscv64-threadx/rust/$_rc" ]; then
                     for _tx_pair in "cyclonedds build-cyclonedds" "zenoh build-zenoh"; do
                         # shellcheck disable=SC2086
@@ -545,7 +571,7 @@ zenohd:
 clean:
     #!/usr/bin/env bash
     rm -rf build/cmake-threadx-riscv64-zenoh
-    for example in talker listener service-server service-client action-server action-client; do
+    for example in {{RV64_RUST_ROLES}}; do
         rm -rf "examples/qemu-riscv64-threadx/rust/$example/target" \
                "examples/qemu-riscv64-threadx/rust/$example/target-zenoh"
         rm -rf "examples/qemu-riscv64-threadx/c/$example/build-zenoh" \
