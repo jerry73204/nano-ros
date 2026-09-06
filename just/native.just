@@ -841,6 +841,89 @@ test-ros2-lifecycle verbose="":
     fi
     cargo nextest run "${cargo_nextest_args[@]}" "${args[@]}"
 
+# phase-433 / issue 1127 — the focused live-peer lanes below. Each aims at ONE
+# `interop::CELLS` Runtime cell's binary; a sweep reaches the same binaries but
+# cannot be aimed at one, brings up no peer, and turns an unmet precondition
+# into a `<skipped>` nobody can tell from a pass. `_test-focused` (root
+# justfile) carries the shared skip accounting. Preconditions are per recipe.
+#
+# `just --list` shows the LAST comment line of a block, so each ends with the
+# one that is worth seeing there: the binary and what the host must provide.
+
+# READ the graph a live ROS 2 node is in — phase-381 / issue 0903, where twelve
+# produced, parity-clean rmw graph slots did not work because every check
+# tested our code against our own assumptions. Both backends are here because
+# they discover through entirely different mechanisms — zenoh through `@ros2_lv`
+# liveliness tokens, Cyclone through the `ros_discovery_info` topic — so a green
+# on one is no evidence about the other. Each half skips on its own.
+# Runs `graph_interop`; needs ROS 2 + `rmw_zenoh_cpp` and `rmw_cyclonedds_cpp`.
+[group("debug")]
+test-ros2-graph verbose="":
+    @just _test-focused 'binary(=graph_interop)' {{verbose}}
+
+# A plan-level QoS override reaches the ADVERTISED profile a stock
+# `ros2 topic info --verbose` peer reads (issue #52 / 0303 / 0306). Nextest
+# serializes it with the tree's only other endpoint-profile reader in the
+# `native-qos-discovery` group — concurrent pairs make that peer miss an
+# endpoint inside the settle window (issues 0312 / 0747).
+# Runs `qos_override_e2e`; needs ROS 2 + `rmw_zenoh_cpp` + the qos native entry.
+[group("debug")]
+test-ros2-qos-override verbose="":
+    @just _test-focused 'binary(=qos_override_e2e)' {{verbose}}
+
+# One graph node per launch component in `ros2 node list`, Rust entry (#104 /
+# phase-268 W3). The gate it exercises lives in the shared zenoh shim, so this
+# and the C++ lane below are the two languages of one claim. The entry is
+# `workspace-rust-native`, from `just native build-fixtures`; the router ships
+# with `rmw_zenoh_cpp`.
+# Runs `rust_multi_node_per_node_graph`; needs ROS 2 + `rmw_zenoh_cpp` + that entry.
+[group("debug")]
+test-ros2-multinode-rust verbose="":
+    @just _test-focused 'binary(=rust_multi_node_per_node_graph)' {{verbose}}
+
+# The same per-node graph proof through the C++ TYPED entry (phase-257 / 268).
+# It INSPECTS a prebuilt cmake fixture and never configures cmake itself
+# (issue 0034), so `cpp_robot_entry` from `just build-test-fixtures` is a
+# precondition rather than something this lane can produce. Unlike the peer,
+# it is not optional: the artifact assertion FAILS on a missing fixture rather
+# than skipping (issue 0584), so this is the one lane here that is red on a
+# host that has simply never built fixtures.
+# Runs `cpp_multi_node_entry`; needs ROS 2 + `rmw_zenoh_cpp` + that cmake fixture.
+[group("debug")]
+test-ros2-multinode-cpp verbose="":
+    @just _test-focused 'binary(=cpp_multi_node_entry)' {{verbose}}
+
+# DECLARATIVE zenoh → Cyclone DDS bridge e2e (phase-267 W-B, issues 0106 / 0107
+# / 0109). The bridge is a `native_entry` whose `system.toml` declares the
+# `[[bridge]]`; `nros sync` bakes `nros-bridge.toml` and the macro emits the
+# pump. Only the receiver-asserting case wants a stock ROS 2 peer, and it
+# needs `rmw_cyclonedds_cpp` specifically.
+# Runs `declarative_bridge_zenoh_to_cyclonedds`; needs `rmw_zenohd` + the bridge fixtures.
+[group("debug")]
+test-bridge-zenoh-to-cyclonedds verbose="":
+    @just _test-focused 'binary(=declarative_bridge_zenoh_to_cyclonedds)' {{verbose}}
+
+# The IMPERATIVE sibling (issue #53): the hand-written
+# `bridge-zenoh-to-cyclonedds-fwd` bin at the SAME coordinate as the
+# declarative one, which is the G4 blind spot `interop::CELLS` closes.
+# `binary(=...)` is exact on purpose — unanchored, this name is a SUBSTRING of
+# `declarative_bridge_zenoh_to_cyclonedds` and would run both.
+# The `_ros2` receiver case additionally needs ROS 2 + `rmw_cyclonedds_cpp`.
+# Runs `bridge_zenoh_to_cyclonedds`; needs `rmw_zenohd` + the bridge fixtures.
+[group("debug")]
+test-bridge-zenoh-to-cyclonedds-imperative verbose="":
+    @just _test-focused 'binary(=bridge_zenoh_to_cyclonedds)' {{verbose}}
+
+# DECLARATIVE zenoh → XRCE bridge e2e. xrce is lazy-registration, so unlike the
+# Cyclone sibling there is no descriptor staging on the egress side. It lives
+# here rather than under `xrce` because its nano side is a `NativeFixtures`
+# entry, same as its Cyclone siblings — the Agent is the peer, not the subject.
+# The Agent comes from `just xrce setup`.
+# Runs `declarative_bridge_zenoh_to_xrce`; needs `rmw_zenohd` + an XRCE Agent + fixtures.
+[group("debug")]
+test-bridge-zenoh-to-xrce verbose="":
+    @just _test-focused 'binary(=declarative_bridge_zenoh_to_xrce)' {{verbose}}
+
 # Run ROS 2 interop tests (shell script)
 [group("debug")]
 test-ros2-shell:

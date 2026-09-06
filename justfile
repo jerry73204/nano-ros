@@ -1042,6 +1042,70 @@ test-select filter verbose="":
     echo "  everything is legitimate (out-of-lane is the normal case) — but it is"
     echo "  NOT evidence about the code. Reasons are in the [SKIPPED] lines above."
 
+# Run ONE `nros-tests` binary with `test-select`'s skip accounting — the shared
+# body of the focused live-peer lanes (phase-433, issue 1127).
+#
+# Not `test-select` itself, for two reasons: that one is workspace-scoped, and
+# these lanes all live in `nros-tests`, so `-p` cuts the build to one package;
+# and its verbose spelling is `--no-capture`, where every `test-ros2*` sibling
+# means "print the outputs". Everything else here is `test-select`'s tail.
+#
+# That tail is load-bearing rather than decoration. Every lane that calls this
+# has a precondition the host may not meet — a ROS 2 install, `rmw_zenohd`, an
+# XRCE Agent, a west-built zephyr leaf — and an unmet one is a `[SKIPPED]`
+# panic, which nextest scores as a FAILURE. Without the rewrite, "this host has
+# no ROS" prints character-for-character as "the interop is broken".
+#
+# `-E <filterset>`, not `--test <name>`: a caller narrows further with
+# `and test(...)`, and it is the spelling `check-interop-cell-runners` reads.
+# Callers write `binary(=x)`, exact — `binary(x)` is a SUBSTRING match, and
+# `bridge_zenoh_to_cyclonedds` is a substring of its declarative sibling.
+_test-focused filter verbose="":
+    #!/usr/bin/env bash
+    set -e
+    source scripts/build/cargo.sh
+    source scripts/test/nextest-profile.sh
+    cargo_nextest_args=($(nros_cargo_nextest_args))
+    args=(-p nros-tests --no-fail-fast -E '{{filter}}')
+    if [ -z "{{verbose}}" ]; then
+        args+=(--success-output never --failure-output never)
+    fi
+    nros_nextest_junit_reset
+    set +e
+    cargo nextest run "${cargo_nextest_args[@]}" "${args[@]}"
+    rc=$?
+    set -e
+    junit="$(nros_nextest_junit_path)"
+    just _rewrite-skipped-junit "$junit" || true
+    [ $rc -eq 0 ] && exit 0
+    # Exit 4 is "no tests to run": the filter named a binary that does not
+    # exist, or was narrowed past every case. A focused lane selecting nothing
+    # reads exactly like a lane with nothing to do, so it is a failure here.
+    if [ "$rc" -eq 4 ]; then
+        echo "ERROR: '{{filter}}' selected NO tests — nothing ran."
+        echo "       Check it against \`cargo nextest list -p nros-tests\`."
+        exit 1
+    fi
+    # Issue #29 — nextest exits 100 only when tests RAN and some failed. Any
+    # other non-zero is a build/setup failure, which emits no junit cases and
+    # would otherwise tally as "0 real failures" over a broken build.
+    if [ "$rc" -ne 100 ] || [ ! -f "$junit" ]; then
+        echo "ERROR: nros-tests build/setup failed (nextest exit $rc) — not a [SKIPPED] precondition."
+        exit 1
+    fi
+    real="$(just _count-real-failures "$junit")"
+    just _test-summary "$junit" || true
+    if [ "$real" -ne 0 ]; then
+        echo "ERROR: $real real (non-[SKIPPED]) test failure(s):"
+        just _name-real-failures "$junit" || true
+        exit 1
+    fi
+    skipped="$(grep -c '<skipped' "$junit" 2>/dev/null || echo 0)"
+    echo "All failures were [SKIPPED] preconditions — treating as pass."
+    echo "  $skipped selected test(s) SKIPPED: the peer or fixture they need was"
+    echo "  not there. A skip is NOT evidence about the code — the reasons are in"
+    echo "  the [SKIPPED] lines above."
+
 # nros-tests integration tests, skipping heavy cross-compile / QEMU groups.
 # Filters mirror the `test` recipe's `-E` predicate, just scoped to
 # `package(nros-tests)` so the workspace unit tests aren't re-run.
