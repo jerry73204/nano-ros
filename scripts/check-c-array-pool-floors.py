@@ -129,16 +129,11 @@ UNCLASSIFIED = {
     "XRCE_BUFFER_SIZE": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
     "XRCE_MAX_PENDING_REPLIES": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
     "XRCE_SERVICE_REQUEST_RING_DEPTH": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
-    "ZPICO_GET_REPLY_BUF_SIZE": "packages/rmw/zenoh/zpico-sys/c/zpico/zpico.c",
-    "ZPICO_MAX_LIVELINESS": "packages/rmw/zenoh/zpico-sys/c/zpico/zpico.c",
-    "ZPICO_MAX_PENDING_GETS": "packages/rmw/zenoh/zpico-sys/c/zpico/zpico.c",
-    "ZPICO_MAX_PENDING_REPLIES": "packages/rmw/zenoh/zpico-sys/c/zpico/zpico.c",
-    "ZPICO_MAX_SESSIONS": "packages/rmw/zenoh/zpico-sys/c/zpico/zpico.c",
     "Z_TASK_STACK_SIZE": "packages/rmw/zenoh/zpico-sys/c/platform/threadx/platform.h",
 }
 # The list may SHRINK. Raising this is a deliberate edit that says "one more
 # knob-sized array ships unruled on", beside the entry that says which.
-UNCLASSIFIED_CEILING = 15
+UNCLASSIFIED_CEILING = 10
 
 # --- the producer half -----------------------------------------------------
 

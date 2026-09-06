@@ -144,6 +144,31 @@ Mutation-checked against the real tree, not only its own fixtures:
 | drop the cmake floor for `ZPICO_MAX_SUBSCRIBERS` | **FAIL** |
 | unmodified tree | OK (21 knob-sized arrays: 3 guarded, 3 zero-legal, 15 unclassified) |
 
+### 2026-09-06 — the remaining `zpico.c` extents are ruled on
+
+The `Resolution` above left fifteen knob-sized arrays UNCLASSIFIED, five of them
+in `zpico.c` itself: `ZPICO_MAX_LIVELINESS`, `ZPICO_MAX_PENDING_GETS`,
+`ZPICO_MAX_PENDING_REPLIES`, `ZPICO_MAX_SESSIONS` and
+`ZPICO_GET_REPLY_BUF_SIZE`. Two of those are Kconfig-settable and size arrays in
+the very same struct as `ZPICO_MAX_QUERYABLES`, so the image that went silent
+had four more ways to reach the same state.
+
+They carry a `#if <KNOB> < 1` / `#error` beside the array now, which is the
+GUARDED decision, and they have left the ratchet:
+
+    before   3 guarded, 3 zero-legal, 15 unclassified
+    after    8 guarded, 3 zero-legal, 10 unclassified   (ceiling 15 -> 10)
+
+`ZPICO_GRAPH_CACHE_SIZE` and `ZPICO_ZID_SIZE` are guarded too. The gate does not
+track them -- neither is build-settable -- but they are extents in the same
+file, and leaving two unruled beside eight ruled is the state the next reader
+has to re-derive.
+
+Deliberately NOT a blanket "an extent has a floor of one": that rule is
+measurably false one backend over, which is what the `Resolution` above records
+about issue 1033 and the 33,296 bytes a zero saves per XRCE subscriber slot. The
+decision stays per knob; this only makes five more of them.
+
 ### What is NOT covered, still
 
 * **The mechanism at zero was never isolated.** The board is out of tree; what

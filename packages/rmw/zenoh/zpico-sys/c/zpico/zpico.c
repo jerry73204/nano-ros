@@ -373,6 +373,27 @@ typedef struct {
 #if ZPICO_MAX_QUERYABLES < 1
 #error "ZPICO_MAX_QUERYABLES must be >= 1: it sizes a C array (issue 1015)"
 #endif
+#if ZPICO_MAX_LIVELINESS < 1
+#error "ZPICO_MAX_LIVELINESS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_PENDING_GETS < 1
+#error "ZPICO_MAX_PENDING_GETS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_PENDING_REPLIES < 1
+#error "ZPICO_MAX_PENDING_REPLIES must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_SESSIONS < 1
+#error "ZPICO_MAX_SESSIONS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_GET_REPLY_BUF_SIZE < 1
+#error "ZPICO_GET_REPLY_BUF_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_GRAPH_CACHE_SIZE < 1
+#error "ZPICO_GRAPH_CACHE_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_ZID_SIZE < 1
+#error "ZPICO_ZID_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
 #if ZPICO_MAX_SUBSCRIBERS < 1
 #error "ZPICO_MAX_SUBSCRIBERS must be >= 1: it sizes a C array (issue 1015)"
 #endif
