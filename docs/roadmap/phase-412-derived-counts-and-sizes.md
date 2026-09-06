@@ -57,12 +57,31 @@ refusal rule (derive nothing when the inventory's own status is not `derived`).
 
 | knob | island hand-set | published input | derives to |
 | --- | ---: | --- | ---: |
-| `NROS_MAX_SUBSCRIBERS` | 12 | `COUNT_SUBSCRIPTION` | 10 |
-| `NROS_RMW_SUBSCRIBER_SLOTS` | 12 | `COUNT_SUBSCRIPTION` | 10 |
+| `NROS_MAX_SUBSCRIBERS` | 12 | `COUNT_SUBSCRIPTION` | 11 |
+| `NROS_RMW_SUBSCRIBER_SLOTS` | 12 | `COUNT_SUBSCRIPTION` | 11 |
 | `NROS_MAX_PUBLISHERS` | 16 | `COUNT_PUBLISHER` | 14 |
-| `NROS_MAX_QUERYABLES` | 4 | `COUNT_SERVICE_SERVER` | 0 |
+| `NROS_MAX_QUERYABLES` | 4 | `COUNT_SERVICE_SERVER` | 2 |
 | `NROS_EXECUTOR_MAX_NODES` | 6 | `INVENTORY_COMPONENT_COUNT` | 4 |
 | `NROS_EXECUTOR_ACTION_CLIENTS` | 0 | `COUNT_ACTION_CLIENT` | 0 |
+
+Two of those figures MOVED after this table was first written, and both moves
+are the point of the phase rather than noise in it. They read 10 and 0 while
+the input was `ENTITIES`; they read 11 and 2 now that it is the contract beside
+the launch file.
+
+* SUBSCRIPTION 10 -> 11. `mrm_handler` declared six subscriptions and creates
+  seven. Every pool derived from that list was short by one, the eleventh
+  subscription failed the metadata-slot guard at boot, and the error named
+  nothing. That defect is the reason `ENTITIES` was retired, and the corrected
+  count is what the running board declares over the wire.
+* SERVICE_SERVER 0 -> 2. The island's contract omitted `/system/mrm/*/operate`
+  on the grounds that "nothing is claimed about them". An omission is not
+  neutral when something sizes a pool from it: the derivation predicted one
+  queryable for an image that creates two, and only the hand-set 4 hid it.
+
+A number in this table is a claim about a specific image at a specific time.
+Re-read it off `build.ninja` before trusting it -- which is acceptance 2, and
+what caught both of these.
 
 **Both blocking questions, answered by reading the code.**
 
@@ -166,7 +185,7 @@ Named here so nobody re-audits them, with the blocker rather than a shrug.
 
 | knob | island | blocked on |
 | --- | ---: | --- |
-| `NROS_EXECUTOR_ARENA_SIZE` | 40960 | **phase-403 step 3**, which is blocked on step 2 (QoS depth). Depth MULTIPLIES the bound — 86108 B at depth 10 against 24516 at depth 1 for the same ten subscriptions — and the entity record carries `kind`, `type_name`, `name` and no depth. Defaulting is the worst option: ROS's default is 10, so assuming it inflates tenfold and assuming 1 under-sizes in the unsafe direction |
+| ~~`NROS_EXECUTOR_ARENA_SIZE`~~ | ~~40960~~ | **UNBLOCKED 2026-09-06 and now derived.** `nros-node/build.rs` sums per KIND when all five `NROS_ENTITY_COUNT_*` arrive, and they do: 11 subscriptions at 3 receive buffers each, 4 timers at 64 B, 2 service servers at a pub/sub entry plus one reply buffer. The island derives 46272 against its hand-set 40960 and boots. The depth worry below is real and unresolved -- the model still bills the triple-buffer worst case -- but it is a matter of TIGHTNESS, not of having no derivation. Original blocker: depth MULTIPLIES the bound, 86108 B at depth 10 against 24516 at depth 1 for the same ten subscriptions, and the entity record carries no depth |
 | `CONFIG_MAIN_STACK_SIZE` | 16384 | needs frame analysis, not an inventory. **phase-409** established the method (`objdump`, summing every `sub`/`sub.w`/`subw sp`) and the numbers for one call chain; nothing turns that into a knob |
 | `NROS_ZEPHYR_HEAP_SIZE` | 94208 | runtime allocation. No static model, and the honest first step is a high-water reporter, not a derivation |
 | `NROS_GRAPH_CACHE_SIZE` | 4096 | sized by the PEER graph. Not a property of this image and probably never derivable from it |
@@ -373,6 +392,26 @@ exists to find. Filed in #1036 rather than claimed here.
    blocker instead of re-deriving the audit.
 4. W4's gate fails on a deliberately unread published symbol, proving it can.
 
+### Status 2026-09-06 -- all four met
+
+| # | state | evidence |
+| --- | --- | --- |
+| 1 | **met** | the island `.conf` states none of W1's six; the image builds and boots with every one derived. On an MR-CANHUBK344 with a serial router: stage 6 FirstSpin, arena 17736/46272 (38.3%), 4 nodes, 25 topics, 2 services |
+| 2 | **met** | read from `build.ninja`, not from an exit code: `MAX_CBS 19, PUBLISHERS 14, QUERYABLES 2, SUBSCRIBERS 11, SLOTS 11`, each against the number it replaced. This is what caught the two figures corrected in W1's table above |
+| 3 | **met** | the six remaining hand-set knobs each carry their blocker as a comment in `mr_canhubk3_s32k344.conf` |
+| 4 | **met** | `check-knob-delivery --self-test` asserts failure cases, and the gate fired for real on an unconverged island build dir, naming the knob and both values |
+
+RAM on the island went 324096 B (98.91% of 320 KB) hand-set to 280536 B
+(85.61%) fully derived -- 43560 bytes, and the first figure that leaves room to
+add anything.
+
+**What acceptance does not cover, and is still open.** Issue 1119: the derived
+value settles on the THIRD configure and one `west build` runs two, so a clean
+build dir can link with the previous pass's number. Acceptance 2 is the reason
+that was caught at all -- reading the value rather than the exit code -- and it
+is also the reason acceptance 2 has to keep being applied to a build dir of
+known history.
+
 ## FIXED 2026-09-03: the first configure used to derive the wrong basis
 
 `docs/issues/archived/0991`. On a CLEAN build dir the payload classes derived
@@ -388,13 +427,21 @@ the next; only an explicit re-configure moved it. Every "configure twice"
 instruction in this phase was working around that, without anyone knowing it was
 the whole mechanism rather than a slow one.
 
-`cmake/NanoRosReconfigure.cmake` now closes it inside the same
-`west build`/`cmake --build`, at both producers, gated by
-`just check reconfigure-on-change` (whose control case reproduces the old bug).
-So a measurement no longer has to state how many times its build dir had been
-configured — though a number read off a build dir of unknown history still
-should be re-measured, since the numbers already recorded above were taken under
-the old rule.
+`cmake/NanoRosReconfigure.cmake` arms a re-configure at both producers, gated
+by `just check reconfigure-on-change` (whose control case reproduces the old
+bug).
+
+**It does NOT fully close inside one `west build`, and this section used to say
+it did.** Issue 1119 measured a clean island build dir getting TWO configures
+against THREE arming requests: the chain is two producers deep, so the value
+DELIVERED to the compiler settles on the third pass, and the image links with
+the second. On the island that shipped a 70296-byte arena where 46272 is
+correct -- 24 KB, silent, because over-sizing always is.
+
+So a measurement DOES still have to state how many times its build dir had been
+configured, and a number read off a dir of unknown history must be re-measured.
+`check-knob-delivery <build-dir>` answers "did the resolved value arrive" by
+name and by value; run it before trusting a size out of any build dir.
 
 ## W5 — the cargo carrier, scoped by measurement (issue 0827, 2026-09-04)
 
