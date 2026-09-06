@@ -64,9 +64,11 @@
  * `QoS::default_profile()`, and anything that would SIZE from depth must refuse
  * rather than default. An image that has not opted in is not an image in error.
  *
- * # C++14, deliberately
+ * # The C++14 subset, deliberately
  *
- * `just check cpp` parses every header here with `-std=c++14 -ffreestanding`,
+ * Not the project minimum — that is C++17 since issue 1118. This is the
+ * stricter property `just check cpp` still enforces: it parses every header
+ * here with `-std=c++14 -ffreestanding`,
  * so the table is a `constexpr` array and the search is a recursive `constexpr`
  * function. Both are constant-evaluated; the array is `constexpr` at namespace
  * scope, so a TU that only ever uses it in a constant expression emits no

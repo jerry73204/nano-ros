@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(cpp_safety_listener LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Phase 261 W5 — declare the E2E-safety capability via the language-neutral

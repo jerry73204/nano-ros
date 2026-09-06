@@ -1,7 +1,7 @@
 # topic_state_monitor synthetic port — Phase 209.G first iteration.
 cmake_minimum_required(VERSION 3.22)
 project(topic_state_monitor LANGUAGES C CXX)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(NANO_ROS_PLATFORM posix)
