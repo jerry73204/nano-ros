@@ -64,13 +64,68 @@ external_pack_smoke.rs` proves the override + fallback.
 
 ## Adding a language
 
-Adding a target language is a **pack + a spelling filter**, not a rewrite:
+### Step 0 — decide which SURFACES you need
+
+This is the step that sizes the work, and skipping it is why "add a language"
+sounds bigger than it is. A pack is a **(language × surface)** pair, not a
+language: Rust has four message packs, and the `cpp` pack emits Rust as well as
+C++.
+
+There are two independent axes. On the **message** side: idiomatic,
+embedded-idiomatic (`no_std`), FFI/ABI (`repr(C)`), bridge glue, packaging. On
+the **entry** side: the entry TU, and the component seam. A language can take
+an entry surface with no message surface (it consumes another language's
+messages) or the reverse.
+
+RFC-0091 §6 has the full table, including what each surface *drags in* — an
+FFI surface inherits the cross-language memory-agreement gate, a bridge surface
+is two spellings of one type that must move together. **A language can ship
+with two surfaces and gain the rest later**: a Zig component installed by a C
+or C++ entry needs the idiomatic and FFI message surfaces and the component
+seam, and nothing else.
+
+### Step 1 — the message pack
 
 1. add its `.jinja` templates (a new `packs/<lang>/`) and its rows in `PACKS`;
-2. if it needs type spelling the existing filters don't cover, register one more
-   filter wrapping a `*_spelling` function in `types.rs`;
+2. if it needs type spelling the existing filters don't cover, add a **filter
+   set** for the language (`rosidl_codegen::filters::FILTER_SETS`) wrapping a
+   `*_spelling` function in `types.rs`. A language's Rust surface area is a
+   pack plus a filter set and nothing more; the set is keyed by the pack that
+   CALLS the filter, not by the syntax it emits — `cpp_repr_c_type` returns
+   Rust;
 3. add the generator entry that builds the view struct and calls
    `render::render("<template-name>", &ctx)`.
 
-No per-language type logic lives in the builders — the packs and their filters own
-it. Implemented by phase-335 (RFC-0068).
+### Step 2 — the entry pack, if the language writes entries
+
+1. `packs/entry/<surface>/entry.<ext>.jinja` over the entry view. Board paths,
+   boot shape, tier rows, QoS codes and escaped literals all arrive already
+   computed — a template decides where a value goes, never how to quote one;
+2. `packs/entry/<surface>/pack.toml` — the extension, whether the TU is
+   C-family, the entry template and its partials. CMake reads this through
+   `nros codegen entry-pack` rather than deriving it, so this file is what
+   makes the build know how to name and compile the output;
+3. one row in the template registry (`render.rs`), keyed
+   `<artifact>_<surface>.<ext>` for an output and `*.jinja` for a partial;
+4. one variant on `Language` in `nros-lang`. Every consumer sees it — one
+   enumeration.
+
+### Step 3 — the goldens
+
+Add the coordinate to the entry golden harness, run
+`NROS_UPDATE_GOLDEN=1 cargo test -p nros-cli-core --lib codegen::entry::golden`,
+and **read the diff**. The generated source is a file, not a claim.
+
+`just check entry-pack-conformance` refuses a half-wired pack: a directory with
+no manifest, a language pack missing the fields CMake needs, a `Language`
+variant nothing renders, or a language whose bytes are recorded in no golden.
+Run it before you believe the pack works.
+
+### What this does NOT make cheap
+
+The **toolchain story** — how CMake compiles the language, how it links
+`libnros`, how its components declare themselves. The codegen cost becomes a
+pack; the build-integration cost does not. Budget for it separately.
+
+No per-language type logic lives in the builders — the packs and their filters
+own it. Implemented by phase-335 (RFC-0068) and phase-432 (RFC-0091).

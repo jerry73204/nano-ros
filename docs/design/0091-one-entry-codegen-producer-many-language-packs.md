@@ -367,12 +367,15 @@ The claim that survives is different and stronger: the C++ `run_components`
 uses no C++ feature a C function lacks — no exceptions, no RAII, and its
 `template <typename Setup>` is only ever instantiated with a plain function
 pointer in generated code — while every primitive it calls is already C-ABI and
-already called from C by the sibling `run_tiers.c`. Two prerequisites gate it,
-both live traps: `nros_board_network_wait` exists only as a weak symbol in a
-C++ header, and `NROS_ENTRY_LOCATOR`/`DOMAIN_ID` are derived in `main.hpp`
-while the C sibling defines them as `""` and `0` — a pure-C entry would
-compile, link, boot and dial nothing, which is issue #174 exactly. See
-phase-432 W3.1. That deletes the language-crossing branch from
+already called from C by the sibling `run_tiers.c`. Two prerequisites gated it and **both are now closed**, ahead of W3.1 itself
+and independently of whether W3.1 proceeds — each was a live trap on its own.
+`nros_board_network_wait` existed only as a weak symbol in a C++ header, so a
+pure-C TU failed at link; its definition moved to `<nros/main.h>`, the C header
+that already declares the runners it gates. And `NROS_ENTRY_LOCATOR` /
+`NROS_ENTRY_DOMAIN_ID` were derived in `main.hpp` while the C sibling defined
+them as `""` and `0` — a pure-C entry would compile, link, boot and dial
+nothing, which is issue #174 exactly; one ladder now lives in
+`<nros/entry_config.h>`, included by both languages. See phase-432 W3.1. That deletes the language-crossing branch from
 `cmd/codegen.rs` and lets the C pack serve every board the C++ one does.
 **ThreadX has no C board API at all and is declared C++-entry-only**, rather
 than silently routed.

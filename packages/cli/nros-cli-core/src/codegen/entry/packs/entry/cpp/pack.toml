@@ -1,0 +1,22 @@
+# The C++ entry pack.
+#
+# See `../c/pack.toml` for why this file exists.
+#
+# This is the pack an EMBEDDED C entry also routes to: the RTOS board runners
+# are C++ only, so a C entry on such a board is rendered here and compiled as
+# C++. That routing is a decision, not data, so it lives in Rust
+# (`entry_pack_for`) rather than in a manifest — but its OUTCOME is what the
+# `entry-pack` query reports, which is how CMake stops re-deriving it.
+language = "cpp"
+
+extension = "cpp"
+c_family = true
+
+entry_template = "entry_cpp.cpp"
+partials = [
+    "node_body_cpp.jinja",
+    "boot_wrapper_cpp.jinja",
+    "service_trailer_cpp.jinja",
+    "boot_config.jinja",
+    "declare_calls.jinja",
+]

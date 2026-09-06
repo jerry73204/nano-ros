@@ -1,0 +1,18 @@
+# The Rust entry pack.
+#
+# NOT reachable through `nros codegen entry` — that verb was retired in W2.4,
+# because what it rendered was strictly poorer than the `nros::main!()`
+# proc-macro's output. This pack survives as the SECOND rendering the parity
+# corpus compares the macro against, which is the diff RFC-0091 promised.
+#
+# It is described here anyway, and that is the point of a manifest: a pack that
+# exists but is reached by a different route is a fact worth stating, rather
+# than an absence a reader has to explain.
+language = "rust"
+
+extension = "rs"
+# Not a C-family TU: cargo builds it, so CMake links no C runtime for it.
+c_family = false
+
+entry_template = "entry_rust.rs"
+partials = []

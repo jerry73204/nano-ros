@@ -390,19 +390,51 @@ settled work.
   **Two prerequisites, and they are the real risk — do them FIRST and
   separately:**
 
-  1. `nros_board_network_wait` has exactly ONE definition in the tree and it
-     is a weak symbol in a C++ header (`main.hpp`). All three RTOS
-     `run_tiers.c` files call it `extern` and link only because the generated
-     entry is a `.cpp` that includes that header. A pure-C entry makes it an
-     undefined symbol at link. Needs a C stub plus a
-     `weak-symbols-allowlist.txt` row.
-  2. `NROS_ENTRY_LOCATOR` / `NROS_ENTRY_DOMAIN_ID` are derived in `main.hpp`
-     (from `CONFIG_NROS_ZENOH_LOCATOR`, else a synthesised XRCE address); the
-     C sibling `app_main.h` defines them as `""` and `0`. A pure-C entry would
-     compile, link, boot — **and dial nothing.** That is a byte-for-byte
-     re-run of issue **#174** (`rc=-100`, zero delivery), which the C++
-     derivation exists to fix. Move the derivation into a C header that
-     `main.hpp` then includes, so there is ONE derivation.
+  1. **CLOSED.** `nros_board_network_wait` had exactly ONE definition and it
+     was a weak symbol in a C++ header (`main.hpp`); the three RTOS
+     `run_tiers.c` files called it `extern` and linked only because the
+     generated entry was a `.cpp` that included that header. Proven, not
+     assumed: a pure-C TU compiled at exit 0 and then failed with `undefined
+     reference to 'nros_board_network_wait'`. Every count in this item was
+     right — one definition, three callers — which is worth recording because
+     four other counts in this phase were not.
+
+     **The prescribed fix was the wrong shape.** A C stub TU would have been a
+     SECOND definition of one symbol beside the header's weak one — this
+     phase's own defect class — and would have depended on archive extraction
+     pulling a member nothing else references, which is the FORCE_LINK /
+     staticlib-DCE hazard one layer over. The definition MOVED instead, into
+     `<nros/main.h>`: the C header that already declares the four
+     `nros_board_*_run_tiers` this hook gates, and which `main.hpp` already
+     includes. One definition, both languages reach it, the C++ path
+     byte-for-byte unchanged. Nothing in the tree overrides the weak hook
+     (measured: zero strong definitions), so it survives as an out-of-tree
+     board affordance and now has its first in-tree test.
+
+     **`check-weak-symbols` could not see the defect**, which is why a second
+     probe was needed: re-guarding the definition as `#if defined(__cplusplus)`
+     leaves that gate green while a pure C entry goes straight back to
+     `undefined reference`, and `-fsyntax-only` — what every other C header
+     probe in the lane uses — is green either way. `check-c` gains a LINK
+     probe instead, linked twice: alone, and beside a TU whose strong
+     definition must win.
+  2. **CLOSED.** `NROS_ENTRY_LOCATOR` / `NROS_ENTRY_DOMAIN_ID` were derived in
+     `main.hpp` while the C sibling `app_main.h` defined them as `""` and `0`
+     with no derivation, so a pure-C entry would compile, link, boot — **and
+     dial nothing**, a byte-for-byte re-run of issue **#174**. Measured before
+     and after with the flags a Zephyr board passes: `[]` became
+     `[tcp/127.0.0.1:7447]`.
+
+     There were THREE spellings, not the two this item named. The third was a
+     `#ifndef` further down `main.hpp` for the locator-less NuttX overload,
+     promising `""` — and it could never fire, because the ladder above it had
+     always already defined the macro. It delivered whatever that ladder
+     produced, and is deleted.
+
+     One ladder now, in `<nros/entry_config.h>`, included by both entry
+     languages. `check-entry-locator-ssot` gained the header half: it already
+     made the CMAKE-side locator ladders one producer (issue 0946), and the
+     invariant is the same one layer down.
 
   **Cost, freertos:** ~35-50 lines for the function itself (its helpers are
   already in the TU), ~2-3 days end to end including cmake, gate and one green
@@ -467,27 +499,109 @@ settled work.
   smaller first version than "add Zig". §8 step 0 now points at the table
   rather than restating it.
 
-- **W3.2 — a pack manifest.** `packs/entry/<lang>/pack.toml`: which template
-  renders which output, the file extension, and whether the TU is C-family (so
-  CMake knows which compiler and which link libraries). Today that knowledge is
-  spread across `NanoRosEntry.cmake`'s `_lang_tag` derivation and the dispatch.
+- **W3.2 — a pack manifest. DONE.** `packs/entry/<surface>/pack.toml` declares
+  the language, the generated TU's extension, whether a C-family compiler
+  builds it, and the templates the pack renders. `nros codegen entry-pack
+  --lang <l> --board <b>` serves the answer, and `NanoRosEntry.cmake` asks
+  instead of deriving.
 
-- **W3.3 — a conformance gate.** A pack that is half-wired must fail LOUDLY,
-  not emit nothing. Assert every declared template exists and parses, every
-  required output is produced for a reference plan, and the language has a
-  golden coordinate. Without this, "adding a language is cheap" becomes "adding
-  a broken language is cheap".
+  **The honest finding: there was no live disagreement, and saying so matters
+  more than dressing the change up.** CMake derived the extension from
+  `NANO_ROS_PLATFORM != "posix"` while the CLI dispatched on
+  `board_family(plan.board).is_embedded()` — two derivations of one decision on
+  DIFFERENT inputs — and every (platform, board) pair the tree exercises gives
+  the same answer both ways. `freertos-posix` looks like the counterexample (a
+  HOST process whose board family is `Freertos`) and is not: its fixture rows
+  set `NANO_ROS_PLATFORM = "freertos"`, so both sides say embedded.
 
-- **W3.4 — the documented procedure**, in the book. Four steps and the honest
-  caveat: pack, registry row, `Language` variant, golden coordinate — and
-  separately the toolchain work, which W3.1/W3.2 shrink but do not remove.
+  What was wrong is structural. Nothing MADE them agree, they read different
+  inputs, `board_family` answers `Native` for any key it has not learned, and
+  the failure if they diverged is a C++ TU written into a `.c` file — or worse,
+  a `.c` file that happens to compile. `board_family`'s own `freertos-posix`
+  comment records that this table has already produced one silent wrong answer
+  of exactly that kind.
 
-- **W3.5 — a reference third language, as a TEST rather than a product.** The
-  Zig simulation was on paper and found three real defects; it could not find
-  semantic ones (whether `linksection` actually satisfies the boot-config
-  placement the loader expects needs a build). Deciding whether to carry a
-  third language in-tree is a maintenance question and belongs to whoever owns
-  the CI budget — this item is the question, not the answer.
+  Also corrected while measuring: an earlier reading of this called
+  `riscv64-qemu` a divergent board key. It is not — that is `NANO_ROS_BOARD`
+  (the hardware name), a different namespace from the `plan.board` the dispatch
+  reads, which comes from the bringup's `system.toml`.
+
+- **W3.3 — a conformance gate. DONE.** `just check entry-pack-conformance`, on
+  the fast line, refuses a half-wired pack: a directory under `packs/entry/`
+  with no manifest, a language pack missing a field CMake needs to name its
+  output or pick its compiler, a `Language` variant nothing renders, or a
+  language whose generated bytes are recorded in no golden.
+
+  Split deliberately between Rust and Python rather than picked by taste. The
+  manifest↔registry agreement is a Rust unit test, because it reads the
+  bundled data directly where a script could only re-spell the key→path map —
+  and re-spelling it is the drift the gate exists to prevent. The DIRECTORY
+  check, the `Language` enumeration and the golden corpus are the script's,
+  because those are what a contributor gets wrong and the fast line is what
+  they run before pushing.
+
+  The script parses its own flat TOML subset: this host's Python is 3.10 (no
+  `tomllib`) and repo gates bring no dependencies. It REFUSES a line outside
+  that subset rather than skipping it — a parser that ignores what it does not
+  understand is how a gate reports green over a file it never read.
+
+  Mutation-tested: a pack directory with no manifest, and a language pack with
+  its `extension` removed, each go red with the file named.
+
+- **W3.4 — the documented procedure. DONE.**
+  `book/src/internals/codegen-packs.md` "Adding a language" is now four steps
+  rather than three, and the new one is FIRST: decide which surfaces you need
+  (§6's table), because that is what sizes the work and skipping it is why
+  "add a language" sounds bigger than it is. Then the message pack and its
+  filter set, then the entry pack and its `pack.toml`, then the goldens — with
+  `just check entry-pack-conformance` named as the thing to run before
+  believing the pack works.
+
+  The honest caveat kept its own heading rather than a footnote: the toolchain
+  story is not made cheap by any of this, and a reader planning the work should
+  budget for it separately.
+
+- **W3.5 — a reference third language. THE QUESTION, put properly.** This item
+  was always the question rather than the answer, and the rest of Track 3 has
+  now changed what the question costs. Recorded here so whoever owns the CI
+  budget can decide on evidence.
+
+  **What the paper simulation bought.** Simulating Zig found three real defects
+  and they are all fixed: `board_path` was C++ leaking into the IR (W2.2),
+  escaping could not be done in Stage 2 (W2.3's `c_str` filter), and
+  pre-rendered text was a language in disguise (W2.3's three released fields).
+  That is a good return for a design exercise, and it is exhausted — the same
+  simulation run again today finds nothing, because the defects it was
+  sensitive to are gone.
+
+  **What it cannot reach.** Semantic agreement with the target. Whether Zig's
+  `linksection` actually satisfies the boot-config placement the loader
+  expects, whether its `extern struct` layout matches the C pack's on a
+  cross target, whether its component seam links — none of those are readable,
+  they need a build. That is the entire remaining risk surface, and it is
+  exactly what a paper exercise is blind to.
+
+  **What a third language would cost now, after W3.2–W3.4.** The codegen half
+  is genuinely small: a message pack plus a filter set, an entry pack plus a
+  `pack.toml`, a `Language` variant, a golden coordinate — and
+  `check-entry-pack-conformance` refuses the half-wired result rather than
+  letting it emit nothing. Call it a day's work for someone who reads
+  `book/src/internals/codegen-packs.md`.
+
+  The build-integration half is unchanged and is the real number: a toolchain
+  CI can install, a cross-compile lane, a linked image, and a runtime cell that
+  proves delivery. Track 3's opening line said the codegen cost becomes a pack
+  while the build-integration cost does not, and nothing in W3.1–W3.4 changed
+  that.
+
+  **So the question is narrow: is a permanent cross-toolchain CI lane worth
+  buying, to test a property (the packs generalise beyond C/C++/Rust) that
+  nothing in the shipping product depends on?** A cheaper middle option exists
+  and is worth naming: a third language carried as a COMPILE-ONLY fixture —
+  generate, compile, never link or run — which catches layout and syntax
+  divergence for a fraction of the lane cost and leaves the semantic questions
+  open. Whoever answers should say which of the three they chose and why, so
+  the next person does not re-derive it.
 
 ## Ordering
 
