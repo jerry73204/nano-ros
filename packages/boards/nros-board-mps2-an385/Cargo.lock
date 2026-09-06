@@ -380,6 +380,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nros-entry-lower"
+version = "0.5.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "nros-log"
 version = "0.5.0"
 dependencies = [
@@ -391,6 +398,7 @@ dependencies = [
 name = "nros-macros"
 version = "0.5.0"
 dependencies = [
+ "nros-entry-lower",
  "nros-orchestration-ir",
  "nros-pkg-index",
  "proc-macro2",

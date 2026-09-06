@@ -1,0 +1,9 @@
+{
+  "_why": "One node with nothing set. The case that proves the RESET is written rather than skipped: every list is empty and the identity is None, so a producer that emits an assignment only when it has a value produces a SHORTER block here and nothing else in the corpus notices.",
+  "bringup": "demo_bringup",
+  "launch": "/tmp/system.launch.xml",
+  "board": "native",
+  "nodes": [
+    { "pkg": "talker_pkg" }
+  ]
+}

@@ -143,16 +143,65 @@ to remove.
   step would give the C++ emitter a second producer of the same text.
   Depends on W2.2.
 
-- **W2.4 — delete `emit_rust`; the proc-macro consumes `LoweredEntry`.**
-  `emit_rust` has no consumer (`nano_ros_entry` passes `--lang` as `c` or
-  `cpp` only; Rust entries reach the proc-macro through
-  `rust_cargo_application()`), and its stated justification is a diff that was
-  never implemented. The proc-macro stops re-deriving tiers (91 references),
-  QoS (23) and board paths (6), keeps `quote!` rendering, and a **parity gate**
-  renders a corpus both ways and compares — the diff that was promised.
-  Rendering the macro through the pack instead was considered and rejected: it
-  compiles `minijinja` into every user's entry build, which is the dependency
-  weight that created this duplication once already (issue 0083).
+- **W2.4 — retire the `--lang rust` VERB; both Rust producers consume
+  `LoweredEntry`; a parity gate compares them.** *(LANDED. The item as first
+  written said "delete `emit_rust`" AND "a gate compares their two Rust
+  renderings", which cannot both hold — deleting the renderer removes the
+  second thing to compare. Implementing it resolved that, and two of its
+  premises measured FALSE. Both corrections are below, because a reader who
+  believes the original will redo work that is already done.)*
+
+  **Premise 1, corrected: `emit_rust` had TWO consumers, not none.** The
+  claim is true of the BUILD — `NanoRosEntry.cmake` rejects any `LANG` but
+  `cpp`/`c`, and a Rust entry reaches the proc-macro through
+  `rust_cargo_application()` — and false of the tree: `cmd/codegen.rs`
+  dispatched `--lang rust` to it, and the golden harness renders it with two
+  committed goldens. So what is dead is the VERB, and that is what W2.4
+  deleted. The verb was worth deleting on its own merits, not for tidiness:
+  it renders the `OwnedSpin` register path and nothing else, so a plan
+  declaring tiers, `[lifecycle]`, `[param_services]` or per-entry executor
+  sizing compiled, linked, booted and ignored all four — issue 0302's shape,
+  still live for the four features the CLI verb never gained. The RENDERER
+  stays, because it is the second rendering the parity gate compares against.
+
+  **Premise 2, corrected: the tier / QoS / board-path convergence had already
+  happened.** Measured on `main_macro.rs`: 93 case-insensitive `tier`
+  matches, 34 `qos`, 15 `board_path` — close to the doc's 91/23/6, but they
+  are REFERENCES TO SHARED CODE, not re-derivations. `board_path_for`
+  delegates to `nros_orchestration_ir` (phase-346); QoS goes through
+  `qos_override::lower_all`, the same call the CLI emitters make (issue
+  0303); tiers go through `resolve_tiers` / `tier_from_model` /
+  `derive_tiers_from_contracts` (phase-228.G, RFC-0032 §6). Making the macro
+  "stop re-deriving" those would have been a no-op.
+
+  **What WAS duplicated, and is what W2.4 actually moved:** the **per-node
+  runtime bake** — `runtime.params` / `remaps` / `qos_overrides` /
+  `node_identity` and the `register` call each precedes. That is the text
+  both producers emit from the same facts, and it is exactly where they
+  drifted: four features reached the macro over four phases and left the
+  emitter behind (archived issue 0302). It now lives in
+  `nros_entry_lower::LoweredNode` (with `sanitize_pkg`, whose two
+  character-for-character copies were `entry::sanitize_pkg` and
+  `main_macro::pkg_to_crate_ident`), and the macro's four PARALLEL bake
+  vectors — indexed positionally against `pkg_idents`, each pushed from a
+  different arm — collapse into one struct per node.
+
+  **The gate.** A corpus of `LoweredEntry` values in
+  `packages/cli/nros-entry-lower/testdata/parity/` — in the crate BOTH
+  producers depend on, so neither can cover a different set — is rendered by
+  `emit_rust` into committed goldens and by the macro's `quote!` path, and
+  the two are compared TOKEN-wise (`nros-macros/src/entry_parity.rs`).
+  Token-wise and not byte-wise because `quote!` has no formatting and a
+  template does; `Spacing` is a formatting hint and is deliberately not part
+  of the comparison, or every case would report drift forever and the gate
+  would be discarded as noisy. It found a real divergence on its first run:
+  the CLI rendered a QoS code as `1` where `quote!` interpolating a `u8`
+  emits `Literal::u8_suffixed`, i.e. `1u8`. Semantically identical, textually
+  not, and nothing had ever compared them.
+
+  Rendering the macro through the pack instead was considered and rejected:
+  it compiles `minijinja` into every user's entry build, which is the
+  dependency weight that created this duplication once already (issue 0083).
   Depends on W2.2.
 
 - **W2.5a — the message-side context becomes the IR.** Measured (RFC-0091

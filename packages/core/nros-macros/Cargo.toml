@@ -40,6 +40,12 @@ toml = "0.8"
 # every other dep here; the reader walks `Value` and mirrors no schema struct.
 serde_json = "1.0"
 nros-pkg-index = { path = "../../cli/nros-pkg-index" }
+# phase-432 W2.4 (RFC-0091 §4) — Stage 2 of the ENTRY pipeline: the per-node
+# runtime bake this macro and `nros codegen entry`'s Rust renderer both emit.
+# `no_std`, `serde` and nothing else, on purpose: this crate exists to be
+# affordable HERE, and a heavy dependency lands in every downstream user's
+# entry build, which is the force behind issue 0083 above.
+nros-entry-lower = { path = "../../cli/nros-entry-lower" }
 # Phase 228.G — shared per-tier schema + resolver. Same crate the CLI's
 # codegen-system uses, so the macro's compile-time tier resolution can't drift
 # from the bake path (RFC-0032 §6). Proc-macro deps are host-only.

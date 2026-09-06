@@ -9,6 +9,11 @@ use syn::{DeriveInput, Fields, LitByteStr, LitStr, Path, parse_macro_input};
 // Phase 212.N.9 — `nros::main!()` proc-macro family. Replaces today's
 // Entry-pkg `build.rs + include!(concat!(env!("OUT_DIR"), "/run_plan.rs"))`
 // shape with a one-line `main.rs`. See `main_macro.rs` for the impl.
+/// phase-432 W2.4 — the Rust-entry parity gate: the shared corpus rendered by
+/// THIS crate's `quote!` and compared against `nros codegen entry`'s committed
+/// rendering of the same facts. Test-only; it reads files from the repo.
+#[cfg(test)]
+mod entry_parity;
 mod main_macro;
 mod source_metadata_sidecars;
 

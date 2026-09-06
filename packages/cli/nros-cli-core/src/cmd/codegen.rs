@@ -295,10 +295,38 @@ fn run_entry(args: EntryArgs) -> Result<()> {
         }
     } else {
         match lang {
-            entry_codegen::Lang::Rust => entry_codegen::emit_rust::emit(&plan),
+            // phase-432 W2.4 (RFC-0091 §7) — the Rust entry VERB is retired.
+            //
+            // Measured before removing it: nothing invoked it. `nano_ros_entry`
+            // rejects any LANG but `cpp`/`c` (`NanoRosEntry.cmake`), a Rust
+            // entry reaches the `nros::main!()` proc-macro through
+            // `rust_cargo_application()`, and `builder/entry.rs` emits an entry
+            // PACKAGE whose body is `nros::main!(...)` — it delegates rather
+            // than restating. The only caller was the golden harness.
+            //
+            // Retiring it is not tidiness. What this verb produced was a
+            // STRICTLY POORER entry than the macro's: it renders the
+            // `OwnedSpin` register path and nothing else, so a plan declaring
+            // tiers, `[lifecycle]`, `[param_services]` or per-entry executor
+            // sizing compiled, linked, booted — and ignored all four. That is
+            // archived issue 0302's shape (four features that reached one
+            // producer and not the other) still live for the four the CLI verb
+            // never gained, and a user who found the flag had no way to see it.
+            //
+            // The RENDERER stays: `emit_rust` is the second rendering the
+            // parity corpus compares the proc-macro against, which is the diff
+            // this file's sibling promised for two years and never had.
+            entry_codegen::Lang::Rust => bail!(
+                "--lang rust entry is retired (phase-432 W2.4): a Rust entry is \
+                 emitted by the `nros::main!()` proc-macro at compile time. \
+                 Scaffold one with `nros new`, or let `nano_ros_entry` drive \
+                 `rust_cargo_application()`; this verb rendered the register \
+                 path only and silently dropped tiers, lifecycle and param \
+                 services."
+            ),
             // Phase 257 (Stage-3) — the non-typed C/C++ entry (the synthesizing
             // `EntryNodeRuntime` interpreter) is retired; every C/C++ entry is now
-            // typed (`--typed`, real executor). Rust entries stay register-based.
+            // typed (`--typed`, real executor).
             entry_codegen::Lang::Cpp | entry_codegen::Lang::C => bail!(
                 "non-typed --lang {} entry is retired (phase-257): pass `TYPED` to \
                  nano_ros_entry (→ `--typed`) for the real-executor entry",

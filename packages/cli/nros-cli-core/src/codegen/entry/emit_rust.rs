@@ -1,29 +1,35 @@
-//! Phase 219.A — Rust Entry-pkg TU emitter.
+//! Phase 219.A — the CLI's Rust entry renderer, and the proc-macro's mirror.
 //!
-//! Today the canonical Rust Entry pkg is the `nros::main!()`
-//! proc-macro (`packages/core/nros-macros/src/main_macro.rs`); this
-//! emitter exists so the CLI verb `nros codegen entry --lang rust …`
-//! can produce a standalone `main.rs` body for tooling that wants to
-//! pre-bake the macro expansion (e.g. for byte-level diffs against the
-//! proc-macro output, or to inspect the launch-XML resolution outside
-//! a cargo build).
+//! The canonical Rust entry is the `nros::main!()` proc-macro
+//! (`packages/core/nros-macros/src/main_macro.rs`), which keeps
+//! `proc_macro::Span` for diagnostics a CLI shell-out cannot match. This
+//! renderer is its SECOND rendering of the same facts, and phase-432 W2.4
+//! finally made that pay: both now render
+//! [`nros_entry_lower::LoweredEntry`], and a parity corpus
+//! (`packages/cli/nros-entry-lower/testdata/parity/`) is rendered by each and
+//! compared. That comparison is the "byte-level diff against the proc-macro
+//! output" this file's doc comment promised from 2024 and never had — RFC-0091
+//! §7, and the reason the file is still here rather than deleted.
 //!
-//! The proc-macro itself remains the canonical compile-time emitter —
-//! it keeps direct access to `proc_macro::Span` for diagnostics that
-//! a CLI shell-out cannot match. The shared [`crate::codegen::entry`]
-//! `Plan` IR makes the two paths converge on a single pkg-index +
-//! launch-parse implementation.
+//! **The renderer that stays is not the same thing as the VERB that went.**
+//! `nros codegen entry --lang rust` is retired (`cmd/codegen.rs`): nothing
+//! invoked it — `nano_ros_entry` passes `--lang` as `c` or `cpp` only, and a
+//! Rust entry reaches the proc-macro through `rust_cargo_application()` — and
+//! what it produced was a strictly POORER entry than the macro's, missing
+//! tiers, lifecycle, param services and executor sizing. A user who found the
+//! flag got an entry that silently ignored half their `system.toml`. What
+//! survives is the renderer, its goldens and the parity gate.
+//!
+//! What is rendered here and what is not: every fact arrives computed from
+//! `nros-entry-lower` and `nros_orchestration_ir`. What stays in this file is
+//! SPELLING — quoting, and the syntax of a Rust tuple — because quoting is a
+//! correctness property and a template that got it wrong would fail silently
+//! (RFC-0091 §6b).
 
-use super::{Plan, sanitize_pkg};
+use nros_entry_lower::{LoweredEntry, LoweredNode};
 
-/// Emit a Rust `main.rs` body for the given plan.
-///
-/// Output mirrors the proc-macro's `OwnedSpin` framework branch (which
-/// is the only branch the CLI verb dispatches today — RTIC + Embassy
-/// emits stay proc-macro-only since they need `proc_macro::Span` for
-/// the `custom_tasks` splice). The body installs both a hosted `fn
-/// main()` and an embedded `#[unsafe(no_mangle)] extern "C" fn main()`
-/// so the same TU works for native + bare-metal targets.
+use super::Plan;
+
 /// The whole TU, as the template sees it.
 ///
 /// Issue 1102 — every field is ALREADY CORRECT: `board_path` came from
@@ -58,28 +64,52 @@ struct RustNodeView {
 
 /// Emit a Rust `main.rs` body for the given plan.
 ///
-/// Output mirrors the proc-macro's `OwnedSpin` framework branch (which
-/// is the only branch the CLI verb dispatches today — RTIC + Embassy
-/// emits stay proc-macro-only since they need `proc_macro::Span` for
-/// the `custom_tasks` splice). The body installs both a hosted `fn
-/// main()` and an embedded `#[unsafe(no_mangle)] extern "C" fn main()`
-/// so the same TU works for native + bare-metal targets.
+/// Output mirrors the proc-macro's `OwnedSpin` framework branch — RTIC and
+/// Embassy stay proc-macro-only, since they need `proc_macro::Span` for the
+/// `custom_tasks` splice. The body installs both a hosted `fn main()` and an
+/// embedded `#[unsafe(no_mangle)] extern "C" fn main()` so the same TU works
+/// for native + bare-metal targets.
 pub fn emit(plan: &Plan) -> String {
-    let view = RustEntryView {
+    emit_lowered(&lower(plan))
+}
+
+/// Stage 2 — the CLI's `Plan` becomes the facts both Rust producers render.
+///
+/// This is the half the proc-macro cannot share: it has no `Plan` (RFC-0091
+/// §4 — `Plan` is the CLI's own projection of its input, and lives across
+/// `cmd/`, `builder/` and `codegen/`). What IS shared is the OUTPUT type, so
+/// the two converge here rather than at the renderer.
+pub fn lower(plan: &Plan) -> LoweredEntry {
+    LoweredEntry {
         bringup: plan.bringup.clone(),
         launch: plan.launch_file.display().to_string(),
         board: plan.board.clone(),
-        board_path: board_path_for(&plan.board).unwrap_or("::nros_board_linux::LinuxBoard"),
         // include_bytes! tracking — same rebuild-correctness workaround the
         // proc-macro uses. A path that does not exist is skipped, exactly as
-        // the proc-macro does.
+        // the proc-macro does: `include_bytes!` on a missing path is a hard
+        // compile error, and the pkg-index walk can name a synthesised dir.
         depfiles: plan
             .depfile_paths
             .iter()
             .filter(|d| d.exists())
-            .map(|d| quote_str(&d.display().to_string()))
+            .map(|d| d.display().to_string())
             .collect(),
-        nodes: plan.nodes.iter().map(node_view).collect(),
+        nodes: plan.nodes.iter().map(lower_node).collect(),
+    }
+}
+
+/// Stage 3 — render the lowered entry as Rust.
+///
+/// Public because the parity harness renders the shared corpus through it
+/// directly; the corpus is `LoweredEntry` values, which is the point.
+pub fn emit_lowered(entry: &LoweredEntry) -> String {
+    let view = RustEntryView {
+        bringup: entry.bringup.clone(),
+        launch: entry.launch.clone(),
+        board: entry.board.clone(),
+        board_path: board_path_for(&entry.board).unwrap_or("::nros_board_linux::LinuxBoard"),
+        depfiles: entry.depfiles.iter().map(|d| quote_str(d)).collect(),
+        nodes: entry.nodes.iter().map(node_view).collect(),
     };
 
     // A render failure is a bug in a template compiled INTO this binary, so it
@@ -88,20 +118,48 @@ pub fn emit(plan: &Plan) -> String {
         .expect("bundled rust entry template must render")
 }
 
-/// Bake the per-node runtime state the `nros::main!` proc-macro sets before
-/// each `register` call (issue 0302).
+/// A plan node's per-node runtime bake, as neutral facts (issue 0302).
 ///
 /// Four features arrived over four phases — params (264 W4a), identity
 /// (268 W1), remaps (305 W3 / issue 0255), QoS overrides (issue #52) — and
 /// each wired the proc-macro while leaving this emitter behind, so a CLI-baked
 /// entry ran every node with default parameters, no remaps, its own hardcoded
-/// name and no QoS overrides. From the same plan.
+/// name and no QoS overrides. From the same plan. That is the drift the shared
+/// [`LoweredNode`] and the parity corpus exist to make impossible: a fifth
+/// feature now cannot reach one producer without the other going red.
+fn lower_node(n: &super::PlanNode) -> LoweredNode {
+    LoweredNode {
+        pkg: n.pkg.clone(),
+        params: n.params.clone(),
+        remaps: n.remaps.clone(),
+        // The plan carries LOWERED codes: `nros_orchestration_ir::qos_override`
+        // already rejected anything unusable (issue 0303), so nothing is
+        // decoded or silently dropped here.
+        qos_overrides: n
+            .qos_overrides
+            .iter()
+            .map(|o| nros_entry_lower::QosOverride {
+                topic: o.topic.clone(),
+                role: o.role,
+                policy: o.policy,
+                value: o.value,
+            })
+            .collect(),
+        // A namespace without a name is not an identity: the proc-macro keys
+        // the override on the name, so `None` here means "keep the node's own".
+        identity: n.name.as_ref().map(|name| {
+            nros_entry_lower::NodeIdentity::new(name, n.namespace.as_deref().unwrap_or(""))
+        }),
+    }
+}
+
+/// Spell one lowered node as Rust.
 ///
 /// EVERY field is written unconditionally, including the empty case. That
 /// reset discipline is the macro's and it is load-bearing: `runtime` is reused
 /// across nodes, so a node with no params must clear the previous node's
 /// rather than inherit them.
-fn node_view(n: &super::PlanNode) -> RustNodeView {
+fn node_view(n: &LoweredNode) -> RustNodeView {
     let pairs = |items: &[(String, String)]| -> String {
         items
             .iter()
@@ -110,15 +168,17 @@ fn node_view(n: &super::PlanNode) -> RustNodeView {
             .join(", ")
     };
 
-    // The plan carries LOWERED codes: `nros_orchestration_ir::qos_override`
-    // already rejected anything unusable (issue 0303), so nothing is decoded
-    // or silently dropped here.
+    // SUFFIXED literals (`1u8`), because `quote!` interpolating a `u8` emits
+    // `Literal::u8_suffixed` and the proc-macro therefore always has. The two
+    // renderings differed here for as long as both existed — semantically
+    // identical, textually not — and nothing compared them, which is precisely
+    // what the parity corpus was built to find.
     let qos_overrides = n
         .qos_overrides
         .iter()
         .map(|o| {
             format!(
-                "({}, {}, {}, {})",
+                "({}, {}u8, {}u8, {}u32)",
                 lit_str(&o.topic),
                 o.role,
                 o.policy,
@@ -128,19 +188,17 @@ fn node_view(n: &super::PlanNode) -> RustNodeView {
         .collect::<Vec<_>>()
         .join(", ");
 
-    // A namespace without a name is not an identity: the proc-macro keys the
-    // override on the name, so `None` here means "keep the node's own".
-    let identity = match &n.name {
-        Some(name) => format!(
+    let identity = match n.identity_pair() {
+        Some((name, namespace)) => format!(
             "::core::option::Option::Some(({}, {}))",
             lit_str(name),
-            lit_str(n.namespace.as_deref().unwrap_or(""))
+            lit_str(namespace)
         ),
         None => "::core::option::Option::None".to_string(),
     };
 
     RustNodeView {
-        pkg: sanitize_pkg(&n.pkg),
+        pkg: n.ident(),
         params: pairs(&n.params),
         remaps: pairs(&n.remaps),
         qos_overrides,
