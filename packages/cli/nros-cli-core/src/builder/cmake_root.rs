@@ -605,6 +605,48 @@ mod tests {
     }
 
     #[test]
+    fn two_images_differing_only_in_args_render_differently() {
+        // Issue 1136. `native_robot1` and `native_robot2` share a board, a
+        // launch file, a language and a deploy — `args` is the ONLY thing that
+        // distinguishes them, and it is what picks the per-host `[[model]]`
+        // variant. Stop emitting it and the two calls become the same call:
+        // two binaries, one program, no error anywhere. The resolver half is
+        // `model_location::per_host_images_resolve_to_distinct_models`.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let d = discovered(vec![pkg(root, "talker_pkg", true)]);
+        let mut sp = spec(root);
+        sp.board = Some("native".to_string());
+        sp.entries = ["robot1", "robot2"]
+            .iter()
+            .map(|host| CmakeEntry {
+                name: format!("native_{host}_entry"),
+                launch: "multihost.launch.xml".to_string(),
+                args: vec![("host".to_string(), (*host).to_string())],
+                lang: "c".to_string(),
+                deploy: "native".to_string(),
+                panic: None,
+            })
+            .collect();
+        let body = render(&d, &root.join("build/posix"), &sp).expect("renders");
+
+        let calls: Vec<&str> = body.split("nano_ros_add_executable(").skip(1).collect();
+        assert_eq!(calls.len(), 2, "{body}");
+        // Compare with the target NAME removed: that difference is free, and
+        // the question is whether anything the BUILD reads differs too.
+        let strip = |c: &str| {
+            c.replacen("native_robot1_entry", "", 1)
+                .replacen("native_robot2_entry", "", 1)
+        };
+        assert_ne!(
+            strip(calls[0]),
+            strip(calls[1]),
+            "the two per-host images render identically apart from their target \
+             name — they resolve one model and are one program: {body}"
+        );
+    }
+
+    #[test]
     fn no_entry_is_emitted_while_the_package_still_exists() {
         // The property that makes D13's migration incremental: two targets of
         // one name would collide, so the emitter stays silent until the

@@ -698,6 +698,87 @@ mod tests {
         });
     }
 
+    /// The in-tree bringups whose `[image.*]` tables carry `args`.
+    fn arg_bound_bringups() -> Vec<PathBuf> {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("repo root")
+            .to_path_buf();
+        ["c", "mixed"]
+            .iter()
+            .map(|ws| {
+                repo.join("examples/workspaces")
+                    .join(ws)
+                    .join("src/demo_bringup")
+            })
+            .collect()
+    }
+
+    /// Two images of one multi-host system must not resolve to ONE model.
+    ///
+    /// Issue 1136. `native_robot1` and `native_robot2` differ in exactly one
+    /// thing — `args = { host = … }`, emitted as `LAUNCH_ARGS host=…` — and
+    /// that single difference is what picks the per-host `[[model]]` variant.
+    /// Drop it anywhere along the chain and both images resolve the whole
+    /// system: two binaries, one program, no error. phase-405 W1 dropped it at
+    /// the cmake end, where the loss was loud (a missing "source file"); this
+    /// asserts the half where it would be SILENT.
+    #[test]
+    fn per_host_images_resolve_to_distinct_models() {
+        let mut bound = 0;
+        for bringup in arg_bound_bringups() {
+            let raw = std::fs::read_to_string(bringup.join("system.toml"))
+                .unwrap_or_else(|e| panic!("{}: {e}", bringup.display()));
+            let doc: toml::Table = raw.parse().expect("system.toml parses");
+            let images = doc
+                .get("image")
+                .and_then(|i| i.as_table())
+                .expect("[image.*] tables");
+
+            let mut seen: Vec<(String, String)> = Vec::new();
+            for (name, img) in images {
+                let Some(args) = img.get("args").and_then(|a| a.as_table()) else {
+                    continue;
+                };
+                bound += 1;
+                let launch = img.get("launch").and_then(|v| v.as_str());
+                let pairs: Vec<(String, String)> = args
+                    .iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect();
+                let rel = launch_to_model_rel(&bringup, launch, &pairs)
+                    .unwrap_or_else(|e| panic!("{name}: {e}"));
+
+                // The binding must CHANGE the answer, not merely be accepted.
+                let unbound = launch_to_model_rel(&bringup, launch, &[])
+                    .unwrap_or_else(|e| panic!("{name} unbound: {e}"));
+                assert_ne!(
+                    rel,
+                    unbound,
+                    "{}: image `{name}` binds {pairs:?} and still resolves the \
+                     unbound model — the binding reaches nothing",
+                    bringup.display(),
+                );
+                if let Some((other, _)) = seen.iter().find(|(_, r)| *r == rel) {
+                    panic!(
+                        "{}: images `{other}` and `{name}` both resolve `{rel}` — \
+                         two per-host images are one program",
+                        bringup.display(),
+                    );
+                }
+                seen.push((name.clone(), rel));
+            }
+        }
+        // A sweep over nothing passes. Both workspaces declare a robot1/robot2
+        // pair, so anything under four means the tables moved and this test
+        // stopped asking the question.
+        assert!(
+            bound >= 4,
+            "expected >= 4 arg-bound images in-tree, found {bound}"
+        );
+    }
+
     #[test]
     fn missing_everywhere_reports_the_committed_path() {
         with_env(

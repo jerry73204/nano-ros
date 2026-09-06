@@ -98,16 +98,51 @@ under `~/.local-box/bin`. **Nothing about the environment is missing.** Source
 `CARGO_INSTALL_ROOT/bin` last, and activate.sh otherwise re-shadows `just` with
 the host's glibc-2.39 build, which dies in the box.
 
-### W0 — unblock the lane (issue 1136)
+### W0 LANDED — the host-tests job could not build its fixtures (issue 1136)
 
-Make the CLI's emitted `nano_ros_entry` keywords and the function's parsed
-keywords agree, and gate the agreement — both sides are literals in the tree,
-so it is a static check. Not by dropping the emission: `system.toml` says
-`native_entry_robot1` and `_robot2` differ ONLY in `LAUNCH_ARGS host=`, so
-dropping it makes two images the same program, silently. Then confirm
-`host-tests.yml`'s integration job reaches `just ci tier1`.
+Nothing in this phase is observable while `host-tests.yml`'s `nros-tests
+integration (host)` job dies at **Build workspace fixtures**: measured
+2026-09-06 over its last 30 runs, 0 success / 10 failure / 18 cancelled, the
+last five failures all at that step.
 
-*Acceptance:* one green `host-tests` run, and a gate on the keyword sets.
+phase-405 W1 removed `LAUNCH_ARGS` from `nano_ros_entry`'s
+`cmake_parse_arguments` on a survey of "authored users in the tree (**generated
+CMakeLists excluded, since those are tool output rather than a caller's
+choice**)". The generator is the only caller that runs in CI, and
+`builder/cmake_root.rs` still emitted it — so the keyword fell into
+`UNPARSED_ARGUMENTS`, was spliced into `SOURCES`, and every workspace configure
+died on `Cannot find source file: LAUNCH_ARGS`. Six days, unseen, because
+host-tests runs on no gating event.
+
+**The capability was LIVE, not dead — measured, because the phase-405 note
+suggested otherwise.** Two frames, both checked:
+
+* `nros model-path --launch multihost.launch.xml` → `config/multihost_model.yaml`;
+  with `--arg host=robot1` / `robot2` → `config/multihost_robot1_model.yaml` /
+  `..._robot2_model.yaml`. Three distinct models; `--arg` was never removed.
+* The cmake side reached it by ACCIDENT and still worked. Replaying both
+  parses (`cmake -P`) on a generated call: pre-W1 the verb left
+  `LAUNCH_ARGS;host=robot1` in `UNPARSED_ARGUMENTS`, `_srcs` carried it into
+  `SOURCES`, and `nano_ros_entry` re-tokenized it back into
+  `_NRA_LAUNCH_ARGS=[host=robot1]` — which the `--arg` loop forwarded.
+  Post-W1 the same call yields `SOURCES=[LAUNCH_ARGS;host=robot1]`.
+
+So the per-host images were never silently identical: the loss was a hard
+configure error, which is the good failure. What was silent is the sibling
+found on the way — the verb kept forwarding `MODEL` after phase-405 W4 stopped
+parsing it, so a `MODEL <path>` reached `UNPARSED_ARGUMENTS` and was DROPPED.
+Zero callers passed it, which is why nobody saw it.
+
+Landed: `LAUNCH_ARGS` restored in `nano_ros_entry` with its `--arg` forward;
+`LAUNCH_ARGS` and `PANIC` parsed and forwarded EXPLICITLY by
+`nano_ros_add_executable` instead of riding the `UNPARSED_ARGUMENTS`
+re-tokenization phase-405 W1 itself named as a hazard; `MODEL` now a
+`FATAL_ERROR` there. Gate `check-generated-cmake-keywords` (fast lane) compares
+what `cmake_root.rs` emits against every cmake frame the call traverses — the
+complement of `check-retired-cmake-keywords`, which scans tracked cmake and
+therefore cannot see a generated root. Tests:
+`model_location::per_host_images_resolve_to_distinct_models` and
+`cmake_root::two_images_differing_only_in_args_render_differently`.
 
 ## Coverage map — what a live peer has actually seen
 
