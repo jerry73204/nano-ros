@@ -1,6 +1,6 @@
 # Phase 417 — ROS 2 user-API adoption
 
-**Status (2026-09-04). In flight. Implements RFC-0087.** Stages 0, 1 and 2b are
+**Status (2026-09-04). In flight. Implements RFC-0089.** Stages 0, 1 and 2b are
 LANDED, and so is the correction track (issues 1012 and 1022 resolved, 92 rows).
 Stage 1's acceptance is met: `cpp-port-minimal-publisher/src/minimal_publisher.cpp`
 is upstream's file again. Stages 2 (node surface), 3 (loudness), 4 (cross-language)
@@ -27,7 +27,7 @@ This phase is also the **home for every correction, migration and retirement
 job** in the API campaign: the tracks are listed below, and each names its
 issue. An issue with no work item is an issue nobody is accountable for.
 
-Two ordering principles, both from RFC-0087.
+Two ordering principles, both from RFC-0089.
 
 **The rename is cheap and cosmetic; the compatibility is the work.** The rename
 lands last, after the shapes match, because before then it would relabel the
@@ -56,7 +56,7 @@ about the native API rather than about what a ported file reaches.
   native API" and "what does a ported file hit" one surface or two; how is the
   shim's std-only reachability marked.
 * W0.b — add a `disposition` field to the ledger (adopt / adopt-bounded /
-  refuse-loud / absent) per RFC-0087's consequence section, and a gate that a
+  refuse-loud / absent) per RFC-0089's consequence section, and a gate that a
   `declined` row declares one.
 
 **Acceptance:** the C++ report distinguishes native-API distance from
@@ -132,7 +132,7 @@ behaviour, and it needs a `TopicEndpointInfo` value type.
 
 ## Stage 3 — the loudness pass (the safety gate)
 
-RFC-0087's rule applied to everything already adopted. **This stage gates the
+RFC-0089's rule applied to everything already adopted. **This stage gates the
 rename**: until it is done, taking more upstream names increases the number of
 ways a ported program can compile and differ.
 
@@ -304,7 +304,7 @@ rclc_node_init_default(node, name, namespace_, support)
 A sweep that renames without reordering produces code that **compiles with a
 warning and passes the wrong values** — C diagnoses an incompatible pointer
 argument as a warning even under `-Wall -Wextra`, which is the measurement that
-forced RFC-0087's "a C reorder ships with a rename beside it". Here the rename
+forced RFC-0089's "a C reorder ships with a rename beside it". Here the rename
 IS the guard: the old identifier disappears, so a missed site fails to compile
 rather than silently mis-binding.
 
@@ -379,7 +379,7 @@ and the two must not be run as separate passes.
 * `examples/templates/cpp-port-minimal-publisher` still byte-identical to
   upstream's tutorial;
 * `rcl_compat.h` holds only the `RCL_RET_*` mapping and handle typedefs — the
-  two things RFC-0087 says cannot dissolve;
+  two things RFC-0089 says cannot dissolve;
 * `just ci gate` green, and the ported templates build with **every** compat
   layer deleted.
 
