@@ -270,6 +270,30 @@ pub const CELLS: &[InteropCell] = &[
        c(Linux, Rust, Cyclonedds, Graph, Interop, Runtime),
        NativeFixtures, RosEdition(Cyclonedds), RosToNano, "graph_interop"),
 
+    // ── phase-433 W6 — the ACTIONS family's live peer ────────────────────
+    // tests/ros2_action_e2e.rs. Until this row the family had NO interop cell
+    // at all: every action row in `matrix::CELLS` is nano-to-nano, and both
+    // ends of such a pair share whatever convention `service.cpp`'s five CDR
+    // adapters implement, so the one property the adapters exist to provide is
+    // the one property those rows cannot observe (issue 0976). Actions are also
+    // the family with the widest unexplained runtime spread — issue 0902
+    // measured goals completing 20–90 % of the time on one build — which is a
+    // shape only a live peer surfaces.
+    //
+    // BOTH directions, one coordinate. The adapters sit on both sides of the
+    // service path: `strip_goal_id_len_at` / `strip_nested_cdr_at` fire only
+    // when nano-ros WRITES a SendGoal/GetResult request, so the R2N cell (a
+    // stock `ros2 action send_goal` into the nano server) does not reach them
+    // and the N2R cell (the nano client into a stock server) is where they run.
+    // `coords_for` collapses direction, so `assert_test_bound` in that file
+    // names the coordinate once.
+    ic("native-action-rust-cyclone-r2n",
+       c(Linux, Rust, Cyclonedds, Action, Interop, Runtime),
+       NativeFixtures, RosEdition(Cyclonedds), RosToNano, "ros2_action_e2e"),
+    ic("native-action-rust-cyclone-n2r",
+       c(Linux, Rust, Cyclonedds, Action, Interop, Runtime),
+       NativeFixtures, RosEdition(Cyclonedds), NanoToRos, "ros2_action_e2e"),
+
     // ── Native nano XRCE ↔ Agent ↔ fastrtps ─────────────────────────────
     // tests/xrce_ros2_interop.rs.
     ic("native-pubsub-rust-xrce-n2r",
