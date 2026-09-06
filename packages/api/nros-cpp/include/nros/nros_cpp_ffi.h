@@ -1418,6 +1418,41 @@ nros_cpp_ret_t nros_cpp_executor_set_active_groups(void *executor,
                                                    size_t n);
 
 /**
+ * Phase 274.W2 (RFC-0015 Model 1) — run a native multi-tier entry over one
+ * shared RMW session.
+ *
+ * Opens ONE session on the calling (boot) thread; spawns `n_tiers - 1`
+ * threads each opening a **borrowed** executor (no second RMW session, no
+ * double-close). Each thread:
+ *   1. `nros_cpp_executor_open_over_session` — open borrowed executor.
+ *   2. `nros_cpp_executor_set_active_groups` — gate to the tier's groups.
+ *   3. `setup(executor)` — create + configure nodes (only the tier's
+ *      groups' callbacks register).
+ *   4. `spin_once` loop at `spin_period_us` until shutdown flag.
+ *
+ * The boot thread runs the first (highest-priority) tier on the owning
+ * executor; it respects the `$NROS_ENTRY_SPIN_MS` bound for test/CI use.
+ * When the boot thread exits its spin loop it signals the other tiers (via
+ * `Arc<AtomicBool>`) and joins them before closing the session.
+ *
+ * # Safety
+ * `tiers` must be a valid pointer to `n_tiers` [`NativeTierSpecC`] entries,
+ * valid for the duration of the call. `session_name` is NULL or a valid
+ * null-terminated string.
+ * Declare how often this executor's loop intends to come round, in
+ * microseconds. `0` (the default) falls back to the `spin_once` timeout.
+ *
+ * The pacing and the blocking bound are separate numbers. A tier loop sleeps
+ * `spin_period_us` between spins but passes a fixed 10 ms timeout to
+ * `spin_once`, so without this the release-jitter rule judged every tier
+ * against 10 ms whatever the contract declared.
+ *
+ * # Safety
+ * `handle` must be a live executor handle from this ABI, or NULL.
+ */
+nros_cpp_ret_t nros_cpp_executor_set_spin_nominal_us(void *handle, uint64_t us);
+
+/**
  * Get current monotonic time in nanoseconds.
  *
  * Used by `nros::Future::wait()` (header-side) to budget its spin loop by

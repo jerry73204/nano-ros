@@ -1921,6 +1921,261 @@ fn test_arena_alignment() {
 // Timer callback tests
 // ====================================================================
 
+// ===========================================================================
+// phase-436 W1 (issue 1192) — the park is bounded by the next TIMER deadline.
+// ===========================================================================
+
+// ===========================================================================
+// phase-436 W3 (issue 1194) — the jitter measurement states the granularity
+// it was actually made at, instead of implying microsecond precision the
+// pacing mechanism cannot deliver.
+// ===========================================================================
+
+/// A loop with no declared cadence is paced BY the blocking wait, so its
+/// jitter can only be as fine as the wait — one platform granule.
+#[test]
+fn jitter_granularity_is_the_park_granule_when_the_wait_paces_the_loop() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(10));
+
+    assert_eq!(
+        executor.release_jitter_granularity_us(),
+        executor.park_granularity_us(),
+        "with no declared cadence the wait is the pacing mechanism, so it is \
+         also the floor on the measurement"
+    );
+}
+
+/// A loop that DECLARES its cadence paces itself — nros-cpp's tiers sleep
+/// `platform_sleep_us` between spins, which is finer than the blocking wait.
+/// Reporting a millisecond floor there would understate a real measurement.
+#[test]
+fn a_declared_cadence_means_the_loop_paces_itself_at_microseconds() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(5_000);
+    executor.spin_once(core::time::Duration::from_millis(10));
+
+    assert_eq!(
+        executor.release_jitter_granularity_us(),
+        1,
+        "a declared cadence is paced by the caller's own sleep, not by the wait"
+    );
+}
+
+// ===========================================================================
+// phase-436 W2 (issue 1193) — the park rounds UP to what the platform can
+// actually achieve, and never truncates to a busy loop.
+// ===========================================================================
+
+/// A zero timeout means "poll, no cadence claimed". Rounding up must not
+/// promote it into a 1 ms sleep — that would turn every `Future::wait` busy
+/// drain into a throttled one.
+#[test]
+fn a_zero_park_stays_zero() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::ZERO);
+    assert_eq!(executor.last_park_achieved_us(), 0);
+}
+
+/// The defect: `as_millis()` truncates, so 500 us became 0 ms, which selects
+/// the non-blocking path and turns `spin()` into a 100 % CPU loop. A park
+/// shorter than the platform can express must round UP to what it can.
+#[test]
+fn a_sub_granularity_park_rounds_up_instead_of_collapsing_to_a_spin() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(500));
+
+    let achieved = executor.last_park_achieved_us();
+    assert_eq!(
+        achieved,
+        executor.park_granularity_us(),
+        "500 us must round up to one granule, not down to a busy loop; got {achieved} us"
+    );
+    assert!(achieved > 0, "a non-zero request must never park for zero");
+}
+
+/// Rounding is UP, not nearest and not down: 1500 us on a 1 ms-granular port
+/// waits 2 ms. Truncating it to 1 ms is a 33 % short wait no caller asked for.
+#[test]
+fn a_park_rounds_up_never_down() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(1_500));
+
+    let achieved = executor.last_park_achieved_us();
+    let g = executor.park_granularity_us();
+    assert_eq!(
+        achieved,
+        2 * g,
+        "1500 us must round up to two granules, got {achieved} us"
+    );
+}
+
+/// A request that already lands on the grid is left alone — rounding must not
+/// add a granule to a cadence that was already expressible.
+#[test]
+fn an_exact_multiple_is_not_inflated() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(5));
+    assert_eq!(executor.last_park_achieved_us(), 5_000);
+}
+
+/// The rounding must be VISIBLE. A monitor that reports jitter in µs against a
+/// cadence the port cannot wait in is reporting precision it does not have
+/// (issue 1194) — so the executor states what it actually achieved.
+#[test]
+fn the_achieved_park_is_reported_separately_from_the_request() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(1_500));
+
+    let (requested_us, _) = executor.last_park();
+    assert_eq!(requested_us, 1_500, "the request is reported as asked");
+    assert_ne!(
+        executor.last_park_achieved_us(),
+        requested_us,
+        "and the achieved value differs, which is the whole point of reporting both"
+    );
+}
+
+/// Issue 0515's audit must keep seeing the TIER's declared cadence, not the
+/// park bound. Capping the park by the timer deadline (issue 1192) makes the
+/// two differ, and if the audit follows the cap it compares the timer period
+/// against itself — always an exact multiple, so the warning that issue 0515
+/// exists to emit would go silent on every image that registers a timer.
+#[test]
+fn the_quantization_audit_sees_the_declared_cadence_not_the_park_bound() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    // The cap only bites when the timer is SHORTER than the budget, so that
+    // is the case to test: a 33 ms timer under `spin_default`'s 50 ms. If the
+    // audit followed the cap it would compare 33 ms against 33 ms — an exact
+    // multiple — and stay silent on a tier whose grid genuinely quantizes.
+    executor
+        .register_timer(TimerDuration::from_millis(33), || {})
+        .unwrap();
+
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    assert_eq!(
+        executor.spin_quantization_us, 50_000,
+        "the audit must run against the 50 ms declared cadence, not the 33 ms park bound"
+    );
+}
+
+/// The bound is not merely COMPUTED — `spin_once` must USE it, and must
+/// record which source won. Without that the helper could be correct and
+/// unused: the shape issue 0736 recorded, a probe on a path no image takes.
+#[test]
+fn spin_once_parks_on_the_timer_and_says_so() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    let (bound_us, source) = executor.last_park();
+    assert_eq!(
+        bound_us, 10_000,
+        "the 10 ms timer must bound the 50 ms park, got {bound_us} us"
+    );
+    assert_eq!(
+        source,
+        super::spin::WakeSourceId::Timer,
+        "the timer won this park, and the attribution must name it"
+    );
+}
+
+/// With no timer, the caller's budget wins and is named as the winner — the
+/// attribution has to distinguish "nothing else was pending" from "a timer
+/// happened to match the budget".
+#[test]
+fn spin_once_attributes_an_unbounded_park_to_the_caller() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    let (bound_us, source) = executor.last_park();
+    assert_eq!(bound_us, 50_000);
+    assert_eq!(source, super::spin::WakeSourceId::CallerBudget);
+}
+
+/// A registered timer is a deadline the EXECUTOR owns. A caller budget longer
+/// than that deadline must not let the executor sleep past it.
+#[test]
+fn a_timer_deadline_shortens_a_longer_caller_budget() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+
+    // 50 ms is `spin_default`'s budget; the timer is due in 10 ms.
+    let bound_us = executor.next_wake_bound_us(50_000);
+    assert_eq!(
+        bound_us, 10_000,
+        "a 10 ms timer under a 50 ms budget must cap the park at 10 ms, got {bound_us} us"
+    );
+}
+
+/// The budget still wins when it is the tighter of the two: capping must be a
+/// `min`, not "the timer always decides".
+#[test]
+fn a_shorter_caller_budget_wins_over_a_later_timer() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(100), || {})
+        .unwrap();
+
+    let bound_us = executor.next_wake_bound_us(5_000);
+    assert_eq!(
+        bound_us, 5_000,
+        "a 5 ms budget under a 100 ms timer must stay 5 ms, got {bound_us} us"
+    );
+}
+
+/// With no timers registered the budget stands unchanged — the cap must not
+/// invent a deadline and turn a long idle wait into a poll.
+#[test]
+fn no_timers_leaves_the_caller_budget_alone() {
+    let executor: Executor = executor_with_clock(MockSession::new());
+    assert_eq!(executor.next_wake_bound_us(50_000), 50_000);
+}
+
+/// The nearest of several timers decides.
+#[test]
+fn the_nearest_timer_decides_the_bound() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(40), || {})
+        .unwrap();
+    executor
+        .register_timer(TimerDuration::from_millis(7), || {})
+        .unwrap();
+    executor
+        .register_timer(TimerDuration::from_millis(25), || {})
+        .unwrap();
+
+    assert_eq!(
+        executor.next_wake_bound_us(50_000),
+        7_000,
+        "the soonest of three timers is the one that bounds the park"
+    );
+}
+
+/// A cancelled timer owes nothing, so it must not hold the park short. Without
+/// this the cap would keep waking on a deadline nobody is waiting for.
+#[test]
+fn a_cancelled_timer_does_not_bound_the_park() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    let id = executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+    executor.cancel_timer(id).unwrap();
+
+    assert_eq!(
+        executor.next_wake_bound_us(50_000),
+        50_000,
+        "a cancelled timer is not a deadline"
+    );
+}
+
 #[test]
 #[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_add_timer_and_fire() {
@@ -6616,6 +6871,59 @@ fn a_zero_timeout_spin_claims_no_cadence() {
         executor.release_jitter(),
         (0, 0, 0),
         "a polling spin declares no period, so it cannot be late for one"
+    );
+}
+
+/// `spin_once`'s argument is a blocking BOUND, not a cadence. nros-cpp's tier
+/// loops pass a fixed 10 ms and then pace themselves with `platform_sleep_us`,
+/// so the rule was judging every tier against 10 ms whatever period the
+/// contract declared. A declared cadence must win.
+#[test]
+fn a_declared_cadence_wins_over_the_spin_timeout() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(1_000);
+    executor.spin_once(core::time::Duration::from_millis(10));
+    assert_eq!(
+        executor.spin_nominal_us, 1_000,
+        "the declared 1 ms cadence must be the yardstick, not the 10 ms bound"
+    );
+}
+
+/// ... and with nothing declared the timeout still stands in, so every caller
+/// that never learns about the setter keeps the behaviour it had.
+#[test]
+fn an_undeclared_cadence_falls_back_to_the_timeout() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(10));
+    assert_eq!(
+        executor.spin_nominal_us, 10_000,
+        "with no declaration the timeout is the only cadence on offer"
+    );
+}
+
+/// The bug this fixes, end to end: a 1 kHz tier that actually wakes every
+/// 10 ms is nine periods late every time, and against the old 10 ms yardstick
+/// it looked perfectly on time.
+#[test]
+#[cfg(feature = "std")] // sleeps to make the wake genuinely late
+fn a_tier_slower_than_its_declared_cadence_is_late() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(1_000);
+    for _ in 0..3 {
+        executor.spin_once(core::time::Duration::ZERO);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    executor.spin_once(core::time::Duration::ZERO);
+
+    let (max_us, late, total) = executor.release_jitter();
+    assert!(total >= 3, "four spins must count at least three intervals");
+    assert!(
+        late >= 3,
+        "every 10 ms interval overruns a declared 1 ms cadence, got {late} late of {total}"
+    );
+    assert!(
+        max_us >= 5_000,
+        "a 10 ms wake against a 1 ms cadence is ~9 ms late, got {max_us} us"
     );
 }
 
