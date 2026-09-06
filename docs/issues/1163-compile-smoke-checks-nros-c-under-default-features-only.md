@@ -86,3 +86,39 @@ The merge queue was NOT blocked by this — the batch that merged over the
 duplicate passed, because nothing in it compiles the shipped shape. That is
 the point: green with no signal capacity, the same class the pitfall index
 describes for uniformly-red lanes, seen from the other side.
+
+## Progress
+
+**2026-09-07** — items 1 and 3 landed; item 2 stays open.
+
+- (1) `compile-smoke` now runs `cargo check -p nros-c -p nros-cpp
+  --no-default-features --features "{{C_API_SHIPPED_FEATURES}}"` (25 s warm).
+  The feature list has ONE spelling, `C_API_SHIPPED_FEATURES` in
+  `just/check.just`, read by `check-c`, `check-cpp` (both sites), the nros-c
+  clippy combo and `compile-smoke` — the four literal copies in
+  `just/check/lanes.just` are gone. Negative control: a second
+  `#[no_mangle] nros_node_get_fully_qualified_name` inside an `rmw-cffi`
+  region makes `just check compile-smoke` fail with E0428 (in the commit).
+- (3) `check-lane-contracts` gains the rule. Subjects are DERIVED: every
+  crate under `packages/` with a non-empty default feature set that every
+  consumer takes `default-features = false` (measured: `nros-c` — 3
+  consumers, its `path = "."` dev-dep excluded — `nros-cpp` — 2 — and
+  `nros-board-nuttx`, exempt with a reason as cross-only). The shipped shape
+  is authored once, as the `just` variable the lanes read (`SHIPPED_SHAPES`
+  in the script), and some recipe reachable from a merge-gating lane
+  (`pull_request`/`merge_group`, derived from the workflows) must compile the
+  crate `--no-default-features --features` that variable (or a literal equal
+  to it; a different literal is drift, and two spellings of the variable is a
+  violation). Removing the compile-smoke line on the real tree reports both
+  crates; the selftest carries that control plus the schedule-only,
+  no-`--no-default-features`, undeclared-subject and two-spellings cases.
+  Along the way: the gate's justfile parser did not follow `import`, so since
+  phase-399 every gate in `just/check/*.just` was invisible to it —
+  `check::compile-smoke` was not a recipe and the closure of `check::fast`
+  was two forwarders. It follows imports now; 0 new findings on the real
+  tree, lane invocations resolved 13 → 15.
+- The `nros-node` `int_plus_one` lint at `executor/tests.rs:3438` that kept
+  `check-test-targets` red for an unrelated reason is fixed (separate
+  commit).
+- (2) — `check-api-parity` on `pull_request`/`merge_group` — waits on #557's
+  CI image; not attempted here.
