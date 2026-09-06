@@ -422,12 +422,12 @@ def check(res):
         )
         return 1
     priced = [p for p in res["pools"] if p["declared"] is not None]
-    if not priced:
+    if not res["pools"]:
         # A check with nothing to check reads as coverage and is not. Every
         # image this is pointed at links a backend, and every backend has at
-        # least one annotated pool — so zero means the join broke (a renamed
-        # symbol, a stripped binary, a demangler that did not run), not that
-        # the image is lean.
+        # least one annotated pool — so zero MATCHES means the join broke (a
+        # renamed symbol, a stripped binary, a demangler that did not run),
+        # not that the image is lean.
         print(
             f"check-mem-report: NO annotated pool is linked into {res['elf']} — "
             "the check would be vacuous.\n"
@@ -435,6 +435,40 @@ def check(res):
             "join broke (stripped binary, renamed pool, demangling off)."
         )
         return 1
+    if not priced:
+        # MATCHED but not PRICEABLE, which is a different state and not an
+        # error. The join worked -- these pools are in the image and were
+        # identified -- but their formulas multiply a knob whose default is
+        # computed rather than literal, so there is no static number to
+        # compare against.
+        #
+        # Conflating the two cost `queue.yml` every run it ever made. The
+        # nuttx talker links exactly `SMALL_PAYLOADS` and `LARGE_PAYLOADS`,
+        # both priced through `ZPICO_SUBSCRIBER_RING_DEPTH`, whose default is
+        # computed (issue 0829's SYSTEM_DEFAULT sentinel) -- so `priced` was
+        # empty and the image was reported as linking no backend, which it
+        # plainly does. The freertos talker passes only because it also links
+        # `nros_rmw_cffi`'s `SLOTS`, whose formula is literal.
+        #
+        # Reported, not silent: an unpriceable pool is a gap in what this tool
+        # can assert, and a lane that prints nothing about it invites the same
+        # misreading from the other direction.
+        print(
+            f"check-mem-report: {len(res['pools'])} annotated pool(s) linked into "
+            f"{res['elf']}, none PRICEABLE.\n"
+            "The join worked -- these are the pools, measured -- but every formula\n"
+            "multiplies a knob with a computed default, so there is no static\n"
+            "number to check the arithmetic against:\n"
+        )
+        for p in res["pools"]:
+            print(f"  {fmt(p['measured']):>12}  {p['pool']}  ({p['declared_at']})")
+            print(f"                formula   {p['formula']}")
+            print(f"                unpriced  {p['unpriced_because']}")
+        print(
+            "\nNot a failure: the check asserts arithmetic it cannot compute here.\n"
+            "Give one of these knobs a literal default to make the pool checkable."
+        )
+        return 0
     bad = [p for p in priced if p["declared"] != p["measured"]]
     if not bad:
         print(
@@ -496,6 +530,7 @@ def selftest():
                 "measured": 2048,
                 "formula": "K * SZ",
                 "declared_at": "x.rs:1",
+                "unpriced_because": "knob `K` has a computed default",
             }
         ],
     }
@@ -522,9 +557,21 @@ def selftest():
         with contextlib.redirect_stdout(buf):
             return check(case)
 
+    # An unpriceable pool BESIDE a drifted one must still fail on the drift:
+    # the tolerance is for "nothing to compare", never for "did not compare".
+    mixed = {
+        "elf": "synthetic",
+        "pools": [unpriceable["pools"][0], drifted["pools"][0]],
+    }
+
     assert quiet(agreeing) == 0, "agreeing pool must pass"
     assert quiet(drifted) == 1, "drifted pool must FAIL"
-    assert quiet(unpriceable) == 1, "measured-only alone leaves nothing to check"
+    assert quiet(unpriceable) == 0, (
+        "a pool that MATCHED but cannot be priced is not a failure — the join "
+        "worked; there is simply no static number to compare. Conflating this "
+        "with the empty case is what kept queue.yml red on every run"
+    )
+    assert quiet(mixed) == 1, "an unpriceable pool must not mask a drifted one"
     assert quiet(empty) == 1, "a vacuous check must FAIL, not read as coverage"
     assert quiet(stale) == 1, "an agreeing pool on a STALE image must still FAIL"
     print("selftest: ok — the check passes on agreement and fails on drift")
