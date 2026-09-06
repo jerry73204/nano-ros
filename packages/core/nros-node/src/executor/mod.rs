@@ -140,6 +140,7 @@ pub use spin::SessionHandle;
 pub use spin::SessionSpec;
 #[cfg(any(has_rmw, test))]
 pub use storage::{
-    ExecutorInlineStorage, ExecutorSizing, executor_storage_layout, executor_storage_u64_len,
+    ExecutorInlineStorage, ExecutorSizing, RegionUnit, RegionUnits, executor_storage_layout,
+    executor_storage_layout_with, executor_storage_u64_len,
 };
 pub use types::*;
