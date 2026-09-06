@@ -362,6 +362,35 @@ cpp: cpp-fmt
     # from a `cc` line that says nothing about cargo. Diagnosing that cost four
     # wrong hypotheses; the build's own error names the cause in one line.
     cargo build -p nros-c -p nros-cpp --no-default-features --features "std,rmw-cffi,platform-posix,ros-humble" --quiet
+    # phase-428 W5 finding 9 — a failed `rclcpp::Node::create_*` must ABORT,
+    # not hand back a shared_ptr to a dead entity. RUNTIME, and forking,
+    # because the defect was that nothing happened: a compile probe cannot tell
+    # "aborts" from "returns".
+    #
+    # Links NO nano-ros archive. What it exercises (`detail::require_created`)
+    # is a header-only inline function over `nros::Result`, so the only
+    # unresolved symbols are the issue-0360 VARIANT ANCHORS the config headers
+    # plant — `__attribute__((used))` data pointers nothing dereferences.
+    # `--unresolved-symbols=ignore-all` is deliberate and does not weaken 0360:
+    # the stamp exists to stop a TU linking an archive built with OTHER
+    # features, and there is no archive here to mismatch. Linking one instead
+    # was tried and is NOT reproducible — `target/nros-cpp-generated` is a
+    # shared dir written by whichever unit last ran its build script, so the
+    # header's variant is the CLIPPY step's while the archive is this build's,
+    # and the link fails on a stamp mismatch on every run after the first
+    # (issue 0834's class, not a race).
+    echo "  - a failed create aborts (runtime, c++14)"
+    mkdir -p target/nros-cpp-tests
+    c++ -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        -Wl,--unresolved-symbols=ignore-all \
+        -o target/nros-cpp-tests/failed_create_aborts \
+        packages/api/nros-cpp/tests/compile/failed_create_aborts.cpp
+    ./target/nros-cpp-tests/failed_create_aborts
     # issue 0730 — the (zephyr-embedded × C++ × cyclonedds) coordinate is a
     # pairwise-class gap no runtime tier covers (cyclone fixtures run on
     # native_sim, which appends `,std`), and it failed E0599 at COMPILE time:
