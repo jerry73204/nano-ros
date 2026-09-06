@@ -35,13 +35,13 @@ pub struct SourceMetadataProvenance {
     pub generator: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ComponentLanguage {
-    Rust,
-    C,
-    Cpp,
-}
+/// The language a component is written in, as recorded in source metadata.
+///
+/// phase-432 W2.1 — an ALIAS for the one enumeration. The serde repr is
+/// unchanged (`snake_case`: `rust` / `c` / `cpp`), which matters because this
+/// field is written to metadata files on users' disks;
+/// `nros_lang`'s `serde_repr_is_the_on_disk_contract` pins those spellings.
+pub type ComponentLanguage = nros_lang::Language;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -1,0 +1,16 @@
+[package]
+name = "nros-lang"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The target-language enumeration shared by every codegen consumer (RFC-0091 §3). One enumeration, many narrowings — and a narrowing derives rather than re-spells."
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["serde/std"]

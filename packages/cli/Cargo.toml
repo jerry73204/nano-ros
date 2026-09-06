@@ -7,6 +7,9 @@ members = [
     "rosidl-codegen",
     "rosidl-bindgen",
     "cargo-nano-ros",
+    # phase-432 W2.1 (RFC-0091 §3) — the language enumeration, declared once.
+    # serde-only on purpose: the proc-macro must be able to afford it.
+    "nros-lang",
     "nros-pkg-index",
     "nros-launch-parser",
     "nros-cli-core",
@@ -41,6 +44,7 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 minijinja = "2.5"
+nros-lang = { path = "nros-lang" }
 toml = "0.8"
 
 # PyO3 for Python bindings
