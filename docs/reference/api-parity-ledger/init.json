@@ -138,8 +138,53 @@
   },
   "rust:Context": {
     "verdict": "divergence",
-    "bucket": "theirs-only",
-    "why": "as `cpp:Context`. rclrs additionally makes the context the factory for executors (`Context::create_executor`) and reads the domain from the environment (`from_env`, `default_from_env`) -- neither is available to an image with no env and one session."
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `env` joined the measured feature set (`scripts/api_parity/extract_rust.py`, `NROS_FEATURES`), so this type is on the surface for the first time and correlates `same`; it read `theirs-only` before only because the extractor never compiled `src/init.rs`. The old text (\"as `cpp:Context` ... neither is available to an image with no env and one session\") described the invisible state and is history.\n\nUPSTREAM'S CONTRACT: `rclrs::Context` (0.7.0, `rclrs/src/context.rs`) OWNS the rcl context — built from argv (`Context::new(args, options)`) or the environment (`from_env`, `default_from_env`), it parses `--ros-args`, answers `domain_id()` / `ok()`, and is the factory for executors (`create_executor`).\n\nOURS (`packages/api/nros/src/init.rs:85`): a plain value `{domain_id, locator, mode, rmw, source}` that the free functions `nros::init()` / `init_with_args` / `init_with_launch*` return, and whose one method `config(node_name)` (`:126`) materialises the `ExecutorConfig` a caller hands to `Executor::open`. It owns nothing and parses nothing: it is the resolved identity, read through the one hosted resolver (`nros::env::try_resolve_hosted`, issue 0687).\n\nDisposition ADOPT-BOUNDED. The name carries the same identity (domain, middleware selection), and `ctx.domain_id` reads where `ctx.domain_id()` did; the envelope is that construction is the free `init*` family (the argv form REFUSES `--ros-args`, see `rust:init_with_args`), that the executor is opened INTO caller-owned storage from `ctx.config(name)` rather than allocated by the context (RFC-0045; no allocator), and that there is no `ok()` because the value has no shutdown state — liveness is the executor's. Each missing member has its own row below, because the type is `same` and a member gap inside a shipped type is argued on its own (`lookup`'s inheritance rule). The whole module is behind `env`, which requires `std`: an embedded image never compiles it, and its identity arrives through `BootConfig` instead.",
+    "disposition": "adopt-bounded"
+  },
+  "rust:Context::new": {
+    "verdict": "gap",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::new(args: impl IntoIterator<Item = String>, options: InitOptions) -> Result<Self, RclrsError>`: the argv constructor, which PARSES `--ros-args` (remaps, parameter overrides). Ours is the free function `nros::init_with_args(args)` (`packages/api/nros/src/init.rs:227`), which REFUSES a vector carrying `--ros-args` — see `rust:init_with_args`, the REFUSE-LOUD row — and passes any other vector through to `init()`. A `gap`, not a decline: parsing is owed, and it is remap resolution (RFC-0020 violation class 4), so it lands beside `nros::resolve_name`, and the `InitOptions` half is `rust:InitOptions`. ABSENT as a spelling: `Context::new` is `no function or associated item named new`, which names nothing but is honest; the refusal that names the constraint fires on the free function a porting user is pointed at."
+  },
+  "rust:Context::from_env": {
+    "verdict": "declined",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::from_env(options: InitOptions)`: the environment constructor WITH an options object. The option-less form is `nros::init()` (see `rust:Context::default_from_env`); what this spelling adds is `InitOptions`, whose one field is the domain id, and `rust:InitOptions` records why that arrives through the boot-config ladder (`ROS_DOMAIN_ID` in the env rung, `BootConfig` baked) rather than a mutable options object. Absent: `no function or associated item named from_env`."
+  },
+  "rust:Context::default_from_env": {
+    "verdict": "gap",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::default_from_env() -> Result<Self, RclrsError>`: read the environment, default options. That is EXACTLY `nros::init() -> Result<Context, InitError>` (`packages/api/nros/src/init.rs:177`) under a different spelling — same inputs (`ROS_DOMAIN_ID` and the env rung), same output type, same fallibility. No platform constraint separates them; the free-function spelling follows rclcpp's `init`, which predates the 2026-09-04 settlement that each language follows ITS OWN upstream (RFC-0089). Recorded as a gap on the rclrs spelling rather than a `rename` of `nros::init`, because the free function is also what `init_with_args` / `init_with_launch*` hang off and the entry-point spelling is one decision for the four of them, not a one-line alias. Absent today: `no function or associated item named default_from_env`."
+  },
+  "rust:Context::domain_id": {
+    "verdict": "gap",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::domain_id(&self) -> usize`, an accessor over the rcl handle. Ours is the public FIELD `Context::domain_id: u32` (`packages/api/nros/src/init.rs:87`): the value is a plain struct with nothing to hide, so the field is the accessor. A ported `ctx.domain_id()` fails to compile — rustc says the name is a field, not a method, and offers to remove the parentheses — so the difference is loud and self-correcting, but it is a per-call-site edit paid for by no constraint, which is what makes it a gap rather than a divergence. One `pub fn domain_id(&self) -> u32` closes it."
+  },
+  "rust:Context::ok": {
+    "verdict": "declined",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::ok(&self) -> bool`: whether the rcl context is still valid, i.e. `shutdown` has not been called on it. Our `Context` is a resolved VALUE (`packages/api/nros/src/init.rs:85`) with no shutdown state to report; the thing that can stop being live is the session, and that is the executor's (`Executor::open` / its spin verbs return the failure, `rust:Executor::spin`). A method that always answered `true` would be the silent-disagreement RFC-0089 forbids, so there is none. Absent: `no method named ok`."
+  },
+  "rust:Context::config": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `Context::config(&self, node_name) -> ExecutorConfig` (`packages/api/nros/src/init.rs:126`): the one method on our `Context`, turning the resolved identity into the config `Executor::open` takes, with the node name supplied at the call because one process can open several nodes on one identity. rclrs has no counterpart: its `Context` is passed to `create_node` / `create_executor` directly, because it owns the rcl context those consume. Ours owns nothing (see `rust:Context`), so the seam between identity and session is an explicit conversion. Borrowing (`ExecutorConfig<'a>` over `&'a self`) is what keeps the config heap-free."
+  },
+  "rust:ContextSource": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `enum ContextSource { Env, Launch }` (`packages/api/nros/src/init.rs:105`), the `source` field on `Context`: which `init*` entry point produced it, for diagnostics and tests. No upstream counterpart — rclrs has one constructor family. One caveat the row must carry because the enum's own doc does: `Launch` means the launch-aware entry point was CALLED, not that a launch file was parsed — `init_with_launch` checks the path exists and reads the launcher's projected environment (`rust:init_with_launch` records that finding), so introspection on this value confirms more than happened."
+  },
+  "rust:InitError": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — the error type of the hosted init surface (`packages/api/nros/src/init.rs:47`): `LaunchFileNotFound`, `LaunchParseFailed` (declared, unused until the launch XML is parsed in-process — see `rust:init_with_launch`), `EnvParseFailed`. rclrs folds the same failures into `RclrsError`, whose row (`rust:RclrsError`) records why a source-chained, message-carrying error is not available here; this one is flat and `Copy`-free on purpose. Implements `core::error::Error`. Visible since `env` joined the measured feature set."
+  },
+  "rust:REFUSE_INIT_ARGS": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — the text `init_with_args` refuses with (`packages/api/nros/src/init.rs:185`): the `NROS_RCLCPP_REFUSE_INIT_ARGV` message with the Rust spellings, public so a wrapper or a test can match on it rather than on a substring that drifts. rclrs has nothing to refuse — it parses the arguments. See `rust:init_with_args`, the row the refusal belongs to."
+  },
+  "rust:args_have_ros_args": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — the refusal's predicate, separately callable (`packages/api/nros/src/init.rs:202`): exact match on `--ros-args` over any `AsRef<str>` iterator. Public for the reason RFC-0089 §\"where the refusal fires\" gives — an abort inlined into `init` can only be observed by a process that then dies — so the unit test that pins the mutation (`--ros-args-extra` is NOT the flag) runs on a function, not a process. No upstream counterpart; rclrs's argument scan is internal to `Context::new`."
   },
   "rust:InitOptions": {
     "verdict": "divergence",
@@ -157,7 +202,7 @@
   },
   "rust:init": {
     "verdict": "extension",
-    "why": "phase-417 W4.d — `nros-log`'s emission surface, now re-exported from the `nros` facade. Before this it was reachable only as a crate dependency, and `nros::Logger` bound a DIFFERENT type (`nros_core::logger::Logger`) that forwards to the `log` crate and never reaches `nros_platform_log_write`. That is why `std::println!` was the path of least resistance from the facade, and `std::println!` is FATAL on Zephyr native_sim (issue 0589: the write recurses through `zvfs_write` and exhausts the stack with no message).\n\nrclrs has no correspondent for the sink, arena and throttle-state types: its logging is `rclrs::log!` over rcutils, which owns its own storage. Ours are the storage, because an arena with a compile-time bound is what replaces an allocator. The MACROS mirror rclcpp's severity family rather than rclrs's single `log!`, since that is the shape a porting user writes; the `*_throttle_at` variants take the caller's `now_ns` because a target without `platform-clock` has no time base and a throttle with no clock admits everything -- so that configuration is a `compile_error!`, not a silent pass-through."
+    "why": "phase-428 Q1 follow-through (2026-09-06) — REWRITTEN. This row's text was about `nros::logging::init` (the `nros-log` emission surface phase-417 W4.d re-exported through the facade); that text now lives where it belongs, and the mis-filing is what the orphan-refs gate's docstring records.\n\n`nros::init() -> Result<Context, InitError>` (`packages/api/nros/src/init.rs:177`, behind feature `env`): read `ROS_DOMAIN_ID`, `NROS_LOCATOR`, `NROS_SESSION_MODE` and `NROS_RMW` / `RMW_IMPLEMENTATION` through the one hosted resolver (`nros::env::try_resolve_hosted`, issue 0687 — this function used to carry its own copy of the parse and the copies had drifted) and return the resolved identity as a `Context` tagged `ContextSource::Env`. The caller opens the session itself: `Executor::open(&ctx.config(name))` then `spin_blocking` or a `spin_once` loop. It does not install signal handlers (`cpp:install_signal_handlers` records why, and the Rust surface has none either) and it does not read argv (`rust:init_with_args` is the argv form and REFUSES `--ros-args`).\n\nrclrs has no free `init`: its equivalent is `Context::default_from_env()`, and that row (`rust:Context::default_from_env`) records the spelling difference as the gap it is. This row stays `extension` because the free function is also the anchor of the launch-aware forms (`init_with_launch`, `init_with_launch_auto`), which rclrs does not have."
   },
   "rust:init_with_args": {
     "verdict": "gap",
