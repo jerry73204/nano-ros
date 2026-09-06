@@ -23,6 +23,19 @@ use std::{env, path::Path};
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
+    // phase-427 W9 — `Context::baked()` (`src/init.rs`) reads
+    // `option_env!("NROS_LOCATOR")` / `option_env!("NROS_DOMAIN_ID")` in THIS
+    // crate, so this crate's build has to carry them. A leaf's `cargo:rustc-env`
+    // never reaches a dependency's compilation (the reason the leaf bakes for
+    // itself), and on Zephyr the values come from Kconfig, not the process
+    // environment; the same helper the leaves call re-exports
+    // `CONFIG_NROS_ZENOH_LOCATOR` / `CONFIG_NROS_DOMAIN_ID` from `$DOTCONFIG`
+    // — the issue-0460 channel the knobs below already rely on. Off Zephyr it
+    // is a no-op beyond the `rerun-if-env-changed` lines, which is what makes
+    // a process-environment bake (the FreeRTOS / ThreadX fixture lanes export
+    // `NROS_DOMAIN_ID`) re-compile this crate rather than reuse a stale object.
+    nros_zephyr_build::bake_nros_config();
+
     // phase-400 W6 — the `[knobs.runtime]` platform/board rungs, resolved once.
     // `None` when no lane named a platform, and the builtins below then stand.
     //

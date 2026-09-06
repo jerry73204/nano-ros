@@ -175,12 +175,15 @@ pub mod node_metadata;
 pub mod node_runtime;
 pub mod runtime_storage;
 
-/// Phase 212.L.5 — top-level init API.
+/// Phase 212.L.5 — top-level init API; phase-427 W9 — on every target.
 ///
-/// Re-exported flat at the crate root: `nros::init()`,
-/// `nros::init_with_launch_auto()`, `nros::init_with_launch(path)`,
-/// `nros::init_with_args(args)`, `nros::Context`, `nros::InitError`.
-#[cfg(feature = "env")]
+/// Re-exported flat at the crate root: `nros::Context` (`alloc`),
+/// `nros::ContextSource`, `nros::InitError`, `nros::InitOptions` (every
+/// target); `nros::init()`, `nros::init_with_launch_auto()`,
+/// `nros::init_with_launch(path)`, `nros::init_with_args(args)` (`env`).
+/// The `env` feature gates only the process-environment reader and the
+/// argv/launch entries; freestanding, `Context::default_from_env()` is the
+/// bake (`Context::baked()`).
 pub mod init;
 
 /// issue 0687 — the hosted edge of configuration: every env var nano-ros
@@ -191,11 +194,13 @@ pub mod env;
 #[cfg(feature = "env")]
 pub use env::{ExecutorConfigEnvExt, rmw_selector};
 
+pub use init::{ContextSource, InitError, InitOptions};
+
+#[cfg(feature = "alloc")]
+pub use init::Context;
+
 #[cfg(feature = "env")]
-pub use init::{
-    Context, ContextSource, InitError, init, init_with_args, init_with_launch,
-    init_with_launch_auto,
-};
+pub use init::{init, init_with_args, init_with_launch, init_with_launch_auto};
 
 /// Compile-time opaque storage sizes for FFI consumers.
 ///
@@ -915,35 +920,25 @@ macro_rules! zephyr_component_main {
             // layer that legitimately selects an RMW: see
             // [`nros::force_link_backend!`]. Registration itself is unchanged —
             // the `nros_app_register_backends` hook above does it.
-            // Locator: `default_const()` = EMPTY locator → zenoh-pico
-            // multicast scouting, which native_sim NSOS can't satisfy.
-            // Bake `NROS_LOCATOR` at compile time (the example `build.rs`
-            // re-exports `CONFIG_NROS_ZENOH_LOCATOR` from Kconfig into that
-            // env). No baked value → falls back to the empty locator.
-            const BAKED_LOCATOR: ::core::option::Option<&str> = ::core::option_env!("NROS_LOCATOR");
-            // Domain: the example `build.rs` bakes `CONFIG_NROS_DOMAIN_ID`
-            // into `NROS_DOMAIN_ID` the same way (its comment has promised
-            // this consumption since phase-225; the phase-277 macro rework
-            // dropped it — issue 0161: every Rust cyclonedds image silently
-            // ran domain 0 regardless of the Kconfig bake).
-            const BAKED_DOMAIN: ::core::option::Option<&str> =
-                ::core::option_env!("NROS_DOMAIN_ID");
-            let domain_id: u32 = match BAKED_DOMAIN {
-                ::core::option::Option::Some(d) => match d.parse() {
-                    ::core::result::Result::Ok(v) => v,
-                    ::core::result::Result::Err(_) => {
-                        panic!("nros zephyr entry: NROS_DOMAIN_ID baked non-numeric: {d:?}")
-                    }
-                },
-                ::core::option::Option::None => 0,
-            };
+            // phase-427 W9 — the baked identity has ONE source. This block
+            // used to read `option_env!("NROS_LOCATOR")` / `NROS_DOMAIN_ID`
+            // itself and assemble an `ExecutorConfig` by hand (a copy
+            // `nros::main!`'s Zephyr arm carried too, minus the domain — issue
+            // 0161's class); `Context::baked()` is where that lives now, and
+            // `default_from_env()` resolves to it on a freestanding build.
+            // `nros`'s own `build.rs` re-exports the Kconfig values into that
+            // crate's build (`nros_zephyr_build::bake_nros_config`), the same
+            // channel the leaf's `build.rs` uses for itself.
+            //
             // #166 / phase-286 W1 — native_sim test parallelism. The test
             // harness launches the image with `-testargs --nros-locator=<loc>`
             // and starts a per-test zenohd on that (ephemeral) port; preferring
             // it over the build-time bake lets every test dial a DISTINCT router,
             // retiring the shared-baked-port serialization of the zenoh e2e
             // lanes. Provided by `nros-platform-zephyr` (argv-backed, process
-            // lifetime); returns NULL on real embedded → the bake stands.
+            // lifetime); returns NULL on real embedded → the bake stands. The
+            // hook is an `extern "C"` only a Zephyr image defines, so it is
+            // resolved HERE, in the entry, and handed to the context.
             unsafe extern "C" {
                 fn nros_runtime_locator_override() -> *const ::core::ffi::c_char;
             }
@@ -952,29 +947,16 @@ macro_rules! zephyr_component_main {
                 if p.is_null() {
                     ::core::option::Option::None
                 } else {
-                    match unsafe { ::core::ffi::CStr::from_ptr(p) }.to_str() {
-                        ::core::result::Result::Ok(s) if !s.is_empty() => {
-                            ::core::option::Option::Some(s)
-                        }
-                        _ => ::core::option::Option::None,
-                    }
+                    unsafe { ::core::ffi::CStr::from_ptr(p) }.to_str().ok()
                 }
             };
-            let effective_locator = runtime_locator.or(match BAKED_LOCATOR {
-                ::core::option::Option::Some(loc) if !loc.is_empty() => {
-                    ::core::option::Option::Some(loc)
+            let ctx = match $crate::Context::default_from_env() {
+                ::core::result::Result::Ok(ctx) => ctx.with_locator_override(runtime_locator),
+                ::core::result::Result::Err(e) => {
+                    panic!("nros zephyr entry: baked Context is invalid: {e:?}")
                 }
-                _ => ::core::option::Option::None,
-            });
-            let config = match effective_locator {
-                ::core::option::Option::Some(loc) => {
-                    $crate::ExecutorConfig::new(loc).node_name(<$node as $crate::Node>::NAME)
-                }
-                ::core::option::Option::None => {
-                    $crate::ExecutorConfig::default_const().node_name(<$node as $crate::Node>::NAME)
-                }
-            }
-            .domain_id(domain_id);
+            };
+            let config = ctx.config(<$node as $crate::Node>::NAME);
             // Issue 0155 — fail LOUD (repo rule: panic, not silent
             // early-return). A silent `return` here idles the image with zero
             // output; the zephyr-cyclonedds rust lane was undiagnosable until
