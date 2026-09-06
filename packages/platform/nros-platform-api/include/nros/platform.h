@@ -644,7 +644,23 @@ int8_t nros_platform_condvar_signal_all(void *cv);
 int8_t nros_platform_condvar_signal_from_isr(void *cv);
 
 /** Atomically release `m` and block on `cv`. The mutex is re-acquired
- *  before this function returns. */
+ *  before this function returns.
+ *
+ *  **NOT REAL-TIME — this wait is UNBOUNDED.** Every port implements it with
+ *  its forever spelling (`TX_WAIT_FOREVER`, `portMAX_DELAY`, `K_FOREVER`), so
+ *  a caller that blocks here has no deadline and no way to be woken by one.
+ *  Nothing on the executor path calls it, and nothing new should: the
+ *  executor's own wait uses the BOUNDED `nros_platform_wake_wait_ms`, and a
+ *  condvar caller that needs a bound has `condvar_wait_until` directly below.
+ *
+ *  Kept rather than deleted because removing an exported symbol breaks
+ *  out-of-tree ports, and marked here rather than left neutral because
+ *  `condvar_wait` is the OBVIOUS spelling — the next port reaches for it and
+ *  loses the bound silently. `scripts/check-no-unbounded-condvar-wait.sh`
+ *  enforces the "nothing new" half; see issue 1196 and phase-436 W5.
+ *
+ *  "No unbounded wait" is only a property of the system if it is a property of
+ *  the API. */
 int8_t nros_platform_condvar_wait(void *cv, void *m);
 
 /** Like `condvar_wait`, but with an absolute monotonic deadline in
