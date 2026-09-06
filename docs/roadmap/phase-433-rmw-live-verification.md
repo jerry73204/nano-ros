@@ -122,6 +122,7 @@ XRCE-Agent peer has exchanged with us):
 | publish / take | `create_publisher`, `publish`, `create_subscription`, `take`, `has_data` | zenoh + cyclone + xrce, both directions, plus an unmodified stock `demo_nodes_cpp` talker |
 | service / client | `create_service`, `send_response`, `take_request`, `has_request`, `create_client`, `send_request`, `take_response` | zenoh both roles, cyclone nano-server only, xrce both |
 | lifecycle | (executor layer, not a slot) | the full REP-2002 cycle via `ros2 lifecycle` |
+| **graph (zenoh only)** | 12 | **`graph_interop` PASS, 2026-09-06** — a nano-ros node enumerates a stock `rmw_zenoh_cpp` peer |
 | wake / IO | `set_wake_callback`, `drive_io`, `next_deadline_ms` | implicitly, by every case that delivers |
 
 **Never seen a peer.** Each of these is `produced` and mutation-tested against
@@ -129,7 +130,7 @@ our own code:
 
 | family | slots | why it matters |
 | --- | --- | --- |
-| **graph** | 12 (`get_node_names`, `get_topic_names_and_types`, `get_service_names_and_types`, the four `*_by_node`, `get_publishers_info_by_topic`, `get_subscriptions_info_by_topic`, `count_publishers`, `count_subscribers`) | `graph_interop.rs` is written and has never executed. Cyclone's reader (phase-381 W5) has never run against a live participant. This is the family that already shipped broken once. |
+| ~~**graph**~~ | 12 | **MEASURED 2026-09-06 (W1).** zenoh PASSES live — moved to the proven table. Cyclone FAILS: one node (itself), `Transport(Unsupported)` on topics, nine of twelve slots Unsupported. Issue 1137. |
 | **matched counts** | `publisher_count_matched_subscriptions`, `subscription_count_matched_publishers` | landed phase-393 W2. The number is only meaningful about a peer, so a self-test cannot check it at all. |
 | **GID** | `get_gid_for_publisher` | landed phase-393 W2. A GID's whole purpose is that another participant recognises it. |
 | **actual QoS read-back** | 6 (`publisher_get_actual_qos`, `subscription_get_actual_qos`, the four service/client halves) | issue 0823 found these asserting the REQUESTED profile as GRANTED. The fix is unproven against a peer that negotiates. |
@@ -165,19 +166,51 @@ Ordered so that each one's output is usable before the next starts. The
 principle throughout, from CLAUDE.md: **a uniformly-red lane has no signal
 capacity** — do not wire tests into a lane before knowing which pass.
 
-### W1 — one cell, end to end, in the box (in progress)
+### W1 — one cell, end to end, in the box — **DONE 2026-09-06**
 
-Refresh the box mirror (`scripts/dev/ros2-box-sync.sh`, currently 323 commits
-behind) and run **`graph_interop` alone**, by hand, inside the box. Nothing
-else. Output is a verdict on the single most valuable unproven family, and a
-written record of what it took to get a live-peer test to run at all — which is
-the input every later job needs.
+`graph_interop` has now run against a live ROS 2 Humble peer. First time since
+it was written.
 
-Also resolve the `nano-ros-box-box` mirror-of-a-mirror at that path: confirm it
-holds nothing unique and remove it.
+```
+Starting 2 tests across 1 binary
+    PASS [  18.762s] (1/2) graph_interop nano_ros_enumerates_a_stock_ros2_node
+    FAIL [  37.468s] (2/2) graph_interop cyclone_enumerates_a_stock_ros2_node
+```
 
-*Acceptance:* `graph_interop` produces a pass or a real failure (not a skip),
-and the box procedure is written down in `docs/development/`.
+**zenoh PASSES.** The twelve graph slots phase-381 shipped and issue 0903
+repaired work against a stock `rmw_zenoh_cpp` peer. Ten of those twelve were
+listed in phase-393 as "still unproven live"; they are proven now.
+
+**Cyclone FAILS**, and the cell's own comment had predicted exactly this
+("has never been run against a live participant"). `get_node_names` returns one
+entry — the probe itself — while a stock talker is on the domain;
+`get_topic_names_and_types` errors `Transport(Unsupported)`; **nine of twelve
+slots answer Unsupported.** Filed as **issue 1137**.
+
+The peer was ruled out first, per issues 0859–0862: a stock Cyclone talker on
+domain 77 in the same container is visible to `ros2 node list --no-daemon` and
+`ros2 topic list`. Discovery works; our reader does not use it.
+
+**What the run cost, and the procedure it produced.** The environment needed no
+provisioning at all — the blocker was a poll loop from an 18-day-old session
+holding the podman runtime lock, and one hung `podman exec` behind it. Once
+cleared:
+
+1. `bash scripts/dev/ros2-box-sync.sh` — takes over an hour on this disk; do not
+   wrap it in a timeout. It now excludes `/.claude/worktrees/`, which it was
+   copying once per live agent session.
+2. In the box: source `activate.sh` FIRST, `ros2-box-env.sh` SECOND. box-env
+   prepends `CARGO_INSTALL_ROOT/bin` last, so the reverse order re-shadows
+   `just` with the host's glibc-2.39 build and it dies as `GLIBC_2.39 not
+   found`. This cost one build.
+3. `just setup-cli`, then `bash scripts/build/fixtures-build.sh linux rust
+   <rmw>` — the positional filter narrows to a coordinate without needing a
+   lane. 54 rows for zenoh, 11 for cyclonedds; roughly an hour together.
+4. `cargo nextest run -p nros-tests --test graph_interop`.
+
+**Not done:** the `nano-ros-box-box` mirror-of-a-mirror still sits beside the
+box tree, and this procedure is recorded here rather than in
+`docs/development/`.
 
 ### W2 — run every remaining cell once, by hand
 
