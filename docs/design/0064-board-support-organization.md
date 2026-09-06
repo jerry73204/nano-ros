@@ -3,8 +3,8 @@ rfc: 0064
 title: "Board support organization: nano-ros as an embeddable library, not a board framework"
 status: Draft (LIVE — under active exploration)
 since: 2026-07
-last-reviewed: 2026-08-22
-implements-tracked-by: [phase-337, phase-375]  # R3's matrix; 375 = tier policy + onboarding cost
+last-reviewed: 2026-09-06
+implements-tracked-by: [phase-337, phase-375, phase-215]  # R3's matrix; 375 = tier policy + onboarding cost + R5's process; 215 = the FVP migration
 supersedes: []
 superseded-by: null
 ---
@@ -17,6 +17,13 @@ superseded-by: null
 > what was checked and what it showed; body claims should trace to it.
 > (Renumbered 0062 → 0064 on 2026-08-01 after an id collision with
 > unified-dependency-ssot; 0064 is now the settled id.)
+>
+> **Revision 5 (2026-09-06)** makes board ARRIVAL uniform. A tree-wide audit
+> found four different processes for adding a board and three mechanisms that
+> were correct and unreachable, so R5 states one process (a board is a package,
+> discovered by `provider_scan`), folds the FVP board's private `board.cmake`
+> format into it, and audits every descriptor field down to primitives. R5
+> changes no R2/R3/R4 principle.
 >
 > **Revision 3 (2026-08-04)** adds "The supported matrix" — the witness set, the
 > `net_stack` cost axis it keys on, the `native`→`linux` naming decision, and the
@@ -1599,3 +1606,244 @@ policy](https://doc.rust-lang.org/nightly/rustc/target-tier-policy.html);
 [Zephyr Twister](https://docs.zephyrproject.org/latest/develop/twister/index.html);
 [twister scope rules #57595](https://github.com/zephyrproject-rtos/zephyr/issues/57595);
 [Zephyr board porting](https://docs.zephyrproject.org/latest/hardware/porting/board_porting.html).
+
+---
+
+## Revision 5 (2026-09-06) — one board process, and the descriptor holds only primitives
+
+Written after auditing every board in the tree to answer a simple question: does
+a board of ours arrive the same way a user's board does? It does not. Revision 2
+established that nano-ros declares what it needs and the integrator satisfies it;
+revision 5 makes the *arrival* uniform, so that "no builtin road" is a property of
+the code rather than a statement in a document.
+
+R5 changes no R2/R3/R4 principle. It applies them to the descriptor and to
+discovery, and it deletes the one board that grew its own format.
+
+### The measurement — four processes, not one
+
+Twelve `[[board]]` rows across eleven `nros-board.toml` files, plus one board
+with no descriptor at all (2026-09-06):
+
+| Route | How a board is added | Boards |
+| --- | --- | --- |
+| 1. Package | crate + `nros-board.toml` + `package.xml` announcing `<nano_ros_provides kind="board">` | 9 |
+| 2. Descriptor-only package | route 1 minus the crate (`packages/boards/{linux,zephyr}/`) | 2 |
+| 3. Bundle + `board.cmake` | 14 `NROS_BOARD_*` cmake variables, a Cargo mirror, and a `west` extension | 1 (`fvp-aemv8r-smp`) |
+| 4. Nothing at all | an inline `board = "…"` string in `examples/fixtures.toml` plus a `.conf` hand-placed in each example leaf | the rest |
+
+Route 4 is the finding that reframes this. Three Zephyr board ids are actually
+built — `native_sim/native/64`, `mps2_an385`, `qemu_cortex_a53/qemu_cortex_a53/smp`
+— and only the first is declared anywhere, wedged into the `zephyr` descriptor's
+`names` array beside a real name. `qemu_cortex_a53` has no package, no descriptor
+and no announcement; its per-board `.conf` lives in the example leaf that uses
+it, so a second consumer copies the file. **Our own QEMU board did the same job
+as the FVP board with zero files, while the FVP board spent eight plus a west
+verb.** Neither is the process.
+
+Three mechanisms are correct and unreachable — the class this tree keeps
+re-finding (issues 0896, 0963, and `check-test-scripts-have-callers`):
+
+1. **The phase-215 drift gate checks zero boards.**
+   `phase215_f_manifest_drift.rs` walks top-level `packages/boards/nros-board-*/`
+   dirs needing both `Cargo.toml` and `board.cmake`. The only `board.cmake` in
+   the tree sits one level deeper, at
+   `nros-board-zephyr/boards/fvp-aemv8r-smp/`, so the loop never reaches it —
+   and no board carries `[package.metadata.nros.board]` at all, so even a fixed
+   glob would hit `if msg.contains("no `[package.metadata.nros.board]`")
+   { continue; }`. The gate guards an invariant nothing satisfies.
+
+2. **The announcement is optional, so the newest board skipped it.**
+   `check-provider-announcements.py` reads `if not os.path.exists(pkg_xml):
+   continue  # not migrated yet`. `nros-board-mps3-an536-freertos` (phase-385,
+   the most recent board) has a descriptor and no `package.xml`. Nothing said so.
+
+3. **Discovery is a one-level glob**, `packages/boards/*/nros-board.toml`. A
+   bundle board stays invisible even after gaining a descriptor — issue 0729's
+   class, still open structurally — and an out-of-tree board has no way in at
+   all. Note this is *not* what phase-346 fixed: that phase made the board
+   FRAMEWORK resolvable from an out-of-tree leaf, through the Entry's build
+   script. Descriptor discovery was never part of it.
+
+### D1 — A board is a package, and that is the whole identity
+
+Adopt RFC-0087 D1 for boards without exception: a directory with a `package.xml`
+announcing `<nano_ros_provides kind="board" name="…"/>`, plus a sibling
+`nros-board.toml` saying what it lowers to. A crate only if the board needs
+bring-up code.
+
+```
+<any dir>/
+├── package.xml        <nano_ros_provides kind="board" name="…"/>   ← identity
+├── nros-board.toml    what it lowers to                            ← behaviour
+├── prj.conf           optional, Zephyr only
+├── boards/<flat>.conf / .overlay   optional, derived by convention
+└── Cargo.toml, src/   optional — rung 2 of the customization ladder
+```
+
+Ours and a user's differ in exactly one respect: which search root found them.
+
+### D2 — Discovery is `provider_scan` over an ordered root list
+
+Replace the glob with the scan RFC-0087 D6 specifies, rooted at
+`[workspace] package_paths` in `nros.toml`. Depth-independent, so bundle boards
+resolve; root-list-driven, so an out-of-tree board package is found by the same
+code path as an in-tree one. This is what makes D1 true rather than aspirational.
+
+### D3 — `[board.zephyr]`, so routes 3 and 4 stop existing
+
+One block carries the Zephyr facts a board needs, and conventions supply the
+rest:
+
+* `west_board` — the Zephyr board id. It stops being a string in
+  `fixtures.toml` (route 4) and a `NROS_BOARD_ZEPHYR_ID` cmake variable
+  (route 3), and it stops being smuggled through `names`.
+* ``boards/<west_board with `/` → `_`>.{conf,overlay}`` — derived,
+  present-if-exists. `board.cmake` already stated this rule in a comment and
+  then hand-wrote both paths anyway.
+* `prj.conf` — derived, present-if-exists.
+* `runner` — from Zephyr's own board definition; stated only when it differs
+  (the FVP's `armfvp` does).
+* a Rust-support Kconfig module — derived and GENERATED, since its whole body is
+  `default y if BOARD_<UPPER(first segment of west_board)>`.
+
+### D4 — cmake reads a generated projection, never a second authored file
+
+`nano_ros_use_board(<name>)` keeps its signature — a downstream consumer's call
+site does not move — but its body runs `nros board cmake-vars <name> --out
+<build-dir>/…` and `include()`s the result. A build artifact, never committed
+(the SystemModel precedent, phase-330). `board.cmake` and the
+`[package.metadata.nros.board]` mirror are deleted, and with them the two-faces
+drift problem rather than the vacuous gate that watched for it.
+
+The replacement test is a round-trip — descriptor → projection → parse back ==
+descriptor — which cannot go vacuous, because it has no "skip if the other face
+is missing" arm.
+
+### D5 — The announcement becomes mandatory
+
+`check-provider-announcements` loses the `continue`: a descriptor with no
+sibling `package.xml` is an error, ratcheted against today's single offender.
+
+### D6 — The descriptor holds primitives only
+
+A field audit over all 12 rows. The rule is RFC-0087 D4's — a descriptor carries
+only what no convention can produce — plus RFC-0049's duty rule, which says a
+software-stack fact belongs to the platform and a hardware fact to the board.
+
+**Keep (primitive):** `names`, `platform`, `supported_netstacks`,
+`[board.capabilities]` heap/atomics/threads, `board_crate`, `target`, `chip`,
+`[board.cmake] toolchain_file`.
+
+**Move to the platform descriptor** — the board is copying a fact it can get
+wrong:
+
+| Field | Evidence |
+| --- | --- |
+| `platform_feature` (12/12) | 3 of 12 are NOT `platform-<platform>`: esp32 → `platform-bare-metal`, threadx-linux and threadx-riscv64 → `platform-threadx` |
+| `link_kind` (12/12) | 11 `none`, 1 `nuttx-staging` — and BOTH NuttX rows carry it |
+| `[board.priority_plan]` (6) | `mps2-an385-freertos` and `mps3-an536-freertos` hold byte-identical blocks (`[1,7]`, transport `[4,4]`, app `[1,3]`). That is `configMAX_PRIORITIES`, a FreeRTOS fact. A board that retunes it still overrides |
+
+The Zephyr row's `resolver = "scripts/lib/priority_plan.py:resolve_zephyr_plan"`
+is a file path and a Python symbol living in a board descriptor. It moves with
+the block.
+
+**Derive, override permitted:**
+
+| Field | Rule | Exceptions today |
+| --- | --- | --- |
+| `entry_kind` (12) | hosted platform → `hosted-main`; zephyr → `zephyr-staticlib`; else `board-run` | none |
+| `local_aliases` (10) | default `[platform_feature]` | 2 real (esp32, threadx-riscv64) |
+| `[board.entry] crate_name` (7) | `snake_case(board_crate)` | none — 7 of 7 |
+| `[board.entry] signature` (7) | default `#[unsafe(no_mangle)] extern "C" fn main() -> !` | 3 real (esp-hal, cortex-m-rt, plain `fn main`) |
+
+**Decompose.** `cargo_config` (8/12) is a raw TOML blob — a TOML document inside
+a TOML document, with no schema check on the inner one. The `rustflags` (8),
+`runner` (3) and `linker` (2) counts in this audit came from *inside* it as
+text; those primitives do not exist as fields. They should:
+
+```toml
+# today
+cargo_config = '''
+[target.thumbv7m-none-eabi]
+runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic …"
+rustflags = ["-C","link-arg=-Tlink.x","-C","link-arg=--gc-sections"]
+'''
+
+# after
+target    = "thumbv7m-none-eabi"
+runner    = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic …"
+rustflags = ["-C","link-arg=-Tlink.x","-C","link-arg=--gc-sections"]
+```
+
+The CLI already composes the leaf `.cargo/config.toml`; it should build it from
+those rather than paste a blob through. This is also the field a user is most
+likely to get wrong, and the one they get the least help with.
+
+**Drop:**
+
+* `capability_features` (7) — all seven hold the identical value
+  `["safety-e2e"]`, and the only read in the entire tree is
+  `board_descriptor.rs:1118`, inside
+  `fn a_board_advertises_the_safety_capability_feature()`. A field whose sole
+  reader is a test asserting that the field is used.
+* `[board.entry] comment` (4) — a Rust `//` comment stored as an escaped
+  multi-line TOML string. Presentation, not a board fact.
+* `crate_path`, `board_features` — present in the struct, authored by nobody.
+
+**Keep but reclassify:** `target_contains` (2) is not a board property; it is a
+disambiguator so two `[[board]]` rows in one file can be told apart by target
+substring. Rename it to say so.
+
+**Left alone, flagged:** `toolchain` (10 stable / 2 nightly). Both nightly rows
+sit on custom targets needing `build-std`, which suggests a target fact rather
+than a board one. Not enough evidence to move it.
+
+Rung 3 of the customization ladder survives intact: `crate_root_extra`,
+`crate_root_deps` and `closure_extra` remain the escape hatch, renamed to say
+that is what they are. A model that cannot be escaped is worse than none.
+
+### What it costs to add a board, after
+
+A QEMU Zephyr board authors **6 keys**. Today's equivalent authors 19.
+
+```toml
+[[board]]
+names               = ["qemu-cortex-a53"]
+platform            = "zephyr"
+supported_netstacks = []
+
+[board.zephyr]
+west_board = "qemu_cortex_a53/qemu_cortex_a53/smp"
+
+[board.capabilities]
+heap = true
+atomics = true
+threads = true
+```
+
+`platform_feature`, `local_aliases`, `link_kind`, `entry_kind`, `toolchain` and
+the priority plan all follow from `platform = "zephyr"`.
+
+A real out-of-tree board on real silicon — the MR-CANHUBK3 this RFC was written
+against — authors the same shape plus what genuinely differs: a crate for rung-2
+bring-up (`nros_board_init_eth()`), a `[board.cmake] toolchain_file`, a linker
+script in `rustflags`, and a `[board.provisioning] gated` naming its own SDK
+entry. Field for field, that is the in-tree `s32z270-freertos` descriptor. The
+only difference is which root found it — which is the whole claim of D1 and D2,
+and today it is false, because the root list is a hardcoded glob.
+
+### Gates this revision asks for
+
+* `check-board-descriptor-single-source` — no `board.cmake` anywhere, no
+  `[package.metadata.nros.board]` anywhere.
+* The projection round-trip, replacing `phase215_f_manifest_drift.rs`.
+* D4's ratchet, in RFC-0087's shape: a stated derivable field must equal its
+  derived value, and a moved field must not be restated at board level unless it
+  differs.
+* `check-provider-announcements` without the `continue` (D5).
+
+Tracked by [phase-375](../roadmap/phase-375-board-tier-policy-and-onboarding-cost.md)
+W6–W9; the FVP migration is [phase-215](../roadmap/phase-215-board-crate-as-importable-unit.md)
+215.K. The package-shape half lands inside
+[phase-420](../roadmap/phase-420-package-identity-and-provider-format.md) W3.

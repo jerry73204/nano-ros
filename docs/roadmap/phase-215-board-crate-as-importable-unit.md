@@ -2,7 +2,8 @@
 
 **Goal.** Turn `packages/boards/nros-board-<name>/` into a unit a
 downstream Zephyr app (ASI is the reference consumer) imports with a
-**single cmake call** plus a **`west fvp run`** invocation, with no
+**single cmake call** plus a **stock `west build -t run`** (was `west fvp run`
+until RFC-0064 R5 / 215.K), with no
 hand-curated `EXTRA_CONF_FILE` / `DTC_OVERLAY_FILE` / hardcoded board
 id list / hand-rolled FVP launch flags on the consumer side. FVP
 AEMv8-R is the driving case; the shape is generic across boards.
@@ -21,7 +22,30 @@ ladder visits; see the bullet for what still holds):
   the `board_import_fvp` fixture both do; whether an entry layering its OWN
   config over the board's counts as "nothing else" is a judgement the phase
   owner should make rather than a gate;
-* `west fvp run` launching `FVP_BaseR_AEMv8R` end to end — needs the simulator;
+* the run path launching `FVP_BaseR_AEMv8R` end to end — needs the simulator.
+  Restated by 215.K.4: the thing to verify is stock `west build -t run` with
+  `ARMFVP_BIN_PATH` exported by `activate.sh`, not `west fvp run`;
+
+**RFC-0064 revision 5 (2026-09-06) SUPERSEDES the mechanism, not the goal.** The
+one-line import stands and does not move; what changes is what sits behind it. A
+tree-wide board audit found this phase invented a private descriptor format for
+one board — `board.cmake`, 14 `NROS_BOARD_*` variables and a `west` extension —
+while eleven other boards use `nros-board.toml`, and that two of the artifacts
+built here are unreachable:
+
+* **215.F's drift audit checks zero boards.** It walks top-level
+  `packages/boards/nros-board-*/` dirs needing both `Cargo.toml` and
+  `board.cmake`; the only `board.cmake` in the tree is one level deeper, and no
+  board carries `[package.metadata.nros.board]` at all.
+* **`west fvp` does not avoid the problem it exists for.** Its last statement is
+  `os.execvpe('west', ['west','build','-d',dir,'-t','run'])` — the exact command
+  ASI declined because a reconfigure diverges the size-probe identity. 117 lines
+  of env wiring wearing a verb.
+
+215.A, 215.C, 215.D and 215.F are therefore **superseded** and their artifacts
+are deleted by **215.K**; 215.B, 215.E, 215.G and 215.J survive unchanged, which
+is why the goal does not move. The general half is
+[phase-375](phase-375-board-tier-policy-and-onboarding-cost.md) W6–W9.
 
 **Priority note.** The `P1` below rests on "unblocks ASI's actuation consumption
 story". ASI has consumed it since its phase 2.C and its FVP lane is green across
@@ -120,7 +144,13 @@ against drift.
 
 ## Work Items
 
-### 215.A — Sidecar `board.cmake` per board crate
+### 215.A — Sidecar `board.cmake` per board crate — **SUPERSEDED (RFC-0064 R5, 2026-09-06)**
+
+> Landed and working, but it is a second descriptor format for one board. Folds
+> into `nros-board.toml`'s `[board.zephyr]` block; 14 variables become 8 authored
+> plus 6 derived. Deleted by 215.K. The two open boxes below (A.1 schema doc, A.3
+> cross-reference) are **withdrawn** — documenting a format being deleted is work
+> nobody should do.
 
 - [x] **215.A.1** Define the `board.cmake` schema. Variables:
       `NROS_BOARD_ZEPHYR_ID` (Zephyr `BOARD` string),
@@ -173,7 +203,11 @@ against drift.
 - **Files:** `zephyr/cmake/nano_ros_use_board.cmake` (new),
   `zephyr/CMakeLists.txt` (include + invocation site).
 
-### 215.C — Cargo.toml `[package.metadata.nros.board]` mirror
+### 215.C — Cargo.toml `[package.metadata.nros.board]` mirror — **SUPERSEDED (RFC-0064 R5, 2026-09-06)**
+
+> The second face exists in the reader and in zero producers: no board in the
+> tree carries the table. One descriptor replaces both faces, and cmake reads a
+> generated projection of it (RFC-0064 R5 D4). Deleted by 215.K.
 
 - [x] **215.C.1** Add the metadata table to _(landed `1b003afc2`)_
       `packages/boards/nros-board-fvp-aemv8r-smp/Cargo.toml`:
@@ -200,7 +234,12 @@ against drift.
   `nros-cli/packages/nros-cli-core/src/orchestration/board_metadata.rs`
   (new), `nros-cli/packages/nros-cli-core/src/cmd/board.rs` (new).
 
-### 215.D — `west fvp` extension (moves Phase 214.A runner)
+### 215.D — `west fvp` extension (moves Phase 214.A runner) — **SUPERSEDED (RFC-0064 R5, 2026-09-06)**
+
+> Replaced by `nros sdk-path arm-fvp` plus an `activate.sh` export of
+> `ARMFVP_BIN_PATH`, which is how every other SDK in the index already resolves,
+> and then stock `west build -t run`. Deleted by 215.K. 215.D.4 is **withdrawn**
+> with the extension.
 
 - [x] **215.D.1** `scripts/west_commands/fvp.py` — west command _(landed `41c4683da`)_
       `class FvpRun(WestCommand)`. `do_run`:
@@ -260,7 +299,12 @@ against drift.
   `packages/testing/nros-tests/fixtures/board_import_fvp/` (new),
   `packages/testing/nros-tests/tests/phase215_e_board_import.rs` (new).
 
-### 215.F — Drift audit: cmake vs Cargo metadata
+### 215.F — Drift audit: cmake vs Cargo metadata — **SUPERSEDED (RFC-0064 R5, 2026-09-06)**
+
+> Checks zero boards, for two independent reasons (see Status). Replaced by a
+> projection round-trip — descriptor → projection → parse back == descriptor —
+> which has no "skip if the other face is missing" arm and so cannot go vacuous
+> the same way. Deleted by 215.K.
 
 - [x] **215.F.1** `packages/cli/nros-cli-core/tests/phase215_f_manifest_drift.rs`
       (landed at the in-tree CLI sub-workspace, not `nros-tests/` — the
@@ -427,15 +471,65 @@ consumer's tree, board-driven.
 surface), `packages/boards/nros-board-*/west-downstream.yml` (new),
 a board Kconfig overlay module, `docs/reference/board-cmake-schema.md`.
 
+### 215.K — Migrate the FVP board onto the one board process
+
+Implements RFC-0064 revision 5 for this board. The general mechanism is
+phase-375 W6–W8; 215.K is the FVP board's side of it, and lands after W7 exists.
+
+- [ ] **K.1** `packages/boards/nros-board-zephyr/boards/fvp-aemv8r-smp/nros-board.toml`
+      — 14 `NROS_BOARD_*` variables become 8 authored keys across `[board.zephyr]`
+      and `[board.provisioning]`. Derived: `prj.conf`, both
+      `boards/fvp_baser_aemv8r_fvp_aemv8r_aarch64_smp.{conf,overlay}` paths
+      (`west_board` with `/` → `_`), `requires_rust` (from `rust_targets`
+      non-empty), and `zephyr-rust-support/`, whose Kconfig body is exactly
+      `default y if BOARD_FVP_BASER_AEMV8R` and is therefore generated.
+- [ ] **K.2** `package.xml` announcing
+      `<nano_ros_provides kind="board" name="fvp-aemv8r-smp"/>`. This board is
+      currently announced nowhere, and the discovery glob is one level too
+      shallow to see it even with a descriptor (issue 0729's class) — so K.2
+      needs W6's `provider_scan`.
+- [ ] **K.3** Delete `board.cmake`, `scripts/west_commands/fvp.py`, its
+      `scripts/west-commands.yml` entry, the `west.yml` comment about it, and
+      `zephyr/module.yml`'s pointer. `nano_ros_use_board()` reads the W7
+      projection; its signature does not change, so
+      `examples/workspaces/realtime-cpp/src/fvp_entry`, the `board_import_fvp`
+      fixture and ASI's `actuation_module/CMakeLists.txt:154-155` do not move.
+- [ ] **K.4** `nros sdk-path arm-fvp` resolves the model through the existing
+      `[gated.arm-fvp]` index entry; `activate.sh` exports `ARMFVP_BIN_PATH`.
+      `just/zephyr-setup.just` lines 239 and 348 move to stock
+      `west build -t run`. Three tests reference `west fvp run` in prose
+      (`board_import.rs`, `fvp_runtime_ws.rs`, `fvp_smoke.rs`) and follow.
+- [ ] **K.5** Delete `board_metadata.rs` and
+      `packages/cli/nros-cli-core/tests/phase215_f_manifest_drift.rs`; the
+      round-trip test replaces them.
+- [ ] **K.6** Book: `book/src/porting/board-crate-import.md` documents the
+      descriptor and stock `west build -t run`. Its current "Don't reimplement
+      the FVP runner as a shell script" note inverts once the runner is an env
+      export, so it is rewritten rather than retargeted.
+- [ ] **K.7** File the size-probe reconfigure-identity bug separately. It is the
+      real defect behind ASI's `build.sh --run` workaround, and `west fvp` never
+      dodged it — the probe identity is every `NROS_*` env var plus `$DOTCONFIG`'s
+      `CONFIG_NROS_*` lines, so a reconfigure that picks crate defaults produces a
+      different identity than the build did. K.4 is only honest once this is
+      fixed.
+
+**Acceptance:** the FVP board is discovered, announced and built by exactly the
+same code path as `qemu-cortex-a53` and as an out-of-tree user board; no
+`board.cmake` and no `west` extension remain in the tree; the one-line consumer
+call site is byte-identical to what ASI has today.
+
 ## Acceptance
 
 - [ ] A Zephyr app's `CMakeLists.txt` calls `nano_ros_use_board(<n>)`
       and NOTHING else of nano-ros-board-specific shape (no per-board
       conf, no overlay, no `EXTRA_CONF_FILE` hand-list, no
       `-DNANO_ROS_RMW=...`).
-- [ ] `west fvp run -d build/` discovers the Phase 214.A resolver +
-      launches `FVP_BaseR_AEMv8R` end-to-end, UART → stdout, exits
-      clean on Ctrl-C.
+- [ ] The run path launches `FVP_BaseR_AEMv8R` end-to-end, UART → stdout,
+      exits clean on Ctrl-C. **Restated by 215.K.4** — `ARMFVP_BIN_PATH` from
+      `activate.sh` (via `nros sdk-path arm-fvp`) plus stock
+      `west build -t run`, replacing `west fvp run -d build/`. Blocked on
+      215.K.7: a reconfigure diverges the size-probe identity, which is what
+      this bullet actually trips over.
 - [x] `nros board info fvp-aemv8r-smp` prints the board metadata
       from BOTH `board.cmake` and `Cargo.toml`; `--check-drift`
       exits 0 when they agree, non-zero with a clear field-by-field
@@ -489,19 +583,20 @@ a board Kconfig overlay module, `docs/reference/board-cmake-schema.md`.
   (native, freertos, threadx) carry the Phase 212.N Board trait
   impl in Rust; their consumption shape is `cargo` path-deps, not
   cmake. Two ecosystems, two surfaces — no unified verb attempted.
-- The `west fvp` extension sits outside Phase 212 §Non-Goals
-  (`nros build/test/flash/monitor`): `west` owns the verb, not
-  `nros`. Phase 212.J `nros launch` precedent confirms `west` /
-  ROS-tool ownership of run-time verbs is acceptable.
+- ~~The `west fvp` extension sits outside Phase 212 §Non-Goals~~ — the
+  reasoning held (`west` should own a run verb); the mistake was that `west`
+  ALREADY owns it. `west build -t run` is the verb, and `west fvp run` only
+  exported one environment variable before exec'ing it. RFC-0064 R5 / 215.K.
 - Phase 214.A recipes stay in `just zephyr` as developer ergonomic
-  thin shells over `west fvp run` (so `just zephyr build-* &&
+  thin shells over the run verb (so `just zephyr build-* &&
   just zephyr run-*` stays the in-tree dev loop). ASI never reaches
-  the justfile; nano-ros contributors do.
+  the justfile; nano-ros contributors do. 215.K.4 repoints them from
+  `west fvp run` to stock `west build -t run`.
 - Multiple FVP variants (Cortex-R52, Corstone-310, AEMv8-R aarch32)
-  follow the same shape: one board crate each, sibling
-  `board.cmake` files, all pointing at `runner = "armfvp"` so the
-  west extension is variant-agnostic. Deferred until a real second
-  variant lands.
+  follow the same shape: one board PACKAGE each (`package.xml` +
+  `nros-board.toml`), all naming `runner = "armfvp"`, so the resolver
+  is variant-agnostic. Deferred until a real second variant lands.
+  (Said "sibling `board.cmake` files" until RFC-0064 R5.)
 - The board crate's Rust skeleton (`src/lib.rs` `init_hardware()` +
   `run<F>(config, app) -> !`) is **NOT** changed by Phase 215.
   Phase 212.N Board trait migration is orthogonal. Phase 215 only
