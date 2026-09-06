@@ -18,11 +18,14 @@ importable in one line by any Zephyr consumer, and 27 of the 30 boxes that are
 this repo's to tick are ticked. The ASI-specific half moved OUT (see 215.H),
 which is what this status used to be measuring against.
 
-**Two acceptance bullets remain, and neither is code** (a third was withdrawn
+**Both remaining acceptance bullets were VERIFIED 2026-09-06** — see
+Acceptance. What follows is the note from before that run.
+
+~~Two acceptance bullets remain, and neither is code~~ (a third was withdrawn
 2026-09-06 — the 215.E fixture in CI, because FVP is on no tier the breadth
 ladder visits; see the bullet for what still holds):
 
-* a Zephyr app calling `nano_ros_use_board(<n>)` and *nothing else* of
+* (VERIFIED, see Acceptance) a Zephyr app calling `nano_ros_use_board(<n>)` and *nothing else* of
   board-specific shape — `examples/workspaces/realtime-cpp/src/fvp_entry` and
   the `board_import_fvp` fixture both do; whether an entry layering its OWN
   config over the board's counts as "nothing else" is a judgement the phase
@@ -578,16 +581,48 @@ call site is byte-identical to what ASI has today.
 
 ## Acceptance
 
-- [ ] A Zephyr app's `CMakeLists.txt` calls `nano_ros_use_board(<n>)`
+- [x] A Zephyr app's `CMakeLists.txt` calls `nano_ros_use_board(<n>)`
       and NOTHING else of nano-ros-board-specific shape (no per-board
       conf, no overlay, no `EXTRA_CONF_FILE` hand-list, no
-      `-DNANO_ROS_RMW=...`).
-- [ ] The run path launches `FVP_BaseR_AEMv8R` end-to-end, UART → stdout,
-      exits clean on Ctrl-C. **Restated by 215.K.4** — `ARMFVP_BIN_PATH` from
-      `activate.sh` (via `nros sdk-path arm-fvp`) plus stock
-      `west build -t run`, replacing `west fvp run -d build/`. Blocked on
-      215.K.7: a reconfigure diverges the size-probe identity, which is what
-      this bullet actually trips over.
+      `-DNANO_ROS_RMW=...`). **VERIFIED 2026-09-06** — the whole of
+      `fixtures/board_import_fvp/CMakeLists.txt` is six lines:
+
+      ```cmake
+      cmake_minimum_required(VERSION 3.20)
+      include($ENV{NROS_REPO_DIR}/zephyr/cmake/nano_ros_use_board.cmake)
+      nano_ros_use_board(fvp-aemv8r-smp)
+      find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+      project(board_import_fvp LANGUAGES C)
+      target_sources(app PRIVATE src/main.c)
+      ```
+
+      and it built and ran on the model. The status note above left this to the
+      phase owner on the grounds that an entry layering its OWN config is a
+      judgement call — that caveat is about
+      `examples/workspaces/realtime-cpp/src/fvp_entry`, which does layer its
+      own. The FIXTURE does not, so the bar is met by something in the tree.
+- [x] The run path launches `FVP_BaseR_AEMv8R` end-to-end, UART → stdout.
+      **VERIFIED 2026-09-06** on a model `nros setup --tool arm-fvp` fetched:
+      `just zephyr build-fvp-board-import` links `zephyr.elf` through
+      `nano_ros_use_board()` + the generated projection, and
+      `just zephyr run-fvp-board-import` prints `nros: smoke ok`. The recipe
+      runs until killed, as documented, so the harness bounds it.
+
+      Two defects were found by actually running it, both now fixed:
+
+      * **`ARMFVP-NOTFOUND`.** Zephyr's `cmake/emu/armfvp.cmake` does
+        `find_program(ARMFVP ... PATHS ENV ARMFVP_BIN_PATH)` at CONFIGURE and
+        CACHES it, so a build dir configured before the model existed bakes
+        `ARMFVP-NOTFOUND` and `west build -t run` reuses that cache — exporting
+        the path at RUN time is too late. The BUILD recipes now export it too.
+        This is issue 1134's family one layer out: not a knob read from
+        `$DOTCONFIG`, but a program found at configure; same shape, same cause,
+        and the first CONFIRMED instance of it.
+      * **`failed to read SDK index`, twice per run.** `nros sdk-path` locates
+        `nros-sdk-index.toml` relative to the CWD, and the recipes called it
+        AFTER `cd "$workspace"`, where there is none. It fell back to the host
+        `make`/`ninja` silently — a fallback that works until it does not. The
+        prefixes are resolved before the `cd` now, in all four recipes.
 - [x] `nros board info fvp-aemv8r-smp` prints the board metadata
       from BOTH `board.cmake` and `Cargo.toml`; `--check-drift`
       exits 0 when they agree, non-zero with a clear field-by-field
