@@ -1166,11 +1166,13 @@ One change, every Rust board.
   must be reachable by every bus master touching the executor's buffers, which
   TCM on Cortex-M7 typically is not. **Nothing places it yet**; the seam exists
   and is compile-verified, the linker fragment is not written.
-* **Declinable**: `NROS_EXECUTOR_BACKING_U64S=0` (build-time env; the Zephyr
-  `CONFIG_` half is deliberately undeclared, see issue 1145 for why the obvious
-  `int … default 0` would silently disable it platform-wide)
-  emits no static at all. A non-zero value overrides its size, which is also how
-  a fat entry keeps a static instead of falling back to the heap.
+* **Declinable**: `NROS_EXECUTOR_BACKING_U64S=0` (build-time env; on Zephyr also
+  `CONFIG_NROS_EXECUTOR_BACKING_U64S`, declared by issue 1171 with the `-1`
+  DERIVE sentinel as its default rather than the `0` that would have disabled
+  the static platform-wide) emits no static at all. A non-zero value overrides
+  its size, which is also how a fat entry keeps a static instead of falling back
+  to the heap — and how an image that lowers its RTOS allocator arena STATES what
+  it is paying back, so the pairing cannot drift (issues 1145, 1171).
 * The heap arm still runs, legitimately, in three cases: the opt-out, a SECOND
   executor (tiered boot opens one per tier), and an entry sized past the
   reservation.

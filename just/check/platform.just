@@ -319,6 +319,26 @@ payload-class-ceiling:
 c-knob-guard-order:
     @python3 scripts/check-c-knob-guard-order.py
 
+# issue 1171 — the picolibc arena and the executor backing are ONE decision, and
+# 1145 wrote half of it as a literal copied out of `nm`.
+#
+# phase-392 W6 made the executor's storage a named `.bss` static. On Zephyr the
+# Rust allocator is picolibc malloc, whose arena is itself a fixed static that
+# the backing used to be leaked out of, so an image must lower the arena by what
+# it now reserves or reserve the same bytes twice. 1145 did that on one leaf with
+# `1048576 - 87256`, where 87256 is `ExecutorSizing::DEFAULT.u64_len() * 8` —
+# knob-derived, so any of `MAX_CBS` / the arena / the rx buffer moving makes it
+# stale in silence. It was already wrong on the second board that conf builds
+# for, whose derived size is 88,328.
+#
+# `CONFIG_NROS_EXECUTOR_BACKING_U64S` lets the image STATE the reservation, so
+# it is `8 * words` on every target and the crate refuses to compile below what
+# the executor needs. This gate is the other half: a conf that states it must
+# record the arena it lowered FROM and hold to `arena + 8 * words == base`.
+[private]
+executor-backing-arena-pairing:
+    @python3 scripts/check-executor-backing-arena-pairing.py
+
 # A knob is resolved EXACTLY ONCE. phase-412 hit this three times: a knob
 # gained a derivable resolution and kept its old plain one, the second call
 # won, and what it passed was the raw Kconfig value — which for a derivable

@@ -639,7 +639,14 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   survives for a SECOND executor (tiered boot) and for an entry sized past the default.
   It is a MOVE, not a saving — the same bytes leave the allocator arena
   (`CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` / heap_4) and become linker-visible, so never
-  report the `.bss` growth without subtracting the heap requirement it replaces. The
+  report the `.bss` growth without subtracting the heap requirement it replaces.
+  **The subtraction is STATED, never measured** (issues 1145 + 1171): a Zephyr image
+  that lowers its arena sets `CONFIG_NROS_EXECUTOR_BACKING_U64S` and pays back exactly
+  `8 x` it, because the DERIVED size is knob- AND target-dependent (87,256 B on
+  mps2_an385 vs 88,328 B on native_sim/native/64 for ONE conf), so a subtrahend copied
+  from `nm` drifts on the next knob move and was never right for both boards.
+  Gate: `check-executor-backing-arena-pairing`; a statement below what the executor
+  needs is a compile error naming the knob. The
   companion stale number: `APP_TASK_STACK` was deleted in phase-76; the live default is
   `app_stack_bytes` = **384 KiB**, and nothing in the tree overrides it.
 - **Tier and transport priorities land in ONE scheduler — they now share ONE vocabulary,

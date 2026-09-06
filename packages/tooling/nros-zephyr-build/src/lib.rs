@@ -288,6 +288,41 @@ mod tests {
 
     use super::*;
 
+    /// The tree's `-1` DERIVE sentinel reads as NO VALUE here.
+    ///
+    /// Every `-1 = derive` Kconfig knob (`NROS_EXECUTOR_MAX_CBS`,
+    /// `NROS_SUBSCRIPTION_BUFFER_SIZE`, `NROS_EXECUTOR_BACKING_U64S`, …) reaches
+    /// its reading build script through this function, and each depends on the
+    /// sentinel falling through to the crate's own default rather than being
+    /// taken as a size. Nothing said so, because the behaviour comes from
+    /// `"-1".parse::<usize>()` failing rather than from a branch anyone wrote —
+    /// so a future reader "fixing" this to parse an `i64` would silently hand
+    /// every one of those knobs a value of `-1 as usize`. Issues 0940 / 1171.
+    #[test]
+    fn the_derive_sentinel_is_not_a_size() {
+        let cfg = "CONFIG_NROS_EXECUTOR_BACKING_U64S=-1\n\
+                   CONFIG_NROS_EXECUTOR_MAX_CBS=-1\n\
+                   CONFIG_NROS_EXECUTOR_MAX_SC=8\n";
+        assert_eq!(
+            kconfig_usize(cfg, "CONFIG_NROS_EXECUTOR_BACKING_U64S"),
+            None
+        );
+        assert_eq!(kconfig_usize(cfg, "CONFIG_NROS_EXECUTOR_MAX_CBS"), None);
+        // A stated size still arrives — the sentinel must not swallow the
+        // legitimate values beside it.
+        assert_eq!(kconfig_usize(cfg, "CONFIG_NROS_EXECUTOR_MAX_SC"), Some(8));
+        // `0` is a DIFFERENT answer from the sentinel and must survive: it is
+        // "decline the static" for the backing knob (phase-392 W6) and "this
+        // image's types all fit the small class" for the payload trio.
+        assert_eq!(
+            kconfig_usize(
+                "CONFIG_NROS_EXECUTOR_BACKING_U64S=0\n",
+                "CONFIG_NROS_EXECUTOR_BACKING_U64S"
+            ),
+            Some(0)
+        );
+    }
+
     #[test]
     fn zenoh_locator_and_domain_bake() {
         let cfg = "CONFIG_NROS_RMW_ZENOH=y\n\

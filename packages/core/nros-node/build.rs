@@ -333,6 +333,15 @@ fn emit_executor_backing(out_dir: &str) {
     // this backing already. Turning the static on there without lowering that
     // knob reserves the same bytes twice. The pairing is per-image and nobody
     // but the image's author can measure it — see phase-392 W6.
+    //
+    // Issue 1171 -- `zephyr/Kconfig` now declares
+    // `CONFIG_NROS_EXECUTOR_BACKING_U64S`, so a Zephyr image can STATE the
+    // reservation and lower `CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` by exactly
+    // `8 * words`, which is a pairing that cannot drift when an executor knob
+    // moves and is the same on every board. `-1` is the tree's DERIVE sentinel
+    // and reaches this as `None` (it does not parse as a `usize`, which is how
+    // every `-1 = derive` knob here falls through), so the shipped Kconfig
+    // default is still "the crate's own sizing".
     let words = env_opt_usize("NROS_EXECUTOR_BACKING_U64S");
     println!("cargo:rustc-check-cfg=cfg(nros_executor_backing_static)");
     if words == Some(0) {
