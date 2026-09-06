@@ -102,12 +102,19 @@ ones pay it when someone answers.
 
 ## W2 — `just board-new` — onboarding is a scaffold, not a scavenger hunt
 
-- [ ] Emit, in one command: the `nros-board.toml` descriptor, the `package.xml`
-      `<nano_ros_provides>` export mirroring its `names`, the
-      `board-support.toml` row, a weak-symbol allowlist stub, and the leaf lock.
-- [ ] Those are exactly the five gates `s32z270` tripped. The scaffold's
+- [x] Emit, in one command: the `nros-board.toml` descriptor, the `package.xml`
+      `<nano_ros_provides>` export mirroring its `names`, and the
+      `board-support.toml` row (at `tier = "scaffold"`, the tier that promises
+      nothing and so needs no maintainer). _(landed as `nros board new` /
+      `just board-new`.)_ The weak-symbol allowlist stub and the leaf lock are
+      NOT emitted: a scaffolded board has no crate, so it has neither a symbol
+      to allow nor a lock to write. A board that later grows a crate needs both,
+      and `just board-new` says nothing about that yet.
+- [x] Those are exactly the five gates `s32z270` tripped. The scaffold's
       acceptance is that a board created by it passes `just check fast` on the
-      first run.
+      first run. _(verified: `board_new_scaffold.rs` scaffolds in-tree and
+      out-of-tree and asserts the board RESOLVES; `just check fast` is 236 green
+      with the scaffolded board present.)_
 
 **Acceptance:** a scaffolded board is green on `check-fast` before its first
 commit; the five gates stay unchanged (this does not weaken them).
@@ -192,6 +199,17 @@ descriptor and no announcement.
       packages; their fixture rows name a board instead of a Zephyr id, and the
       per-board `.conf` moves out of the example leaf so consumers share it.
 
+      **Deliberately not done in the W6 pass, and worth saying why rather than
+      half-doing it.** The package half alone is cheap and useless: it would add
+      two declared boards nothing reads, which is the "correct and unreachable"
+      shape this whole wave exists to remove. The half with the value is the
+      fixture retarget — `examples/fixtures.toml` carries `board =
+      "qemu_cortex_a53/qemu_cortex_a53/smp"` as a Zephyr id passed straight to
+      `west build -b`, so naming a board KEY means teaching the fixture builder
+      to resolve through the catalog. That is verifiable only by a Zephyr
+      fixture build, which needs the SDK and west. Do the two halves together,
+      on a host that can run `just build-test-fixtures`.
+
 **Acceptance:** every board the tree builds is announced; the announcement gate
 runs on all of them, not 10 of 14; an out-of-tree board directory resolves with
 no in-tree edit beyond a `package_paths` entry.
@@ -201,22 +219,22 @@ no in-tree edit beyond a `package_paths` entry.
 RFC-0064 R5 D3/D4. Pairs with 215.K, which is the same change seen from the FVP
 board's side.
 
-- [ ] `[board.zephyr]` block: `west_board`, `sdk_abi`, `default_rmw`,
+- [x] `[board.zephyr]` block: `west_board`, `sdk_abi`, `default_rmw`,
       `default_transport`, `runner` (stated only when it differs from Zephyr's
       own board definition).
-- [ ] Conventions supply the rest: `prj.conf` and
+- [x] Conventions supply the rest: `prj.conf` and
       ``boards/<west_board with `/` → `_`>.{conf,overlay}`` present-if-exists; the
       Rust-support Kconfig module derived AND generated, since its body is
       `default y if BOARD_<UPPER(first segment)>`.
-- [ ] `nros board cmake-vars <name> --out <build-dir>/…`; `nano_ros_use_board()`
+- [x] `nros board cmake-vars <name> --out <build-dir>/…`; `nano_ros_use_board()`
       includes the result. Signature unchanged, so no consumer call site moves.
       The projection is a build artifact, never committed (phase-330 precedent).
-- [ ] Delete `board.cmake`, `board_metadata.rs` and
+- [x] Delete `board.cmake`, `board_metadata.rs` and
       `phase215_f_manifest_drift.rs`. Replace with a projection round-trip test
       (descriptor → projection → parse back == descriptor), which has no
       "skip if the other face is missing" arm and so cannot go vacuous the way
       the drift gate did.
-- [ ] Gate `check-board-descriptor-single-source`: no `board.cmake` anywhere, no
+- [x] Gate `check-board-descriptor-single-source`: no `board.cmake` anywhere, no
       `[package.metadata.nros.board]` anywhere.
 
 **Acceptance:** one authored descriptor per board; the drift gate that checked
@@ -232,14 +250,16 @@ field group by field group; each group is a gate plus a mechanical edit.
       the exception), `[board.priority_plan]` (the two FreeRTOS QEMU boards hold
       byte-identical blocks — that is `configMAX_PRIORITIES`). Board override
       stays for a board that genuinely retunes one.
-- [ ] **Derive:** `entry_kind` (zero exceptions today), `local_aliases`
+- [x] **Derive:** ~~`entry_kind`~~ (the "zero exceptions" claim was WRONG —
+      `freertos-posix` and `mps2-an385-freertos` are both `platform = "freertos"`
+      with different `entry_kind`; it stays authored), `local_aliases`
       (8 of 10 are `[platform_feature]`), `[board.entry] crate_name` (7 of 7 are
       `snake_case(board_crate)`), `[board.entry] signature` (4 of 7 identical).
 - [ ] **Decompose `cargo_config`** — a raw TOML blob in 8 of 12 rows, holding
       `rustflags`/`runner`/`linker` as text with no schema check. Promote them to
       real fields; the CLI composes the leaf `.cargo/config.toml` from those
       instead of pasting the blob through.
-- [ ] **Drop:** `capability_features` (7 rows, all the single value
+- [x] **Drop:** `capability_features` (7 rows, all the single value
       `["safety-e2e"]`; the only read in the tree is inside
       `fn a_board_advertises_the_safety_capability_feature()`),
       `[board.entry] comment` (an escaped Rust `//` comment in TOML),
@@ -248,9 +268,12 @@ field group by field group; each group is a gate plus a mechanical edit.
       property. Rename it to say so.
 - [ ] Rung 3 survives: `crate_root_extra` / `crate_root_deps` / `closure_extra`
       stay, renamed to say they are the escape hatch.
-- [ ] Gate, in RFC-0087 D4's ratchet shape: a stated derivable field must equal
-      its derived value, and a moved field must not be restated at board level
-      unless it differs.
+- [x] Gate, in RFC-0087 D4's ratchet shape: a stated derivable field must equal
+      its derived value. _(landed as three additions to the EXISTING
+      `check-derived-descriptor-fields` — a sibling-field derivation mechanism,
+      the bundle glob, and `[board.entry]` flattened in — rather than a second
+      gate beside it.)_ The "moved field must not be restated" half waits on the
+      move, which waits on the platform descriptors below.
 
 **Acceptance:** a QEMU Zephyr board authors 6 keys where today's equivalent
 authors 19, and the in-tree and out-of-tree descriptors for comparable boards are
@@ -262,10 +285,14 @@ W2 restated once there is one shape to scaffold. Kept separate because W2's
 acceptance (green `check-fast` before first commit) is unchanged and still the
 point.
 
-- [ ] Scaffold emits the W6 package (`package.xml` + descriptor), the
-      `board-support.toml` row, the weak-symbol allowlist stub and the leaf lock.
-- [ ] A `--out-of-tree <dir>` mode emits the same thing plus the
-      `package_paths` line, so a user's board is one command too.
+- [x] Scaffold emits the W6 package (`package.xml` + descriptor) and the
+      `board-support.toml` row. _(landed.)_ Allowlist stub and leaf lock: see
+      W2 — a crate-less scaffold has neither.
+- [x] A `--out-of-tree <dir>` mode emits the same thing and prints the
+      `NROS_EXTRA_BOARD_PATH` line that reaches it, so a user's board is one
+      command too. _(landed;
+      `a_scaffolded_out_of_tree_board_resolves_by_name` is the claim as a
+      test.)_
 
 **Acceptance:** the scaffolded board and a hand-written in-tree board are the
 same files.
