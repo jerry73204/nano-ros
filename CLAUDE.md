@@ -709,6 +709,18 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   (`MAX_QUERYABLES` 16 in the cmake TU, 8 in the cargo one). Build scripts resolve knobs with
   `nros_zephyr_build::knob_usize(env, CONFIG_key, default)` (reads `$DOTCONFIG`); gate:
   `check-kconfig-knob-forwarding`. → issue 0460.
+- **A pool's FLOOR belongs to the consumer that names the knob, never to the shared
+  derivation** (issues 1015 + 1033, both measured). A derived count is the image's
+  DEMAND and zero is a legitimate demand; whether zero is a legal SIZE is a property
+  of the storage: `ZPICO_MAX_QUERYABLES=0` left a board transmitting nothing for 15 s
+  with no diagnostic (fixed C array), while `XRCE_MAX_SUBSCRIBERS=0` is worth 33,296
+  bytes of heap a slot and is the answer. One `EntityInventory::derive` feeds BOTH, so
+  1015's floor — landed in the derivation a day before 1033's fix — silently defeated
+  it, and every knob gate stayed green because the number was derived correctly and
+  delivered faithfully. Floor at the pool (`c_array_pool_floor` /
+  `_nros_c_array_pool_floor`), keep `#if X < 1 / #error` beside the array as the
+  backstop that binds a producer neither reaches. Gate: `check-c-array-pool-floors`
+  (also refuses an unruled new one; the 15 still unruled are issue 1131).
 - **A service server IS a zenoh queryable** — `[param_services]` (6) + `[lifecycle]` (5) claim
   eleven slots before the app declares anything, against `ZPICO_MAX_QUERYABLES` = 8 embedded.
   Raise `CONFIG_NROS_MAX_QUERYABLES`; the table is a static array, so the default stays small.

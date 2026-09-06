@@ -527,6 +527,14 @@ queryables[0]` is not a smaller pool, it is a different kind of object). The
 test was wrong and the rule was right — a private counter here would have
 shipped the zero.
 
+> **Amended (issue 1015's resolution).** Half of that stands and half does not.
+> Reuse was right; the FLOOR was in the wrong layer. The same derivation feeds
+> the XRCE pools, where zero is the measured answer (issue 1033, 33,296 bytes a
+> subscriber slot), so `derive()` now publishes the raw DEMAND — a talker's
+> `max_subscribers` IS 0 — and the floor is applied by the zenoh consumers that
+> name the knob (`c_array_pool_floor()` here, `_nros_c_array_pool_floor()` in
+> the CMake bridge). The `[env]` sidecar's `ZPICO_*` rows are unchanged at 1.
+
 **Verified against the real in-tree probe files, not only fixtures:**
 
 | leaf | entities | `MAX_CBS` | subs | pubs | queryables | heavy |

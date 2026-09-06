@@ -237,6 +237,26 @@ knob-delivery:
 knob-fixpoint:
     @python3 scripts/check-knob-fixpoint.py --self-test
 
+# Issue 1015 — a knob that SIZES A FIXED C ARRAY states its smallest legal
+# value, and the floor is applied by the CONSUMER that names the knob.
+#
+# `MAX_QUERYABLES` derived 0 on an image declaring no service servers, and the
+# board then transmitted 0 bytes in 15 s: no panic, no log, core in WFI. Every
+# knob gate stayed green — `check-knob-delivery` confirms the value ARRIVED
+# (it did) and `check-knob-fixpoint` converges (0 is stable). None asked
+# whether the number was USABLE.
+#
+# "Pools are positive" would be the wrong rule: issue 1033 lowered the XRCE
+# minima to 0 on purpose, worth 33,296 bytes of heap a subscriber slot. So the
+# gate requires a DECISION per knob — a `#if X < 1 / #error` beside the array,
+# or a ZERO_LEGAL entry naming what measured it — and holds the two producers
+# of the guarded knobs to flooring at the pool rather than in the shared
+# derivation, which is where the first fix put it and where it silently
+# defeated 1033 the day before that landed.
+[private]
+c-array-pool-floors:
+    @python3 scripts/check-c-array-pool-floors.py
+
 # A knob is resolved EXACTLY ONCE. phase-412 hit this three times: a knob
 # gained a derivable resolution and kept its old plain one, the second call
 # won, and what it passed was the raw Kconfig value — which for a derivable
