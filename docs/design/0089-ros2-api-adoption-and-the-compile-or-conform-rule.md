@@ -1,4 +1,4 @@
-# RFC-0087 — ROS 2 API adoption, and the compile-or-conform rule
+# RFC-0089 — ROS 2 API adoption, and the compile-or-conform rule
 
 **Status:** Draft (2026-09-04)
 **Amends / refines:** RFC-0036 (divergence catalog) — adds the DISPOSITION half:
@@ -262,7 +262,7 @@ Consequences, in the order they bite:
   ledger with no platform content.
 * **New C entry points land under `nros_` and reach the user as `rcl_`.** The
   alias comes from `<nros/rcl_compat.h>`, not from renaming as we go: a
-  half-renamed C surface is worse than either end state, and RFC-0087's
+  half-renamed C surface is worse than either end state, and RFC-0089's
   migration is alias-then-replace precisely so the two steps are separable.
 * **`nros_ret_t` is the sharpest case and is NOT a rename.** Its doc claims
   compatibility with `rcl_ret_t` and only `OK` agrees — ours are −1/−2/−3/−7,
@@ -335,7 +335,7 @@ compile with the shim present" — deleted.
 ### The one thing that does NOT dissolve, and why that is fine
 
 `rcl_compat.h` does two jobs, and only one is a spelling. The other is the
-`RCL_RET_*` value mapping, and RFC-0087 forbids renumbering ours to match rcl's
+`RCL_RET_*` value mapping, and RFC-0089 forbids renumbering ours to match rcl's
 — that would silently flip the meaning of every stored return code across three
 FFI seams.
 
