@@ -1,7 +1,7 @@
 ---
 id: 1052
 title: "The esp32-qemu talker takes an instruction-access fault right after network bring-up, with a return address made of ASCII"
-status: open
+status: resolved
 area: rmw, boards
 severity: high
 found: 2026-09-04
@@ -73,7 +73,7 @@ creates one subscription.
 ## What this blocks
 
 `test_esp32_talker_listener_e2e` and `test_esp32_to_native` in
-[issue 0968](0968-tier2-runtime-failures-unreproduced.md). Both wait on the
+[issue 0968](../0968-tier2-runtime-failures-unreproduced.md). Both wait on the
 talker's `Publishing:` marker, which the image cannot reach.
 
 ## BISECTED 2026-09-04 — it is NOT in `register()`
@@ -244,7 +244,7 @@ Executor::open failed: Transport(ConnectionFailed)
 
 The reason was environmental — the router had failed to start with
 `libzenohc.so: cannot open shared object file`, which is
-[issue 0774](archived/0774-zenohd-loads-unpaired-libzenohc.md) exactly (`rmw_zenohd` resolves but does not run without the
+[issue 0774](0774-zenohd-loads-unpaired-libzenohc.md) exactly (`rmw_zenohd` resolves but does not run without the
 paired library on `LD_LIBRARY_PATH`). But the accident is the datum:
 
 | router | session | fault |
@@ -967,3 +967,44 @@ a ROS peer is not shown here — that is the QEMU network configuration, not the
 image. What is shown is the part this issue was about: the publisher is created,
 the timer fires, and the callback runs, where the image previously took an
 instruction-access fault immediately after network bringup.
+
+
+## RESOLVED 2026-09-06 — confirmed by CI, which closed the one caveat left
+
+The section above ends: "It still cannot reach the router under `-nic
+user,model=open_eth`, so delivery to a ROS peer is not shown here." That was my
+QEMU networking, not the image, and it is exactly what CI answers.
+
+Nightly run `33996315057`, esp32 job, first run in this sequence to reach its
+tests:
+
+| test | verdict |
+| --- | --- |
+| `test_esp32_qemu_talker_boots` | **PASS** |
+| `test_esp32_talker_listener_e2e` | **PASS** |
+
+The pair delivers. That is this issue's whole subject — the talker took an
+`Instruction access fault` immediately after network bringup and never reached
+its publish loop — and the test that exercises it passes on the lane.
+
+### What the fix was, in one line each
+
+* **Root cause**: `.stack` is the LINKER LEFTOVER after `.bss` on this board, so
+  every byte a static gains the stack loses, and there is no runtime overflow
+  guard. `.bss` had reached 295,444 B; the stack was 18,572 B against node.rs's
+  ~67 KB budget. `sp` at the fault was 2,548 B BELOW `_stack_end`, inside
+  `nros_smoltcp::TCP_RX_BUFFER_0`.
+* **Fix**: stop paying for undeclared entities. The talker declared no
+  subscriptions and still linked `SMALL_PAYLOADS` for eight; the listener the
+  same. Stack 18,572 -> 49,148 B (talker) and 22,060 -> 52,636 B (listener).
+* **Gate**: `check-executor-stack-floor` and `check-stack-floor`, because
+  node.rs had asked for this check in a COMMENT since issue 0190 and a comment
+  cannot run on a schedule.
+
+### Two claims of mine that were wrong, kept above rather than deleted
+
+The record is more useful with them than without: the "fault is on the CONNECTED
+path" finding was an artifact of faulting first, and the `create_publisher`
+symbol probe was a command that did not exist on PATH returning 0 for every
+input. Both are corrected in place. The bisect they supported (variants E/F/H)
+was measuring a stale image, which is issue 1025.

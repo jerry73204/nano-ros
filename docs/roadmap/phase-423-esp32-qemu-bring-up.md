@@ -26,10 +26,10 @@ each fix lands with no way to demonstrate it.
 * **[#1006](../issues/1006-esp32-qemu-configure-nondeterministic-deps.md) —
   the configure builds backends the board never uses.** Cost and blast radius,
   and it widens what a bring-up failure could be caused by.
-* **[#1052](../issues/1052-esp32-talker-faults-after-network-bringup.md) — the talker
+* **[#1052](../issues/archived/1052-esp32-talker-faults-after-network-bringup.md) — the talker
   takes an instruction-access fault right after network bring-up.** The runtime
   defect proper.
-* **[#1048](../issues/1048-esp32-log-records-are-silently-dropped.md) — every `log::info!` is
+* **[#1048](../issues/archived/1048-esp32-log-records-are-silently-dropped.md) — every `log::info!` is
   silently dropped**, so four e2e cells grep for a marker nothing prints. This is
   the OBSERVER, and it is the reason to sequence the phase rather than pick off
   whichever looks easiest: while it stands, the other three can only be debugged
