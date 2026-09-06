@@ -268,6 +268,12 @@ Today an embedded C entry routes to the C++ emitter and compiles as a `.cpp`
 TU. That costs a C-only shop — MISRA, a certified C compiler, no C++ runtime —
 a C++ toolchain to build an entry whose components are all C.
 
+**Scoped honestly: this is a C-only-RMW benefit.** zenoh and XRCE are C to the
+bottom, so removing the generated `.cpp` removes the last C++ TU. Cyclone
+(`rmw_cyclonedds_cpp`) and uORB are C++ libraries, so a C-only user on those
+still links `stdc++` however the entry is written. The gain is real and it is
+not universal; do not state it unqualified.
+
 The reason is an accident of which entry points were declared, not a design
 decision. The C-callable board surface:
 
@@ -277,14 +283,23 @@ decision. The C-callable board surface:
 | freertos / zephyr / nuttx | — | **yes** |
 | threadx | — | — |
 
-And the layering runs opposite to the dispatch's justification:
-`nros_board_freertos_run_tiers` is **666 lines of C**, and
-`FreertosBoard::run_tiers` is the C++ veneer calling it. The board layer is
-already C at the bottom.
+The layering runs opposite to the dispatch's justification for the TIERS path
+— `nros_board_freertos_run_tiers` is 666 lines of C under a 4-line C++ veneer
+— but **not for `run_components`**, and phase-432 W3.1's assessment corrected
+this section: `FreertosBoard::run_components` is fully implemented in the C++
+header with no C function under it, and native's C-ABI `run_components` is
+Rust. So this IS new code.
 
-So exposing `nros_board_<rtos>_run_components` beside the existing `run_tiers`
-is not new capability — it is the single-tier shape declared the way the
-multi-tier one already is. That deletes the language-crossing branch from
+The claim that survives is different and stronger: the C++ `run_components`
+uses no C++ feature a C function lacks — no exceptions, no RAII, and its
+`template <typename Setup>` is only ever instantiated with a plain function
+pointer in generated code — while every primitive it calls is already C-ABI and
+already called from C by the sibling `run_tiers.c`. Two prerequisites gate it,
+both live traps: `nros_board_network_wait` exists only as a weak symbol in a
+C++ header, and `NROS_ENTRY_LOCATOR`/`DOMAIN_ID` are derived in `main.hpp`
+while the C sibling defines them as `""` and `0` — a pure-C entry would
+compile, link, boot and dial nothing, which is issue #174 exactly. See
+phase-432 W3.1. That deletes the language-crossing branch from
 `cmd/codegen.rs` and lets the C pack serve every board the C++ one does.
 **ThreadX has no C board API at all and is declared C++-entry-only**, rather
 than silently routed.
