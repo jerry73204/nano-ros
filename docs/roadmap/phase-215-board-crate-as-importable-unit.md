@@ -27,7 +27,10 @@ ladder visits; see the bullet for what still holds):
   the `board_import_fvp` fixture both do; whether an entry layering its OWN
   config over the board's counts as "nothing else" is a judgement the phase
   owner should make rather than a gate;
-* the run path launching `FVP_BaseR_AEMv8R` end to end — needs the simulator.
+* the run path launching `FVP_BaseR_AEMv8R` end to end — the simulator is no
+  longer the obstacle (K.8: `nros setup --tool arm-fvp` fetches it, verified
+  running here). What remains is a Zephyr SDK + west tree to build an image
+  with.
   Restated by 215.K.4: the thing to verify is stock `west build -t run` with
   `ARMFVP_BIN_PATH` exported by `activate.sh`, not `west fvp run`;
 
@@ -519,15 +522,54 @@ phase-375 W6–W8; 215.K is the FVP board's side of it, and lands after W7 exist
       descriptor and stock `west build -t run`. Its current "Don't reimplement
       the FVP runner as a shell script" note inverts once the runner is an env
       export, so it is rewritten rather than retargeted.
-- [x] **K.7** FILED as [issue 1134](../issues/1134-zephyr-size-probe-identity-diverges-on-reconfigure.md).
-      _(Filing was the box; FIXING it needs the licence-gated model and is a
-      maintainer step. It blocks the remaining acceptance bullet.)_ Original
-      wording: File the size-probe reconfigure-identity bug separately. It is the
+- [x] **K.7** FILED and then FIXED —
+      [issue 1134](../issues/archived/1134-zephyr-size-probe-identity-diverges-on-reconfigure.md),
+      resolved 2026-09-06. The mechanism was
+      `nros_zephyr_build::knob_usize`'s `dotconfig_usize(k).unwrap_or(default)`:
+      three different situations collapsed into one `None`, so "there is a
+      `.config` and we could not read it" became "use the crate default"
+      silently. `KnobSource` separates them and the unreadable case is now a
+      panic naming the path, the OS error and the likely cause. It converts a
+      silently wrong-sized image into a loud build failure. _(Whether an FVP
+      `west build -t run` reconfigure actually loses `DOTCONFIG` is still
+      unverified — but the model is now provisionable, see K.8.)_ It is the
       real defect behind ASI's `build.sh --run` workaround, and `west fvp` never
       dodged it — the probe identity is every `NROS_*` env var plus `$DOTCONFIG`'s
       `CONFIG_NROS_*` lines, so a reconfigure that picks crate defaults produces a
       different identity than the build did. K.4 is only honest once this is
       fixed.
+
+- [x] **K.8** **`nros setup` provisions the FVP model.** The board's
+      `[board.provisioning]` named it under `gated`, and a gated entry is
+      declared and never fetched — so `nros setup board fvp-aemv8r-smp`
+      provisioned a whole Zephyr tree for a board whose simulator the user
+      still had to install by hand.
+
+      **The premise was wrong, and `autoware-safety-island` had the evidence
+      all along.** Its `.github/scripts/run-zephyr-fvp-ci.sh` downloads the
+      model in CI from an Arm CDN permalink with a pinned SHA256, no
+      authentication. Measured here 2026-09-06: HTTP 200, 68,450,956 bytes, and
+      the digest reproduces byte-for-byte
+      (`627500af…`). Our index meanwhile carried `version = "11.24"` while the
+      pin anyone actually used was 11.31.
+
+      So `[gated.arm-fvp]` becomes `[tool.arm-fvp]` with that URL, that digest
+      and an `install` line carrying `--strip-components=1` (verified by listing
+      the archive: it is rooted at `FVP_Base_AEMv8R_11.31_28/` with `bin/`
+      beneath, so the default prefix-rooted unpack would bury the binary).
+      x86_64 Linux only, which the index already models — a host with no
+      matching `dist` is told so by name.
+
+      Verified end to end on this host: `nros setup --tool arm-fvp` →
+      `prebuilt 11.31.28 (dist linux-x86_64) → ~/.nros/sdk/arm-fvp/11.31.28`;
+      `resolve-fvp-bin.sh` (which gained a store arm) prints that `bin/`; and
+      `FVP_BaseR_AEMv8R --version` reports `Fast Models [11.31.28]`.
+
+      The board descriptor's `gated = [...]` is now `tools = [...]` — a field
+      named for a POLICY invited exactly this mistake, so it names the index
+      instead, and whether an entry can be fetched is the index's business.
+      `gated` stays as a serde alias, because an out-of-tree board descriptor is
+      a user's file.
 
 **Acceptance:** the FVP board is discovered, announced and built by exactly the
 same code path as `qemu-cortex-a53` and as an out-of-tree user board; no

@@ -117,7 +117,66 @@ pub fn knob_usize(env_name: &str, kconfig_key: &str, default: usize) -> usize {
     if let Some(v) = env::var(env_name).ok().and_then(|v| v.parse().ok()) {
         return v;
     }
-    dotconfig_usize(kconfig_key).unwrap_or(default)
+    match dotconfig(kconfig_key) {
+        KnobSource::Value(v) => v,
+        // The key is genuinely absent from a `.config` we READ: a Kconfig int
+        // left at its default is not written to the file, so this is the
+        // normal case and the crate default is the right answer.
+        KnobSource::AbsentFromConfig => default,
+        // Issue 1134 — `DOTCONFIG` names a file we cannot read. This used to be
+        // `.unwrap_or(default)`, indistinguishable from the arm above, and that
+        // conflation is the bug: every knob silently takes its crate default
+        // and the image is built to sizes its configuration never asked for. A
+        // 64 KiB platform heap under a 448 KiB executor arena reads as a
+        // runtime fault, not a build one, which is why it cost a downstream
+        // consumer a workaround instead of a bug report.
+        KnobSource::ConfigUnreadable(path, why) => panic!(
+            "nros-zephyr-build: DOTCONFIG={path} could not be read ({why}), so \
+             `{kconfig_key}` cannot be resolved.\n  \
+             Refusing to fall back to the crate default ({default}): a Zephyr \
+             image built from crate defaults compiles, links, and then behaves \
+             as though its Kconfig said nothing (issue 1134).\n  \
+             This usually means a RECONFIGURE ran without the environment the \
+             original configure had — `west build -t run` re-enters the build \
+             graph, and the run inherits whatever the shell provides."
+        ),
+    }
+}
+
+/// Where a knob's value came from — or why it did not.
+///
+/// Issue 1134. These three outcomes were one `Option`, and two of them meant
+/// opposite things: "the config says nothing, so use the default" is correct,
+/// while "there is a config and we could not read it" is a build that must
+/// stop. Collapsing them is what let a reconfigure silently rebuild an image
+/// to crate defaults.
+#[derive(Debug)]
+pub enum KnobSource {
+    /// Read from the `.config`.
+    Value(usize),
+    /// No `DOTCONFIG` (not a Zephyr build at all), or the key is absent from a
+    /// `.config` that WAS read.
+    AbsentFromConfig,
+    /// `DOTCONFIG` names a file, and reading it failed.
+    ConfigUnreadable(String, String),
+}
+
+/// [`dotconfig_usize`], keeping WHY it produced no value.
+pub fn dotconfig(kconfig_key: &str) -> KnobSource {
+    println!("cargo:rerun-if-env-changed=DOTCONFIG");
+    let Ok(path) = env::var("DOTCONFIG") else {
+        // Not a Zephyr build. Deliberately not an error: these same build
+        // scripts compile for the host and for every other platform.
+        return KnobSource::AbsentFromConfig;
+    };
+    println!("cargo:rerun-if-changed={path}");
+    match fs::read_to_string(&path) {
+        Ok(body) => match kconfig_usize(&body, kconfig_key) {
+            Some(v) => KnobSource::Value(v),
+            None => KnobSource::AbsentFromConfig,
+        },
+        Err(e) => KnobSource::ConfigUnreadable(path, e.to_string()),
+    }
 }
 
 /// Read `<kconfig_key>=<int>` out of the `.config` named by `$DOTCONFIG`.
@@ -125,11 +184,13 @@ pub fn knob_usize(env_name: &str, kconfig_key: &str, default: usize) -> usize {
 /// Kconfig ints are unquoted; anything else (missing file, missing key,
 /// non-numeric) yields `None` so the caller falls through to its default.
 pub fn dotconfig_usize(kconfig_key: &str) -> Option<usize> {
-    println!("cargo:rerun-if-env-changed=DOTCONFIG");
-    let path = env::var("DOTCONFIG").ok()?;
-    println!("cargo:rerun-if-changed={path}");
-    let body = fs::read_to_string(&path).ok()?;
-    kconfig_usize(&body, kconfig_key)
+    match dotconfig(kconfig_key) {
+        KnobSource::Value(v) => Some(v),
+        // NOTE the flattening: this view cannot tell "absent" from
+        // "unreadable", so neither can its callers. That is issue 1134 in one
+        // line, and it is why `knob_usize` matches on [`dotconfig`] instead.
+        _ => None,
+    }
 }
 
 /// Pure core of [`dotconfig_usize`]: `.config` body → the key's integer value.
@@ -165,6 +226,66 @@ fn kconfig_raw(body: &str, key: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Issue 1134 — the three outcomes must stay three.
+    ///
+    /// These exercise [`dotconfig`] through the real `DOTCONFIG` environment
+    /// variable, which is process-global, so they live in ONE test rather than
+    /// three: `cargo test` runs them on threads and a second test mutating the
+    /// same variable would make both flaky. The repo has been bitten by exactly
+    /// that shape before (`nros_tests::unique_ros_domain_id`).
+    #[test]
+    fn a_knob_distinguishes_absent_from_unreadable() {
+        use std::io::Write;
+
+        // SAFETY: `set_var`/`remove_var` are unsound only with concurrent
+        // readers of the environment; this test owns the variable for its
+        // duration and no other test in this crate touches it.
+        let restore = env::var("DOTCONFIG").ok();
+
+        // 1. No DOTCONFIG at all — not a Zephyr build. NOT an error: the same
+        //    build scripts compile for the host.
+        unsafe { env::remove_var("DOTCONFIG") };
+        assert!(
+            matches!(dotconfig("CONFIG_ANY"), KnobSource::AbsentFromConfig),
+            "no DOTCONFIG must be AbsentFromConfig, not an error"
+        );
+
+        // 2. A readable .config that does not mention the key. Correct to take
+        //    the crate default: Kconfig does not write an int left at default.
+        let dir = std::env::temp_dir().join(format!("nros-1134-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join(".config");
+        let mut f = std::fs::File::create(&cfg).unwrap();
+        writeln!(f, "CONFIG_SOMETHING_ELSE=7").unwrap();
+        drop(f);
+        unsafe { env::set_var("DOTCONFIG", &cfg) };
+        assert!(
+            matches!(dotconfig("CONFIG_ABSENT_KEY"), KnobSource::AbsentFromConfig),
+            "a key absent from a READ config must be AbsentFromConfig"
+        );
+        assert!(
+            matches!(dotconfig("CONFIG_SOMETHING_ELSE"), KnobSource::Value(7)),
+            "a key present in a read config must yield its value"
+        );
+
+        // 3. DOTCONFIG names a file that is not there. THIS is the one that
+        //    used to be indistinguishable from case 2, and taking the crate
+        //    default here is how an image gets built to sizes its Kconfig never
+        //    asked for.
+        unsafe { env::set_var("DOTCONFIG", dir.join("does-not-exist")) };
+        let got = dotconfig("CONFIG_ANY");
+        assert!(
+            matches!(got, KnobSource::ConfigUnreadable(..)),
+            "an unreadable DOTCONFIG must be ConfigUnreadable, got {got:?}"
+        );
+
+        match restore {
+            Some(v) => unsafe { env::set_var("DOTCONFIG", v) },
+            None => unsafe { env::remove_var("DOTCONFIG") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     #[test]

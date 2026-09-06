@@ -422,10 +422,19 @@ pub struct BoardProvisioning {
     /// `nros-sdk-index.toml` `[source.*]` name for the board's RMW source tree.
     #[serde(default)]
     pub rmw_source: Option<String>,
-    /// `nros-sdk-index.toml` `[gated.*]` packages this board needs. Licence-
-    /// gated, so they are declared and never downloaded.
-    #[serde(default)]
-    pub gated: Vec<String>,
+    /// `nros-sdk-index.toml` packages this board needs, by index name.
+    ///
+    /// Named `gated` until 2026-09-06, when the one entry using it turned out
+    /// not to be gated at all: the Arm FVP is a public CDN permalink with a
+    /// pinned digest, and calling it licence-walled meant `nros setup board`
+    /// declared it and refused to fetch it. A field named for a POLICY invites
+    /// that mistake; this one names the index, and whether an entry can be
+    /// fetched is the index's own business (`[tool.*]` can, `[gated.*]` cannot).
+    ///
+    /// `gated` stays as a serde alias: an out-of-tree board descriptor is a
+    /// user's file.
+    #[serde(default, alias = "gated")]
+    pub tools: Vec<String>,
 }
 
 /// `[board.cmake]` — CMake toolchain facts for the ament-shape preset flow.

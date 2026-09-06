@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+#
+# NOTE (2026-09-06): for the COMMON case you no longer need this script.
+# `nros setup --tool arm-fvp` downloads and installs the model — it is a public
+# Arm CDN permalink with a pinned digest (`[tool.arm-fvp]`), not a licence wall,
+# and this file was written on the belief that it was one.
+#
+# What survives here is the OTHER case: you already have an FVP — from Arm
+# Development Studio, a corporate image, a different version — and want
+# nano-ros to find it. That is discovery over an existing install, which the
+# provisioner deliberately does not do.
 # scripts/installers/arm-fvp-installer.sh
 #
 # Phase 217.B.1 — discovery + symlink for the license-gated Arm Fast
@@ -35,7 +45,7 @@ LANDING_LINK="${LANDING_DIR}/current"
 
 usage() {
     cat <<EOF
-arm-fvp-installer.sh — discover + symlink a license-gated Arm FVP install.
+arm-fvp-installer.sh — discover + symlink an Arm FVP you already have install.
 
 Usage:
   ARM_FVP_DIR=<extracted-fvp-root> $0

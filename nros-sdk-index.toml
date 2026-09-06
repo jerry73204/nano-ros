@@ -887,12 +887,28 @@ recursive = false
 # `dev_sources` / `[reference.*]` needs an nros-cli schema change first (tracked
 # in the Phase 197 workflow review). They remain plain `.gitmodules` submodules.
 
-# --- license-gated (never hosted; instruct + nros doctor checks the env var) ---
-
-[gated.arm-fvp]
-version = "11.24"
-env = "ARM_FVP_DIR"
-installer = "arm-fvp-installer"
+# --- Arm Fast Models AEMv8-R FVP -------------------------------------------
+#
+# NOT license-gated, and it was modelled as `[gated.arm-fvp]` until 2026-09-06
+# on the assumption that it is. Measured against Arm's own CDN permalink:
+# HTTP 200, 68,450,956 bytes, no authentication, and the digest below reproduces
+# byte-for-byte. `autoware-safety-island` has been downloading it in CI from
+# this exact URL all along -- so the "declared, never downloaded" treatment cost
+# every nano-ros user a manual install for a file we could always have fetched,
+# and left our `[gated]` version reading 11.24 while the pin anyone actually
+# used was 11.31.
+#
+# x86_64 Linux ONLY. Arm publishes no other host build of this model, and the
+# index already models that correctly: a host with no matching `dist` and no
+# `source` recipe is told so by name rather than left to fail in the unpack.
+[tool.arm-fvp]
+version = "11.31.28"
+upstream = "FM-11.31"
+# `--strip-components=1`: the tarball is rooted at `FVP_Base_AEMv8R_11.31_28/`
+# with `bin/FVP_BaseR_AEMv8R` beneath it, so the default prefix-rooted unpack
+# would bury the binary one level down and every resolver would miss it.
+# Verified by listing the archive, not assumed from the name.
+dist.linux-x86_64 = { url = "https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz", sha256 = "627500afdb115701b412b85520e5c0e370b7f7e3f425f7ae4b1e8b14cbd4441a", install = "tar -xzf {archive} -C {prefix} --strip-components=1" }
 
 # --- RMW host packages (Phase 191.6.a): the RMW axis, orthogonal to the board.
 # `nros setup <board> --rmw <name>` resolves `board.packages ∪ rmw.packages`

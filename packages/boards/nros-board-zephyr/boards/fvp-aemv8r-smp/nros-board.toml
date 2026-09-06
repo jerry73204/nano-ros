@@ -39,10 +39,15 @@ zephyr_line = "3.7"
 # this list being non-empty rather than restated.
 rust_targets = ["aarch64-unknown-none"]
 rmw_source = "cyclonedds-src"
-# Arm Fast Models is licence-gated (Arm Development Studio, or the standalone
-# FVP package). Declared, never downloaded: `[gated.arm-fvp]` in
-# `nros-sdk-index.toml` carries the version and the `ARM_FVP_DIR` env var.
-gated = ["arm-fvp"]
+# The Arm FVP. `[tool.arm-fvp]` in `nros-sdk-index.toml` carries the pinned CDN
+# URL and digest, so `nros setup board fvp-aemv8r-smp` FETCHES it.
+#
+# It was `gated = ["arm-fvp"]` until 2026-09-06, on the belief that the model is
+# licence-walled. Measured against Arm's own permalink: HTTP 200, 68 MB, no
+# authentication — the same URL `autoware-safety-island` has downloaded in CI
+# all along. The belief cost every user a manual install for a file we could
+# always have fetched.
+tools = ["arm-fvp"]
 
 [board.capabilities]
 heap = true

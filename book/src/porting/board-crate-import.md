@@ -119,10 +119,10 @@ west build -d build
 west build -d build -t run
 ```
 
-For an FVP board the model is licence-gated, so its path is not something
-nano-ros can resolve for you. Point `ARMFVP_BIN_PATH` at the directory holding
-`FVP_BaseR_AEMv8R` (`scripts/zephyr/resolve-fvp-bin.sh` will find it from
-`ARM_FVP_DIR` if you set that instead):
+For an FVP board, `nros setup board <name>` has already fetched the model
+(`[tool.arm-fvp]`, a pinned Arm CDN permalink with a checked digest), so the
+resolver finds it in the SDK store. Export the directory Zephyr's `armfvp`
+runner looks in:
 
 ```sh
 export ARMFVP_BIN_PATH="$(bash scripts/zephyr/resolve-fvp-bin.sh)"

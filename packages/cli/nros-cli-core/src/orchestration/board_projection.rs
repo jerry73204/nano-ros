@@ -147,8 +147,8 @@ pub fn project(board: &BoardDescriptor, board_dir: &Path, module_dir: &Path) -> 
         if let Some(v) = &p.rmw_source {
             set_line(&mut out, "NROS_BOARD_RMW_SOURCE", v);
         }
-        if !p.gated.is_empty() {
-            set_line(&mut out, "NROS_BOARD_GATED_PKGS", &p.gated.join(";"));
+        if !p.tools.is_empty() {
+            set_line(&mut out, "NROS_BOARD_GATED_PKGS", &p.tools.join(";"));
         }
         // ONE fact: the list. `REQUIRES_RUST` was a second field stating
         // whether the list was empty, which is a fact that can disagree with

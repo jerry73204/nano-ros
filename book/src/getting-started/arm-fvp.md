@@ -38,13 +38,25 @@ and provisions via a remote API; local FVP loads a raw ELF via
 
 - A working Zephyr 3.7 workspace — run `nros setup zephyr` once if
   you haven't (see the [Zephyr starter](./integration-zephyr.md)).
-- The Arm `Base_RevC AEMv8R` Fast Models binary — **license-gated**.
-  Download from
-  [developer.arm.com — Arm Ecosystem FVPs](https://developer.arm.com/downloads/-/arm-ecosystem-fvps)
-  after accepting the EULA. nano-ros does not download it (the
-  `[gated.arm-fvp]` row in `nros-sdk-index.toml` declares the
-  tool but the fetch is your responsibility — same policy as the
-  NVIDIA Orin SPE FSP).
+- The Arm `Base_RevC AEMv8R` Fast Models binary. **nano-ros fetches it:**
+
+  ```sh
+  nros setup --tool arm-fvp
+  ```
+
+  `nros setup board fvp-aemv8r-smp` does it as one of its steps, so most
+  people never run the line above directly. It is a pinned Arm CDN permalink
+  with a checked SHA256 (`[tool.arm-fvp]` in `nros-sdk-index.toml`), installed
+  to `~/.nros/sdk/arm-fvp/<version>`.
+
+  **x86_64 Linux only** — Arm publishes no other host build of this model. On
+  another architecture you can still build the image; you cannot run it here.
+
+  > Until 2026-09-06 this page said the model was license-gated and that
+  > fetching it was your responsibility. It is not: the permalink answers 200
+  > with no authentication, which is how `autoware-safety-island` had been
+  > downloading it in CI the whole time. The mistaken policy cost every reader
+  > of this page a manual install.
 
 After installing, export one of the discovery env vars:
 
@@ -79,11 +91,11 @@ policy.
 
 ### Doctor check
 
-The FVP is a license-gated tool: nano-ros checks that it resolves via
-`ARMFVP_BIN_PATH`, `ARM_FVP_DIR`, `PATH`, or the canonical
-`~/.nros/sdks/arm-fvp/current/FVP_BaseR_AEMv8R` landing path
-(the `[gated.arm-fvp]` entry in `nros-sdk-index.toml`), and warns —
-never hard-fails — when it can't.
+nano-ros checks that the model resolves via `ARMFVP_BIN_PATH`, `ARM_FVP_DIR`,
+`PATH`, or the SDK store (`nros sdk-path arm-fvp`), and warns — never
+hard-fails — when it can't. A warning rather than an error because a
+contributor who is not working on the FVP should not be blocked by its absence;
+`nros setup --tool arm-fvp` is the fix when they are.
 
 > **Contributors:** the in-tree doctor cross-check and FVP run recipes are in
 > [Per-Platform Contributor Lanes](../internals/platform-lanes.md#arm-fvp).
