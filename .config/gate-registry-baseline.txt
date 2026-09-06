@@ -14,6 +14,7 @@ archived-issue-status
 artifact-identity-budget
 atomic-sync-writes
 board-abi-mirror
+board-alias-unique
 board-cargo-config-applied
 board-descriptor-single-source
 board-facts-delivery
@@ -30,8 +31,10 @@ build-root
 build-rs-rerun-paths
 build-type-spelling
 c
+c-array-guard-probe
 c-array-pool-floors
 c-fmt
+c-knob-guard-order
 capability-flavour-guards
 capability-slot-counts
 cargo-config-tracked
@@ -65,14 +68,18 @@ component-entity-bounds
 config-header-single-writer
 config-knob-census
 config-surface
+core-crates-are-no-std
 core-only-predicate
 cpp
 cpp-ffi-error-mapping
 cpp-fmt
 cpp-freestanding-includes
 cpp-no-std-stdio
+cross-toolchain-provenance
+cxx-standard-floor
 cyclone-backend-sources
 cyclone-domain-not-pinned
+dds-isolation-symmetry
 declared-qos-header
 default-gates-run-somewhere
 deploy-board-resolves
@@ -98,6 +105,7 @@ feature-set-ssot
 ffi-struct-mirrors
 fixture-artifact-dir-inputs
 fixture-binary-names
+fixture-boards-declared
 fixture-groups
 fixture-id-guard
 fixture-staleness-probes
@@ -123,6 +131,7 @@ infra-queryable-counts
 interface-glob-configure-depends
 interlock-visibility
 interop-cell-runners
+interop-verdict-ledger
 issue-ids
 issue-index
 just-recipe-refs
@@ -179,7 +188,6 @@ pool-inventory
 posix-platform-purity
 preconditions-provisioned
 prelude-tiers
-prereq-placeholders
 prereq-roles
 profile-board-mirror
 provider-announcements
@@ -194,6 +202,7 @@ repr-memory-agreement
 required-contexts-reportable
 required-features-reachable
 required-features-tests
+ret-code-citations
 retired-cmake-keywords
 retired-platform-clock-symbols
 retired-submodule-refs
