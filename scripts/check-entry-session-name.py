@@ -44,9 +44,16 @@ PRODUCERS: list[tuple[str, str, str]] = [
         "CMake entry template (`nano_ros_add_node`)",
     ),
     (
-        "packages/cli/nros-cli-core/src/codegen/entry/emit_cpp.rs",
+        # phase-432 W2.3 moved the emitter onto a template; the call now lives
+        # in the boot-wrapper partial rather than in `emit_cpp.rs`. This gate
+        # is what SAID SO — it refuses to report green on a named producer that
+        # emits no call, so the move could not silently leave it guarding
+        # nothing. Named rather than globbed, deliberately, so the next move
+        # fails the same way.
+        "packages/cli/nros-cli-core/src/codegen/entry/templates/"
+        "cpp_boot_wrapper.cpp.jinja",
         "nros_boot_config_node_name",
-        "the `nros build` C++ emitter",
+        "the `nros build` C++ emitter's boot wrapper",
     ),
 ]
 

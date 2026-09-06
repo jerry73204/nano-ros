@@ -96,30 +96,6 @@ pub(crate) fn boot_shape(board: &str) -> BootShape {
     nros_entry_lower::board_family(board).boot_shape()
 }
 
-/// Wrap `call` — the board call whose value the entry returns — in the board's
-/// boot shape. The `static_cast<int>` belongs to the Zephyr shape only; the
-/// other two return the board's `int32_t` directly.
-fn emit_boot_wrapper(out: &mut String, shape: BootShape, call: &str) {
-    match shape {
-        BootShape::Kernel => {
-            out.push_str("int main(void) {\n");
-            let _ = writeln!(out, "    return static_cast<int>({call});");
-            out.push_str("}\n");
-        }
-        BootShape::App => {
-            out.push_str("extern \"C\" int nros_app_main(int /*argc*/, char** /*argv*/) {\n");
-            let _ = writeln!(out, "    return {call};");
-            out.push_str("}\n\n");
-            out.push_str("NROS_APP_MAIN_REGISTER_VOID();\n");
-        }
-        BootShape::Host => {
-            out.push_str("int main(int /*argc*/, char** /*argv*/) {\n");
-            let _ = writeln!(out, "    return {call};");
-            out.push_str("}\n");
-        }
-    }
-}
-
 pub(crate) fn board_is_embedded(board: &str) -> bool {
     nros_entry_lower::board_family(board).is_embedded()
 }
@@ -215,6 +191,257 @@ pub fn emit_typed_probe(plan: &Plan, export: &ProbeExport) -> Result<String, Str
     emit_typed_with_tail(plan, &EntryTail::MetadataProbe(export))
 }
 
+/// The whole TU, as the template sees it.
+///
+/// Issue 1102 / phase-432 W2.3 — every field is ALREADY CORRECT. Board paths
+/// come from `nros_entry_lower`, tier rows are VALUES rather than initialiser
+/// text, and raw strings stay raw so the pack quotes them with its own filter
+/// (RFC-0091 §8b). Three fields are still pre-rendered and say why below.
+#[derive(serde::Serialize)]
+struct CppEntryView {
+    bringup: String,
+    launch: String,
+    board: String,
+    /// phase-263 C2 — embedded boots through the board's `startup.c`; Zephyr
+    /// is exempt because its kernel calls `main()` directly.
+    app_main_include: bool,
+    /// RFC-0044 — pulled in only when an rclcpp-shape node is present.
+    rclcpp_include: bool,
+    /// Unique C++ component headers, first-seen order. Deduped by HEADER while
+    /// storage is per NODE, so this list and `storage` differ in length
+    /// whenever two nodes share a header.
+    headers: Vec<String>,
+    /// Unique sanitized package symbols for the C factory/configure seam, and
+    /// for the Rust install seam. Deduped by PACKAGE, same reason.
+    c_pkgs: Vec<String>,
+    rust_pkgs: Vec<String>,
+    storage: Vec<CppStorageView>,
+    tiers: Option<CppTiersView>,
+    /// Single-executor path only, and only when the plan declares tiers this
+    /// board cannot run as tasks.
+    sched: Option<CppSchedView>,
+    /// Single-executor path only; empty when `tiers` is set.
+    setup_nodes: Vec<CppNodeView>,
+    /// The param-services / lifecycle block that closes the single setup fn,
+    /// rendered from `cpp_service_trailer.cpp.jinja`.
+    trailer: String,
+    /// phase-308 — set for a metadata probe, which returns before the boot
+    /// config and the board wrapper.
+    probe: Option<CppProbeView>,
+    /// STILL pre-rendered: `emit_boot_config_static` writes the same C blob for
+    /// the C and the C++ entry, so structuring it here alone would give the C
+    /// emitter a second producer of it. It becomes a shared partial in the next
+    /// slice of W2.3.
+    boot_config: String,
+    boot: Option<CppBootView>,
+}
+
+/// One node's static storage. A Rust node has none — it self-creates its node
+/// on the shared executor — so it contributes no row at all rather than an
+/// empty one.
+#[derive(serde::Serialize)]
+struct CppStorageView {
+    index: usize,
+    /// `"rclcpp"` gets an aligned arena slot; anything else gets a
+    /// `::nros::Node`, plus a component object when `class` is set (a C node
+    /// keeps its state in its own TU, so it has none).
+    shape: &'static str,
+    class: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct CppTiersView {
+    n: usize,
+    setups: Vec<CppTierSetupView>,
+    /// One row per tier, STRUCTURED. The same neutral rows the C pack renders
+    /// as `nros_native_tier_spec_t` — shared so the two packs cannot spell one
+    /// tier two ways (that is what W1.2's gate exists to catch one layer down).
+    tiers: Vec<super::TierView>,
+}
+
+#[derive(serde::Serialize)]
+struct CppTierSetupView {
+    index: usize,
+    name: String,
+    nodes: Vec<CppNodeView>,
+    /// Only tier 0 registers param services and lifecycle.
+    trailer: String,
+}
+
+/// The sched-context wiring a tiered plan emits when it cannot use
+/// `run_tiers`: an embedded board without one (ThreadX), or an RFC-0047
+/// group-split node, which per-tier setup functions cannot express.
+#[derive(serde::Serialize)]
+struct CppSchedView {
+    n: usize,
+    contexts: Vec<CppSchedContextView>,
+    node_binds: Vec<CppNodeBindView>,
+    group_binds: Vec<CppGroupBindView>,
+}
+
+#[derive(serde::Serialize)]
+struct CppSchedContextView {
+    index: usize,
+    /// `None` = unset; the pack decides that is `nullptr`.
+    class: Option<String>,
+    period_us: u64,
+    budget_us: u64,
+    deadline_us: u64,
+    deadline_policy: Option<String>,
+    os_pri: u8,
+}
+
+#[derive(serde::Serialize)]
+struct CppNodeBindView {
+    name: String,
+    namespace: String,
+    sched_context: u8,
+}
+
+#[derive(serde::Serialize)]
+struct CppGroupBindView {
+    name: String,
+    namespace: String,
+    group: String,
+    tier_index: usize,
+}
+
+#[derive(serde::Serialize)]
+struct CppNodeView {
+    index: usize,
+    /// RAW. The pack quotes it with `c_str`.
+    name: String,
+    /// `"c"` | `"rust"` | `"rclcpp"` | `"configure"`.
+    shape: &'static str,
+    pkg: String,
+    class: Option<String>,
+    /// Whether this body renders inside a per-tier setup function, which is
+    /// what selects the executor expression. A fact about WHERE it renders,
+    /// not about the node.
+    tiered: bool,
+    /// STILL pre-rendered, deliberately: the remap and param declaration
+    /// helpers are shared with `emit_c`, so structuring them here alone would
+    /// give the C emitter a second producer of the same statements. They
+    /// become `Vec<Decl>` in the next slice of W2.3.
+    decls: String,
+    /// Likewise — but this one is `emit_cpp`'s OWN QoS block, which is a
+    /// method call on the node where C's is a free function on its address.
+    /// Same data, two language surfaces.
+    qos: String,
+}
+
+#[derive(serde::Serialize)]
+struct CppProbeView {
+    package: String,
+    component: String,
+    executable: String,
+    language: String,
+    out_path: String,
+}
+
+#[derive(serde::Serialize)]
+struct CppBootView {
+    /// `"kernel"` | `"app"` | `"host"` — `BootShape`'s single derivation.
+    shape: &'static str,
+    board_path: &'static str,
+    tiers: bool,
+    n_tiers: usize,
+}
+
+fn boot_shape_str(shape: BootShape) -> &'static str {
+    match shape {
+        BootShape::Kernel => "kernel",
+        BootShape::App => "app",
+        BootShape::Host => "host",
+    }
+}
+
+/// Which of the four construction shapes a node takes.
+fn node_shape(n: &super::PlanNode) -> &'static str {
+    if is_c_node(n) {
+        "c"
+    } else if is_rust_node(n) {
+        "rust"
+    } else if is_rclcpp_node(n) {
+        "rclcpp"
+    } else {
+        "configure"
+    }
+}
+
+/// The remap + param declarations for one node, at the node-block indent.
+///
+/// Pre-rendered because its ELEMENTS are C statements built from escaped
+/// literals, and because the helpers that build them are shared with `emit_c`.
+/// The template writes the surrounding lines, so an empty block must
+/// contribute nothing at all rather than a blank line.
+fn node_decls(n: &super::PlanNode, exec_expr: &str) -> String {
+    let mut d = String::new();
+    emit_declare_remaps(&mut d, n, "        ", exec_expr);
+    emit_declare_params(&mut d, n, "        ", exec_expr);
+    if d.is_empty() {
+        d
+    } else {
+        format!("\n{}", d.trim_end_matches('\n'))
+    }
+}
+
+/// The QoS-override table + call, same contract as `node_decls`.
+fn node_qos(n: &super::PlanNode, i: usize) -> String {
+    let mut q = String::new();
+    emit_qos_overrides(&mut q, i, &n.qos_overrides);
+    if q.is_empty() {
+        q
+    } else {
+        format!("\n{}", q.trim_end_matches('\n'))
+    }
+}
+
+fn node_view(n: &super::PlanNode, i: usize, tiered: bool) -> CppNodeView {
+    let exec_expr = if tiered {
+        "executor"
+    } else {
+        "::nros::global_handle()"
+    };
+    CppNodeView {
+        index: i,
+        name: n.name.as_deref().unwrap_or(&n.exec).to_string(),
+        shape: node_shape(n),
+        pkg: sanitize_pkg(&n.pkg),
+        class: n.class_name.clone(),
+        tiered,
+        decls: node_decls(n, exec_expr),
+        qos: node_qos(n, i),
+    }
+}
+
+/// The block that closes a setup function, from its own template.
+///
+/// One definition rendered at most twice (the single setup fn, or tier 0),
+/// rather than the same C++ text written twice.
+fn setup_trailer(plan: &Plan, tiered: bool) -> Result<String, String> {
+    #[derive(serde::Serialize)]
+    struct TrailerView {
+        param_services: bool,
+        lifecycle_code: Option<u8>,
+        tiered: bool,
+    }
+    super::render::render(
+        "cpp_service_trailer.cpp.jinja",
+        &TrailerView {
+            param_services: plan.param_services,
+            // "none" | "configure" | anything else (i.e. "active").
+            lifecycle_code: plan.lifecycle.as_deref().map(|a| match a {
+                "none" => 0u8,
+                "configure" => 1,
+                _ => 2,
+            }),
+            tiered,
+        },
+    )
+    .map(|s| s.trim_end_matches('\n').to_string())
+}
+
 pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String, String> {
     for n in &plan.nodes {
         if n.class_name.is_none() {
@@ -232,182 +459,75 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
         }
     }
 
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "// Generated by `nros codegen entry --lang cpp` (typed — RFC-0043)\n\
-         //   bringup = {bringup}\n\
-         //   launch  = {launch}\n\
-         //   board   = {board}\n\
-         //\n\
-         // DO NOT EDIT — regenerated at configure time. Routes each launch node\n\
-         // to the real executor via its component object (no synthesizing\n\
-         // interpreter); `Board::run_components` owns init/spin/shutdown.",
-        bringup = plan.bringup,
-        launch = plan.launch_file.display(),
-        board = plan.board,
-    );
-    out.push('\n');
-
-    out.push_str("#include <nros/boot_config.h>\n");
-    out.push_str("#include <nros/component.hpp>\n");
-    out.push_str("#include <nros/main.hpp>\n");
-    out.push_str("#include <nros/nros.hpp>\n");
-    // phase-263 C2 — embedded boots through the board's startup.c via `app_main`. Zephyr
-    // is exempt (the kernel calls `main()` directly — see `board_is_zephyr`).
-    if board_is_embedded(&plan.board) && !board_is_zephyr(&plan.board) {
-        out.push_str("#include <nros/app_main.h>\n");
-    }
-    // Phase 242.4 (RFC-0044) — `nros::ComponentNode` / `NodeHandle` /
-    // `detail::report_component_failure` for any rclcpp-shape (construct-with-
-    // handle) node. Pulled in only when one is present.
-    if plan.nodes.iter().any(is_rclcpp_node) {
-        out.push_str("#include <new> // placement-new into the component arena slot\n");
-        out.push_str("#include <nros/component_node.hpp>\n");
-    }
-    out.push('\n');
-
-    // One `#include` per unique C++ component header (first-seen order). C nodes
-    // carry no header — their factory/configure are extern "C" decls below.
-    let mut seen_headers: Vec<&str> = Vec::new();
+    // One `#include` per unique C++ component header (first-seen order). C and
+    // Rust nodes carry none — their seams are `extern "C"` declarations.
+    let mut headers: Vec<String> = Vec::new();
     for n in &plan.nodes {
-        // C nodes carry no header; Rust nodes (phase-257) self-create with no C++
-        // class — both skip the include (their seams are extern "C" decls below).
         if is_c_node(n) || is_rust_node(n) {
             continue;
         }
-        let h = n.class_header.as_deref().unwrap();
-        if !seen_headers.contains(&h) {
-            let _ = writeln!(out, "#include \"{h}\"");
-            seen_headers.push(h);
+        let h = n.class_header.as_deref().unwrap().to_string();
+        if !headers.contains(&h) {
+            headers.push(h);
         }
     }
 
-    // Forward-declare the C-ABI factory + configure for each unique C pkg.
-    let mut seen_c_pkgs: Vec<String> = Vec::new();
-    let mut wrote_extern = false;
+    let mut c_pkgs: Vec<String> = Vec::new();
+    let mut rust_pkgs: Vec<String> = Vec::new();
     for n in &plan.nodes {
-        if !is_c_node(n) {
-            continue;
-        }
         let pkg = sanitize_pkg(&n.pkg);
-        if seen_c_pkgs.contains(&pkg) {
-            continue;
-        }
-        if !wrote_extern {
-            out.push_str(
-                "\n// C component factory + configure seam (NROS_C_COMPONENT); the\n\
-                 // node's `ffi_handle()` is handed to the C `configure` as an opaque\n\
-                 // `nros_cpp_node_t*` — the C side registers real callbacks on it.\n",
-            );
-            out.push_str("extern \"C\" {\n");
-            wrote_extern = true;
-        }
-        let _ = writeln!(out, "    void* __nros_c_component_{pkg}_create(void);");
-        let _ = writeln!(
-            out,
-            "    int32_t __nros_c_component_{pkg}_configure(const ::nros_cpp_node_t* node, void* executor, void* self);"
-        );
-        seen_c_pkgs.push(pkg);
-    }
-    if wrote_extern {
-        out.push_str("}\n");
-    }
-    out.push('\n');
-
-    // Static per-node storage — one node per launch `<node>` row. Shape-branched
-    // (Phase 242.4):
-    //  - configure (240.x) C++ node: a static `Node` + a static component object
-    //    (default-constructed before init, then `configure(node)` in setup).
-    //  - C node: only the static `Node` (its state lives in its own TU — the
-    //    factory returns `&static_instance`).
-    //  - rclcpp (RFC-0044) C++ node: NO separate `Node` — the component OWNS its
-    //    node, constructed from the executor handle. An aligned arena slot holds
-    //    the component; it is placement-new'd in setup *after* `nros::init`.
-    // Phase 257 (W0-B) — forward-declare the uniform install seam for each unique
-    // Rust pkg. The Rust node self-creates its node on the shared executor; the entry
-    // hands it `::nros::global_handle()` (= `*mut Executor`).
-    let mut seen_rust_pkgs: Vec<String> = Vec::new();
-    let mut wrote_rust_extern = false;
-    for n in &plan.nodes {
-        if !is_rust_node(n) {
-            continue;
-        }
-        let pkg = sanitize_pkg(&n.pkg);
-        if seen_rust_pkgs.contains(&pkg) {
-            continue;
-        }
-        if !wrote_rust_extern {
-            out.push_str(
-                "\n// Rust component install seam (nros::node!); the Rust node\n\
-                 // self-creates its node on the shared executor handle (phase-257).\n",
-            );
-            out.push_str("extern \"C\" {\n");
-            wrote_rust_extern = true;
-        }
-        let _ = writeln!(
-            out,
-            "    int32_t __nros_component_{pkg}_install(const void* node, void* executor, void* self);"
-        );
-        seen_rust_pkgs.push(pkg);
-    }
-    if wrote_rust_extern {
-        out.push_str("}\n");
-    }
-    out.push('\n');
-
-    out.push_str("// Static per-node storage (outlives the spin loop; no heap).\n");
-    for (i, n) in plan.nodes.iter().enumerate() {
-        if is_rust_node(n) {
-            // Phase 257 (W0-B) — Rust node self-creates its node + owns its state on
-            // the shared executor (D7 Option C); no entry-side `Node`/component object.
-            continue;
-        }
-        if is_rclcpp_node(n) {
-            let cls = n.class_name.as_deref().unwrap();
-            let _ = writeln!(
-                out,
-                "alignas(::{cls}) static unsigned char __nros_comp_buf_{i}[sizeof(::{cls})];"
-            );
-            let _ = writeln!(out, "static ::{cls}* __nros_comp_{i} = nullptr;");
-        } else {
-            let _ = writeln!(out, "static ::nros::Node __nros_node_{i};");
-            if !is_c_node(n) {
-                let cls = n.class_name.as_deref().unwrap();
-                let _ = writeln!(out, "static ::{cls} __nros_comp_{i};");
+        if is_c_node(n) {
+            if !c_pkgs.contains(&pkg) {
+                c_pkgs.push(pkg);
             }
+        } else if is_rust_node(n) && !rust_pkgs.contains(&pkg) {
+            rust_pkgs.push(pkg);
         }
     }
-    out.push('\n');
+
+    // Static per-node storage. Shape-branched (RFC-0044): an rclcpp component
+    // OWNS its node, so it gets an arena slot and no `::nros::Node`; a C node
+    // keeps its state in its own TU, so it gets no component object; a Rust
+    // node self-creates and gets nothing at all.
+    let storage: Vec<CppStorageView> = plan
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| !is_rust_node(n))
+        .map(|(i, n)| CppStorageView {
+            index: i,
+            shape: node_shape(n),
+            class: if is_c_node(n) {
+                None
+            } else {
+                n.class_name.clone()
+            },
+        })
+        .collect();
 
     // Phase 269 (W4) / 272 (W2) — sched-context wiring guard.
     let use_tiers = plan
         .resolved_tiers
         .as_ref()
         .is_some_and(|t| !t.is_single_tier());
-    // Phase 274.W2 — multi-tier native → per-tier threads (run_tiers).
-    // Phase 274.W3 — FreeRTOS embedded also uses run_tiers (per-RTOS tasks).
-    // phase-281 W3a — Zephyr embedded also uses run_tiers (one k_thread per tier
-    // over one shared session, via `nros_board_zephyr_run_tiers`).
-    // phase-281 W3 (nuttx) — NuttX embedded also uses run_tiers (one pthread per
-    // tier over one shared session, via `nros_board_nuttx_run_tiers`). The
-    // remaining embedded board (ThreadX) keeps the single-executor sched-context path.
-    // Phase 282 follow-up (RFC-0047) — a node whose callback groups map to
-    // MORE THAN ONE tier (`group_tiers = { ctrl = "high", telem = "low" }`)
-    // cannot be expressed by run_tiers: its per-tier setup fns construct whole
-    // NODES, so a group-split node silently landed on whichever tier iterated
-    // last and BOTH its timers ran at that tier's cadence. Such plans keep the
-    // single-executor sched-context path (`bind_group_sched` seeds each group
-    // to its tier's sched context), which expresses the split correctly.
+    // Phase 274.W2/W3, phase-281 W3a/W3 — native and the three embedded boards
+    // that declare `run_tiers` take the per-tier-thread path. ThreadX has no
+    // `run_tiers`, so it keeps the single-executor sched-context path.
+    //
+    // RFC-0047 follow-up: a node whose callback groups map to MORE THAN ONE
+    // tier cannot be expressed by `run_tiers` — its per-tier setup functions
+    // construct whole NODES, so a group-split node silently landed on
+    // whichever tier iterated last and BOTH its timers ran at that cadence.
+    // Such plans keep the sched-context path, which expresses the split.
     let has_group_split = plan
         .resolved_tiers
         .as_ref()
         .is_some_and(|t| t.has_group_split_node());
     // phase-308 W1 — a metadata probe always takes the single-setup shape.
-    // Tiers would be worse than irrelevant here: `create_entity` early-returns
-    // for entities whose callback group is inactive on the running tier, so a
-    // per-tier probe would UNDER-count exactly the entities the sidecar exists
-    // to count. Recording everything once is the correct probe semantics.
+    // Tiers would be worse than irrelevant: `create_entity` early-returns for
+    // entities whose callback group is inactive on the running tier, so a
+    // per-tier probe would UNDER-count exactly what the sidecar exists to
+    // count.
     let use_run_tiers = !matches!(tail, EntryTail::MetadataProbe(_))
         && use_tiers
         && !has_group_split
@@ -416,154 +536,69 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
             || board_is_zephyr(&plan.board)
             || board_is_nuttx(&plan.board));
 
+    let mut tiers_view: Option<CppTiersView> = None;
+    let mut sched_view: Option<CppSchedView> = None;
+    let mut setup_nodes: Vec<CppNodeView> = Vec::new();
+    let mut trailer = String::new();
+
     if use_run_tiers {
-        // ----------------------------------------------------------------
-        // Phase 274.W2 — per-tier setup functions + run_tiers entry point.
-        // ----------------------------------------------------------------
         let tiers = plan.resolved_tiers.as_ref().unwrap();
 
-        // node_name → tier_index for per-tier node filtering.
-        let node_to_tier: std::collections::HashMap<String, usize> = tiers
+        // #0266 — `time_slice_us` has a per-thread consumer only on the Rust
+        // ThreadX arm today; the C++ tier ABI carries no field. Fail loud
+        // rather than silently drop a declared value on a C++ bake.
+        if let Some(t) = tiers.tiers.iter().find(|t| t.time_slice_us.is_some()) {
+            return Err(format!(
+                "tier '{}': time_slice_us is not yet supported on the C/C++ codegen \
+                 path (#0266) — declare it only on a Rust `nros::main!` ThreadX entry, \
+                 or file the C consumer",
+                t.name
+            ));
+        }
+
+        // node_name → tier index, for per-tier node filtering.
+        let node_to_tier: std::collections::HashMap<&str, usize> = tiers
             .tiers
             .iter()
             .enumerate()
             .flat_map(|(ti, tier)| {
                 tier.members
                     .iter()
-                    .map(move |(node_name, _group)| (node_name.clone(), ti))
+                    .map(move |(node_name, _group)| (node_name.as_str(), ti))
             })
             .collect();
 
-        // Emit one setup function per tier (only creates THIS tier's nodes).
-        for (ti, tier) in tiers.tiers.iter().enumerate() {
-            let _ = writeln!(
-                out,
-                "/* Phase 274.W2 — tier[{ti}] ({name}) setup: creates only this tier's nodes. */",
-                name = tier.name
-            );
-            let _ = writeln!(
-                out,
-                "static int32_t __nros_entry_setup_tier_{ti}(void* executor) {{"
-            );
-            out.push_str(
-                "    if (executor == nullptr) \
-                 return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-
-            // Issue 0745 — seeds (emit_declare_params) run BEFORE each
-            // construction; the executor lazily creates the parameter STORE
-            // on first declare. Service registration stays post-construction
-            // below (service servers need live entities) and PRESERVES the
-            // seeded store.
-
-            for (i, n) in plan.nodes.iter().enumerate() {
-                let node_name = n.name.as_deref().unwrap_or(&n.exec);
-                // Only emit nodes pinned to this tier.
-                if node_to_tier.get(node_name).copied() != Some(ti) {
-                    continue;
-                }
-                let name_lit = node_name.replace('\\', "\\\\").replace('"', "\\\"");
-                let _ = writeln!(out, "    {{");
-                // Phase 305 W3 (issue 0255) — remap rules BEFORE construction:
-                // an rclcpp-shape ctor registers entities immediately.
-                emit_declare_remaps(&mut out, n, "        ", "executor");
-                emit_declare_params(&mut out, n, "        ", "executor");
-                if is_rust_node(n) {
-                    // Rust node: install onto the tier's explicit executor handle.
-                    let pkg = sanitize_pkg(&n.pkg);
-                    let _ = writeln!(
-                        out,
-                        "        int32_t crc = __nros_component_{pkg}_install(nullptr, executor, nullptr);"
-                    );
-                    out.push_str("        if (crc != 0) return crc;\n");
-                } else if is_rclcpp_node(n) {
-                    // rclcpp shape: construct with the tier's explicit executor handle.
-                    let cls = n.class_name.as_deref().unwrap();
-                    out.push_str("        ::nros::NodeHandle __h(executor);\n");
-                    out.push_str(
-                        "        if (!__h.valid()) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        __nros_comp_{i} = new (__nros_comp_buf_{i}) ::{cls}(__h);"
-                    );
-                    let _ = writeln!(out, "        if (!__nros_comp_{i}->ok()) {{");
-                    let _ = writeln!(
-                        out,
-                        "            ::nros::detail::report_component_failure(\"{name_lit}\", __nros_comp_{i}->error_what(), __nros_comp_{i}->error_code());"
-                    );
-                    let _ = writeln!(out, "            return __nros_comp_{i}->error_code();");
-                    out.push_str("        }\n");
+        let tier0_trailer = setup_trailer(plan, true)?;
+        let setups = tiers
+            .tiers
+            .iter()
+            .enumerate()
+            .map(|(ti, tier)| CppTierSetupView {
+                index: ti,
+                name: tier.name.clone(),
+                nodes: plan
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, n)| {
+                        let node_name = n.name.as_deref().unwrap_or(&n.exec);
+                        node_to_tier.get(node_name).copied() == Some(ti)
+                    })
+                    .map(|(i, n)| node_view(n, i, true))
+                    .collect(),
+                trailer: if ti == 0 {
+                    tier0_trailer.clone()
                 } else {
-                    // Configure-shape (C++ or C): create on the tier's executor.
-                    let _ = writeln!(
-                        out,
-                        "        ::nros::Result r = ::nros::create_node_on(__nros_node_{i}, executor, \"{name_lit}\");"
-                    );
-                    out.push_str("        if (!r.ok()) return static_cast<int32_t>(r.raw());\n");
-                    emit_qos_overrides(&mut out, i, &n.qos_overrides);
-                    if is_c_node(n) {
-                        let pkg = sanitize_pkg(&n.pkg);
-                        let _ = writeln!(
-                            out,
-                            "        void* self = __nros_c_component_{pkg}_create();"
-                        );
-                        let _ = writeln!(
-                            out,
-                            "        int32_t crc = __nros_c_component_{pkg}_configure(__nros_node_{i}.ffi_handle(), __nros_node_{i}.executor_handle(), self);"
-                        );
-                        out.push_str("        if (crc != 0) return crc;\n");
-                    } else {
-                        let _ = writeln!(
-                            out,
-                            "        r = __nros_comp_{i}.configure(__nros_node_{i});"
-                        );
-                        out.push_str(
-                            "        if (!r.ok()) return static_cast<int32_t>(r.raw());\n",
-                        );
-                    }
-                }
-                out.push_str("    }\n");
-            }
+                    String::new()
+                },
+            })
+            .collect();
 
-            // Params + lifecycle go in tier[0] (the boot/owning executor).
-            if ti == 0 {
-                if plan.param_services {
-                    out.push_str(
-                        "    /* Phase 269 (W1) — param-services: register the runtime get/set surface\n     * (seeding: emit_declare_params, pre-construction — issue 0745). */\n",
-                    );
-                    out.push_str("    {\n");
-                    out.push_str(
-                        "        /* Non-fatal (issue 0745): on RMWs without service-server support\n         * (e.g. cyclonedds today) registration fails — the runtime get/set RPC\n         * is unavailable, but the SEEDED store above already carries the launch\n         * initials, so boot proceeds. */\n",
-                    );
-                    out.push_str("        (void)nros_cpp_register_parameter_services(executor);\n");
-                    out.push_str("    }\n");
-                }
-                if let Some(autostart) = &plan.lifecycle {
-                    let autostart_code: u8 = match autostart.as_str() {
-                        "none" => 0,
-                        "configure" => 1,
-                        _ => 2,
-                    };
-                    out.push_str(
-                        "    /* Phase 269 (W2) — lifecycle-services: register + autostart. */\n",
-                    );
-                    out.push_str("    {\n");
-                    let _ = writeln!(
-                        out,
-                        "        nros_cpp_lifecycle_autostart(executor, {autostart_code}u);"
-                    );
-                    out.push_str("    }\n");
-                }
-            }
-
-            out.push_str("    return 0;\n}\n\n");
-        }
-
-        // Emit per-tier groups string arrays.
-        // Groups are derived from tier.members (unique callback-group IDs, stable order).
-        out.push_str("/* Phase 274.W2 — per-tier groups arrays + tier spec table. */\n");
-        let tier_groups_vecs: Vec<Vec<String>> = tiers
+        // Per-tier callback groups, deduped WITHIN each tier and keeping an
+        // empty name. `emit_c` dedups ACROSS tiers and drops empties — issue
+        // 1172. Preserved verbatim here because W2.3 is byte-for-byte;
+        // reconciling the two moves goldens and is its own change.
+        let groups_per_tier: Vec<Vec<String>> = tiers
             .tiers
             .iter()
             .map(|tier| {
@@ -580,392 +615,146 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
                     .collect()
             })
             .collect();
-        for (ti, groups) in tier_groups_vecs.iter().enumerate() {
-            if !groups.is_empty() {
-                let _ = write!(out, "static const char* __nros_tier_{ti}_groups[] = {{");
-                for g in groups {
-                    let g_lit = g.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = write!(out, "\"{g_lit}\", ");
-                }
-                out.push_str("};\n");
-            }
-        }
 
-        // Emit the NativeTierSpec array (highest-priority-first; resolver produces this order).
-        let n_tiers = tiers.tiers.len();
-        // #0266 — time_slice_us has a per-thread consumer only on the Rust
-        // ThreadX arm today; the C++ tier ABI carries no field. Fail loud
-        // rather than silently drop a declared value on a C++ bake.
-        if let Some(t) = tiers.tiers.iter().find(|t| t.time_slice_us.is_some()) {
-            return Err(format!(
-                "tier '{}': time_slice_us is not yet supported on the C/C++ codegen \
-                 path (#0266) — declare it only on a Rust `nros::main!` ThreadX entry, \
-                 or file the C consumer",
-                t.name
-            ));
-        }
-        let _ = writeln!(
-            out,
-            "static const ::nros::board::NativeTierSpec __nros_tiers[{n_tiers}] = {{"
-        );
-        for (ti, tier) in tiers.tiers.iter().enumerate() {
-            let name_lit = tier.name.replace('\\', "\\\\").replace('"', "\\\"");
-            let priority = tier.priority;
-            let spin_period_us = tier.spin_period_us.unwrap_or(0);
-            // RFC-0052 W2 — stack_bytes now propagates (the pre-W2 literal
-            // hardcoded 0, so [tiers.*.freertos].stack_bytes never reached
-            // the task-create call); core rides as core+1 (0 = unpinned),
-            // preempt_threshold as -1 = unset.
-            let stack_bytes = tier.stack_bytes.unwrap_or(0);
-            let core_plus1 = tier.core.map(|c| c + 1).unwrap_or(0);
-            let preempt = tier.preempt_threshold.unwrap_or(-1);
-            // phase-296 W5.7 — the generic real-time policy rides the spec so
-            // kernel-native consumers (Zephyr EDF) can self-apply it on the
-            // tier thread; NULL/0 = unset.
-            let c_lit = |s: Option<&str>| match s {
-                Some(v) => format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\"")),
-                None => "nullptr".to_string(),
-            };
-            let tier_class = c_lit(tier.class.as_deref());
-            let dpolicy = c_lit(tier.deadline_policy.as_deref());
-            let period_us = tier.period_us.unwrap_or(0);
-            let budget_us = tier.budget_us.unwrap_or(0);
-            let deadline_us = tier.deadline_us.unwrap_or(0);
-            let groups = &tier_groups_vecs[ti];
-            let (groups_expr, n_groups_val) = if groups.is_empty() {
-                ("nullptr".to_string(), 0usize)
-            } else {
-                (format!("__nros_tier_{ti}_groups"), groups.len())
-            };
-            let _ = writeln!(
-                out,
-                "    {{ \"{name_lit}\", {groups_expr}, {n_groups_val}u, \
-                 {priority}LL, {stack_bytes}u, {spin_period_us}ull, \
-                 &__nros_entry_setup_tier_{ti}, {core_plus1}u, {preempt}LL, \
-                 {tier_class}, {period_us}ull, {budget_us}ull, {deadline_us}ull, \
-                 {dpolicy} }},"
-            );
-        }
-        out.push_str("};\n\n");
-
-        // Phase 266 — bake the boot config.
-        emit_boot_config_static(&mut out, plan)?;
-        out.push('\n');
-
-        // Phase 274.W2/W3 / phase-281 W3a / W3(nuttx) — entry point: Zephyr →
-        // plain `int main(void)` (the kernel calls main directly); FreeRTOS +
-        // NuttX embedded → nros_app_main + NROS_APP_MAIN_REGISTER_VOID (startup
-        // path calls app_main); native → int main(argc, argv).
-        let board = board_cpp_path(&plan.board);
-        // phase-281 W3a (Zephyr, kernel calls `main(void)` directly) /
-        // phase-274 W3 (FreeRTOS) / phase-281 W3 (NuttX, `startup.c` owns
-        // `main` and dispatches to `app_main`) / native. The call is the SAME
-        // for every board that has `run_tiers`; only the wrapper differs, and
-        // that is `boot_shape`'s single derivation.
-        let call = format!(
-            "{board}::run_tiers(nros_boot_config_node_name(&NROS_BOOT_CONFIG), \
-__nros_tiers, {n_tiers}u)"
-        );
-        emit_boot_wrapper(&mut out, boot_shape(&plan.board), &call);
+        tiers_view = Some(CppTiersView {
+            n: tiers.tiers.len(),
+            setups,
+            tiers: super::tier_views(tiers, groups_per_tier),
+        });
     } else {
-        // ----------------------------------------------------------------
-        // Single-executor path (single-tier OR embedded multi-tier with
-        // sched-context scheduling). Byte-identical output for single-tier.
-        // ----------------------------------------------------------------
-        out.push_str("static int32_t __nros_entry_setup() {\n");
-
-        // Phase 269 (W4) / 272 (W2) — sched-context wiring for embedded multi-tier.
         if use_tiers {
             let tiers = plan.resolved_tiers.as_ref().unwrap();
-            let n_tiers = tiers.tiers.len();
-            out.push_str(
-                "    /* Phase 269 (W4) — sched-context wiring (multi-tier scheduling). */\n",
-            );
-            let _ = writeln!(out, "    uint8_t __nros_sc_ids[{n_tiers}] = {{0}};");
-            out.push_str("    {\n");
-            out.push_str("        void* __exec = ::nros::global_handle();\n");
-            out.push_str(
-                "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-            for (ti, tier) in tiers.tiers.iter().enumerate() {
-                let os_pri = (tier.priority.clamp(0, 255)) as u8;
-                // RFC-0052 (common backend) — route the tier's RTOS-agnostic
-                // policy through `nros_cpp_create_sched_context_from_policy`,
-                // whose body calls `SchedContext::from_tier_policy` — the SAME
-                // lowering the Rust runtime's `apply_tier_sched_policy` uses. The
-                // C++ entry forwards RAW tier fields only (no class/budget/period
-                // mapping here), so a `real_time` tier lowers to the identical
-                // Sporadic SC on every language and the mapping can never drift
-                // between codegen paths. `nullptr` / `0` mean "absent"; a tier
-                // with no RT class yields a `Fifo` SC carrying just `os_pri`.
-                let c_str = |s: Option<&str>| match s {
-                    Some(v) => {
-                        format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
-                    }
-                    None => "nullptr".to_string(),
-                };
-                let class_arg = c_str(tier.class.as_deref());
-                let dpolicy_arg = c_str(tier.deadline_policy.as_deref());
-                let period_us = tier.period_us.unwrap_or(0);
-                let budget_us = tier.budget_us.unwrap_or(0);
-                let deadline_us = tier.deadline_us.unwrap_or(0);
-                out.push_str("        {\n");
-                let _ = writeln!(
-                    out,
-                    "            nros_cpp_ret_t __scr{ti} = nros_cpp_create_sched_context_from_policy(__exec, {class_arg}, {period_us}ull, {budget_us}ull, {deadline_us}ull, {dpolicy_arg}, {os_pri}u, &__nros_sc_ids[{ti}]);"
-                );
-                let _ = writeln!(
-                    out,
-                    "            if (__scr{ti} != NROS_CPP_RET_OK) return static_cast<int32_t>(__scr{ti});"
-                );
-                out.push_str("        }\n");
-            }
-            out.push_str("    }\n");
-            out.push_str(
-                "    /* Phase 272 (W2) — seed node-name → sched-context table (RFC-0047). */\n",
-            );
-            out.push_str("    {\n");
-            out.push_str("        void* __exec = ::nros::global_handle();\n");
-            out.push_str(
-                "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-            for n in &plan.nodes {
-                if let Some(sc_idx) = n.sched_context {
-                    let node_name = n.name.as_deref().unwrap_or(&n.exec);
-                    let name_lit = node_name.replace('\\', "\\\\").replace('"', "\\\"");
-                    let ns_lit = n
-                        .namespace
-                        .as_deref()
-                        .unwrap_or("/")
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"");
-                    let _ = writeln!(
-                        out,
-                        "        nros_cpp_bind_node_name_sched(__exec, \"{name_lit}\", \"{ns_lit}\", __nros_sc_ids[{sc_idx}]);"
-                    );
-                }
-            }
-            out.push_str("    }\n");
-            out.push_str(
-                "    /* Phase 273 (W2) — seed group → sched-context table (RFC-0047). */\n",
-            );
-            out.push_str("    {\n");
-            out.push_str("        void* __exec = ::nros::global_handle();\n");
-            out.push_str(
-                "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-            let node_ns: Vec<(String, String)> = plan
-                .nodes
+            // RFC-0052 (common backend) — the tier's RTOS-agnostic policy goes
+            // through `nros_cpp_create_sched_context_from_policy`, whose body
+            // calls `SchedContext::from_tier_policy` — the SAME lowering the
+            // Rust runtime's `apply_tier_sched_policy` uses. RAW tier fields
+            // only, so a `real_time` tier lowers to the identical Sporadic SC
+            // on every language and the mapping cannot drift between codegen
+            // paths.
+            let contexts = tiers
+                .tiers
                 .iter()
-                .map(|n| {
-                    let name = n.name.as_deref().unwrap_or(n.exec.as_str()).to_string();
-                    let ns = n
-                        .namespace
-                        .as_deref()
-                        .unwrap_or("/")
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"");
-                    (name, ns)
+                .enumerate()
+                .map(|(ti, tier)| CppSchedContextView {
+                    index: ti,
+                    class: tier.class.clone(),
+                    period_us: tier.period_us.unwrap_or(0),
+                    budget_us: tier.budget_us.unwrap_or(0),
+                    deadline_us: tier.deadline_us.unwrap_or(0),
+                    deadline_policy: tier.deadline_policy.clone(),
+                    os_pri: tier.priority.clamp(0, 255) as u8,
                 })
                 .collect();
-            for (ti, tier) in tiers.tiers.iter().enumerate() {
-                for (node_name, group) in &tier.members {
-                    let name_lit = node_name.replace('\\', "\\\\").replace('"', "\\\"");
-                    let group_lit = group.replace('\\', "\\\\").replace('"', "\\\"");
-                    let ns_lit = node_ns
-                        .iter()
-                        .find(|(n, _)| n == node_name)
-                        .map(|(_, ns)| ns.as_str())
-                        .unwrap_or("/");
-                    let _ = writeln!(
-                        out,
-                        "        nros_cpp_bind_group_sched(__exec, \"{name_lit}\", \"{ns_lit}\", \"{group_lit}\", __nros_sc_ids[{ti}]);"
-                    );
-                }
-            }
-            out.push_str("    }\n");
-        }
 
-        // Issue 0745 — per-node seeds (emit_declare_params below) run before
-        // each construction; the executor lazily creates the parameter store
-        // on first declare. Service registration stays post-construction.
-        for (i, n) in plan.nodes.iter().enumerate() {
-            let node_name = n.name.as_deref().unwrap_or(&n.exec);
-            let name_lit = node_name.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(out, "    {{");
-            // Phase 305 W3 (issue 0255) — remap rules BEFORE construction (rclcpp
-            // ctors register entities immediately). Global executor handle here.
-            emit_declare_remaps(&mut out, n, "        ", "::nros::global_handle()");
-            emit_declare_params(&mut out, n, "        ", "::nros::global_handle()");
-            if is_rust_node(n) {
-                // Phase 257 (W0-B) — Rust node on global executor.
-                let pkg = sanitize_pkg(&n.pkg);
-                out.push_str("        void* __exec = ::nros::global_handle();\n");
-                out.push_str(
-                    "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-                );
-                let _ = writeln!(
-                    out,
-                    "        int32_t crc = __nros_component_{pkg}_install(nullptr, __exec, nullptr);"
-                );
-                out.push_str("        if (crc != 0) return crc;\n");
-            } else if is_rclcpp_node(n) {
-                // rclcpp shape (RFC-0044): placement-new with global executor handle.
-                let cls = n.class_name.as_deref().unwrap();
-                out.push_str("        ::nros::NodeHandle __h(::nros::global_handle());\n");
-                out.push_str(
-                    "        if (!__h.valid()) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-                );
-                let _ = writeln!(
-                    out,
-                    "        __nros_comp_{i} = new (__nros_comp_buf_{i}) ::{cls}(__h);"
-                );
-                let _ = writeln!(out, "        if (!__nros_comp_{i}->ok()) {{");
-                let _ = writeln!(
-                    out,
-                    "            ::nros::detail::report_component_failure(\"{name_lit}\", __nros_comp_{i}->error_what(), __nros_comp_{i}->error_code());"
-                );
-                let _ = writeln!(out, "            return __nros_comp_{i}->error_code();");
-                out.push_str("        }\n");
-            } else {
-                // Configure-shape (C++ or C) nodes: use global create_node.
-                let _ = writeln!(
-                    out,
-                    "        ::nros::Result r = ::nros::create_node(__nros_node_{i}, \"{name_lit}\");"
-                );
-                out.push_str("        if (!r.ok()) return static_cast<int32_t>(r.raw());\n");
-                emit_qos_overrides(&mut out, i, &n.qos_overrides);
-                if is_c_node(n) {
-                    let pkg = sanitize_pkg(&n.pkg);
-                    let _ = writeln!(
-                        out,
-                        "        void* self = __nros_c_component_{pkg}_create();"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        int32_t crc = __nros_c_component_{pkg}_configure(__nros_node_{i}.ffi_handle(), __nros_node_{i}.executor_handle(), self);"
-                    );
-                    out.push_str("        if (crc != 0) return crc;\n");
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "        r = __nros_comp_{i}.configure(__nros_node_{i});"
-                    );
-                    out.push_str("        if (!r.ok()) return static_cast<int32_t>(r.raw());\n");
-                }
-            }
-            out.push_str("    }\n");
-        }
-        if plan.param_services {
-            out.push_str(
-                "    /* Phase 269 (W1) — param-services: register the runtime get/set surface\n     * (seeding: emit_declare_params, pre-construction — issue 0745). */\n",
-            );
-            out.push_str("    {\n");
-            out.push_str("        void* __exec = ::nros::global_handle();\n");
-            out.push_str(
-                "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-            out.push_str(
-                "        /* Non-fatal (issue 0745): on RMWs without service-server support\n         * registration fails — the seeded store already carries the launch\n         * initials, so boot proceeds without the get/set RPC. */\n",
-            );
-            out.push_str("        (void)nros_cpp_register_parameter_services(__exec);\n");
-            out.push_str("    }\n");
-        }
-        if let Some(autostart) = &plan.lifecycle {
-            let autostart_code: u8 = match autostart.as_str() {
-                "none" => 0,
-                "configure" => 1,
-                _ => 2,
+            let node_ns = |name: &str| -> String {
+                plan.nodes
+                    .iter()
+                    .find(|n| n.name.as_deref().unwrap_or(&n.exec) == name)
+                    .and_then(|n| n.namespace.as_deref())
+                    .unwrap_or("/")
+                    .to_string()
             };
-            out.push_str("    /* Phase 269 (W2) — lifecycle-services: register + autostart. */\n");
-            out.push_str("    {\n");
-            out.push_str("        void* __exec = ::nros::global_handle();\n");
-            out.push_str(
-                "        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);\n",
-            );
-            let _ = writeln!(
-                out,
-                "        nros_cpp_lifecycle_autostart(__exec, {autostart_code}u);"
-            );
-            out.push_str("    }\n");
+
+            let node_binds = plan
+                .nodes
+                .iter()
+                .filter_map(|n| {
+                    n.sched_context.map(|sc| CppNodeBindView {
+                        name: n.name.as_deref().unwrap_or(&n.exec).to_string(),
+                        namespace: n.namespace.as_deref().unwrap_or("/").to_string(),
+                        sched_context: sc,
+                    })
+                })
+                .collect();
+
+            let group_binds = tiers
+                .tiers
+                .iter()
+                .enumerate()
+                .flat_map(|(ti, tier)| {
+                    tier.members
+                        .iter()
+                        .map(move |(node_name, group)| (ti, node_name.clone(), group.clone()))
+                })
+                .map(|(ti, node_name, group)| CppGroupBindView {
+                    namespace: node_ns(&node_name),
+                    name: node_name,
+                    group,
+                    tier_index: ti,
+                })
+                .collect();
+
+            sched_view = Some(CppSchedView {
+                n: tiers.tiers.len(),
+                contexts,
+                node_binds,
+                group_binds,
+            });
         }
-        out.push_str("    return 0;\n}\n\n");
 
-        // phase-308 W1 — the probe never boots a board: it opens a session
-        // against the recording backend, runs setup once, and dumps.
-        if let EntryTail::MetadataProbe(export) = tail {
-            emit_metadata_probe_main(&mut out, export);
-            return Ok(out);
-        }
-
-        // Phase 266 (W6) — bake the boot config blob.
-        emit_boot_config_static(&mut out, plan)?;
-        out.push('\n');
-
-        let board = board_cpp_path(&plan.board);
-        // phase-263 C2d (Zephyr: kernel calls `main(void)`) / C2 (embedded:
-        // `startup.c` calls `app_main`) / native. Only the host board resolves
-        // its locator at runtime, so it is the one that takes no locator
-        // argument; the wrapper itself comes from `boot_shape`.
-        let shape = boot_shape(&plan.board);
-        let call = match shape {
-            BootShape::Host => format!(
-                "{board}::run_components(nros_boot_config_node_name(&NROS_BOOT_CONFIG), \
-&__nros_entry_setup)"
-            ),
-            _ => format!(
-                "{board}::run_components(NROS_ENTRY_LOCATOR, \
-nros_boot_config_node_name(&NROS_BOOT_CONFIG), &__nros_entry_setup)"
-            ),
-        };
-        emit_boot_wrapper(&mut out, shape, &call);
+        setup_nodes = plan
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| node_view(n, i, false))
+            .collect();
+        trailer = setup_trailer(plan, false)?;
     }
 
-    Ok(out)
-}
+    let probe = match tail {
+        EntryTail::MetadataProbe(e) => Some(CppProbeView {
+            package: e.package.clone(),
+            component: e.component.clone(),
+            executable: e.executable.clone(),
+            language: e.language.clone(),
+            out_path: e.out_path.clone(),
+        }),
+        EntryTail::Board => None,
+    };
 
-/// A `lang == "c"` node is built via the C factory/configure seam (no C++ class).
-/// phase-308 W1 — the probe's `main`.
-///
-/// `nros::init` opens against whatever `$NROS_RMW` selects; the driver sets
-/// `NROS_RMW=metadata`, so every publisher / subscription / service / client
-/// created during `configure` is RECORDED rather than transported. Timers and
-/// guard conditions never reach the RMW and are captured by the `nros-cpp`
-/// hooks instead.
-///
-/// No spin loop: a probe runs the declaration path and exits. A non-zero
-/// return is a real failure the driver surfaces — recording NOTHING is an
-/// error, not an empty sidecar.
-fn emit_metadata_probe_main(out: &mut String, export: &ProbeExport) {
-    out.push_str(
-        "// phase-308 — metadata probe. Records what this component DECLARES;\n\
-         // opens no transport and never spins.\n\
-         extern \"C\" int nros_cpp_metadata_dump(const char*, const char*, const char*,\n\
-         \x20                                    const char*, const char*);\n\
-         // Registering the recording backend EXPLICITLY, rather than relying on\n\
-         // its `.init_array` ctor. A static archive only contributes objects\n\
-         // that resolve an undefined symbol, so with no reference the linker\n\
-         // never pulled the backend into the executable — it was present in\n\
-         // libnros_cpp.a and absent from the binary, and `NROS_RMW=metadata`\n\
-         // resolved to an unknown backend. This reference is what pulls it in.\n\
-         extern \"C\" int nros_rmw_metadata_register(void);\n\n\
-         int main(int /*argc*/, char** /*argv*/) {\n\
-         \x20   (void)nros_rmw_metadata_register();\n\
-         \x20   ::nros::Result r = ::nros::init(nullptr, 0, \"nros_metadata_probe\");\n\
-         \x20   if (!r.ok()) return 1;\n\
-         \x20   int32_t rc = __nros_entry_setup();\n\
-         \x20   if (rc != 0) return rc;\n",
-    );
-    let _ = writeln!(
-        out,
-        "    return nros_cpp_metadata_dump({pkg:?}, {comp:?}, {exe:?}, {lang:?}, {out_path:?});\n\
-         }}",
-        pkg = export.package,
-        comp = export.component,
-        exe = export.executable,
-        lang = export.language,
-        out_path = export.out_path,
-    );
+    // A probe returns before the boot config and the board wrapper: it opens a
+    // session against the recording backend, runs setup once, and dumps.
+    let (boot_config, boot) = if probe.is_some() {
+        (String::new(), None)
+    } else {
+        let mut bc = String::new();
+        emit_boot_config_static(&mut bc, plan)?;
+        (
+            bc.trim_end_matches('\n').to_string(),
+            Some(CppBootView {
+                shape: boot_shape_str(boot_shape(&plan.board)),
+                board_path: board_cpp_path(&plan.board),
+                tiers: use_run_tiers,
+                n_tiers: plan
+                    .resolved_tiers
+                    .as_ref()
+                    .map(|t| t.tiers.len())
+                    .unwrap_or(0),
+            }),
+        )
+    };
+
+    super::render::render(
+        "cpp_entry.cpp.jinja",
+        &CppEntryView {
+            bringup: plan.bringup.clone(),
+            launch: plan.launch_file.display().to_string(),
+            board: plan.board.clone(),
+            app_main_include: board_is_embedded(&plan.board) && !board_is_zephyr(&plan.board),
+            rclcpp_include: plan.nodes.iter().any(is_rclcpp_node),
+            headers,
+            c_pkgs,
+            rust_pkgs,
+            storage,
+            tiers: tiers_view,
+            sched: sched_view,
+            setup_nodes,
+            trailer,
+            probe,
+            boot_config,
+            boot,
+        },
+    )
 }
 
 fn is_c_node(n: &super::PlanNode) -> bool {

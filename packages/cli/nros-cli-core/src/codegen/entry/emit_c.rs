@@ -11,7 +11,7 @@
 
 use std::fmt::Write;
 
-use super::{Plan, emit_boot_config_static, sanitize_pkg};
+use super::{Plan, TierView, emit_boot_config_static, sanitize_pkg};
 
 /// Phase 257 (W0-A) — a `lang == "c"` node is a `NROS_C_COMPONENT` typed
 /// component the C Entry installs via its `__nros_c_component_<pkg>_*` seam.
@@ -161,32 +161,6 @@ struct CTiersView {
     /// spells `{ "name", groups, 1u, 80LL, … }`, a Rust or Zig pack spells its
     /// own, and neither needs a lowering change (RFC-0091 §8b).
     tiers: Vec<TierView>,
-}
-
-/// One tier, in neutral terms.
-///
-/// Every field is a VALUE, and the strings are RAW — the pack quotes them
-/// through its own escaping filter. `groups` is empty when the tier names none,
-/// which is what makes the pack able to choose `NULL` over an array symbol
-/// without the lowering knowing that C has a `NULL`.
-#[derive(serde::Serialize)]
-struct TierView {
-    index: usize,
-    name: String,
-    groups: Vec<String>,
-    priority: i64,
-    stack_bytes: u64,
-    spin_period_us: u64,
-    /// 0 = unpinned; otherwise the core index PLUS ONE (the ABI's encoding).
-    core_plus1: u32,
-    /// -1 = unset (the ABI's encoding).
-    preempt_threshold: i64,
-    /// `None` = unset; the pack decides that is `NULL`.
-    class: Option<String>,
-    period_us: u64,
-    budget_us: u64,
-    deadline_us: u64,
-    deadline_policy: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -376,31 +350,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
             groups_per_tier.push(g);
         }
 
-        let tier_views: Vec<TierView> = tiers
-            .tiers
-            .iter()
-            .enumerate()
-            .map(|(ti, tier)| TierView {
-                index: ti,
-                name: tier.name.clone(),
-                groups: groups_per_tier[ti].clone(),
-                priority: tier.priority,
-                stack_bytes: tier.stack_bytes.unwrap_or(0) as u64,
-                spin_period_us: tier.spin_period_us.unwrap_or(0),
-                // RFC-0052 W2 — stack_bytes/core/preempt_threshold propagate;
-                // phase-296 W5.7 — the generic real-time policy rides the spec
-                // (see emit_cpp for the field semantics). The ENCODINGS (core
-                // plus one, -1 for unset) are ABI facts and stay here; how they
-                // are spelled is the pack's business.
-                core_plus1: tier.core.map(|c| c + 1).unwrap_or(0),
-                preempt_threshold: tier.preempt_threshold.unwrap_or(-1),
-                class: tier.class.clone(),
-                period_us: tier.period_us.unwrap_or(0),
-                budget_us: tier.budget_us.unwrap_or(0),
-                deadline_us: tier.deadline_us.unwrap_or(0),
-                deadline_policy: tier.deadline_policy.clone(),
-            })
-            .collect();
+        let tier_views = super::tier_views(tiers, groups_per_tier);
 
         Some(CTiersView {
             n: tiers.tiers.len(),

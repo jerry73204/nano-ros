@@ -191,6 +191,76 @@ impl PlanNode {
     }
 }
 
+/// One tier, in neutral terms — the row BOTH entry packs render.
+///
+/// Every field is a VALUE, and the strings are RAW: the pack quotes them
+/// through its own escaping filter, and decides for itself that an empty
+/// `groups` means `NULL` (C) or `nullptr` (C++) rather than an array symbol.
+/// Shared rather than declared twice because a tier spelled two ways is the
+/// defect this phase exists to remove — the same reason W1.2's gate compares
+/// the two message packs one layer down.
+///
+/// The ENCODINGS here are ABI facts, not spellings: `core_plus1` is the core
+/// index plus one with 0 meaning unpinned, and `preempt_threshold` is -1 when
+/// unset. Those belong to the lowering; how they are laid out belongs to the
+/// pack.
+#[derive(serde::Serialize)]
+pub(crate) struct TierView {
+    pub index: usize,
+    pub name: String,
+    pub groups: Vec<String>,
+    pub priority: i64,
+    pub stack_bytes: u64,
+    pub spin_period_us: u64,
+    /// 0 = unpinned; otherwise the core index PLUS ONE.
+    pub core_plus1: u32,
+    /// -1 = unset.
+    pub preempt_threshold: i64,
+    /// `None` = unset; the pack decides what that is spelled.
+    pub class: Option<String>,
+    pub period_us: u64,
+    pub budget_us: u64,
+    pub deadline_us: u64,
+    pub deadline_policy: Option<String>,
+}
+
+/// Build the shared tier rows.
+///
+/// `groups_per_tier` is a PARAMETER, and that is a defect being carried rather
+/// than a design: the two emitters derive a tier's callback groups
+/// differently. `emit_c` dedups ACROSS tiers (a group named by two tiers
+/// belongs to the first) and drops empty names; `emit_cpp` dedups WITHIN each
+/// tier and keeps empty ones, so the same plan yields a group listed under two
+/// tiers in one language and one tier in the other, and a `""` entry in the
+/// C++ array. One fact, two authored spellings — issue 1172. Reconciling it
+/// moves goldens, so it is its own change; sharing the ROW is what makes the
+/// divergence visible at all.
+pub(crate) fn tier_views(
+    tiers: &nros_orchestration_ir::ResolvedTierTable,
+    groups_per_tier: Vec<Vec<String>>,
+) -> Vec<TierView> {
+    tiers
+        .tiers
+        .iter()
+        .enumerate()
+        .map(|(ti, tier)| TierView {
+            index: ti,
+            name: tier.name.clone(),
+            groups: groups_per_tier[ti].clone(),
+            priority: tier.priority,
+            stack_bytes: tier.stack_bytes.unwrap_or(0) as u64,
+            spin_period_us: tier.spin_period_us.unwrap_or(0),
+            core_plus1: tier.core.map(|c| c + 1).unwrap_or(0),
+            preempt_threshold: tier.preempt_threshold.unwrap_or(-1),
+            class: tier.class.clone(),
+            period_us: tier.period_us.unwrap_or(0),
+            budget_us: tier.budget_us.unwrap_or(0),
+            deadline_us: tier.deadline_us.unwrap_or(0),
+            deadline_policy: tier.deadline_policy.clone(),
+        })
+        .collect()
+}
+
 /// Phase 266 (W5b/W6) — emit the `NROS_BOOT_CONFIG` static blob (C/C++ shared helper).
 ///
 /// For a **single-node** plan the blob bakes the launch node name into
