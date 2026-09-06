@@ -97,6 +97,34 @@ watched by the collision gate.
 | `Node::init` / `Node::ok` | upstream throws; a `-fno-exceptions` target needs a channel | low |
 | the out-ref `create_*` family | caller-owned storage has no upstream counterpart | none — it shares upstream's NAME, so it is a ported signature, not an invention |
 
+* **W9 [rust] — `Context` on every target, and the rclrs `init` family.**
+  RFC-0089 "Context and `init`, settled". `init.rs` comes out from behind
+  `env`: the feature gates only the process-environment reader, and a
+  freestanding constructor reads the baked constants (`NROS_LOCATOR`,
+  `NROS_DOMAIN_ID`) the entry macros already compute — the macros then call it
+  instead of assembling `ExecutorConfig` by hand, so the baked shape has one
+  source. `InitOptions { domain_id }` with `new()`/`with_domain_id()`;
+  `Context::default_from_env()` (= `init()`), `Context::from_env(InitOptions)`,
+  and hosted-only `Context::new(args, InitOptions)` refusing `--ros-args` with
+  `REFUSE_INIT_ARGS`. Ledger: `rust:Context::default_from_env` `rename` ->
+  `adopt`, `from_env`/`new` -> `adopt-bounded`, `rust:InitOptions` ->
+  `adopt-bounded`; `rust:init` stays as the C++-symmetric anchor.
+  *Acceptance:* a freestanding entry (one Zephyr west leaf) builds with
+  `Context::default_from_env()` and no `ExecutorConfig` literal; hosted tests
+  cover the domain override and the `--ros-args` refusal; `just check
+  api-parity` green with the rows flipped.
+
+* **W10 [rust] — the executor opens a session, the node is named after.**
+  `Context::create_executor()` (`alloc`) and `create_executor_in(backing)`
+  (ours-only, no-alloc); `Executor::create_node(name)`; `ExecutorConfig::
+  node_name` deprecated for one release. This is the Rust half of "one node
+  type": today the executor IS the node it was configured with, which is why a
+  ported `executor.create_node("talker")` has nowhere to go. RFC-0047's
+  several-named-nodes is the existing capability this lands on.
+  *Acceptance:* the rclrs talker tutorial ports with exactly two edits (`?` on
+  `create_executor` and `spin`); `rust:Context::create_executor` and
+  `rust:Executor::create_node` carry `adopt-bounded`/`adopt`.
+
 ## Not in scope
 
 * Parameters — phase-426. W4 touches the facades but does not depend on it.

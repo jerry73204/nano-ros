@@ -1064,3 +1064,15 @@ theirs-only <absent>` and `init  rename  ours-only`), `prelude-tiers` (a
 `ledger-orphan-refs`. `cargo +nightly fmt --all -- --check` clean, no Rust
 edits. Every shard re-parsed with a duplicate-key-raising `object_pairs_hook`
 and round-trips byte-for-byte.
+
+### Decided (2026-09-07): the alias is taken, as a family, in phase-427
+
+Maintainer's call, after the discussion recorded in RFC-0089 "Context and
+`init`, settled": `Context::default_from_env()` is added beside `nros::init()`,
+together with `InitOptions` and `from_env`/`new`, and — the part the ledger
+could not see — `Context` compiles on every target with the baked build
+environment as its freestanding source. That is phase-427 W9; the executor/
+node split it exposes (`create_executor`, `create_node`) is W10. The two
+`rename` rows move from `blocked-needs-decision` to `decided` with W9 named as
+the resolution; their dispositions flip when the code lands, not before.
+
