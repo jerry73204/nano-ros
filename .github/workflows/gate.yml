@@ -235,29 +235,6 @@ jobs:
       - name: Checkout nano-ros
         uses: actions/checkout@v4
 
-      # ----- shared setup -----
-      #
-      # `just setup-clang-format`, NOT a pip install with a literal version.
-      #
-      # This step used to be `pip install "clang-format==17.0.5"` while a
-      # `.clang-format-version` file pinned 17.0.6 — two sources of truth for
-      # one version, already drifted. And they drifted INVISIBLY: the resolver
-      # (`scripts/dev/clang-format.sh`) prefers `build/clang-format/bin/`, which
-      # only the recipe creates, so CI fell through to the PATH copy and printed
-      # `WARN: clang-format 17.0.5 on PATH != pinned 17.0.6` to stderr in a lane
-      # nobody reads unless it fails. Different clang-format versions reformat
-      # differently, so CI was checking a different standard than every local
-      # run.
-      #
-      # phase-422 W2 finished the job: the version, the per-host wheel URL and
-      # its sha256 are `[tool.clang-format]` in `nros-sdk-index.toml`, the file
-      # is deleted, and the recipe is `nros setup --tool clang-format`. One
-      # home for the pin, and the same command a contributor runs.
-      - name: Provision clang-format (pinned by [tool.clang-format])
-        run: |
-          source ./activate.sh
-          just setup-clang-format
-
       # Compiler cache for the COMPILE tier — phase-395. `check-build` compiles
       # the whole workspace from scratch: 587 s of an 878 s gate, measured. Only
       # `packages/cli/target` was cached, and that is the 79 s half.
@@ -402,36 +379,32 @@ jobs:
             sed 's/^/  /' /tmp/sccache-start.log || true
           fi
 
-      # ----- CLI + sources: build tier (non-push) only -----
-      # check-fast is BUILDLESS *and* SOURCE-FREE (no cargo build/clippy/test, no
-      # `cargo tree`/metadata) — its only CLI-touching gates (board-manifest-drift,
-      # profile-board-mirror) skip gracefully when the CLI is absent. So the push
-      # lane needs neither the nros CLI nor any provisioned source: ~1 min, survives
-      # the rapid push cadence. The build tier (PR/nightly) needs the CLI (codegen
-      # for clippy) + every `-sys` source submodule (zenoh-pico/mbedtls/micro/
-      # cyclonedds + px4-rs) so its clippy/cargo-tree gates resolve + compile.
-      # phase-395 — the CLI and the `-sys` sources exist ONLY for the compile
-      # tier, so they are built ONLY where that tier runs. On a pull request
-      # this saves 79 s of a ~5 min gate, and `check-fast` is buildless and
-      # source-free by construction (its CLI-touching gates skip gracefully
-      # when the CLI is absent).
-      # BOTH target dirs — phase-413.
+
+      # ----- the in-tree nros CLI: EVERY event -----
       #
-      # `nros-launch-resolve` is its OWN cargo workspace (deliberately: the
-      # justfile comment says its dependency graph stays separate from the main
-      # CLI's), so it builds into `packages/cli/nros-launch-resolve/target` and
-      # this cache — pointed only at `packages/cli/target` — never saw it. It
-      # was recompiled from scratch on every merge group.
+      # phase-422 W2 moved clang-format's provisioning into the index, so
+      # `just setup-clang-format` is `nros setup --tool clang-format` now and
+      # the formatter cannot be obtained without the CLI. This step used to sit
+      # in the compile tier, BELOW the clang-format step that needs it:
+      # `nros: command not found`, exit 127. One root failure took the job five
+      # steps red — the nine steps after it skipped, and `compile-smoke`,
+      # `rustdoc-links`, `cli-tests` and the launch-resolver build then ran
+      # without submodules or sources and failed for THAT reason instead
+      # (run 34034485659; only the first of the five failures was real).
       #
-      # MEASURED on run 33834957224, a successful `merge_group` gate totalling
-      # 20.4 min: "Build nros-launch-resolve" was 2.22 min of it, 11%, spent
-      # rebuilding something whose sources had not changed. It exists solely so
-      # `check cli-tests` can shell out to it.
+      # Hoisted here and NO LONGER event-guarded. `check-fast` runs
+      # `check-c-fmt` / `check-cpp-fmt` on EVERY event including the post-merge
+      # push lane; the CI image ships no clang-format at all; and the resolver
+      # ERRORS rather than degrading when it finds none — so leaving the push
+      # lane without the CLI would not fall back, it would go red. The push
+      # lane's "no CLI, no sources" contract therefore holds for SOURCES only:
+      # a pinned formatter became a CLI product, and provisioning it here is
+      # the same command a contributor runs.
       #
-      # The key already hashes `packages/cli/**`, which covers this crate's
-      # sources, so a change to it still invalidates the entry.
-      - name: Cache CLI build (compile tier)
-        if: ${{ contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name) }}
+      # It sits AFTER the sccache steps deliberately: `RUSTC_WRAPPER` has to be
+      # exported before the first cargo invocation or this build is the one
+      # compile in the job that misses the cache.
+      - name: Cache CLI build (every event)
         # RESTORE-ONLY. A save here writes a cache the run can never read again:
         # merge_group executes on an ephemeral `gh-readonly-queue/...` ref and a
         # pull_request on `refs/pull/N/merge`, and GitHub scopes a cache to its
@@ -449,8 +422,7 @@ jobs:
           restore-keys: |
             nros-cli-${{ runner.os }}-
 
-      - name: Build nros CLI + provision compile-tier sources
-        if: ${{ contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name) }}
+      - name: Build the in-tree nros CLI (every event)
         run: |
           git submodule update --init --depth 1 packages/cli/third-party/play_launch
           cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
@@ -463,7 +435,45 @@ jobs:
           # code the runtime did not expect is what RFC-0090 exists to stop.
           "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
           echo "$GITHUB_WORKSPACE/packages/cli/target/release" >> "$GITHUB_PATH"
-          "$GITHUB_WORKSPACE/packages/cli/target/release/nros" setup \
+
+      # ----- shared setup -----
+      #
+      # `just setup-clang-format`, NOT a pip install with a literal version.
+      #
+      # This step used to be `pip install "clang-format==17.0.5"` while a
+      # `.clang-format-version` file pinned 17.0.6 — two sources of truth for
+      # one version, already drifted. And they drifted INVISIBLY: the resolver
+      # (`scripts/dev/clang-format.sh`) prefers `build/clang-format/bin/`, which
+      # only the recipe creates, so CI fell through to the PATH copy and printed
+      # `WARN: clang-format 17.0.5 on PATH != pinned 17.0.6` to stderr in a lane
+      # nobody reads unless it fails. Different clang-format versions reformat
+      # differently, so CI was checking a different standard than every local
+      # run.
+      #
+      # phase-422 W2 finished the job: the version, the per-host wheel URL and
+      # its sha256 are `[tool.clang-format]` in `nros-sdk-index.toml`, the file
+      # is deleted, and the recipe is `nros setup --tool clang-format`. One
+      # home for the pin, and the same command a contributor runs.
+      - name: Provision clang-format (pinned by [tool.clang-format])
+        run: |
+          source ./activate.sh
+          just setup-clang-format
+
+      # ----- `-sys` sources: build tier (non-push) only -----
+      # check-fast is SOURCE-FREE (no cargo build/clippy/test, no `cargo tree`/
+      # metadata), so the push lane needs no provisioned source: ~1 min, which
+      # survives the rapid push cadence. The build tier (PR/nightly) needs every
+      # `-sys` source submodule (zenoh-pico/mbedtls/micro/cyclonedds + px4-rs)
+      # so its clippy and cargo-tree gates resolve and compile.
+      #
+      # phase-395 put the CLI build here too; phase-422 W2 moved it above,
+      # because clang-format is provisioned by it on every event. What is left
+      # here is the half that really is compile-tier-only.
+      - name: Provision compile-tier sources
+        if: ${{ contains(fromJSON('["pull_request","merge_group","schedule","workflow_dispatch"]'), github.event_name) }}
+        run: |
+          source ./activate.sh
+          nros setup \
             --source px4-rs --source zenoh-pico --source mbedtls --source micro-cdr \
             --source micro-xrce-dds-client --source cyclonedds-src
 
