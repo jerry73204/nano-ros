@@ -187,6 +187,10 @@ pub fn installed_versions(root: &Path, tool: &str) -> Vec<String> {
         }
         found.push(name);
     }
+    // `sort_by_key`, not `sort_by`: rust-1.97's `clippy::unnecessary_sort_by`
+    // is `-D warnings` here, and the key is owned so the borrow the lint
+    // usually trips on does not arise. Unrelated to what this function
+    // decides — the ORDER is identical.
     found.sort_by_key(|v| version_key(v));
     found
 }

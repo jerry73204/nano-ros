@@ -19,6 +19,12 @@ pub struct E2eState {
 
 impl Node for E2eNode {
     const NAME: &'static str = "rtic_run_plan_e2e";
+
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 0);
+
     const DISPATCH: DispatchStrategy = DispatchStrategy::Deferred;
 
     fn register(_ctx: &mut NodeContext<'_>) -> NodeResult<()> {

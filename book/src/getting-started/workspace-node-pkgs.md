@@ -139,6 +139,10 @@ pub struct Talker;
 impl Node for Talker {
     const NAME: &'static str = "talker";
 
+    // What this class's per-instance registries hold, in order: publishers,
+    // service servers, service clients, action clients, action servers.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(1, 0, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("talker"))?;
         let chatter = node.create_publisher_for_topic::<MyMsg>("/chatter")?;
@@ -171,6 +175,15 @@ Key points:
 - `nros::node!(Talker)` **must be the last public API call** in the file.
   It generates the `extern "C"` trampolines the Entry macro imports.
 - There is **no `fn main()`** in a Node pkg.
+- `ENTITY_BOUNDS` is **static RAM you either pay or do not** (issue 0857).
+  `nros::node!` emits a `static` sized from it, and a publisher slot carries a
+  loan arena — so the default (`NROS_RUNTIME_MAX_CELL_ENTITIES`, 8 per kind)
+  measured **50,824 bytes** of `.bss` for a one-service component against
+  **568 bytes** for the same component declaring what it creates. Count the
+  five kinds in your own `register()`; a timer or a subscription needs no slot
+  here (they claim an executor callback slot instead). Declaring FEWER than
+  `register()` creates is a registration error at boot, never a silent drop,
+  so the number is safe to make exact.
 
 ---
 

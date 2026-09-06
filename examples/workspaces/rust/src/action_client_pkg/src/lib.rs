@@ -32,6 +32,11 @@ pub struct ClientState {
 impl Node for FibonacciClient {
     const NAME: &'static str = "fibonacci_client";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(1, 0, 0, 1, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("fibonacci_client"))?;
         let _client = node.create_action_client_with_callbacks_for_name::<Fibonacci>(

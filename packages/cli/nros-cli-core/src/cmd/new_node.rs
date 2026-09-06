@@ -232,10 +232,12 @@ pub struct {type_name};
 impl Node for {type_name} {{
     const NAME: &'static str = "{node_name}";
 
-    /// Exact entity counts, so the executor's arena is sized to this node
-    /// rather than to a worst case. Publishers, subscriptions, services,
-    /// clients, actions — raise the matching one when you add an entity, or
-    /// the registry refuses it at run time.
+    /// Exact entity counts, so this node's static registries are sized to it
+    /// rather than to a worst case (issue 0857 measured the difference at
+    /// 50,824 bytes of `.bss` against 568). In order: publishers, service
+    /// servers, service clients, action clients, action servers — raise the
+    /// matching one when you add an entity, or the registry refuses it at run
+    /// time. Subscriptions and timers need no slot here.
     const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 0);
 
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {{

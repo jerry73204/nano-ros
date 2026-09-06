@@ -62,6 +62,11 @@ pub struct FibonacciServer;
 impl Node for FibonacciServer {
     const NAME: &'static str = "fibonacci_action_server";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 1);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("fibonacci_action_server"))?;
         let _action = node.create_action_server_for_name_with_callbacks::<Fibonacci>(

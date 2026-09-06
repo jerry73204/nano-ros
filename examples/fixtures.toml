@@ -352,10 +352,18 @@ target = "riscv32imc-unknown-none-elf"
 # messages anyway.
 # NROS_RUNTIME_MAX_CELL_ENTITIES: issue 0857 — the phase-391 W5 inline cell
 # registries cost CELL_REG_CAP × ~1.35 KiB (EmbeddedRawPublisher embeds a 1 KiB
-# TxArena) on the Rust heap PER COMPONENT; at the default 8 the second
-# component's ~17.5 KiB Arc<ComponentCell> OOMs the 48 KiB esp-alloc heap. The
-# two components here declare one publisher + one subscription, so 2 is exact.
-# Interim until the W5-endgame per-class exact cells retire the worst-case pad.
+# TxArena) PER COMPONENT; at the default 8 the second component's ~17.5 KiB
+# cell OOMed the 48 KiB esp-alloc heap. The two components here declare one
+# publisher + one subscription, so 2 is exact.
+#
+# NOW INERT, and kept only because changing this string changes the row's cargo
+# GROUP KEY (issue 1025) for a saving that is already banked elsewhere. Two
+# things moved under it: W5-endgame step 2b put the cell in the per-class
+# `.bss` store rather than an `Arc`, so the failure is no longer a heap OOM;
+# and both classes in this image now state `EntityBounds::exact(...)`, which
+# beats this knob. The knob still stands as the DEFAULT for a class that
+# declares nothing — there are none in this tree, and `check-component-entity-
+# bounds` is what keeps it that way.
 # ZPICO_MAX_QUERYABLES: this image is a talker and a listener — pub/sub only,
 # no service servers, and `entity-facts` reports INFRA_QUERYABLES=none. The
 # undeclared embedded budget is 8, which costs 35,424 B of SERVICE_BUFFERS

@@ -2398,6 +2398,59 @@ mod tests {
         assert_eq!(h.slot(), 7);
     }
 
+    /// Issue 0857 — the per-class store pays its DECLARED capacity, and the
+    /// publisher registry is where the bytes are.
+    ///
+    /// The same quantity `nm -S` reads off a linked image, without the link
+    /// step. Measured both ways on `examples/workspaces/rust`'s
+    /// `native_service_server_entry` (2026-09-06, one build dir, one file
+    /// changed): `__NROS_COMPONENT_service_server_pkg_SLOT_STORE` is 50,824 B
+    /// of `.bss` when the class declares nothing and 568 B when it declares
+    /// `EntityBounds::exact(0, 1, 0, 0, 0)`.
+    ///
+    /// The assertions are on the SHAPE rather than on those two literals,
+    /// because both move with the knob, with `DEFAULT_LOAN_BUF` and with the
+    /// target's pointer width. What must not move is the direction: one
+    /// publisher slot is kilobytes, and declaring less costs less.
+    #[test]
+    fn a_declared_cell_pays_for_what_it_declares() {
+        use core::mem::size_of;
+        const N: usize = crate::config::MAX_CLASS_INSTANCES;
+        type Zero = ComponentSlotStorage<DummyComp, N, 0, 0, 0, 0, 0>;
+        type OnePub = ComponentSlotStorage<DummyComp, N, 1, 0, 0, 0, 0>;
+        type Capped = ComponentSlotStorage<DummyComp>;
+
+        let zero = size_of::<Zero>();
+        let one_pub = size_of::<OnePub>();
+        let capped = size_of::<Capped>();
+
+        // `EmbeddedRawPublisher` embeds a `TxArena<DEFAULT_LOAN_BUF>`, so ONE
+        // publisher slot is the whole reason the knob-capped default is
+        // measured in tens of kilobytes. If this ever drops below a kilobyte
+        // the issue's cost model has changed and the sweep is worth revisiting.
+        assert!(
+            one_pub - zero >= 1024 * N,
+            "a publisher registry slot should cost >= 1 KiB per instance; \
+             zero={zero} one_pub={one_pub} N={N}"
+        );
+
+        // Declaring nothing must cost strictly less than the knob caps —
+        // unless the knob itself is 0, in which case they are the same store.
+        if crate::config::MAX_CELL_ENTITIES > 0 {
+            assert!(
+                zero < capped,
+                "declaring nothing ({zero} B) is not cheaper than the knob caps \
+                 ({capped} B at MAX_CELL_ENTITIES={})",
+                crate::config::MAX_CELL_ENTITIES
+            );
+            assert!(
+                capped - zero >= (one_pub - zero) * crate::config::MAX_CELL_ENTITIES,
+                "the knob-capped store should carry MAX_CELL_ENTITIES publisher \
+                 slots at least; zero={zero} one_pub={one_pub} capped={capped}"
+            );
+        }
+    }
+
     struct DummyComp;
     impl Node for DummyComp {
         const NAME: &'static str = "dummy";

@@ -19,6 +19,12 @@ pub struct SerialTalker;
 
 impl Node for SerialTalker {
     const NAME: &'static str = "serial_talker";
+
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(1, 0, 0, 0, 0);
+
     const DISPATCH: DispatchStrategy = DispatchStrategy::Deferred;
 
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {

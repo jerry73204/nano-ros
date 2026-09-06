@@ -35,6 +35,12 @@ use rstest::rstest;
 struct ParamNode;
 impl Node for ParamNode {
     const NAME: &'static str = "mf23_param";
+
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("mf23_param_node"))?;
         node.declare_parameter_for_name_with_default("start_value", ParameterDefault::Integer(7))?;

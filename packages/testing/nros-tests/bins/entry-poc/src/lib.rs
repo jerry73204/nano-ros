@@ -22,6 +22,11 @@ pub struct EntryPoc;
 impl Node for EntryPoc {
     const NAME: &'static str = "entry_poc";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 0);
+
     fn register(_ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         // No node / publisher / subscription — keeps the POC's
         // exit-0 contract under the no-zenohd CI environment.

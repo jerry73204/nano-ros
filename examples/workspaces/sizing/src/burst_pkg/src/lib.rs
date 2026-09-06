@@ -38,6 +38,11 @@ pub struct BurstTalker;
 impl Node for BurstTalker {
     const NAME: &'static str = "burst_talker";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(1, 0, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("burst_talker"))?;
         // The one publisher consumes NO callback slot — publishers never do.
