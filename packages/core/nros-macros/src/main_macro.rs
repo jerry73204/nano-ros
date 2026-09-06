@@ -1923,17 +1923,19 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
                 // — exactly the `<pkg>::register(runtime)?` flow the native
                 // entry uses, so the launch file stays the single source of
                 // truth.
-                // Locator: `default_const()` = EMPTY locator → zenoh-pico
-                // multicast scouting, which fails on native_sim NSOS (no
-                // multicast; the offload layer never even issues a
-                // `connect()`). The Zephyr target is `no_std`, so the
-                // hosted `from_env()` is unavailable — bake the locator at
-                // compile time via `option_env!("NROS_LOCATOR")`. The Entry
-                // `build.rs` re-exports `CONFIG_NROS_ZENOH_LOCATOR` (the
-                // same Kconfig the C API path consumes) into that env, so
-                // Kconfig is the single source of truth for both languages.
-                const BAKED_LOCATOR: ::core::option::Option<&str> =
-                    ::core::option_env!("NROS_LOCATOR");
+                // phase-427 W9 — the baked identity has ONE source,
+                // `nros::Context::baked()`, which `default_from_env()` resolves
+                // to on this `no_std` target (the hosted `from_env()` is
+                // unavailable). This arm used to read `option_env!("NROS_LOCATOR")`
+                // itself — and had lost the `NROS_DOMAIN_ID` half that
+                // `nros::zephyr_component_main!` carried (issue 0161's class),
+                // so a workspace Zephyr entry ran domain 0 whatever Kconfig
+                // said. Kconfig reaches `nros`'s own build through
+                // `nros_zephyr_build::bake_nros_config()` in its `build.rs`
+                // (`CONFIG_NROS_ZENOH_LOCATOR` / `CONFIG_NROS_DOMAIN_ID`), the
+                // same channel the entry's `build.rs` uses for itself, so
+                // Kconfig stays the single source of truth for both languages.
+                //
                 // #166 / phase-286 W1 — native_sim test parallelism. The test
                 // harness launches the image with `-testargs --nros-locator=<loc>`
                 // and starts a per-test zenohd on that ephemeral port; preferring
@@ -1941,7 +1943,9 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
                 // router, retiring the shared-baked-port serialization of the
                 // ws-entry lane. Provided by `nros-platform-zephyr` (argv-backed,
                 // process lifetime); returns NULL on real embedded → the bake
-                // stands. Mirrors `nros::zephyr_component_main!`.
+                // stands. The hook is an `extern "C"` only a Zephyr image
+                // defines, so it is resolved HERE and handed to the context.
+                // Mirrors `nros::zephyr_component_main!`.
                 unsafe extern "C" {
                     fn nros_runtime_locator_override() -> *const ::core::ffi::c_char;
                 }
@@ -1950,28 +1954,16 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
                     if p.is_null() {
                         ::core::option::Option::None
                     } else {
-                        match unsafe { ::core::ffi::CStr::from_ptr(p) }.to_str() {
-                            ::core::result::Result::Ok(s) if !s.is_empty() => {
-                                ::core::option::Option::Some(s)
-                            }
-                            _ => ::core::option::Option::None,
-                        }
+                        unsafe { ::core::ffi::CStr::from_ptr(p) }.to_str().ok()
                     }
                 };
-                let effective_locator = runtime_locator.or(match BAKED_LOCATOR {
-                    ::core::option::Option::Some(loc) if !loc.is_empty() => {
-                        ::core::option::Option::Some(loc)
+                let ctx = match ::nros::Context::default_from_env() {
+                    ::core::result::Result::Ok(ctx) => ctx.with_locator_override(runtime_locator),
+                    ::core::result::Result::Err(e) => {
+                        ::core::panic!("nros: zephyr entry: baked Context is invalid: {:?}", e)
                     }
-                    _ => ::core::option::Option::None,
-                });
-                let config = match effective_locator {
-                    ::core::option::Option::Some(loc) => {
-                        ::nros::ExecutorConfig::new(loc)
-                            .node_name(::core::env!("CARGO_PKG_NAME"))
-                    }
-                    _ => ::nros::ExecutorConfig::default_const()
-                        .node_name(::core::env!("CARGO_PKG_NAME")),
                 };
+                let config = ctx.config(::core::env!("CARGO_PKG_NAME"));
                 // issue #128 (half 2) — spin-or-tiers tail: multi-tier
                 // systems route through `ZephyrBoard::run_tiers`; single-tier
                 // keeps the plain single-executor register+spin body.
