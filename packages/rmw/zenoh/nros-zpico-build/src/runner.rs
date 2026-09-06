@@ -137,6 +137,17 @@ mod hosted_tests {
 /// With no declaration at all this returns the historical embedded budget and
 /// says nothing; W5.e turns that case into a build-time failure, which needs
 /// the hand-written-`main` question settled first (phase-392 W5, Open).
+// issue 1199 — declared LITERALLY as well as inside `declared_floored`, which
+// emits the same line for whatever name it is handed. The duplicate is
+// deliberate: `cargo:rerun-if-env-changed` is idempotent, and a wire spelled
+// only through a parameter is invisible to `check-declared-fact-carriers`,
+// which reads these files as text. Same redundancy `NROS_RMW_MAX_NODES`
+// already carries one crate over.
+fn watch_declared_facts() {
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_MAX_PUBLISHERS");
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_MAX_SUBSCRIBERS");
+}
+
 fn resolve_queryable_default() -> QueryableSizing {
     // WATCH what we READ. Both were consumed here and neither was declared, so
     // cargo had no reason to re-run this script when a declaration changed: an
@@ -510,12 +521,27 @@ fn shim_config_from_env() -> ShimConfig {
     // costs a hosted image 144,128 bytes of service buffers whether or not it
     // has a single service. Replacing the guess needs the declaration to reach
     // here from the resolved model; see issue 0827.
+    watch_declared_facts();
     let sizing = resolve_queryable_default();
     let max_queryables = env_usize("ZPICO_MAX_QUERYABLES", sizing.default);
     check_queryable_override(max_queryables, &sizing);
     ShimConfig {
-        max_publishers: env_usize("ZPICO_MAX_PUBLISHERS", 8),
-        max_subscribers: env_usize("ZPICO_MAX_SUBSCRIBERS", 8),
+        // issue 1199 — the DECLARED road supplies the default when cmake
+        // derived one. FLOORED HERE and not at the producer: these two size
+        // fixed C arrays in `zpico.c`, where zero is not a smaller pool but a
+        // `#error` (issue 1015), while the same derived counts reach pools
+        // where zero IS the answer and is worth 33,296 bytes a slot (issue
+        // 1033). The derivation publishes DEMAND; the floor belongs to the
+        // consumer that names the knob, and on this road that is here. A named
+        // `ZPICO_MAX_*` still outranks both.
+        max_publishers: env_usize(
+            "ZPICO_MAX_PUBLISHERS",
+            declared_floored("NROS_DECLARED_MAX_PUBLISHERS").unwrap_or(8),
+        ),
+        max_subscribers: env_usize(
+            "ZPICO_MAX_SUBSCRIBERS",
+            declared_floored("NROS_DECLARED_MAX_SUBSCRIBERS").unwrap_or(8),
+        ),
         max_queryables,
         queryable_table_declared: sizing.declared,
         max_liveliness: env_usize("ZPICO_MAX_LIVELINESS", 16),
@@ -637,6 +663,25 @@ fn kconfig_fallback_str(name: &str) -> Option<String> {
 /// A knob with no [`KCONFIG_KNOBS`] row (`ZPICO_MAX_SESSIONS`,
 /// `ZPICO_BATCH_MULTICAST_SIZE` — neither is exposed as Kconfig) keeps the
 /// plain env-or-default behaviour.
+/// issue 1199 — a `NROS_DECLARED_*` count from cmake, floored for a C array.
+///
+/// `None` when cmake made no claim: the carrier is written only when the entity
+/// inventory's status is `derived`, so an absent variable is "no answer" and
+/// never "zero". The distinction matters because zero is a legal derived DEMAND
+/// -- it is the floor that makes it illegal as a SIZE here, and only here.
+///
+/// The floor is 1, the same constant `c_array_pool_floor` applies on the leaf
+/// road (`leaf_entity_env.rs`), stated rather than shared because the two roads
+/// floor at different boundaries: the sidecar writes the knob name itself and
+/// must floor before writing, while this one is handed a demand to interpret.
+fn declared_floored(name: &str) -> Option<usize> {
+    println!("cargo:rerun-if-env-changed={name}");
+    env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .map(|v| v.max(1))
+}
+
 fn env_usize(name: &str, default: usize) -> usize {
     match KCONFIG_KNOBS.iter().find(|(env, _)| *env == name) {
         Some((_, kconfig)) => nros_zephyr_build::knob_usize(name, kconfig, default),

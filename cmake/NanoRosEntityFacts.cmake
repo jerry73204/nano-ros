@@ -202,12 +202,102 @@ function(_nros_payload_facts_env _out_var)
     if(NOT NROS_MESSAGE_BOUNDS_BASIS STREQUAL "subscribed")
         return()
     endif()
-    if(NOT DEFINED NROS_DERIVED_MAX_LARGE_SUBSCRIBERS)
+    # issue 1199 — the THREE payload keys, and the set is not ours to choose:
+    # it mirrors `DERIVED_PAYLOAD_ENV_KEYS` in
+    # `packages/cli/nros-cli-core/src/leaf_entity_env.rs`, which is the same
+    # decision made for the cargo-LEAF road. Two roads delivering different key
+    # sets is how an image's sizing depends on which lane built it.
+    #
+    # Each of the two SIZES is published by the derivation only under its own
+    # condition, and this reads DEFINED rather than re-deriving them: a small
+    # class of 0 means nothing received fits under the ceiling, and a large
+    # SIZE for a class with no blocks would be inventing a number
+    # (`_nros_bounds_publish_payload_classes`). Absent therefore means "no
+    # answer" here exactly as it does there.
+    set(_out "")
+    if(DEFINED NROS_DERIVED_MAX_LARGE_SUBSCRIBERS)
+        list(APPEND _out
+            "NROS_DECLARED_LARGE_SUBSCRIBERS=${NROS_DERIVED_MAX_LARGE_SUBSCRIBERS}")
+    endif()
+    if(DEFINED NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE)
+        list(APPEND _out
+            "NROS_DECLARED_SUBSCRIBER_BUFFER_SIZE=${NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE}")
+    endif()
+    if(DEFINED NROS_DERIVED_SUBSCRIBER_LARGE_SIZE)
+        list(APPEND _out
+            "NROS_DECLARED_SUBSCRIBER_LARGE_SIZE=${NROS_DERIVED_SUBSCRIBER_LARGE_SIZE}")
+    endif()
+    set(${_out_var} "${_out}" PARENT_SCOPE)
+endfunction()
+
+# _nros_entity_budget_env(<out-var>)
+#
+# issue 1199 — the ENTITY budget half of the DECLARED road, sibling of
+# `_nros_payload_facts_env` above.
+#
+# The key set is NOT a choice made here: it mirrors `DERIVED_ENV_KEYS` in
+# `packages/cli/nros-cli-core/src/leaf_entity_env.rs`, which is the same
+# decision already made for the cargo-LEAF road. Two roads delivering different
+# key sets is how an image's sizing comes to depend on which lane built it, and
+# `check-declared-fact-carriers` holds the two lists together.
+#
+# What that set deliberately EXCLUDES, and why the exclusions are not oversights:
+#
+#   * `ZPICO_MAX_QUERYABLES` -- `max_queryables` counts service servers and
+#     actions and NOT the param (6) or lifecycle (5) service families, which a
+#     FEATURE enables and this inventory cannot see. A short queryable table is
+#     a registration failure at boot, not a smaller pool (issues 1061, 0460).
+#     The CMake road completes it through `NROS_DECLARED_INFRA_QUERYABLES`
+#     instead, which is why that fact exists.
+#   * `NROS_EXECUTOR_MAX_NODES` -- phase-412 withheld it from W1 on the ground
+#     that under-counting HALTS the board, and the leaf road still omits it.
+#   * `NROS_SUBSCRIPTION_BUFFER_SIZE` -- not on the leaf road either; it also
+#     feeds the arena derivation, so it is a second decision and not this one.
+#
+# The guard is a single status. Unlike message bounds there is no BASIS here:
+# `derived` means every `NROS_DERIVED_*` in the fragment is present, and
+# `refused` means none is (`NanoRosEntityInventory.cmake`).
+#
+# NO FLOOR IS APPLIED HERE, on purpose. The derivation publishes DEMAND and the
+# floor belongs to the consumer that names the knob (issues 1015, 1033) -- the
+# two `ZPICO_*` counts size fixed C arrays where zero is not a smaller pool,
+# while the same numbers reach pools where zero IS the answer. On this road the
+# consumer is a build script, so it floors what it takes; the leaf sidecar
+# floors at its own boundary for the same reason, one layer over.
+function(_nros_entity_budget_env _out_var)
+    set(${_out_var} "" PARENT_SCOPE)
+    if(NOT COMMAND nros_entity_inventory_knobs_file)
         return()
     endif()
-    set(${_out_var}
-        "NROS_DECLARED_LARGE_SUBSCRIBERS=${NROS_DERIVED_MAX_LARGE_SUBSCRIBERS}"
-        PARENT_SCOPE)
+    nros_entity_inventory_knobs_file(_inv)
+    if(NOT EXISTS "${_inv}")
+        return()
+    endif()
+    include("${_inv}")
+    if(NOT NROS_ENTITY_INVENTORY_STATUS STREQUAL "derived")
+        return()
+    endif()
+    # Both names are written IN FULL, and the delivered name is never built by
+    # interpolation. phase-412's second delivery failure was exactly that: a
+    # `foreach` composing `NROS_DERIVED_${_pool}` produced a name that matches
+    # nothing, and CMake yields EMPTY for an unknown variable rather than
+    # failing. A constructed name is also invisible to `grep`, which is how
+    # `check-declared-fact-carriers` reads this file -- so a fact spelled only
+    # in pieces would be delivered and still report as unproduced.
+    set(_out "")
+    foreach(_pair
+            "NROS_DECLARED_EXECUTOR_ACTION_CLIENTS;NROS_DERIVED_EXECUTOR_ACTION_CLIENTS"
+            "NROS_DECLARED_EXECUTOR_MAX_CBS;NROS_DERIVED_EXECUTOR_MAX_CBS"
+            "NROS_DECLARED_RMW_SUBSCRIBER_SLOTS;NROS_DERIVED_RMW_SUBSCRIBER_SLOTS"
+            "NROS_DECLARED_MAX_PUBLISHERS;NROS_DERIVED_MAX_PUBLISHERS"
+            "NROS_DECLARED_MAX_SUBSCRIBERS;NROS_DERIVED_MAX_SUBSCRIBERS")
+        list(GET _pair 0 _name)
+        list(GET _pair 1 _src)
+        if(DEFINED ${_src})
+            list(APPEND _out "${_name}=${${_src}}")
+        endif()
+    endforeach()
+    set(${_out_var} "${_out}" PARENT_SCOPE)
 endfunction()
 
 # nros_entity_facts_env(<target>)
@@ -220,6 +310,10 @@ function(nros_entity_facts_env _target)
     # gets a message-bound derivation, so this is computed before the
     # queryable-table early return rather than after it.
     _nros_payload_facts_env(_payload_env)
+    _nros_entity_budget_env(_budget_env)
+    if(_budget_env)
+        list(APPEND _payload_env ${_budget_env})
+    endif()
 
     get_property(_seen GLOBAL PROPERTY NROS_ENTITY_FACTS_SEEN)
     if(NOT _seen)
