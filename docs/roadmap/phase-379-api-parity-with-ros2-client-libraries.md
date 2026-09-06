@@ -1,5 +1,38 @@
 # Phase 379 — the user API is rclc / rclcpp / rclrs, and something checks that
 
+**Status (2026-09-06). Re-measured, and a sixth verdict exists.** The ledger
+now carries **2514 classified rows**: `divergence` 831, `extension` 781,
+`declined` 696, **`gap` 158**, `rename` 41, `their-rename` 7. The correlator's
+own totals per surface:
+
+| surface | reference | same | arity-only | systematic | differs | ours-only | theirs-only |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| C | rclc + rcl (humble) | 79 | 0 | 25 | 8 | 409 | 372 |
+| C++ | rclcpp | 84 | 13 | 12 | 4 | 325 | 714 |
+| Rust | rclrs v0.7.0 | 82 | 7 | 2 | 5 | 1179 | 509 |
+
+**The 158 `gap` rows are the phase's remaining work**, and they are not evenly
+spread — by surface, C++ 82, C 41, Rust 35; by shard, `param` 32, `graph` 30,
+`pubsub` 22, `lifecycle` 15, `log` 13, `timer` 11, `service` 10, `qos` 8,
+`action` 6, `node` 6, `exec` 2, and one each in `boot`, `types`, `other`. C++
+carrying half of them is consistent with its `theirs-only` count of 714: rclcpp
+is simply the largest surface we are compared against.
+
+**`their-rename` is new** (7 rows). It is the mirror of `rename`: *we* have the
+name a ROS 2 user would reach for and *upstream* spells it differently, so the
+row is not something to fix on our side. Before it existed those rows had to be
+recorded as `divergence`, which read as a defect and put them on the wrong
+work list.
+
+**One `gap` closed since, and it is recorded here because it is the shape the
+rest should follow.** `node_get_fully_qualified_name` shipped for all three
+languages (PR #567): one join in `nros_node::names::fully_qualified_name`, with
+`Node::fully_qualified_name` and `register_parameter_services` collapsed onto
+it. Collapsing the three hand-rolled copies is what found the actual defect —
+they disagreed on a namespace with no leading slash, and one of them was
+returning a name that was not fully qualified. The parity row was the prompt;
+the bug was underneath it.
+
 **Status (2026-08-30). W1 AND W2 COMPLETE; W3-W5 DECIDED and in progress.**
 Every blocking decision the phase was holding is settled below — W3 lands as a
 clean break, `handle-owns-node` stays with an identity instead of a pointer,
