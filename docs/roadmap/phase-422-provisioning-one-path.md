@@ -301,9 +301,12 @@ finding them: `[prereq.*]` OS packages are a different class with a different
 rule — composing the install command is nano-ros's job and running it is the
 user's (RFC-0062), which `check-sysdep-remedies` enforces. The audit did find
 one thing worth recording there, filed as
-[#1128](../issues/1128-prereq-apt-name-is-distro-parametric-and-the-index-cannot-say-so.md):
-`just ci provision-zenohd` composes `ros-${ROS_DISTRO}-rmw-zenoh-cpp` itself
-because the index can only spell one distro, and the two agree only on humble. And four cargo tools
+[#1128](../issues/archived/1128-prereq-apt-name-is-distro-parametric-and-the-index-cannot-say-so.md)
+and **fixed**: `just ci provision-zenohd` composed
+`ros-${ROS_DISTRO}-rmw-zenoh-cpp` itself because the index could only spell one
+distro, and the two agreed only on humble. `{ros_distro}` makes the parameter
+data, `check-prereq-placeholders` holds that vocabulary to one name, and the
+recipe asks for the name instead of building it. And four cargo tools
 (`cargo-nextest`, `cargo-llvm-cov`, `rustfilt`, `cargo-show-asm`) are installed
 by `cargo-tools` and are NOT in the index, so nothing here judges them; whether
 they should be is a W2-shaped question nobody has asked yet.

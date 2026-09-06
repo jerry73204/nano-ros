@@ -724,12 +724,13 @@ fn install_single_tool(
         }
     }
     if !missing_sys.is_empty() {
+        let ctx = crate::orchestration::sdk_index::PrereqContext::from_env();
         let entries: Vec<(&String, &crate::orchestration::sdk_index::PrereqDep)> = prereqs
             .iter()
             .filter(|(k, _)| missing_sys.contains(&k.as_str()))
             .collect();
         let hint = detect_package_manager()
-            .map(|mgr| native_install_command(mgr, &compose_packages(&entries, mgr)))
+            .map(|mgr| native_install_command(mgr, &compose_packages(&entries, mgr, &ctx)))
             .unwrap_or_else(|| "<no supported package manager detected>".to_string());
         // issue 1038 — `--sudo` INSTALLS them, exactly as it does for
         // `--system`. Without this the flag reached only the global
@@ -754,7 +755,7 @@ fn install_single_tool(
                     missing_sys.join(", "),
                 );
             };
-            let cmd = native_install_command(mgr, &compose_packages(&entries, mgr));
+            let cmd = native_install_command(mgr, &compose_packages(&entries, mgr, &ctx));
             println!("nros setup --tool {name} --sudo: running:\n  {cmd}");
             let status = std::process::Command::new("sh")
                 .args(["-c", &cmd])
@@ -1782,7 +1783,11 @@ fn run_system(
                     missing.len()
                 );
             };
-            let pkgs = compose_packages(&missing, mgr);
+            let pkgs = compose_packages(
+                &missing,
+                mgr,
+                &crate::orchestration::sdk_index::PrereqContext::from_env(),
+            );
             bail!(
                 "{} system package(s) missing. Install with:\n  {}",
                 missing.len(),
@@ -1818,13 +1823,16 @@ fn run_system(
     // provider of four, could not carry a `check`, and being consulted only
     // where it happened to be installed made one tree resolve two ways. A key
     // this index does not map for this host is now simply unmapped, and says so.
+    // Issue 1128 — the environment is read ONCE, here, and the expansion below
+    // is a pure function of it.
+    let ctx = crate::orchestration::sdk_index::PrereqContext::from_env();
     let mut unmapped: Vec<&String> = Vec::new();
     for (key, dep) in &to_install {
-        if dep.packages_for(mgr).is_empty() {
+        if dep.packages_for(mgr, &ctx).is_empty() {
             unmapped.push(key);
         }
     }
-    let mut pkgs = compose_packages(&to_install, mgr);
+    let mut pkgs = compose_packages(&to_install, mgr, &ctx);
     pkgs.sort();
     pkgs.dedup();
 
@@ -2043,7 +2051,16 @@ fn run_check_tool(index: &SdkIndex, name: &str) -> Result<()> {
             .filter(|(k, _)| missing.contains(&k.as_str()))
             .collect();
         let hint = detect_package_manager()
-            .map(|mgr| native_install_command(mgr, &compose_packages(&entries, mgr)))
+            .map(|mgr| {
+                native_install_command(
+                    mgr,
+                    &compose_packages(
+                        &entries,
+                        mgr,
+                        &crate::orchestration::sdk_index::PrereqContext::from_env(),
+                    ),
+                )
+            })
             .unwrap_or_else(|| "<no supported package manager detected>".to_string());
         println!(
             "  [BROKEN]  tool    {name} {} — installed, but {} system \
@@ -2086,6 +2103,8 @@ fn run_check_all(index: &SdkIndex) -> Result<()> {
         ProbeResult::Unknown => println!("  [UNPROBED] {class:<6} {name}"),
     };
 
+    // Issue 1128 — read the environment once, expand purely (see PrereqContext).
+    let doctor_ctx = crate::orchestration::sdk_index::PrereqContext::from_env();
     // Prerequisites — the composed native command is the remedy. Through
     // `prereqs()` so the doctor surface covers `[prereq.*]` and `[system.*]`
     // alike; a doctor that walked one table would report a shrinking half of
@@ -2094,8 +2113,8 @@ fn run_check_all(index: &SdkIndex) -> Result<()> {
     let prereqs = index.prereqs();
     for (key, dep) in &prereqs {
         let remedy = match manager {
-            Some(mgr) if !dep.packages_for(mgr).is_empty() => {
-                native_install_command(mgr, dep.packages_for(mgr))
+            Some(mgr) if !dep.packages_for(mgr, &doctor_ctx).is_empty() => {
+                native_install_command(mgr, &dep.packages_for(mgr, &doctor_ctx))
             }
             _ => format!("map [prereq.{key}] for this host in nros-sdk-index.toml"),
         };
@@ -2297,10 +2316,11 @@ fn command_stdout(cmd: &str, args: &[&str]) -> String {
 fn compose_packages(
     entries: &[(&String, &crate::orchestration::sdk_index::PrereqDep)],
     manager: &str,
+    ctx: &crate::orchestration::sdk_index::PrereqContext,
 ) -> Vec<String> {
     let mut pkgs: Vec<String> = entries
         .iter()
-        .flat_map(|(_, dep)| dep.packages_for(manager).iter().cloned())
+        .flat_map(|(_, dep)| dep.packages_for(manager, ctx))
         .collect();
     pkgs.sort();
     pkgs.dedup();
