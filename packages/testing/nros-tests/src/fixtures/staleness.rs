@@ -834,16 +834,29 @@ pub fn non_running() -> Vec<NonRunning> {
 /// some arms and missing on others — the same reason the exemption rule is
 /// shared. `what` names the artifact ("Test fixture", "Zephyr fixture"),
 /// `newer` is the input that tripped it, `remedy` the rebuild command.
+///
+/// Issue 1016 — a STALE verdict on a coordinate the last fixture BUILD never
+/// built is true and misleading: the binary is a leftover from an earlier,
+/// wider build and the lane in front of you did not touch it. The verdict now
+/// says so when the build's own stamp can prove it. Deliberately a MESSAGE and
+/// not a reclassification: `tests/zephyr_leaf_staleness.rs` asserts on the
+/// `Err` this returns, and a panic here would break the probe's own regression
+/// test — the reading was wrong, not the verdict.
 pub fn stale_error(what: &str, binary: &Path, newer: &Path, remedy: &str) -> TestError {
     let history = record_stale(binary);
+    let lane_note = match crate::fixtures::lane::recorded_build_omits(binary) {
+        Some(reason) => format!("\n  NOT BUILT BY THIS LANE: {reason}"),
+        None => String::new(),
+    };
     TestError::BuildFailed(format!(
         "{what} is STALE — a source is newer than the built binary:\n  \
-         binary: {}\n  newer:  {}\n  probe:  {}{}\n\
+         binary: {}\n  newer:  {}\n  probe:  {}{}{}\n\
          {remedy}",
         binary.display(),
         newer.display(),
         probe_accounting(),
         history.note(),
+        lane_note,
     ))
 }
 

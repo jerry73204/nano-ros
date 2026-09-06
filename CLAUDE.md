@@ -413,7 +413,15 @@ to — `net/` `serial/` `ipc/` `sys/` — documented in `packages/drivers/README
   never skipped. A row's coordinate still has exactly one computation, `row_coord()` in
   `fixtures-manifest.py` (`rmw` defaults to zenoh THERE) — `matrix_fixture_coverage.rs` consumes
   its `coords` subcommand rather than re-deriving. The second derivation left 67 of 240 rows in
-  no lane at all. New runtime tests join a
+  no lane at all. **Zephyr WEST leaves route by build-dir NAME, not by path, and the lookup
+  FAILS OPEN — so a name the manifest does not model is built by no lane and skippable by no
+  lane, and its verdict is a STALE message indistinguishable from a cell that ran and failed**
+  (issue 1016; 19 such spellings existed, all dead — the `-a9` aliases, `build-rs-*`, the bare
+  `"build"` fallback). Gate: `check-west-leaf-vocabulary`, which harvests the alias table, the
+  `require_west_leaf_in_lane` call sites AND every `…/zephyr/zephyr.{exe,elf}` path literal.
+  A narrow BUILD with an un-narrowed RUN — a bare `cargo nextest`, which no preflight reaches —
+  now reads the build STAMP: `recorded_build_omits()`, on the FAILURE path only, so a fresh
+  fixture can never be laundered into a skip. New runtime tests join a
   matrix: cells in `matrix::CELLS` / `interop::CELLS` (RFC-0051; phase-331 W4 put workspace RMW
   cells there too), not new hand-coordinated files — the consolidation plan is phase-329.
 - **Fixture mtime treadmill:** any pull/rebase — and any `git stash push`/`pop`, which rewrites

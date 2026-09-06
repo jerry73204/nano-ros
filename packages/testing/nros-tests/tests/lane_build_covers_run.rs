@@ -588,7 +588,7 @@ fn every_west_leaf_the_run_can_name_is_built_or_skippable() {
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("g", "scripts/check-west-leaf-vocabulary.py")
 g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
-names = g.alias_build_names(g.ZEPHYR_RS.read_text()) | g.literal_build_names(g.TEST_CRATE)
+names = g.resolver_concrete_names()
 print("\n".join(sorted(names)))
 "#,
         )
@@ -671,6 +671,24 @@ print("\n".join(sorted(names)))
             modelled.len()
         );
     }
+
+    // …and the harvest this test and `just check fast` share must itself be
+    // able to fail. A source-scraping check whose regex stopped matching prints
+    // the same clean line forever — and the arm regex DID miss a mutation once
+    // (an `rmw` bound of `[a-z]+` against a `"cyclonedds-a9"` arm).
+    let selftest = Command::new("python3")
+        .arg("scripts/check-west-leaf-vocabulary.py")
+        .arg("--selftest")
+        .current_dir(&repo)
+        .output()
+        .expect("run check-west-leaf-vocabulary.py --selftest");
+    assert!(
+        selftest.status.success(),
+        "check-west-leaf-vocabulary.py --selftest failed — the harvest above is \
+         not evidence:\n{}{}",
+        String::from_utf8_lossy(&selftest.stdout),
+        String::from_utf8_lossy(&selftest.stderr)
+    );
 }
 
 /// A row the RUN cannot skip must be in the lane's BUILD — issue 0828.

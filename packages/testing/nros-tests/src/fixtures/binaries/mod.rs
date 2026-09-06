@@ -631,6 +631,23 @@ fn require_prebuilt_binary_checks(binary_path: &Path) -> TestResult<PathBuf> {
             binary_path.display()
         );
     }
+    // Issue 1016 — an UNGATED run against a coordinate-scoped BUILD.
+    //
+    // We are here only when nothing promised these fixtures (the panic above
+    // covers the gated case), i.e. a bare `cargo nextest` — which is what
+    // CLAUDE.md's own triage advice tells you to type when re-running a red
+    // cell SOLO. If the last fixture build recorded a narrow lane and this
+    // artifact's coordinate is not in it, then "not prebuilt" is true and
+    // useless: the fact is about the LANE, and the verdict a reader sees is
+    // indistinguishable from a cell that ran and failed. `[SKIPPED:lane]` says
+    // what actually happened, and is counted apart from `capability` (0584).
+    //
+    // Only on the failure path, and only against the build's OWN record — so
+    // this cannot turn a present, fresh fixture into a skip, which is the
+    // issue-0445 hazard.
+    if let Some(reason) = crate::fixtures::lane::recorded_build_omits(binary_path) {
+        crate::skip_class!(lane, "not built: {}\n  {reason}", binary_path.display());
+    }
     Err(TestError::BuildFailed(format!(
         "Test fixture binary not prebuilt: {}\n\
          Run `just build-test-fixtures` first.",
@@ -1674,22 +1691,6 @@ impl<'a> ZephyrLeafSource<'a> {
 /// against the LINKED `zephyr.exe` mtime: a Rust source newer than the image
 /// means west never relinked. Reads the staticlib `.d` + `stat()`; never
 /// builds. Missing `.d` → existence-only fallback.
-/// The west build-directory name an image was linked in, i.e. the `<name>` of
-/// `<zephyr-build-root>/<name>/zephyr/zephyr.{exe,elf}`.
-///
-/// That shape is not a convention this function imposes — it is where west
-/// writes, so every resolver in this file already spells it, and it is the same
-/// `build_name` `fixtures-manifest.py west-leaves` keys its coordinate on.
-/// `None` for a path of any other shape, which [`require_west_leaf_in_lane`]
-/// already treats as fail-closed: run it.
-fn west_build_name(zephyr_exe: &Path) -> Option<&str> {
-    let dir = zephyr_exe.parent()?;
-    if dir.file_name()? != "zephyr" {
-        return None;
-    }
-    dir.parent()?.file_name()?.to_str()
-}
-
 pub(crate) fn require_prebuilt_binary_fresh_zephyr(
     zephyr_exe: &Path,
     src: ZephyrLeafSource<'_>,
@@ -1717,7 +1718,7 @@ pub(crate) fn require_prebuilt_binary_fresh_zephyr(
     // An IN-lane coordinate still fails exactly as hard when its image is
     // missing or stale: the skip is keyed on the coordinate, never on absence
     // (issue 0445).
-    if let Some(build_name) = west_build_name(zephyr_exe) {
+    if let Some(build_name) = crate::fixtures::lane::west_build_name(zephyr_exe) {
         crate::fixtures::lane::require_west_leaf_in_lane(build_name, src.dir)?;
     }
 
@@ -4128,32 +4129,15 @@ fn zephyr_build_root() -> PathBuf {
     }
 }
 
-/// Build orchestration lives in `just/zephyr.just :: build-fixtures`.
-pub fn build_zephyr_rust_example_rmw(case: &str, rmw: Rmw) -> TestResult<PathBuf> {
-    let root = project_root();
-    let example_dir = root.join(format!("examples/zephyr/rust/{}", case));
-    if !example_dir.exists() {
-        return Err(TestError::BuildFailed(format!(
-            "Example directory not found: {}",
-            example_dir.display()
-        )));
-    }
-    let binary_path = zephyr_build_root().join(format!(
-        "build-rs-{}-{}/zephyr/zephyr.exe",
-        case,
-        rmw.cmake_value()
-    ));
-    let leaf = format!("examples/zephyr/rust/{case}");
-    require_prebuilt_binary_fresh_zephyr(
-        &binary_path,
-        ZephyrLeafSource {
-            dir: &leaf,
-            lang: Some("rust"),
-            rmw: Some(rmw.cmake_value()),
-            conf_files: None,
-        },
-    )
-}
+// issue 1016 — `build_zephyr_rust_example_rmw` stood here and named
+// `build-rs-<case>-<rmw>`. That is the `rs` LANG TAG issue 0539 retired from
+// both producers when the build side stopped spelling it: the west lane writes
+// `build-rust-<case>-<rmw>` and `fixtures-manifest.py west-leaves` models only
+// that. So this resolver could only ever name a build dir no lane builds — and
+// `require_west_leaf_in_lane` fails OPEN on a name it cannot find, so no lane
+// could skip it either. It had no callers; it was
+// `get_prebuilt_zephyr_example("zephyr-rs-<case>", …)` spelt a second, wrong
+// way. `check-west-leaf-vocabulary.py` now refuses the class.
 
 /// phase-337 W2.f — the Zephyr Cortex-M witness (`mps2_an385`) leaf resolver.
 ///

@@ -298,6 +298,26 @@ fn parse_west_leaf(line: &str) -> WestLeaf {
     }
 }
 
+/// The west build-directory name an image was linked in, i.e. the `<name>` of
+/// `<zephyr-build-root>/<name>/zephyr/zephyr.{exe,elf}`.
+///
+/// That shape is not a convention this function imposes — it is where west
+/// writes, so every zephyr resolver already spells it, and it is the same
+/// `build_name` `fixtures-manifest.py west-leaves` keys its coordinate on.
+/// `None` for a path of any other shape, which [`require_west_leaf_in_lane`]
+/// treats as fail-closed: run it.
+///
+/// Lives HERE rather than in `fixtures::binaries` (issue 1016) because both of
+/// its consumers ask a lane question — "which coordinate is this image?" — and
+/// a second spelling of the shape is how the two answers would drift.
+pub fn west_build_name(zephyr_exe: &Path) -> Option<&str> {
+    let dir = zephyr_exe.parent()?;
+    if dir.file_name()? != "zephyr" {
+        return None;
+    }
+    dir.parent()?.file_name()?.to_str()
+}
+
 /// Skip when the west leaf built into `build_name` is outside this run's lane.
 ///
 /// phase-350 W1.b closed the loop the build side had opened: the zephyr lane
@@ -309,6 +329,12 @@ fn parse_west_leaf(line: &str) -> WestLeaf {
 /// Unknown `build_name` is NOT a skip: an unrecognised leaf is a resolver the
 /// manifest does not model, and guessing "out of lane" there would silently
 /// stop running it. Fail-closed means run it.
+///
+/// Failing open is the right default and it is also a hole with no floor
+/// (issue 1016). A build-dir name absent from the manifest is, by construction,
+/// emitted by NO lane's build and skippable by NO lane's run, so its verdict is
+/// always a missing-or-stale message — which reads character-for-character like
+/// a cell that ran and failed. The floor is `check-west-leaf-vocabulary.py`.
 pub fn require_west_leaf_in_lane(build_name: &str, label: &str) -> TestResult<()> {
     if run_coords().is_none() {
         return Ok(());
@@ -603,6 +629,107 @@ pub fn skip_reason_for_path(binary_path: &Path, coords: &BTreeSet<Coord>) -> Opt
 pub fn skip_reason_for_workspace_id(fixture_id: &str, coords: &BTreeSet<Coord>) -> Option<String> {
     let row = attribute_workspace_id(fixture_id)?;
     (!is_in_lane(row, coords)).then(|| out_of_lane(row))
+}
+
+// ── What the BUILD recorded, as opposed to what the RUN was told (issue 1016) ─
+//
+// Everything above answers "is this coordinate in the RUN's lane?", read from
+// `NROS_TEST_COORDS`. That is one half of a pair, and the other half is written
+// down too: `nros_fixtures_stamp_write` records `lane=` plus one `coord=` line
+// per coordinate the fixture BUILD was scoped to.
+//
+// Nothing in a test process read it, and that is the gap issue 1016 walked
+// into. A `just build-test-fixtures lane=tier2` followed by a bare `cargo
+// nextest` — which is exactly what CLAUDE.md's own triage advice tells you to
+// type when re-running a red cell SOLO — has a narrowed BUILD and an
+// un-narrowed RUN. `_require-fixtures` refuses that pairing, but only for
+// `just test-all`; a bare nextest never reaches it. So every coordinate the
+// lane deliberately skipped resolves, misses or reads stale, and reports a
+// verdict about the ARTIFACT for a fact about the LANE.
+//
+// This is read ONLY on the failure path (see `require_prebuilt_binary_checks`
+// and `staleness::stale_error`). It can therefore never turn a fixture that IS
+// present and fresh into a skip — the issue-0445 hazard, and the reason it is
+// not simply folded into `run_coords`.
+
+/// The lane and coordinate set the last fixture BUILD recorded, or `None`.
+///
+/// `None` when there is no stamp, when it is a pre-0393 bare timestamp, or when
+/// the build was not coordinate-scoped (`lane=all`, `lane=native` — the latter
+/// is module-level and writes no `coord=` lines). "Cannot tell" is `None`, never
+/// "nothing was built": absence of evidence must not become evidence.
+pub fn recorded_build() -> Option<&'static (String, BTreeSet<Coord>)> {
+    static STAMP: OnceLock<Option<(String, BTreeSet<Coord>)>> = OnceLock::new();
+    STAMP
+        .get_or_init(|| {
+            let path = match std::env::var_os("NROS_FIXTURE_STAMP") {
+                Some(p) => PathBuf::from(p),
+                None => project_root().join("target/nextest/.fixtures-built"),
+            };
+            let path = if path.is_absolute() {
+                path
+            } else {
+                project_root().join(path)
+            };
+            parse_stamp(&std::fs::read_to_string(path).ok()?)
+        })
+        .as_ref()
+}
+
+/// Parse a `.fixtures-built` stamp body. Split out so both directions are
+/// testable without a build.
+pub fn parse_stamp(text: &str) -> Option<(String, BTreeSet<Coord>)> {
+    let mut lane = None;
+    let mut coords = BTreeSet::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(v) = line.strip_prefix("lane=") {
+            lane = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("coord=") {
+            let p: Vec<&str> = v.split(',').map(str::trim).collect();
+            if p.len() == 3 {
+                coords.insert((p[0].to_string(), p[1].to_string(), p[2].to_string()));
+            }
+        }
+    }
+    // No `coord=` lines means the build was not coordinate-scoped, so it makes
+    // no claim this function can act on.
+    (!coords.is_empty()).then(|| (lane.unwrap_or_else(|| "?".to_string()), coords))
+}
+
+/// Why the RECORDED fixture build never produced `binary_path`, or `None`.
+///
+/// Answers only for an artifact this module can place on a coordinate: a west
+/// image by its build-dir name, anything else by [`attribute_path`]. An
+/// unplaceable path gets `None` — fail closed, exactly as everywhere else here.
+pub fn recorded_build_omits(binary_path: &Path) -> Option<String> {
+    let (lane, built) = recorded_build()?;
+    let coord = coord_of_artifact(binary_path)?;
+    if built.contains(&coord) {
+        return None;
+    }
+    Some(format!(
+        "the recorded fixture build did NOT build this coordinate: the stamp says \
+         lane={lane} ({} coordinate(s)) and this artifact is at {},{},{}.\n  \
+         So this is a LANE fact, not a regression and not a staleness result — \
+         nothing here ran, and whatever is on disk (if anything) is left over \
+         from an earlier, wider build.\n  \
+         Narrow the run to match (`just ci matrix`, which exports \
+         {RUN_COORDS_ENV}), or widen the build (`just build-test-fixtures`).",
+        built.len(),
+        coord.0,
+        coord.1,
+        coord.2,
+    ))
+}
+
+/// The coordinate an artifact sits at, by whichever route can place it.
+fn coord_of_artifact(binary_path: &Path) -> Option<Coord> {
+    if let Some(name) = west_build_name(binary_path)
+        && let Some(leaf) = west_leaves().iter().find(|l| l.build_name == name)
+    {
+        return Some(leaf.coord.clone());
+    }
+    attribute_path(binary_path).map(|r| r.coord.clone())
 }
 
 #[cfg(test)]
@@ -906,5 +1033,58 @@ mod tests {
                 .is_ok()
         );
         assert!(require_workspace_in_lane("workspace-rust-native").is_ok());
+    }
+
+    // ── issue 1016 — what the BUILD recorded ────────────────────────────────
+
+    #[test]
+    fn a_stamp_without_coordinates_makes_no_claim() {
+        // `lane=all` and `lane=native` write no `coord=` lines. Reading either
+        // as "nothing was built" would turn every fixture into a lane skip.
+        assert!(parse_stamp("lane=all\nbuilt_at=x\n").is_none());
+        assert!(parse_stamp("").is_none());
+        // A pre-0393 bare timestamp: no `lane=`, no coordinates.
+        assert!(parse_stamp("2026-09-06T00:00:00Z\n").is_none());
+    }
+
+    #[test]
+    fn a_coordinate_scoped_stamp_reads_back_its_lane_and_cover() {
+        let (lane, coords) =
+            parse_stamp("# comment\nlane=tier2\ncoord=zephyr,cpp,xrce\ncoord=linux,rust,zenoh\n")
+                .expect("a stamp with coordinates makes a claim");
+        assert_eq!(lane, "tier2");
+        assert_eq!(coords.len(), 2);
+        assert!(coords.contains(&("zephyr".to_string(), "cpp".to_string(), "xrce".to_string())));
+    }
+
+    /// The issue-1016 reading, on the exact coordinates it was measured at.
+    ///
+    /// `lane-coords tier2` selects `zephyr,cpp,xrce` and nothing else under
+    /// `zephyr`, so `build-c-listener-xrce` is a leaf that lane deliberately
+    /// does not build — and the verdict the reporter saw said only "STALE".
+    #[test]
+    fn a_west_image_outside_the_recorded_cover_is_named_as_such() {
+        let root = project_root();
+        let in_cover = root.join("zephyr-workspace/build-cpp-listener-xrce/zephyr/zephyr.exe");
+        let out_of_cover = root.join("zephyr-workspace/build-c-listener-xrce/zephyr/zephyr.exe");
+
+        let (_, built) = parse_stamp("lane=tier2\ncoord=zephyr,cpp,xrce\n").expect("stamp");
+        let placed = |p: &Path| coord_of_artifact(p).expect("a west image is placeable");
+        assert!(
+            built.contains(&placed(&in_cover)),
+            "the cover's own coordinate must read as built"
+        );
+        assert!(
+            !built.contains(&placed(&out_of_cover)),
+            "zephyr,c,xrce is outside tier 2's cover — that is the measurement \
+             issue 1016 rests on"
+        );
+    }
+
+    #[test]
+    fn an_unplaceable_path_makes_no_claim_either() {
+        // Fail closed, like every other arm here: a path no table can place
+        // must never be reported as "the lane did not build it".
+        assert!(coord_of_artifact(Path::new("/nowhere/at/all/bin")).is_none());
     }
 }
