@@ -1,7 +1,7 @@
 ---
 id: 1048
 title: "Every `log::info!` on the esp32-qemu board is silently dropped, so four e2e cells grep for a marker the image cannot emit"
-status: open
+status: resolved
 area: boards, testing
 severity: high
 found: 2026-09-04
@@ -177,3 +177,29 @@ silence hid where the image stopped. Filed as
 `Instruction access fault` whose `mepc` and `ra` are printable ASCII from
 source-path strings, i.e. a corrupted code pointer. It is what remains of
 `test_esp32_talker_listener_e2e` and `test_esp32_to_native`.
+
+
+## RESOLVED 2026-09-06 — and the defect it exposed is resolved too
+
+The fix (the `nros_log` sink installed on esp32, and the markers routed through
+it) landed 2026-09-04. What kept this issue open was the section above: the
+silence had hidden a SECOND defect, the talker stopping after `Ethernet ready.`,
+filed as issue 1052 and described here as "what remains of
+`test_esp32_talker_listener_e2e` and `test_esp32_to_native`".
+
+Both are answered now. Issue 1052 was a stack overflow — `.stack` is the linker
+leftover after `.bss` on this board, and `.bss` had squeezed it to 18,572 B — and
+in nightly run `33996315057` the esp32 job reports:
+
+| test | verdict |
+| --- | --- |
+| `test_esp32_qemu_talker_boots` | **PASS** |
+| `test_esp32_talker_listener_e2e` | **PASS** |
+
+`test_esp32_to_native` fails for an unrelated reason that is not the board: the
+esp32 lane never built the NATIVE half of that test (issue 1112).
+
+The pairing is worth stating because it is the argument for this issue's
+severity. A silently dropped log made a crash look like a hang, and the crash was
+found only after the logging was fixed — the diagnostic was load-bearing for
+diagnosing something else.

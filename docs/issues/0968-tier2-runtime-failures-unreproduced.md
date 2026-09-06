@@ -508,7 +508,7 @@ line announcing it is dropped by the facade — so the cell greps for a marker t
 image is structurally unable to emit, and reports a messaging failure for a
 logging defect.
 
-Filed as [issue 1048](1048-esp32-log-records-are-silently-dropped.md) with the
+Filed as [issue 1048](archived/1048-esp32-log-records-are-silently-dropped.md) with the
 five closed hypotheses and the one remaining candidate (`log::set_logger`
 succeeds at most once per process, and this image has two log paths racing for
 the facade — the board registers a platform writer immediately above its
