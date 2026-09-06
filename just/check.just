@@ -104,7 +104,6 @@ fast-serial: \
     action-client-arena-budget \
     activate-shells \
     api-parity-ledger \
-    ledger-orphan-refs \
     artifact-identity-budget \
     atomic-sync-writes \
     board-abi-mirror \
@@ -202,6 +201,7 @@ fast-serial: \
     lane-skip-class \
     lane-skip-protocol \
     leaf-lockfiles \
+    ledger-orphan-refs \
     literal-domain-id \
     manifests-parse \
     message-bound-knobs \
