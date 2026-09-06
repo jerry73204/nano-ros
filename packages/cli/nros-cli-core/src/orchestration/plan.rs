@@ -504,6 +504,14 @@ pub struct PlanCallbackGroup {
     /// `true` when the planner inferred this group from the chains;
     /// `false` when it came from an explicit `[[group]]` override.
     pub inferred: bool,
+    /// Phase 434 — how a MODEL-derived record settled this group, when one
+    /// was consulted: `"default"` (the node declared nothing, so the
+    /// contract's default applied) or `"exclusive"` (an explicit
+    /// `concurrency:` set named these callbacks). `None` for a chain group
+    /// or for any group produced from a legacy record with no
+    /// `node_concurrency` key — the planner's own inference is all there is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared: Option<String>,
 }
 
 /// Phase 172.A — boot autostart policy for a managed-lifecycle (REP-2002) node.
