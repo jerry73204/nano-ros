@@ -68,7 +68,7 @@ c: c-fmt
     # "your C headers are broken": every `*_OPAQUE_U64S` came back undeclared
     # from a `cc` line that says nothing about cargo. Diagnosing that cost four
     # wrong hypotheses; the build's own error names the cause in one line.
-    cargo build -p nros-c --no-default-features --features "std,rmw-cffi,platform-posix,ros-humble" --quiet
+    cargo build -p nros-c --no-default-features --features "{{C_API_SHIPPED_FEATURES}}" --quiet
     # Variant dir FIRST so its `nros_config_generated.h` (with the
     # real OPAQUE_U64S macros) wins over the source-tree stub.
     cc -fsyntax-only \
@@ -254,7 +254,7 @@ c: c-fmt
     # "your C headers are broken": every `*_OPAQUE_U64S` came back undeclared
     # from a `cc` line that says nothing about cargo. Diagnosing that cost four
     # wrong hypotheses; the build's own error names the cause in one line.
-    cargo build -p nros-cpp --no-default-features --features "std,rmw-cffi,platform-posix,ros-humble" --quiet
+    cargo build -p nros-cpp --no-default-features --features "{{C_API_SHIPPED_FEATURES}}" --quiet
     cc -fsyntax-only \
         -Itarget/nros-c-generated \
         -Itarget/nros-cpp-generated \
@@ -358,7 +358,18 @@ compile-smoke:
     # on `#[panic_handler] function required` and reports a defect that is not
     # one.
     cargo check --workspace --all-targets --quiet {{HOST_UNCHECKABLE}}
-    echo "compile smoke: workspace + all targets check clean (no lints; see check-build)."
+    # Issue 1163 — the two C-API crates in the shape they SHIP, not their
+    # default. `nros-c` / `nros-cpp` are in `HOST_UNCHECKABLE` because their
+    # LINK step needs a target, but a `cargo check` never links, and their
+    # default feature (`panic-platform`) compiles almost none of the C surface:
+    # a duplicate `#[no_mangle]` inside an `rmw-cffi` region reached main green
+    # through this very smoke test, while `check-c` — the lane that compiles
+    # `C_API_SHIPPED_FEATURES` — runs on schedule only. Measured 25 s warm.
+    # A `check`, not a build: the header generation `check-c` needs from the
+    # build stays where it is.
+    cargo check -p nros-c -p nros-cpp --no-default-features --features "{{C_API_SHIPPED_FEATURES}}" --quiet
+    echo "compile smoke: workspace + all targets check clean (no lints; see check-build);"
+    echo "  nros-c + nros-cpp check clean in the shipped shape ({{C_API_SHIPPED_FEATURES}})."
 
 # Check C++ headers: formatting + freestanding syntax + nros-cpp clippy. The
 # clippy (rmw-zenoh-cffi) + syntax probe COMPILE nros-cpp/nros-c (zpico-sys pulls
@@ -385,7 +396,7 @@ cpp: cpp-fmt
     # "your C headers are broken": every `*_OPAQUE_U64S` came back undeclared
     # from a `cc` line that says nothing about cargo. Diagnosing that cost four
     # wrong hypotheses; the build's own error names the cause in one line.
-    cargo build -p nros-c -p nros-cpp --no-default-features --features "std,rmw-cffi,platform-posix,ros-humble" --quiet
+    cargo build -p nros-c -p nros-cpp --no-default-features --features "{{C_API_SHIPPED_FEATURES}}" --quiet
     # issue 0730 — the (zephyr-embedded × C++ × cyclonedds) coordinate is a
     # pairwise-class gap no runtime tier covers (cyclone fixtures run on
     # native_sim, which appends `,std`), and it failed E0599 at COMPILE time:
@@ -1567,7 +1578,7 @@ workspace-features:
     @echo "  - nros: cffi + iron"
     cargo clippy --quiet -p nros --no-default-features --features "std,rmw-cffi,ros-iron"
     @echo "  - nros-c: zenoh-cffi + posix + humble"
-    cargo clippy --quiet -p nros-c --no-default-features --features "std,rmw-cffi,platform-posix,ros-humble"
+    cargo clippy --quiet -p nros-c --no-default-features --features "{{C_API_SHIPPED_FEATURES}}"
     @echo "  - nros: cffi (no_std)"
     cargo clippy --quiet -p nros --no-default-features --features "rmw-cffi"
     @echo "  - transport: sync-critical-section"
