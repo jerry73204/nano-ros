@@ -1,7 +1,7 @@
 ---
 id: 1101
 title: "`use_sim_time_attaches_and_detaches_the_clock_source` fails in the suite and passes alone — the `/clock` armed flag is a process global"
-status: open
+status: resolved
 type: bug
 area: core, testing
 severity: medium
@@ -83,3 +83,33 @@ the file.
    SHOULD be per-instance hides the defect rather than fixing it.
 3. Whichever wins, the test must fail when the flag is not armed, so keep the
    assertion.
+
+## Resolution — FIXED, as issue 1104
+
+**This is the same defect as issue 1104**, filed independently the same day by
+another session. Same test, same assertion, same mechanism: `time_source`'s
+armed flag is a process-global `AtomicBool` while an `Executor` is per-test, and
+`reconcile_ros_time_source` writes it from `spin_once`.
+
+Fixed on `main` by `SimTimeGuard` in `packages/core/nros-node/src/executor/
+tests.rs` — a mutex both sim-time-aware tests take, restoring on drop the value
+OBSERVED ON ENTRY rather than a guessed default. The clobbering neighbour turned
+out to be `ros_time_timer_follows_the_simulated_clock`, whose own doc comment had
+already reasoned about the hazard and solved half of it ("One test rather than
+four, deliberately... so four tests would race each other inside the one test
+binary") — which handles those four and nothing about a fifth test landing beside
+them.
+
+Measured there, both directions: 349 passed 0 failed over 5 runs; and with the
+guard removed from the NEIGHBOUR only, the original failure returns 3 of 3.
+
+Read `docs/issues/archived/1104-node-std-tests-red-time-source-process-global.md`
+for the full record, including a wider product guard that was tried and REJECTED
+because a mutation test showed the lock alone was sufficient.
+
+**Note for the next reader:** 1104 also records that under `--test-threads=1` a
+DIFFERENT test fails for an unrelated reason (a 1 ms window asserted off a
+free-running process clock) — that is issue 1105, not this one.
+
+No further work is needed here; this doc is archived so the defect is not fixed
+twice.
