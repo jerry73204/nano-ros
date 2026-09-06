@@ -1260,12 +1260,27 @@ holds the evidence, the item is *close it*.
 
 ## Adopted issue (2026-09-04)
 
-* **[#1028](../issues/1028-nuttx-classified-hosted-takes-linux-queryable-budget.md)**
-  — NuttX is classified `hosted` because its `target_os` is not `"none"`, so
-  `runner.rs` picks the 32-slot queryable budget meant for a host. MEASURED on an
-  image with ZERO queryables: `SERVICE_BUFFERS` is 142,336 B of `.bss` against
-  35,584 B at the embedded budget — **106,752 B** wasted. Harmless on qemu-virt,
-  not harmless on a real part, which is this phase's whole subject.
+* **[#1028](../issues/archived/1028-nuttx-classified-hosted-takes-linux-queryable-budget.md)**
+  — RESOLVED 2026-09-06. NuttX was classified `hosted` because its `target_os`
+  is not `"none"`, so `runner.rs` picked the 32-slot queryable budget meant for
+  a host. MEASURED on an image with ZERO queryables: `SERVICE_BUFFERS` was
+  142,336 B of `.bss` against 35,584 B at the embedded budget — **106,752 B**
+  wasted. Harmless on qemu-virt, not harmless on a real part, which is this
+  phase's whole subject.
 
   It arrived as a by-product of an issue-0870 investigation and was filed
   separately rather than buried in a killed lead. That is why it had no phase.
+
+  The predicate is now `target_os_is_hosted()` over an explicit `RTOS_TARGET_OS`
+  list (`7c5e52845`, which measured the saving), and the CLASS is swept and
+  gated: `nros-rmw-zenoh`'s `effective_client_locator` asked the same question
+  with the same wrong predicate, and `check-rtos-target-os` now holds both the
+  list (against every triple this tree names) and the `cfg` spellings (against
+  the reachable RTOS set).
+
+  **This does not close W5's Open item.** The fallback budget is still a guess;
+  1028 only stopped it being the WRONG guess for NuttX. A standalone copy-out
+  example reaches none of the three declaration channels — no SystemModel, not
+  Zephyr, not a cargo leaf — so the guess is the only budget it can get. That
+  gap is
+  [#1142](../issues/1142-nuttx-standalone-example-has-no-entity-declaration.md).

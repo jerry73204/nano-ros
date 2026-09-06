@@ -240,11 +240,16 @@ mod cffi_register {
 
     // Phase 249 P4b — hosted self-registration via the
     // `nros_rmw_register_backend!` macro. The macro expands to a
-    // `#[used]` `.init_array` ctor on hosted targets
-    // (`not(target_os = "none")`) and to nothing on embedded
-    // (`target_os = "none"`: NuttX, Zephyr, ESP-IDF, bare-metal). On
-    // those targets the explicit `register()` call from the board /
-    // carrier is the only registration path.
+    // `#[used]` `.init_array` ctor on `not(target_os = "none")` and to
+    // nothing on `target_os = "none"` (bare-metal, and the RTOS ports
+    // that build against a bare-metal triple: Zephyr, FreeRTOS,
+    // ThreadX, ESP32-C3). Issue 1028 — NuttX is NOT in that second set:
+    // `armv7a-nuttx-eabihf` reports `target_os = "nuttx"`, so a NuttX
+    // image DOES get the ctor. That is deliberate and stated in
+    // `nros_rmw_cffi::section` — the board still calls `register()`
+    // explicitly and `register()` is idempotent — but this comment used
+    // to claim NuttX had `target_os = "none"`, which is the same false
+    // premise 1028 was filed against.
     nros_rmw_cffi::nros_rmw_register_backend! {
         fn() {
             let _ = nros_rmw_zenoh_register();
