@@ -63,22 +63,60 @@ ENV DEBIAN_FRONTEND=noninteractive
 # holds for anything installed into the single `/opt/ros/humble` prefix (the apt
 # packages below are), but a ROS package that installs to a DIFFERENT prefix, or
 # one whose own setup extends these variables further, would need this block
-# updated — `ros-humble-rmw-zenoh-cpp` adding
-# `<prefix>/opt/zenoh_cpp_vendor/lib` to `LD_LIBRARY_PATH` is the case issue
-# 0774 is about. Re-run the capture command above after changing the ROS package
-# set rather than assuming.
+# updated. `ros-humble-rmw-zenoh-cpp` is exactly that case (issue 0774 /
+# issue 1038): it vendors zenoh into `<prefix>/opt/zenoh_cpp_vendor/lib`, an
+# ADDITIONAL directory under the same prefix, and `rmw_zenohd` links its
+# `libzenohc.so` by SONAME — paired with the wrong one, it SEGVs mid-startup
+# rather than failing to load. `AMENT_PREFIX_PATH` does NOT change (still one
+# prefix); only `LD_LIBRARY_PATH` gains that directory. Re-captured 2026-09-06
+# after adding the package below, with the same command:
+#
+#     docker run --rm --entrypoint bash ros:humble-ros-base -c \
+#       'apt-get update -qq && apt-get install -y --no-install-recommends \
+#          ros-humble-rmw-zenoh-cpp ros-humble-example-interfaces \
+#          >/dev/null && env|sort >/tmp/a; . /opt/ros/humble/setup.bash; \
+#          env|sort >/tmp/b; diff /tmp/a /tmp/b'
+#
+# which prints exactly one changed line:
+#
+#     < LD_LIBRARY_PATH=/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib
+#     > LD_LIBRARY_PATH=/opt/ros/humble/opt/zenoh_cpp_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib
+#
+# Re-run it again after changing the ROS package set rather than assuming.
 ENV AMENT_PREFIX_PATH=/opt/ros/humble \
-    LD_LIBRARY_PATH=/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib \
+    LD_LIBRARY_PATH=/opt/ros/humble/opt/zenoh_cpp_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib \
     PYTHONPATH=/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages \
     ROS_VERSION=2 \
     ROS_PYTHON_VERSION=3 \
     ROS_LOCALHOST_ONLY=0
 ENV PATH=/opt/ros/humble/bin:$PATH
 
+# python3-tomli, early: `prereq-packages.py` below (COPYed right after) needs
+# it to read `nros-sdk-index.toml` before the package it names is itself
+# installed by the block that follows — a chicken/egg one apt command can't
+# resolve. (Also named again in that block's own package list, harmlessly —
+# apt no-ops on an already-satisfied package — because it belongs there too on
+# its own account, not just for this bootstrap.)
+RUN apt-get update && apt-get install -y --no-install-recommends python3-tomli
+
+# The zenoh ROS RMW's apt package name comes from the index, not a literal
+# here (issue 1038 / phase-413 W2): `[prereq.ros-rmw-zenoh-cpp]` in
+# `nros-sdk-index.toml` is the SSoT, and the name is DISTRO-PARAMETRIC (issue
+# 1128 — `ros-{ros_distro}-rmw-zenoh-cpp`, `{ros_distro}` from `$ROS_DISTRO`,
+# which the base image already sets to `humble`). Mirrored paths under
+# `/opt/nros-ssot`, same convention as `scripts/lib/rust-targets.sh` below.
+COPY scripts/sdk/prereq-packages.py /opt/nros-ssot/scripts/sdk/prereq-packages.py
+COPY nros-sdk-index.toml            /opt/nros-ssot/nros-sdk-index.toml
+
 # Host build deps shared across platforms + the arm cross-compiler (the setup-
 # time zenoh-pico build + freertos/nuttx/threadx/qemu cross builds need it on
 # PATH before `nros setup` provisions the index toolchain). curl/zstd/git for the
 # per-run install.sh + nros source provisioning.
+#
+# `ros-humble-rmw-zenoh-cpp` (issue 1038 / phase-413 W2): without it the image
+# has no zenoh router at all — `rmw_zenohd` does not exist, `zenohd_unavailable_
+# reason()` fails `require_e2e()`, and every e2e case on `freertos`/
+# `threadx_linux` skips on that one shared precondition ("Real failures: 0/0").
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake ninja-build device-tree-compiler gperf \
         git curl ca-certificates zstd xz-utils file wget \
@@ -98,6 +136,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libslirp0 libpixman-1-0 \
         libmbedtls-dev \
         ros-humble-example-interfaces \
+        $(python3 /opt/nros-ssot/scripts/sdk/prereq-packages.py --manager apt ros-rmw-zenoh-cpp) \
     && rm -rf /var/lib/apt/lists/*
 
 # uv (Python 3.12 venvs) + just (recipe runner) via their canonical installers.
