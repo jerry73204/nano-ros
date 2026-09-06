@@ -33,7 +33,11 @@ each fix lands with no way to demonstrate it.
   silently dropped**, so four e2e cells grep for a marker nothing prints. This is
   the OBSERVER, and it is the reason to sequence the phase rather than pick off
   whichever looks easiest: while it stands, the other three can only be debugged
-  by inference.
+  by inference. **RESOLVED 2026-09-06** — the markers deliver through `nros_log`
+  + the platform writer, and the class sweep is recorded in the archived issue.
+  Its one sibling instance (Zephyr pure-Rust images publish no sink list) is
+  [#1123](../issues/1123-zephyr-pure-rust-nros-log-has-no-sinks.md), which is
+  NOT part of this phase — no esp32 cell depends on it.
 
 ## Sequencing, and the reason for it
 

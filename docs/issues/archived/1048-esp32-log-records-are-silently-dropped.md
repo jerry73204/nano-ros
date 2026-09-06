@@ -5,7 +5,8 @@ status: resolved
 area: boards, testing
 severity: high
 found: 2026-09-04
-related: [0968, 1025, 0064]
+related: [0968, 1025, 0064, 0589, 0708, 0710, 1052, 1123]
+resolved_in: 2026-09-06
 ---
 
 # The entity exists; the line announcing it does not
@@ -203,3 +204,107 @@ The pairing is worth stating because it is the argument for this issue's
 severity. A silently dropped log made a crash look like a hang, and the crash was
 found only after the logging was fixed — the diagnostic was load-bearing for
 diagnosing something else.
+---
+
+## The CLASS sweep (2026-09-06) — what was checked, and how
+
+The fix above landed at the reported site. This section closes the issue by
+answering the question the site could not: *where else does this hold?* The
+class has TWO halves, because the fix needed two changes, and they generalise
+differently.
+
+### Half 1 — "the `log` facade cannot hold a logger here"
+
+The condition is exactly `target_has_atomic = "ptr"` being absent. That is a
+question `rustc` answers, so it was ASKED rather than reasoned. Every bare-metal
+triple that appears anywhere in the tree, against
+`rustc --print cfg --target <t> | grep target_has_atomic=\"ptr\"`:
+
+| target | `target_has_atomic="ptr"` |
+| --- | --- |
+| `thumbv7m-none-eabi` | yes |
+| `thumbv7em-none-eabi{,hf}` | yes |
+| `thumbv8m.main-none-eabi{,h}` | yes |
+| `armv7a-none-eabi` | yes |
+| `aarch64-unknown-none` | yes |
+| `riscv32imac-unknown-none-elf` | yes |
+| `riscv64gc-unknown-none-elf` | yes |
+| **`riscv32imc-unknown-none-elf`** | **no** |
+| **`thumbv6m-none-eabi`** | **no** |
+
+Two targets have the property. `riscv32imc` is esp32-c3, this board, the
+reported site. `thumbv6m` has NO board crate — it appears only in
+`tests/qemu-baremetal/Dockerfile`'s installed-target list, in a NEGATIVE
+assertion in `nros-board-common/src/arch_flags.rs` ("thumbv6m (Cortex-M0) is not
+declared by freertos-lwip"), and in `Cargo.toml` comments in
+`nros-rmw-cyclonedds` / `nros-smoltcp` noting that neither target has atomic
+CAS. So **esp32-qemu is the only live instance**, and the sweep is complete
+rather than merely broad.
+
+It is now written into the source: the `esp_println::logger::init_logger` call
+carries `#[cfg(target_has_atomic = "ptr")]`, so on this board the dead call is
+dead in the SOURCE, and the next board on a non-atomic target inherits the
+statement instead of the silence. `cargo check --target
+riscv32imc-unknown-none-elf` is green with and without `--features rmw-zenoh`.
+
+A false premise was removed with it. `nros-board-mps2-an385/src/entry.rs` cited
+this very board as W7's evidence that `log` works on `no_std`
+("qemu-esp32-baremetal disproves that: it bridges `log` on a `no_std` target
+through `esp_println`"). The call existed; nobody had read the console. The
+axis is ATOMICS, not `std` — that comment now says so, and points here.
+
+### Half 2 — "nobody published an `nros_log` sink list"
+
+This one has no target property to key on, so every board crate was read.
+Coverage of `::nros_platform_cffi::log::init_default()` (or `nros_log::init`) at
+each boot funnel:
+
+* installs directly: `nros-board-linux` (`boot_hosted`), `nros-board-mps2-an385`
+  (`boot`, `rtic::init_with_config`, `node::run_bare`), `nros-board-freertos`
+  (`run_entry`, `run_bare`, `run_tiers_entry`), `nros-board-threadx`
+  (`run_entry`, `run_bare`, `run_tiers_entry`, `run_app_thread`),
+  `nros-board-nuttx` (`run_entry`, `run_tiers`), `nros-board-nuttx-qemu`
+  (`nsh_main`), `nros-board-esp32-qemu` (both funnels, as of this fix).
+* delegates to one of those and is therefore covered:
+  `nros-board-mps2-an385-freertos`, `nros-board-mps3-an536-freertos`,
+  `nros-board-s32z270-freertos`, `nros-board-freertos-posix` (→
+  `nros_board_freertos::run_*`); `nros-board-threadx-linux`,
+  `nros-board-threadx-qemu-riscv64`, `nros-board-threadx-port-riscv64` (→
+  `nros_board_threadx::run_*`).
+* not a board: `nros-board-cffi`, `nros-board-common`, `mps2-an385-pac`,
+  `boards/{linux,zephyr}` (support dirs).
+* **`nros-board-zephyr` covers `run_tiers` ONLY**, and the pure-Rust Zephyr
+  entry is a MACRO rather than a board method, so it was never in anybody's
+  grep. `zephyr_component_main!` and `nros::main!`'s Zephyr codegen install
+  `zephyr::set_logger()` and no sink list. Filed as **issue 1123** — same class,
+  mirrored: on Zephyr the `log` facade is the one that works and `nros_log` is
+  the one that goes nowhere. Static evidence only; it is marked as such there.
+
+### One spelling, and an ordering that was backwards
+
+The fix's `nros_log::init(&[&nros_platform_cffi::log::PlatformSink])` was a
+second spelling of `init_default()` — the same list, hand-written. It is now
+`init_default()`, matching every other board.
+
+Publishing it moved INTO `register_log_writer`, one line after the fn-pointer
+writer it feeds, and out of `run_bare`, where it ran BEFORE
+`nros_platform_esp32_qemu::register_log_writer`. That order was wrong in a way
+that only showed at the boundary: `nros_log::init` DRAINS the early ring through
+the sinks it installs, and `Esp32QemuPlatform::write` drops when the writer slot
+is `None` (`log_slot::get()` returns `None` for a zero slot). So every record
+held during `init_hardware` was drained straight into a null writer — the one
+window the early ring exists to serve. Both funnels now reach the pair together.
+
+### What was EXECUTED here, and what was reasoned
+
+Executed: the `rustc --print cfg` table above; the per-board grep and the reads
+behind the coverage list; `cargo check -p nros-board-esp32-qemu --target
+riscv32imc-unknown-none-elf`, green both with default features (`rmw-zenoh`) and
+with `--no-default-features --features ethernet`.
+
+NOT re-executed: the QEMU run. The `[INFO] nros: Subscriber created for topic:
+/chatter` line recorded in the FIXED section above is from the original fix run
+and stands as the runtime evidence; this session did not rebuild the image
+(the host could not afford a fixture build), so the cleanup is argued as a
+compile-verified refactor of a delivery path already observed working, not as a
+second observation.

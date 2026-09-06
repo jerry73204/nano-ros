@@ -308,11 +308,18 @@ pub fn run_bare<F, E: core::fmt::Debug>(config: Config, setup: F) -> !
 where
     F: FnOnce() -> core::result::Result<(), E>,
 {
-    // issue 0708 — publish the nros_log sink list at the boot funnel.
-    // A record raised inside a LIBRARY (the zenoh session-pool diagnostic of
-    // issue 0589, for one) is dropped until a sink list exists, and its author
-    // cannot know whether the board published one. Idempotent.
-    ::nros_platform_cffi::log::init_default();
+    // issue 0708 — publish the nros_log sink list at the boot funnel. A record
+    // raised inside a LIBRARY (the zenoh session-pool diagnostic of issue 0589,
+    // for one) is dropped until a sink list exists, and its author cannot know
+    // whether the board published one.
+    //
+    // issue 1048 — the publication moved INTO `register_log_writer`, one line
+    // after the fn-pointer writer it feeds, and this funnel no longer publishes
+    // ahead of it. Order is load-bearing and it used to be backwards here:
+    // `init` DRAINS the early ring through the sinks it installs, so installing
+    // `PlatformSink` before `nros_platform_esp32_qemu::register_log_writer` sent
+    // every record held during `init_hardware` to a null writer — the one place
+    // the early ring exists to serve. Both funnels now reach the pair together.
     init_hardware(&config);
     register_log_writer();
     match setup() {
@@ -355,25 +362,37 @@ pub(crate) fn register_log_writer() {
         }
     }
     nros_platform_esp32_qemu::register_log_writer(Some(writer));
-    // Issue #64 — also install a `log::Log` for the `log` crate facade so the
-    // examples' `log::info!("Published:/Received:")` (and nros's framework
-    // `::log::info!`) route to the console. Without it the `log` crate has no
-    // logger installed and silently drops every record. esp-println's logger
-    // writes straight to the same console as the platform writer above.
+
+    // Issue #64 — bridge the `log` crate facade too, so a node body written
+    // against `log::info!` (and nros's own framework `::log::info!`) reaches the
+    // same console. esp-println's logger writes straight to it.
+    //
+    // Issue 1048 — and the CFG IS THE POINT, not decoration. `log::set_logger`
+    // and `log::set_max_level` are both `#[cfg(target_has_atomic = "ptr")]` in
+    // `log` 0.4, and this board's target is `riscv32imc-unknown-none-elf` — RV32
+    // I M C, no `A` extension, so `rustc --print cfg` lists no
+    // `target_has_atomic="ptr"` and NEITHER FUNCTION EXISTS. `init_logger` was
+    // therefore a call that compiled, ran, and installed nothing: no logger can
+    // be installed on this board, by anyone, and every `log::*` record was
+    // dropped. Writing the condition out means the dead call is dead in the
+    // SOURCE rather than only in the binary, and any future board on a
+    // non-atomic target (thumbv6m is the other one rustc reports here) gets the
+    // same statement instead of the same silence.
+    #[cfg(target_has_atomic = "ptr")]
     esp_println::logger::init_logger(log::LevelFilter::Info);
 
-    // Issue 1048 — install the nros_log sink, which is what actually delivers
-    // on this board.
+    // Issue 1048 — publish the `nros_log` sink list, which is what actually
+    // delivers on this board, and publish it at EVERY funnel: `run_bare` did
+    // this and `BoardEntry::run` did not, so a `nros::main!` image reached the
+    // application with no sinks while a fixture image printed fine.
     //
-    // `init_logger` above cannot work here: `log::set_logger` is
-    // `#[cfg(target_has_atomic = "ptr")]` and riscv32imc has no atomic
-    // pointers, so the `log` facade can never hold a logger and drops every
-    // record. It is left in place for boards that DO have atomics.
-    //
-    // Without this call `nros_log` does not print either — `dispatch_to_sinks`
-    // finds a null sink list and HOLDS each record in the early buffer for a
-    // board that never speaks. `PlatformSink` routes to
-    // `nros_platform_log_write`, which is the fn-pointer writer registered
-    // immediately above: no atomics, and the same console.
-    nros_log::init(&[&nros_platform_cffi::log::PlatformSink]);
+    // Without it `nros_log` is no better off than `log` was — `dispatch_to_sinks`
+    // finds a null sink list and HOLDS each record in the early ring for a board
+    // that never speaks. `init_default` installs `PlatformSink`, which routes to
+    // `nros_platform_log_write`, the fn-pointer writer registered immediately
+    // above: no atomics, and the same console. Same spelling every other board
+    // uses (`nros-board-{linux,mps2-an385,freertos,threadx,nuttx,zephyr}`) —
+    // naming the sink by hand here was a second spelling of one idea.
+    // Idempotent: re-calling swaps the list pointer for the same default.
+    ::nros_platform_cffi::log::init_default();
 }
