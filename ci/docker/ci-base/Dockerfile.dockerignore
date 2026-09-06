@@ -1,0 +1,10 @@
+# issue 1201 -- the build context is the REPO ROOT (images.yml passes
+# `context: .` + `file: ci/docker/ci-base/Dockerfile`) because the Dockerfile
+# COPYs two files from the tree. buildx reads THIS file, `<Dockerfile>.dockerignore`,
+# in preference to a root `.dockerignore`, so the context stays the files the
+# Dockerfile names and nothing else -- not the third-party trees, not a build dir.
+# Add a line here when the Dockerfile gains a COPY.
+*
+!ci/docker/ci-base/
+!scripts/lib/rust-targets.sh
+!config/rust-targets.txt
