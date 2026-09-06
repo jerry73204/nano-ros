@@ -149,13 +149,21 @@ fn require_probe() -> &'static Path {
 /// Spawn the probe on `domain`, holding its entities open for `hold`.
 ///
 /// Mirrors `interop_e2e::spawn_nano_cyclone` — same `LD_LIBRARY_PATH` wiring to
-/// the in-tree `libddsc`, and deliberately the same absence of a
-/// `CYCLONEDDS_URI`: the loopback pin reaches the ROS side through
-/// `ros2_env_setup_cyclonedds_with_domain` and the nano side of every existing
-/// Cyclone interop cell runs without it. Changing that here would put this
-/// file on a discovery configuration nothing else in the tree has run.
+/// the in-tree `libddsc`, and now the same LOOPBACK PIN.
+///
+/// This comment used to say the opposite, and it was right when it was written:
+/// the nano side of every Cyclone interop cell ran without a `CYCLONEDDS_URI`
+/// while `ros2_env_setup_cyclonedds_with_domain` pinned only the ROS side.
+/// Issue 1137 measured what that costs — the peer confined to 127.0.0.1 with
+/// `AllowMulticast=false`, our side keeping the middleware's default interface
+/// pick, so neither one's discovery reaches the other and `get_node_names`
+/// returns just this process. Issue 1009 had already measured the same thing
+/// (0 of 15, empty output) and written down "pin both sides or neither".
+/// `apply_to_command` is that missing half, and `check-dds-isolation-symmetry`
+/// is what caught this file still on the old shape after the fix landed.
 fn spawn_probe(probe: &Path, domain: u8, hold: Duration) -> ManagedProcess {
     let mut cmd = Command::new(probe);
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
     cmd.env("ROS_DOMAIN_ID", domain.to_string())
         .env("ADV_PROBE_NODE", NODE)
         .env("ADV_PROBE_PUB_TOPIC", PUB_TOPIC.trim_start_matches('/'))
