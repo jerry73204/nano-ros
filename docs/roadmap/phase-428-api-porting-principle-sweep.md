@@ -975,3 +975,47 @@ question, not a stat's.
 Gates: `just check ledger-orphan-refs`, `gate-selftests` (142/254 with a
 selftest), `grep-q-error-conflation` (the script greps nothing; 87 baselined
 sites, none grew), `gate-lists`, `api-parity-ledger` — all green.
+
+### 2. The `init*` entry points — one `rename`, not a family decision
+
+The Q1 follow-through filed `rust:Context::default_from_env` as `gap` +
+`absent` with a note that it is byte-for-byte `nros::init()` under rclrs's
+spelling, and deferred the verdict because "the entry-point spelling is one
+decision for the four of them". Surveyed here, against the recorded rclrs
+0.7.0 surface (`docs/reference/api-surface/rclrs.json`, `rclrs/src/context.rs`)
+and `packages/api/nros/src/init.rs`. rclrs has no free `init`; its entry
+points are the `Context` constructors. The RFC-0089 question is whether the
+porting edit is MECHANICAL — directed by the compiler, one local edit.
+
+| rclrs | ours | 1:1? | verdict | what the compiler says, and what to type |
+| --- | --- | --- | --- | --- |
+| `Context::default_from_env() -> Result<Self, RclrsError>` | `nros::init() -> Result<Context, InitError>` | **yes** — no args either side, same inputs (`ROS_DOMAIN_ID`, env rung), same output type, same fallibility | **`rename`** (was `gap`); disposition stays `absent` | `no function or associated item named default_from_env`; write `nros::init()?` — `rename.resolution` |
+| `Context::new(args, options)` | `nros::init_with_args(args)` | no — upstream PARSES `--ros-args`, ours REFUSES it at the call; upstream takes `InitOptions`, ours has none | `gap` + `absent` (unchanged) | maps only when argv has no `--ros-args` AND options were default: two facts a reader checks, not an edit the compiler directs |
+| `Context::from_env(options)` | `nros::init()` when `options == InitOptions::new()`; nothing otherwise | no — the argument has no counterpart | `declined` + `absent` (unchanged) | with default options the caller wanted `default_from_env`, whose row is the rename; with a domain id, it goes through the boot-config ladder (`rust:InitOptions`) |
+| — | `init_with_launch`, `init_with_launch_auto` | no upstream candidate | `extension` (unchanged) | nothing to port |
+| — | `nros::init()` (ours-only half) | pair of row 1 | **`rename`** (was `extension`) | `extension` says ROS 2 has none; rclrs has it under another name. Both halves carry the verdict (SCHEMA's pair rule) |
+
+So the family argument was wrong in its premise: only one member maps 1:1,
+and the decision is about one alias, not four spellings. Both `rename` rows
+are `status: blocked-needs-decision`, and `rust:Context` now points at the
+member that is a rename. **No code alias was added** — this is a ledger
+decision.
+
+**For the maintainer — would an alias make the port mechanical?** Yes, for
+this one member and cheaply: `impl Context { pub fn default_from_env() ->
+Result<Context, InitError> { init() } }` in `init.rs` behind `env`, two lines,
+`init()` untouched (it anchors `init_with_args` and the launch forms). RFC-0089
+clause 2 permits it and no constraint forbids it; the cost is a second spelling
+of one function on the Rust surface, and this phase's scope note says the
+sweep does not rename. It would NOT make `Context::new` or `from_env`
+mechanical — those differ in what they accept, which no alias fixes — and the
+ported program still changes the line after it (`Executor::open(&ctx.config(name))`
+for `ctx.create_executor(..)`, `rust:Context::create_executor`).
+
+Gates: `just check api-parity-ledger`, `api-parity` (ends "every divergence
+carries a ledger entry"; the report prints `Context::default_from_env  rename
+theirs-only <absent>` and `init  rename  ours-only`), `prelude-tiers` (a
+`rename` is prelude-eligible where an `extension` was not; 92 names, unchanged),
+`ledger-orphan-refs`. `cargo +nightly fmt --all -- --check` clean, no Rust
+edits. Every shard re-parsed with a duplicate-key-raising `object_pairs_hook`
+and round-trips byte-for-byte.
