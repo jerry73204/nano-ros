@@ -688,18 +688,22 @@ def self_test(quiet: bool = True) -> int:
     # Rule 4's source of truth is the reader, so read it against real headers:
     # a placeholder classifier that answers `True` for everything would pass
     # every case above.
+    # Spelled as full relative paths, not basenames found by a walk: two
+    # platform headers may share a basename (`unix.h` does not today, but the
+    # dispatch chain names `arduino/esp32.h` and `threadx/stm32.h`), and a walk
+    # that returns them in filesystem order would test whichever came first.
+    # `check-no-tracked-file-find` forbids the walk anyway.
     real = [
-        ("orin_spe.h", True),
-        ("lwip.h", False),
-        ("freertos_plus_tcp.h", False),
-        ("unix.h", False),
+        ("zenoh-pico/system/platform/freertos/orin_spe.h", True),
+        ("zenoh-pico/system/platform/freertos/lwip.h", False),
+        ("zenoh-pico/system/platform/freertos/freertos_plus_tcp.h", False),
+        ("zenoh-pico/system/platform/unix.h", False),
     ]
     for header, want_placeholder in real:
-        path = PLATFORM_INCLUDE_ROOT / "zenoh-pico/system/platform"
-        found = list(path.rglob(header))
-        if not found:
+        path = PLATFORM_INCLUDE_ROOT / header
+        if not path.is_file():
             continue  # submodule not checked out; the tree scan reports that
-        got = socket_is_placeholder(found[0].read_text(encoding="utf-8"))
+        got = socket_is_placeholder(path.read_text(encoding="utf-8"))
         if got != want_placeholder:
             bad += 1
             print(
