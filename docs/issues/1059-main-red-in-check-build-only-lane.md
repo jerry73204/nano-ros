@@ -80,3 +80,31 @@ Two separate fixes and one policy question.
   a merge-gating event would have caught all three of this session's reds. That
   is a `check-lane-contracts` question: an affordability tier may only resolve
   artifacts the job itself builds, and both of these qualify.
+
+
+## CORRECTION 2026-09-06 — the lane fix was written and never merged
+
+This issue's third fix item — move `node-std-tests` into a merge-gating event —
+was written, verified locally, and described in three places as landed. **It
+was not.** `grep -c "node-std-tests" .github/workflows/gate.yml` returns 0 on
+`origin/main` and 0 at PR #438's merge commit; exactly one commit in the repo
+ever contained the step, on a branch that was still open.
+
+So the fourth red — `use_sim_time_attaches_and_detaches_the_clock_source`
+(`5200437c5`, phase-425 W3b) — did not slip past a gate. It reached `main`
+through the absence of one, for the ordinary reason this issue already
+describes.
+
+The wrong turn is the instructive part. `5200437c5` **is** a descendant of
+#438's merge commit, so the tree the queue tested would have contained the step
+had the step existed. That looked like a hole in a live gate and produced two
+elaborate explanations — an in-flight queue batch, an environment-dependent
+test — before the simplest check. One `git merge-base --is-ancestor` and one
+`grep -c` settled it.
+
+**A claim believed because it was AUTHORED rather than OBSERVED** is what this
+campaign documents in other people's work. It was made here, three times, about
+this issue's own remedy.
+
+Landed on `ci/land-node-std-gate` (`00e8f3087`). This issue stays open until
+that merges.
