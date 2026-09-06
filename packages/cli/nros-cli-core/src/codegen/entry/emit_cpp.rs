@@ -27,8 +27,8 @@
 //! `init → network-wait → register → spin → shutdown` lifecycle.
 
 use super::{
-    BootConfigView, DeclsView, Plan, QosRowView, boot_config_view, decls_view, qos_views,
-    sanitize_pkg,
+    BootConfigView, DeclsView, Plan, QosRowView, ServicesView, boot_config_view, decls_view,
+    qos_views, sanitize_pkg, services_view,
 };
 
 /// The C++ board class an entry calls.
@@ -188,9 +188,10 @@ struct CppEntryView {
     sched: Option<CppSchedView>,
     /// Single-executor path only; empty when `tiers` is set.
     setup_nodes: Vec<CppNodeView>,
-    /// The param-services / lifecycle block that closes the single setup fn,
-    /// rendered from `cpp_service_trailer.cpp.jinja`.
-    trailer: String,
+    /// The param-services / lifecycle facts. The template includes
+    /// `cpp_service_trailer.cpp.jinja` where they belong, with the `tiered`
+    /// flag that picks the executor expression.
+    services: ServicesView,
     /// phase-308 — set for a metadata probe, which returns before the boot
     /// config and the board wrapper.
     probe: Option<CppProbeView>,
@@ -229,7 +230,7 @@ struct CppTierSetupView {
     name: String,
     nodes: Vec<CppNodeView>,
     /// Only tier 0 registers param services and lifecycle.
-    trailer: String,
+    emits_services: bool,
 }
 
 /// The sched-context wiring a tiered plan emits when it cannot use
@@ -348,33 +349,6 @@ fn node_view(n: &super::PlanNode, i: usize, tiered: bool) -> CppNodeView {
     }
 }
 
-/// The block that closes a setup function, from its own template.
-///
-/// One definition rendered at most twice (the single setup fn, or tier 0),
-/// rather than the same C++ text written twice.
-fn setup_trailer(plan: &Plan, tiered: bool) -> Result<String, String> {
-    #[derive(serde::Serialize)]
-    struct TrailerView {
-        param_services: bool,
-        lifecycle_code: Option<u8>,
-        tiered: bool,
-    }
-    super::render::render(
-        "cpp_service_trailer.cpp.jinja",
-        &TrailerView {
-            param_services: plan.param_services,
-            // "none" | "configure" | anything else (i.e. "active").
-            lifecycle_code: plan.lifecycle.as_deref().map(|a| match a {
-                "none" => 0u8,
-                "configure" => 1,
-                _ => 2,
-            }),
-            tiered,
-        },
-    )
-    .map(|s| s.trim_end_matches('\n').to_string())
-}
-
 pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String, String> {
     for n in &plan.nodes {
         if n.class_name.is_none() {
@@ -472,7 +446,6 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
     let mut tiers_view: Option<CppTiersView> = None;
     let mut sched_view: Option<CppSchedView> = None;
     let mut setup_nodes: Vec<CppNodeView> = Vec::new();
-    let mut trailer = String::new();
 
     if use_run_tiers {
         let tiers = plan.resolved_tiers.as_ref().unwrap();
@@ -501,7 +474,6 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
             })
             .collect();
 
-        let tier0_trailer = setup_trailer(plan, true)?;
         let setups = tiers
             .tiers
             .iter()
@@ -519,11 +491,7 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
                     })
                     .map(|(i, n)| node_view(n, i, true))
                     .collect(),
-                trailer: if ti == 0 {
-                    tier0_trailer.clone()
-                } else {
-                    String::new()
-                },
+                emits_services: ti == 0,
             })
             .collect();
 
@@ -631,7 +599,6 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
             .enumerate()
             .map(|(i, n)| node_view(n, i, false))
             .collect();
-        trailer = setup_trailer(plan, false)?;
     }
 
     let probe = match tail {
@@ -680,7 +647,7 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
             tiers: tiers_view,
             sched: sched_view,
             setup_nodes,
-            trailer,
+            services: services_view(plan),
             probe,
             boot_config,
             boot,

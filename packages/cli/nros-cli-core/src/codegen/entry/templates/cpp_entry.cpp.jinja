@@ -83,7 +83,11 @@ static int32_t __nros_entry_setup_tier_{{ setup.index }}(void* executor) {
 {%- include "cpp_node_body.cpp.jinja" %}
     }
 {%- endfor %}
-{{- setup.trailer }}
+{%- if setup.emits_services %}
+{%- with tiered = true %}
+{%- include "cpp_service_trailer.cpp.jinja" %}
+{%- endwith %}
+{%- endif %}
     return 0;
 }
 
@@ -142,7 +146,9 @@ static int32_t __nros_entry_setup() {
 {%- include "cpp_node_body.cpp.jinja" %}
     }
 {%- endfor %}
-{{- trailer }}
+{%- with tiered = false %}
+{%- include "cpp_service_trailer.cpp.jinja" %}
+{%- endwith %}
     return 0;
 }
 

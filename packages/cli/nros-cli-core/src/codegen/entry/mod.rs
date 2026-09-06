@@ -188,6 +188,34 @@ impl PlanNode {
     }
 }
 
+/// The param-services and lifecycle registrations that close a setup function.
+///
+/// phase-432 W2.3 — this was a `String` in both views, rendered by Rust from a
+/// template and spliced in. It is two facts now, and the pack's own partial is
+/// INCLUDED where it belongs rather than interpolated: the last rendered text
+/// the entry views carried.
+///
+/// Both are PROCESS facts, not per-tier ones, which is why the tiered path
+/// emits them in tier 0 alone.
+#[derive(serde::Serialize)]
+pub(crate) struct ServicesView {
+    pub param_services: bool,
+    /// `None` when the plan declares no lifecycle; otherwise the autostart
+    /// code the C ABI takes. "none" | "configure" | anything else (= active).
+    pub lifecycle_code: Option<u8>,
+}
+
+pub(crate) fn services_view(plan: &Plan) -> ServicesView {
+    ServicesView {
+        param_services: plan.param_services,
+        lifecycle_code: plan.lifecycle.as_deref().map(|a| match a {
+            "none" => 0u8,
+            "configure" => 1,
+            _ => 2,
+        }),
+    }
+}
+
 /// The per-node declarations a pack renders before construction, and the QoS
 /// overrides it renders after `create_node`.
 ///
