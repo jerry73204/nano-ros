@@ -113,6 +113,27 @@ config-surface:
 doc-recipe-refs:
     @python3 scripts/check-doc-recipe-refs.py
 
+# A LIVE document may not cite a commit that does not exist — the prose sibling
+# of `ledger-orphan-refs`, which refuses a ledger ROW citing a missing file.
+#
+# A short hash is invalidated by any rebase of the branch it names, and nobody
+# re-reads the prose when that happens: phase-428's sweep doc cited eight
+# commits, and six named nothing because five lived on the branch the document
+# itself is on. Reads NINE hex characters only — that is this repo's citation
+# width (748 of 920 resolve), while 16-char strings are cargo `-C metadata`
+# identities that are not commits at all (0 of 40 resolve) and 7-8 char ones are
+# mostly not hashes. `archived/` is not scanned: 178 of the 186 dangling
+# occurrences are there, and an archived record was true when it was written.
+#
+# A RATCHET over `.config/doc-commit-citations-baseline.txt`, whose entries
+# split into FOREIGN (correct references to a submodule, an upstream project or
+# a box tree — never resolvable here) and DEAD (real debt). Buildless, ~0.08 s,
+# one `cat-file --batch-check` for the whole set. SKIPS on a shallow clone,
+# where a live commit and an unfetched one are indistinguishable.
+[private]
+doc-commit-citations:
+    @python3 scripts/check-doc-commit-citations.py
+
 # Every `docs/{design,issues}/NNNN-*.md` path written anywhere — prose, issue
 # frontmatter, or a cmake error message — must resolve. Renumbering on an id
 # collision is what breaks these.
