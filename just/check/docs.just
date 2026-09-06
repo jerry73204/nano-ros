@@ -221,10 +221,20 @@ roadmap-status:
 # reads too — one spelling, because a gate documenting a DIFFERENT set from the
 # one that deploys is a gate that can be green while the deploy is red.
 #
-# Not on the fast line: it compiles. It runs in the `compile-smoke` JOB, which
-# already builds the workspace on every pull request — `check-lane-contracts`'s
-# rule is that a lane may only resolve artifacts the job itself builds, and this
-# one does.
+# Not on the fast line: it compiles. That is stated in
+# `.config/gate-lane-exempt.txt` and not only here, which is the difference
+# between an intent and a mechanism — fast-lane membership is DERIVED (issue
+# 1072: a recipe is a fast gate unless it is exempt), so a comment saying "not
+# on the fast line" did not make it so. It WAS on the fast line, and on `push`
+# to main — where gate.yml does not provision `-sys` sources — `cargo doc`
+# reached `zpico-sys`'s build script and died on the absent zenoh-pico:
+#
+#   zenoh-pico source not provisioned at ".../zpico-sys/zenoh-pico"
+#   error: recipe `rustdoc-links` failed with exit code 101
+#
+# It runs from its OWN pull-request step in gate.yml, which sits after the
+# provisioning step — `check-lane-contracts`'s rule is that a lane may only
+# resolve artifacts the job itself builds, and that job does.
 [group("ci")]
 rustdoc-links:
     #!/usr/bin/env bash
