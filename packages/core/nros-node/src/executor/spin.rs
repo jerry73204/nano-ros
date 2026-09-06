@@ -1472,6 +1472,12 @@ pub struct Executor<'s> {
     /// that carries a non-zero timeout (which is where the tier's
     /// declared spin period becomes visible to the executor).
     pub(crate) spin_quantization_checked: bool,
+    /// phase-436 W1 — the cadence the quantization audit (issue 0515) actually
+    /// ran against. Recorded because the audit only LOGS: without this a
+    /// regression that fed it the wrong number is invisible to a test, and
+    /// capping the park by the timer deadline is exactly such a regression
+    /// waiting to happen.
+    pub(crate) spin_quantization_us: u64,
     /// Issue #514 — violations discarded because the ring was full.
     /// Saturating. Without this a never-drained (or slowly-drained)
     /// image silently reports a stale prefix of its faults.
@@ -1529,6 +1535,15 @@ pub struct Executor<'s> {
     /// sleeps 30 ms has a 30 ms cadence and a 10 ms timeout, and judging it
     /// against the timeout reports a loop that is late on every single wake.
     pub(crate) spin_nominal_declared_us: u64,
+    /// phase-436 — the bound the last park was computed with, in us, and the
+    /// source that won it. See `WakeSourceId`.
+    pub(crate) last_park_bound_us: u64,
+    pub(crate) last_park_source: WakeSourceId,
+    /// phase-436 W2 — the park bound after rounding UP to what the platform's
+    /// wake primitive can express. Kept beside the request rather than
+    /// replacing it: reporting both is what makes the rounding auditable
+    /// instead of silent (issue 1194).
+    pub(crate) last_park_achieved_us: u64,
     /// Wakes that were already past their nominal deadline, and wakes total.
     ///
     /// The maximum alone cannot distinguish one bad wake from a loop that is
@@ -1714,6 +1729,7 @@ impl<'s> Executor<'s> {
             age_states: [super::monitor::AgeState::default(); super::monitor::MAX_MONITORS],
             fault_fn: None,
             spin_quantization_checked: false,
+            spin_quantization_us: 0,
             monitor_violations_dropped: 0,
             max_release_jitter_us: 0,
             last_spin_entry_us: None,
@@ -1722,6 +1738,9 @@ impl<'s> Executor<'s> {
             stack_headroom_reported: usize::MAX,
             spin_nominal_us: 0,
             spin_nominal_declared_us: 0,
+            last_park_bound_us: 0,
+            last_park_source: WakeSourceId::CallerBudget,
+            last_park_achieved_us: 0,
             late_wakes: 0,
             total_wakes: 0,
             report_violations: true,
@@ -1833,6 +1852,21 @@ impl Executor<'static> {
         // forwarded to `from_session_ptr_in`.
         unsafe { Self::from_session_ptr_in(session_ptr, default_backing(sizing), sizing) }
     }
+}
+
+/// phase-436 — which deadline source bounded the last park.
+///
+/// Attribution is what turns "why did we wake" from a guess into a number.
+/// Recording it costs one byte per spin and is the difference between a
+/// schedulability argument you can audit and one you have to trust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WakeSourceId {
+    /// The `spin_once` caller's own timeout — always a member of the source
+    /// set, which is why the park is never unbounded.
+    CallerBudget,
+    /// A registered timer's next expiry (issue 1192).
+    Timer,
 }
 
 impl<'s> Executor<'s> {
@@ -2370,6 +2404,151 @@ impl<'s> Executor<'s> {
     /// still — the toolchain holds both numbers before the image is
     /// built — but this backstop needs no board or codegen change and
     /// catches hand-written spin loops too.
+    /// phase-436 W1 (issue 1192) — how long the executor may park, in
+    /// microseconds, given the caller's budget.
+    ///
+    /// The park used to be bounded by the caller's timeout narrowed by exactly
+    /// one input, the BACKEND's `next_deadline_ms`. A registered timer is a
+    /// deadline the EXECUTOR owns, and nothing let it shorten the sleep — so
+    /// `spin_default`'s 50 ms slept straight past a 10 ms timer, and the
+    /// activations then arrived in the burst issue 0505 describes.
+    ///
+    /// This is the `min` over the deadline sources phase-436 names. The
+    /// caller's budget is always a member, so the result is never unbounded
+    /// and never zero-by-omission: with no timers registered the budget
+    /// stands, which keeps a long idle wait a wait rather than a poll.
+    ///
+    /// Distinct from issue 0515's audit, which warns that a period does not
+    /// divide the spin grid. That takes the grid as given; this moves it.
+    ///
+    /// `#[cfg(test)]`-gated (matching `mod tests`'s own gate in `mod.rs`):
+    /// production code calls `next_wake_bound_attributed_us` directly to get
+    /// the source alongside the bound, so this `.0`-only convenience has no
+    /// caller outside the test module and is dead code in any build that
+    /// does not compile it (every `cargo check`/`cargo doc`, and `cargo test
+    /// --features rmw-cffi`, which excludes `mod tests` too).
+    #[cfg(all(test, feature = "alloc", not(feature = "rmw-cffi")))]
+    pub(crate) fn next_wake_bound_us(&self, budget_us: u64) -> u64 {
+        self.next_wake_bound_attributed_us(budget_us).0
+    }
+
+    /// The bound and the source that produced it.
+    pub(crate) fn next_wake_bound_attributed_us(&self, budget_us: u64) -> (u64, WakeSourceId) {
+        match self.next_timer_deadline_us() {
+            Some(timer_us) if timer_us < budget_us => (timer_us, WakeSourceId::Timer),
+            _ => (budget_us, WakeSourceId::CallerBudget),
+        }
+    }
+
+    /// phase-436 — the bound the last park used, and which source won it.
+    pub fn last_park(&self) -> (u64, WakeSourceId) {
+        (self.last_park_bound_us, self.last_park_source)
+    }
+
+    /// phase-436 W2 — the park the platform was actually asked for, after
+    /// rounding the request up to an expressible value.
+    ///
+    /// Differs from `last_park().0` exactly when the request did not land on
+    /// the platform's grid. Both are reported because a cadence that cannot be
+    /// waited in must not be presented as if it were met.
+    pub fn last_park_achieved_us(&self) -> u64 {
+        self.last_park_achieved_us
+    }
+
+    /// phase-436 W3 (issue 1194) — the granularity the release-jitter
+    /// measurement was actually made at, in microseconds.
+    ///
+    /// The jitter statistic is reported in microseconds, but the mechanism
+    /// that PACES the loop decides how fine it can honestly be, and there are
+    /// two mechanisms:
+    ///
+    /// * **No declared cadence** — the loop is paced by the blocking wait
+    ///   itself, so it cannot come round more precisely than one park granule.
+    ///   Reporting µs there is precision the wait cannot deliver.
+    /// * **A declared cadence** (`set_spin_nominal_us`) — the caller paces
+    ///   itself, as nros-cpp's tiers do with `platform_sleep_us` between
+    ///   spins. That sleep is finer than the wait, so the measurement really
+    ///   is good to a microsecond and coarsening it would understate it.
+    ///
+    /// Reported rather than applied: this does not change what the monitor
+    /// judges, because silently coarsening a bound could mask real lateness.
+    /// It says what the number is worth.
+    pub fn release_jitter_granularity_us(&self) -> u64 {
+        if self.spin_nominal_declared_us != 0 {
+            1
+        } else {
+            self.park_granularity_us()
+        }
+    }
+
+    /// The finest park this build can actually express, in microseconds.    /// The finest park this build can actually express, in microseconds.
+    ///
+    /// Every `nros_platform_wake_*` port today takes `uint32_t timeout_ms`, so
+    /// the floor is one millisecond on every target — microseconds cannot
+    /// reach the primitive at all. A port that grows a finer slot lowers this,
+    /// and nothing above needs to change: callers ask in microseconds and are
+    /// told what was achieved.
+    pub fn park_granularity_us(&self) -> u64 {
+        // 1 ms — the granularity of `nros_platform_wake_wait_ms`.
+        1_000
+    }
+
+    /// Round a requested park UP to the platform's grid.
+    ///
+    /// Up, not nearest and not down. `as_millis()` truncated, which is how a
+    /// 500 us request became a 0 ms park — the non-blocking path, i.e. a
+    /// 100 % CPU spin with no warning (issue 1193) — and how 1500 us became a
+    /// 1 ms wait that is 33 % short of what was asked.
+    ///
+    /// Zero is preserved exactly: a zero timeout claims no cadence, and
+    /// promoting it to a granule would throttle every deliberate poll.
+    pub(crate) fn round_park_up_us(&self, requested_us: u64) -> u64 {
+        if requested_us == 0 {
+            return 0;
+        }
+        let g = self.park_granularity_us();
+        if g <= 1 {
+            return requested_us;
+        }
+        requested_us.div_ceil(g).saturating_mul(g)
+    }
+
+    /// Microseconds until the soonest live timer is due, or `None` when no
+    /// timer is pending.
+    ///
+    /// A timer that is cancelled, or a one-shot that already fired, owes
+    /// nothing and must not hold the park short — otherwise the executor keeps
+    /// waking on a deadline nobody is waiting for.
+    pub(crate) fn next_timer_deadline_us(&self) -> Option<u64> {
+        let arena_ptr = self.arena.as_ptr() as *const u8;
+        let mut soonest: Option<u64> = None;
+        for meta in self.entries.iter().flatten() {
+            if !matches!(meta.kind, EntryKind::Timer) {
+                continue;
+            }
+            // SAFETY: a Timer entry's arena slot holds a `TimerEntry<F>`, whose
+            // leading layout is `TimerHeader` — the same projection
+            // `audit_spin_quantization` relies on.
+            let header = unsafe { &*(arena_ptr.add(meta.offset) as *const TimerHeader) };
+            if header.cancelled || header.period_us == 0 {
+                continue;
+            }
+            if header.oneshot && header.fired {
+                continue;
+            }
+            // Already due: the bound is zero, and no other timer can beat it.
+            let remaining = header.period_us.saturating_sub(header.elapsed_us);
+            soonest = Some(match soonest {
+                Some(cur) => cur.min(remaining),
+                None => remaining,
+            });
+            if remaining == 0 {
+                break;
+            }
+        }
+        soonest
+    }
+
     fn audit_spin_quantization(&mut self, spin_us: u64) {
         if spin_us == 0 {
             return;
@@ -6424,7 +6603,13 @@ impl<'s> Executor<'s> {
     }
 
     pub fn spin_once(&mut self, timeout: core::time::Duration) -> SpinOnceResult {
-        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        // phase-436 W2 (issue 1193) — the budget is carried in MICROSECONDS.
+        // This was `as_millis()`, which truncates: `from_micros(500)` became
+        // `0`, and a zero timeout selects the non-blocking path — so a
+        // sub-millisecond `spin()` was a 100 % CPU loop with no warning. The
+        // conversion to whatever the platform primitive accepts happens once,
+        // at the park, and rounds UP.
+        let timeout_us = timeout.as_micros().min(u64::MAX as u128) as u64;
 
         // phase-425 W3b — bring the `/clock` subscription in line with
         // `use_sim_time`. One bool comparison in the settled case; the work only
@@ -6466,10 +6651,28 @@ impl<'s> Executor<'s> {
         // Default backend impl returns `None`, so this is a no-op
         // unless the active backend opts in.
         #[allow(unused_variables)]
-        let timeout_ms = match self.session.next_deadline_ms() {
-            Some(next) => timeout_ms.min(next.min(i32::MAX as u32) as i32),
-            None => timeout_ms,
+        let timeout_us = match self.session.next_deadline_ms() {
+            Some(next) => timeout_us.min((next as u64).saturating_mul(1000)),
+            None => timeout_us,
         };
+
+        // phase-436 W1 (issue 1192) — and by the next TIMER deadline, which is
+        // the one class of deadline the executor itself owns. Before this the
+        // park was bounded by the caller's budget narrowed only by the
+        // BACKEND's next event, so `spin_default`'s 50 ms slept straight past
+        // a registered 10 ms timer.
+        //
+        // Attribution is recorded here rather than derived later: this is the
+        // only point where the losing candidates are still in hand.
+        let (park_bound_us, park_source) = self.next_wake_bound_attributed_us(timeout_us);
+        self.last_park_bound_us = park_bound_us;
+        self.last_park_source = park_source;
+        // phase-436 W2 (issue 1193) — round UP to what the primitive can
+        // express. The old `as_millis()` truncated, so a sub-millisecond
+        // request became a zero park: the non-blocking path, a busy loop.
+        let park_achieved_us = self.round_park_up_us(park_bound_us);
+        self.last_park_achieved_us = park_achieved_us;
+        let timeout_ms = (park_achieved_us / 1000).min(i32::MAX as u64) as i32;
 
         // Wall-clock-accurate timer accumulation. Measure real time
         // since the previous `spin_once` exited (or, on the first call,
@@ -6640,7 +6843,16 @@ impl<'s> Executor<'s> {
 
         if !self.spin_quantization_checked && timeout_ms > 0 {
             self.spin_quantization_checked = true;
-            self.audit_spin_quantization((timeout_ms as u64).saturating_mul(1000));
+            // The TIER's declared cadence, not the capped park bound. Since
+            // phase-436 W1 the two differ whenever a timer is due sooner than
+            // the budget, and auditing the cap would compare the timer period
+            // against itself — an exact multiple every time, so issue 0515's
+            // warning would go silent on precisely the images that have a
+            // timer to quantize. `spin_nominal_us` is the declared cadence
+            // (`set_spin_nominal_us`, else the caller's timeout), recorded at
+            // the top of this spin before any capping.
+            self.spin_quantization_us = self.spin_nominal_us;
+            self.audit_spin_quantization(self.spin_quantization_us);
         }
 
         let arena_ptr = self.arena.as_mut_ptr() as *mut u8;
