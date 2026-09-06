@@ -293,7 +293,41 @@ inline Result spin(uint32_t duration_ms, int32_t poll_ms = 10) {
 //
 // `NROS_CPP_STD` stays as an explicit override for a consumer who knows better
 // than the probes, which is what the parity extractor and the docs use it for.
-#if defined(NROS_CPP_STD) || (defined(__STDC_HOSTED__) && __STDC_HOSTED__ && __has_include(<chrono>))
+// CORRECTED AGAIN 2026-09-07, and this time the discriminator is the library's
+// own feature-test macro rather than a guess about which RTOS ships what.
+//
+// The conjunction above is still not enough. Measured under the safety island's
+// OWN recorded compile command (`-nostdinc++`, arm-zephyr-eabi, picolibc), not
+// inferred:
+//
+//     __STDC_HOSTED__          1
+//     __has_include(<chrono>)  TRUE
+//     __cpp_lib_chrono         ABSENT
+//
+// So Zephyr does NOT merely "have no <chrono> at all" -- this toolchain ships
+// one that is present and hollow, which is the case the note above attributes
+// to FreeRTOS alone. Both halves of the conjunction answer yes and
+// `duration_cast` is still missing, so `Rate`'s duration constructor failed to
+// compile on the island exactly as it did before that note was written.
+//
+// `<ratio>` is the third test, and it is a PREREQUISITE rather than a proxy.
+// `duration_cast<To>(duration<Rep, Period>)` is defined in terms of
+// `std::ratio_divide` -- a duration's `Period` IS a `std::ratio` -- so a
+// `<chrono>` shipped without `<ratio>` cannot provide `duration_cast`, and that
+// is exactly the shape this toolchain ships. Measured on both sides:
+//
+//                        island (Zephyr)   hosted g++ -std=c++14
+//   __has_include(<chrono>)   TRUE              TRUE
+//   __has_include(<ratio>)    FALSE             TRUE
+//
+// `__cpp_lib_chrono` was tried first and is WRONG here: it is a C++17
+// feature-test macro, so it is absent under `-std=c++14` even where the library
+// is complete. `check-cpp` compiles the phase-417 probes at C++14 and caught
+// that immediately -- gating on it removed `create_wall_timer` from the hosted
+// build, which is the same over-tightening the note above records.
+// `_GLIBCXX_CHRONO` also separates the two but is libstdc++'s private spelling;
+// `__has_include` is the portable question.
+#if defined(NROS_CPP_STD) || (defined(__STDC_HOSTED__) && __STDC_HOSTED__ && __has_include(<chrono>) && __has_include(<ratio>))
 #include <chrono>
 #define NROS_CPP_HAS_STD_CHRONO 1
 #endif
