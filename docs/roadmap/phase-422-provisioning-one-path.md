@@ -1,13 +1,25 @@
 # phase-422 — provisioning has one path, and CI walks it
 
-**Status (2026-09-05). In progress. DONE: W1 (duplicate producers retired),
-W3 in full (dispatcher passthrough, the workflow sweep, and the prose sweep
-with its ratchet arm), W5 (the ratchet — four gates), W6 (the scope verb
-reports the system closure), W7's gate half. IN FLIGHT: W2's mdbook/verus half,
-W4, W7's additive board entries. OPEN BY DECISION: W8
-(the refusal, report -> warn -> error) and W7's true
-unification — the index namespace is what users type while the cmake namespace
-is what the build uses, and neither is obviously the one to keep.**
+**Status (2026-09-06). Every work item is landed or open by decision.** W1
+(duplicate producers retired), W2 (mdbook + verus are index tools; the bespoke
+scripts are deleted), W3 (dispatcher passthrough, the workflow sweep, the prose
+sweep and its ratchet arm), W4 (the nightly zephyr jobs walk the user path), W5
+(the ratchet, now five gates — the last one asserts what W1 fixed stays fixed),
+W6 (the scope verb reports the system closure), W7 (the additive board entries
+plus the gate), W8 (scoped to `infra`).
+
+**OPEN BY DECISION, not by omission:** W7's true unification — the index
+namespace is what users type while the cmake namespace is what the build uses,
+and neither is obviously the one to keep — and W2's clang-format exception, a
+pip wheel whose binary sits at an inner path, which would need index machinery
+serving exactly one consumer.
+
+**The 2026-09-05 header was stale in both directions** and this is a note about
+reading them, not only about this one: it listed W2, W4 and W7's additive half
+as IN FLIGHT when all three had landed, and claimed W5's four gates when the
+item's own text says a fifth was missing — which it was. A status line written
+once and not re-derived is the same authored-mirror class the repo keeps paying
+for; each claim above was checked against the tree.
 
 Implements the provisioning half of RFC-0014 and finishes what phase-413 W5
 started. Prior phases: 413 (CI workflow user parity), 398 (`package.xml`
@@ -260,6 +272,41 @@ comparison; forwarding to `nros setup --tool X` is fine.
 **Acceptance.** Reintroducing `install-corrosion`'s own stamp logic fails a
 gate. Both directions checked — a gate row naming a tool the index dropped
 fails too.
+
+**Landed 2026-09-06** as `check-one-producer-per-tool` (fast lane; the list is
+derived, so it joined by existing). Mutation-verified against the stated
+acceptance: putting `install-corrosion`'s download and untar back turns it red.
+
+*It found one, on its first run.* `just workspace cargo-tools` still ran
+`cargo install espflash --locked` beside `[tool.espflash]` — a second copy in
+`~/.cargo/bin`, with no pin, against a store install pinned to `v4.5.0`. Both
+reach PATH (`scripts/sdk-path-tools.txt` adds the store's bin dir), so which one
+`just esp32 build-qemu` packs with was an accident of PATH order: issue 0500's
+shape, in the one lane issue 1025 had already broken. It forwards now, and stays
+non-fatal — espflash is only needed to FLASH, and a workstation that never
+touches hardware should not fail its whole tool setup over it.
+
+**The rule is LINE-granular, and the first draft was not.** Asking "does this
+body name the tool and contain a producer verb" reported 25 problems, 25 of them
+false — every script in the tree contains the word `nros`, `nros` is itself an
+indexed tool since phase-431 W3, and a script that apt-installs something
+unrelated then reads as a second producer of the CLI. Two more refinements came
+from the same run: a line that only PRINTS is advice, not provisioning (an
+`echo` naming `apt install gcc-arm-none-eabi`; a skip message quoting a colcon
+package), and `_` closes an identifier, so `nros_check_skip` is a helper rather
+than a naming of `nros`.
+
+**What this gate is NOT about**, stated because the audit that produced it kept
+finding them: `[prereq.*]` OS packages are a different class with a different
+rule — composing the install command is nano-ros's job and running it is the
+user's (RFC-0062), which `check-sysdep-remedies` enforces. The audit did find
+one thing worth recording there, filed as
+[#1128](../issues/1128-prereq-apt-name-is-distro-parametric-and-the-index-cannot-say-so.md):
+`just ci provision-zenohd` composes `ros-${ROS_DISTRO}-rmw-zenoh-cpp` itself
+because the index can only spell one distro, and the two agree only on humble. And four cargo tools
+(`cargo-nextest`, `cargo-llvm-cov`, `rustfilt`, `cargo-show-asm`) are installed
+by `cargo-tools` and are NOT in the index, so nothing here judges them; whether
+they should be is a W2-shaped question nobody has asked yet.
 
 ### W6 — the bootstrap actually pulls the system closure
 

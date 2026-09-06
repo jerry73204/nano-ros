@@ -683,7 +683,17 @@ cargo-tools:
     set -e
     cargo install cargo-nextest --locked
     cargo install cargo-llvm-cov --locked
-    cargo install espflash --locked      || echo "WARNING: espflash install failed (non-fatal)"
+    # phase-422 W5 — FORWARDER, not a second producer. `espflash` is
+    # `[tool.espflash]` in the index, pinned to `v4.5.0` with a source recipe
+    # that installs into the versioned store prefix; `cargo install` put a
+    # second copy in `~/.cargo/bin` with no pin at all. Both end up on PATH
+    # (`scripts/sdk-path-tools.txt` adds the store's bin dir), and which one
+    # wins is an accident of PATH order — issue 0500's shape, which is why the
+    # `esp32 build-qemu` pack step exists to be broken by it.
+    #
+    # Still non-fatal: espflash is only needed to FLASH, and a workstation that
+    # never touches hardware should not fail its whole tool setup over it.
+    nros setup --tool espflash           || echo "WARNING: espflash provisioning failed (non-fatal)"
     cargo install rustfilt --locked      || echo "WARNING: rustfilt install failed (non-fatal)"
     cargo install cargo-show-asm --locked || echo "WARNING: cargo-show-asm install failed (non-fatal)"
     # Phase 218 — `nros` lives in-tree at `packages/cli/` (the merge
