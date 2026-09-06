@@ -117,15 +117,58 @@ this issue's:
   build dir, so `west` refused this measurement's first build. Worked around
   here with a private `-d`; that issue is the fix.
 
+## Zephyr, swept: DONE 2026-09-06
+
+All twelve Zephyr Rust confs whose image actually has a picolibc arena now pair
+it, using the STATED mechanism from issue 1171 rather than a copied `nm` figure:
+
+```
+# nros-arena-base: <base>
+CONFIG_NROS_EXECUTOR_BACKING_U64S=11041
+CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE=<base - 88328>
+```
+
+`8 * 11041 = 88,328` is the derived size on the larger of the two targets a
+Zephyr Rust leaf builds for, so it is at or above the requirement on both, and
+`nros-node` refuses to compile naming the knob if it ever is not.
+
+No leaf overrides an executor knob (`MAX_CBS`, `MAX_SC`, `MAX_NODES`, the
+arena), which is why one number serves all twelve.
+
+| base | new arena | confs |
+| ---: | ---: | --- |
+| 1,048,576 | 960,248 | 6 zenoh |
+| 16,777,216 | 16,688,888 | 6 cyclonedds |
+
+Verified by BUILDING, since the compile-time refusal is the check:
+
+| image | `EXECUTOR_BACKING` | `malloc_arena` |
+| --- | ---: | ---: |
+| `action-server` / zenoh / mps2_an385 | 88,328 | 960,248 |
+| `talker` / cyclonedds / native_sim | 88,328 | 16,688,888 |
+
+`action-server` is the heaviest role in the tree, so a stated size that suffices
+there suffices for every lighter role at the same base. Whole-image RAM on
+mps2/an385: **1,701,948 B / 4 MB (40.58 %)** — level with the already-paired
+talker's 1,701,940, which is the point.
+
+### The six XRCE confs were REVERTED, and that is the finding
+
+They set `CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` and their images **do not select
+picolibc**, so the symbol never reaches the resolved `.config`. Pairing them
+would have been arithmetic over a knob that does not exist — and it PASSED the
+textual gate, which cannot know. Caught by building one and reading its
+`.config`. Filed as issue 1189.
+
+`EXECUTOR_BACKING` is present in the XRCE image (88,328 B, same as its
+siblings), so W6 applies there; what is absent is the fixed arena those bytes
+used to come out of. There is nothing to lower, and "state nothing" is correct.
+
 ## Still open
 
-* **Every other Zephyr Rust leaf** (`listener`, `service-client`,
-  `service-server`, …) still reserves twice. **No longer a measurement each**:
-  issue 1171 (resolved) replaced the hand-copied subtrahend with a STATED
-  `CONFIG_NROS_EXECUTOR_BACKING_U64S`, so a leaf is three lines — the base it
-  lowered from, the word count, the arena — and a count too small for that leaf's
-  executor is a compile error naming the knob rather than a number someone has to
-  go and read out of `nm`.
+* ~~Every other Zephyr Rust leaf.~~ **DONE** — see the sweep above. Twelve confs
+  paired; the six XRCE ones deliberately not, because their images have no
+  picolibc arena to pair (issue 1189).
 * **FreeRTOS, NuttX, ThreadX, ESP32** — untouched. One platform per commit, per
   the plan above, because the failure mode is a runtime allocation failure and a
   six-platform diff makes it unattributable. The knob is Zephyr-only so far: the
