@@ -21,57 +21,101 @@ PRIO_RE = re.compile(r"^priority\s*=\s*(-?\d+)")
 PAIR_RE = re.compile(r"\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]")
 
 
-def load_plans():
-    """platform -> plan, from every board descriptor that declares one."""
+def _parse_plan_block(text, header, source, platform=None):
+    """Pull one `[<header>]` table out of `text` as a plan dict.
+
+    Shared by the platform and board readers so the two cannot drift — the
+    thing this module's own docstring says is the whole point.
+    """
+    # NOT `if header not in text` — that is satisfied by a COMMENT naming the
+    # table, and this file's own strip-comment note documents exactly that
+    # hazard for `<nano_ros_provides>` (issue 0516). Measured here: the boards
+    # that MOVED their plan to the platform kept a comment saying where it went,
+    # and the substring test then produced an empty plan that "conflicted" with
+    # the platform's. The table must actually be ENTERED.
+    if header not in text:
+        return None
+    in_plan = False
+    seen_table = False
+    plan = {"reserved": {}, "pool": {}, "source": source}
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if platform is None and line.startswith("platform ="):
+            platform = line.split("=", 1)[1].strip().strip('"')
+        if line == header:
+            in_plan = True
+            seen_table = True
+            continue
+        if in_plan and line.startswith("["):
+            in_plan = False
+        if not in_plan:
+            continue
+        if line.startswith("derived"):
+            plan["derived"] = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("resolver"):
+            plan["resolver"] = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("tier_key"):
+            plan["tier_key"] = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("direction"):
+            plan["direction"] = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("range"):
+            m = PAIR_RE.search(line)
+            plan["range"] = (int(m.group(1)), int(m.group(2)))
+        elif line.startswith("reserved."):
+            name = line.split("=", 1)[0].strip().split(".", 1)[1]
+            m = PAIR_RE.search(line)
+            if m is None:
+                plan.setdefault("empty_bands", []).append(name)
+                continue
+            plan["reserved"][name] = (int(m.group(1)), int(m.group(2)))
+        elif line.startswith("pool."):
+            name = line.split("=", 1)[0].strip().split(".", 1)[1]
+            m = PAIR_RE.search(line)
+            plan["pool"][name] = (int(m.group(1)), int(m.group(2)))
+    if not seen_table:
+        return None
+    return plan, platform
+
+
+def load_platform_plans():
+    """tier_key -> plan, from `config/*/nros-platform.toml`.
+
+    phase-375 W8 — a priority plan is a PLATFORM fact (`range = [1, 7]` is
+    FreeRTOS's `configMAX_PRIORITIES`), and stating it on boards meant two
+    boards of one platform held byte-identical copies. Worse than untidy:
+    [`load_plans`] keys by platform, so the later board silently won and a
+    divergence would have been invisible.
+    """
     plans = {}
+    for desc in sorted(tracked(ROOT / "config", name="nros-platform.toml")):
+        text = desc.read_text(encoding="utf-8")
+        got = _parse_plan_block(text, "[priority_plan]", desc.relative_to(ROOT))
+        if got is None:
+            continue
+        plan, _ = got
+        key = plan.pop("tier_key", None)
+        if key:
+            plans[key] = plan
+    return plans
+
+
+def load_plans():
+    """platform -> plan: the platform's, overridden by a board that states one."""
+    plans = load_platform_plans()
     for desc in sorted(tracked(ROOT / "packages/boards", name="nros-board.toml")):
         text = desc.read_text(encoding="utf-8")
-        if "[board.priority_plan]" not in text:
+        # ONE parser, shared with `load_platform_plans`. This loop carried its
+        # own copy until phase-375 W8 — in the module whose docstring says the
+        # two consumers "had a table each for about an hour, which is the second
+        # spelling this codebase keeps paying for".
+        got = _parse_plan_block(
+            text, "[board.priority_plan]", desc.relative_to(ROOT)
+        )
+        if got is None:
             continue
-        platform, in_plan = None, False
-        plan = {"reserved": {}, "pool": {}, "source": desc.relative_to(ROOT)}
-        for raw in text.splitlines():
-            line = raw.split("#", 1)[0].strip()
-            if not line:
-                continue
-            if line.startswith("platform =") and platform is None:
-                platform = line.split("=", 1)[1].strip().strip('"')
-            if line == "[board.priority_plan]":
-                in_plan = True
-                continue
-            if in_plan and line.startswith("["):
-                in_plan = False
-            if not in_plan:
-                continue
-            if line.startswith("derived"):
-                plan["derived"] = line.split("=", 1)[1].strip().strip('"')
-            elif line.startswith("resolver"):
-                plan["resolver"] = line.split("=", 1)[1].strip().strip('"')
-            elif line.startswith("tier_key"):
-                plan["tier_key"] = line.split("=", 1)[1].strip().strip('"')
-            elif line.startswith("direction"):
-                plan["direction"] = line.split("=", 1)[1].strip().strip('"')
-            elif line.startswith("range"):
-                m = PAIR_RE.search(line)
-                plan["range"] = (int(m.group(1)), int(m.group(2)))
-            elif line.startswith("reserved."):
-                name = line.split("=", 1)[0].strip().split(".", 1)[1]
-                m = PAIR_RE.search(line)
-                if m is None:
-                    # `reserved.foo = []` — an EXPLICITLY EMPTY band. Different
-                    # from an absent one: absent means nobody looked, empty
-                    # means somebody looked and found nothing (RFC-0079's
-                    # `reserved.foreign` on POSIX, measured with
-                    # dev/priority-thread-probe.py). Recorded so the
-                    # distinction survives, and skipped by every range check
-                    # because there is no range to be in.
-                    plan.setdefault("empty_bands", []).append(name)
-                    continue
-                plan["reserved"][name] = (int(m.group(1)), int(m.group(2)))
-            elif line.startswith("pool."):
-                name = line.split("=", 1)[0].strip().split(".", 1)[1]
-                m = PAIR_RE.search(line)
-                plan["pool"][name] = (int(m.group(1)), int(m.group(2)))
+        plan, platform = got
         # The key a `[tiers.<name>.<key>]` pin is written under. Usually the
         # board's own `platform`, but not always: both ThreadX boards are
         # `threadx-linux` / `threadx-riscv64` while bringups write
