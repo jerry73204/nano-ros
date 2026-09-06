@@ -6,9 +6,5 @@
 # deleting the correct citation would be the wrong fix.
 #
 # Regenerate: python3 scripts/check-prose-issue-refs.py --write-baseline
-book/src/getting-started/zephyr.md:0940
-cmake/NanoRosCodegenCore.cmake:0940
-cmake/NanoRosGenerateInterfaces.cmake:0940
-cmake/NanoRosMessageBounds.cmake:0940
-cmake/NanoRosWorkspace.cmake:0949
-just/check.just:0940
+just/check.just:1039
+scripts/check-zenoh-platform-macros.py:1039
