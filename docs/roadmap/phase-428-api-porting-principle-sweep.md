@@ -597,3 +597,154 @@ rows (`c:client_init`, `c:node_init`, `c:service_init`, `c:subscription_init`,
 ledger entry. Verified by running the gate from this branch's own HEAD scripts
 with the promotion absent — same six, and only those six. They are not in the
 `same:ret` class and are outside this work item.
+
+## W6 remainder, second half (2026-09-06) — `--require-disposition` now reaches the silent class, and the estimate was wrong
+
+> **Written independently of the section above, against the same base commit,
+> by an author who had not seen it.** Both halves found and fixed the SAME
+> `_ret_of` bug (it read `item["ret"]`; `flatten` stores return types one level
+> down under `overloads`). The section above landed first, in `fe807a999`, and
+> ITS fix is the one that ships — it is the superset: it applies `canon_type`
+> inside `_ret_of` and additionally normalises `rcl_{time_point,duration}_value_t`
+> to `int64_t`, which the version here does not. What survives from this half is
+> what it was actually for: `same_shaped_divergences`, the `--require-disposition`
+> extension, its self-test controls, and 18 authored ledger rows disjoint from
+> the other half's 20 (zero key overlap, verified row-wise). The numbers below
+> were measured BEFORE the merge; the post-merge re-measurement follows the
+> table.
+
+`--require-disposition` failed only on `declined` rows. That is the SAFE half:
+the name is absent, so a ported file gets `undeclared identifier` and the
+compiler has already said everything a disposition would. It skipped every
+`divergence` row — the half where the name EXISTS — which is the class RFC-0089
+was written about, outside the gate by construction.
+
+Now gated: a `divergence` row whose SUBJECT CORRELATES `same`. The compiler is
+silent there by definition, not by luck.
+
+**Measured first, and it did not match the estimate.** The work item said ~33
+rows; the measurement is **18**, and it is 18 for a reason the estimate could
+not have seen.
+
+| set | count |
+| --- | --- |
+| ledger rows | 2666 (876 divergence, 854 extension, 697 declined, 174 gap, 65 rename) |
+| `divergence` rows whose subject correlates `same`, PORTED surface | **18** |
+| the same, NATIVE surface | 8 |
+| `divergence` rows whose subject correlates `same:ret` | 2, both by inheritance |
+| `divergence` rows in every other bucket — NOT gated | 819 |
+
+**Re-measured after the merge** (`839f69b5c` + this half), because the other
+half authored 20 `divergence` rows on subjects that correlate `same` and they
+land in exactly this set — the two halves compound, they do not overlap:
+
+| set | before merge | after merge |
+| --- | --- | --- |
+| ledger rows | 2666 | 2686 (890 divergence, 854 extension, 697 declined, 177 gap, 68 rename) |
+| `divergence` rows correlating `same`, PORTED surface | 18 | **33** |
+| the same, NATIVE surface | 8 | 23 |
+| `divergence` rows in every other bucket — NOT gated | 819 | 857 |
+
+The merge surfaced exactly ONE row of this class that neither half had:
+`cpp:Duration::from_nanoseconds`. The other half's
+`rcl_duration_value_t` → `int64_t` normalisation moved it out of `arity-only`
+and into `same`, which is what brings it under this gate; its `why` had said in
+so many words that it "reads `arity-only` rather than `same`", so the merge
+falsified a written claim rather than merely adding a row. Disposition `adopt`
+(the two typedefs ARE the same 64-bit signed nanosecond count) and the stale
+sentence corrected.
+
+Keyed on the PORTED bucket, deliberately: a disposition answers what a porting
+user GETS, and a porting user includes `<rclcpp/rclcpp.hpp>`. On the native
+surface the set is 8, and the ten it drops are exactly the shim-side rows —
+`SensorDataQoS` and `ServicesQoS` (with their constructors), `Server`,
+`Logger`, `Node::Node`, `NodeOptions`, `NodeOptions::start_parameter_services`
+and `init` — which is the half RFC-0089's "shipping" table is made of.
+
+### `same:ret` was inert — `_ret_of` never fired anywhere
+
+*(An independent rediscovery of what the section above records. Kept because
+two authors reaching the same measurement from different starting points is
+itself evidence about the claim; the FIX that ships is the other half's.)*
+
+W6's return-type comparison was recorded as landed. It was not reaching
+anything: **0 `same:ret` rows across all three languages**, against 323 `same`
+rows. `_ret_of` was written to take "a record set" and CALLED with the flattened
+ITEM, whose return types live one level down under `overloads`, so
+`item.get("ret")` was always absent and the function always answered `None`.
+Nothing consumed `ret_differs` either — not the report, not the self-test — so
+the branch could not have been observed from any output.
+
+Fixed at the function (it unwraps `overloads` itself now) and compared through
+`canon_type`, the same normaliser the parameters use, so `nros::Result` and
+`Result` are not reported as a return-type divergence. `_Bool` joins the type
+noise: clang prints it for C's `bool`, and without the mapping nine C
+predicates (`*_is_valid`, `executor_trigger_*`) read as diverging in a return
+type where only the spelling differs.
+
+After the fix: **45 `same:ret` rows** (11 C, 19 C++, 15 Rust). They include
+`Publisher::assert_liveliness` (`bool` -> `Result`), `Executor::spin`/`cancel`
+(`void` -> `Result`), the six `LifecycleNode` transitions
+(`rclcpp_lifecycle::State&` -> `Result`), `QoS::depth` (`size_t` -> `int`) and
+`Node::name`/`namespace` (`String` -> `&str`). Most are UNLEDGERED, so they are
+not in this gate — the ledger's contract is one row per non-correspondence and
+a `same` row never needed one. **That is the next measurement, not a claim that
+they are fine.**
+
+### The 18, and what they were classified as
+
+* **refuse-loud (3)** — `cpp:NodeOptions`, `cpp:NodeOptions::start_parameter_services`
+  (every setter and getter is a dependent `static_assert` carrying
+  `NROS_RCLCPP_REFUSE_NODE_OPTIONS`), and `rust:Node`.
+* **adopt (4)** — `cpp:SensorDataQoS`, `cpp:ServicesQoS` and their constructors:
+  name, base class and all ten policy values are upstream's, pinned by
+  `static_assert` against the W10 table.
+* **adopt-bounded (11)** — `cpp:init`, `cpp:Node::Node`, `cpp:Logger`,
+  `cpp:Server`, `cpp:GoalResponse`, `cpp:CancelResponse`, `rust:NodeOptions`,
+  `rust:Publisher`, `rust:Subscription`, `rust:Timer`, `rust:MessageInfo`.
+
+Three of the eighteen are recorded with the classification stated as WEAKER than
+the disposition's definition, rather than glossed:
+
+* `rust:Node` is refuse-loud by the TYPE SYSTEM — the name resolves to a trait,
+  so every rclrs-shaped use is a type error — but the diagnostic is rustc's
+  "expected struct, found trait", which names neither the constraint nor the
+  nano-ros alternative. RFC-0089's refuse-loud promises the second half. Rust
+  has no `static_assert` reaching a trait-vs-struct collision.
+* `rust:MessageInfo` is adopt-bounded on two envelopes — backend-dependent
+  POPULATION (a zenoh attachment fills the fields; a backend without one leaves
+  the `Default`, and a reader cannot tell that from a real zero) and the 16-byte
+  `PUBLISHER_GID_SIZE` against the ABI's 24-byte `rmw_gid_t` — **neither of
+  which is in the type's doc comment today.** An adopt-bounded envelope is
+  supposed to be part of the API; here half of it is only in the ledger.
+* `cpp:Logger`'s row carried a stale fact: it said ours is "an OPAQUE
+  `const void*`". That is the C spelling. The C++ one has been a real
+  `class rclcpp::Logger` with a name and `get_name()` since stage 6 step A. The
+  divergence that survives is that the NAME does not reach the output.
+
+### Negative control
+
+Four planted rows in `api-parity.py`'s `self_test()`, which
+`just check api-parity-ledger` runs on the normal path — a control behind a flag
+is prose:
+
+| planted | expected |
+| --- | --- |
+| `divergence` + `same`, no disposition | REPORTED |
+| `divergence` + `differs`, no disposition | not reported |
+| `divergence` + `same`, WITH a disposition | not reported |
+| `gap` + `same`, no disposition | not reported |
+
+Each is also planted ALONE, so a pass cannot come from another row's presence,
+and an inheritance pair pins that a member reports its TYPE's ledger key. Three
+code mutations were run and all three go red: returning nothing (3 checks),
+widening the scope past `same` (3 checks), and letting an authored disposition
+stop satisfying it (2 checks). End-to-end against the real ledger and the real
+extracted surfaces, stripping the disposition from `cpp:NodeOptions`,
+`rust:Node` or `cpp:init` turns the gate red naming exactly that row, while the
+857 non-`same` divergence rows keep it green.
+
+**What this gate still does not reach**, stated because a green is narrower than
+it looks: `--check --require-disposition` needs clang and nightly rustdoc, and
+`check-api-parity` is run by no workflow on any event (issue 1066). It is a
+local gate on `just ci l1`, not a merge-gating one.

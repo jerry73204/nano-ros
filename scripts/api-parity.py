@@ -80,8 +80,22 @@ The gate is not "no differences". It is "no UNEXPLAINED differences".
 
 A verdict says why WE differ. A disposition says what a PORTING USER GETS:
 `adopt`, `adopt-bounded`, `refuse-loud`, `absent`. It is optional today and
-validated when present; `--require-disposition` gates `declined` rows on it,
-and phase-417 W-M2 is the pass that makes it the default. See DISPOSITIONS.
+validated when present; phase-417 W-M2 is the pass that makes it the default.
+See DISPOSITIONS.
+
+`--require-disposition` gates TWO sets, and they are chosen by what the
+COMPILER says, not by verdict alphabetics:
+
+  every `declined` row       the name is absent, so a ported file gets
+                             `undeclared identifier`. Safe, and already
+                             covered before phase-428 W6.
+  `divergence` rows whose    the name EXISTS and its shape corresponds, so the
+  SHAPE corresponds          ported file compiles and nothing is said. This is
+                             the class RFC-0089 was written about, and it was
+                             outside the gate by construction until W6.
+
+The second set is a SUBSET of `divergence` on purpose -- see
+`same_shaped_divergences` for the measurement and the reason.
 
 # The C++ lane measures TWO surfaces (issue 1020, phase-417 W0.a)
 
@@ -146,11 +160,31 @@ UPSTREAM_TOKENS = ("rcl", "rclcpp", "rclrs", "rclc", "rcl_interfaces",
 #                  program never names.
 #
 # OPTIONAL for now, deliberately. Phase-417 W-M2 is the pass that classifies
-# every `declined` row, and `--require-disposition` is the gate it turns on;
-# making it mandatory before that pass runs would fail the tree on ~700 rows
-# nobody has been asked to classify yet. What IS enforced today is that a
-# disposition, if written, is one of these four -- a typo that silently
-# satisfies a future gate is the failure a ledger exists to prevent.
+# every remaining row, and `--require-disposition` is the gate it turns on;
+# making it mandatory before that pass runs would fail the tree on rows nobody
+# has been asked to classify yet. What IS enforced today is that a disposition,
+# if written, is one of these four -- a typo that silently satisfies a future
+# gate is the failure a ledger exists to prevent.
+#
+# WHAT `--require-disposition` REACHES TODAY, re-measured 2026-09-06 AFTER the
+# two halves of W6 were merged (they were written independently against the
+# same base and neither author saw the other) -- 2686 ledger rows: 890
+# divergence, 854 extension, 697 declined, 177 gap, 68 rename:
+#
+#   697 `declined` rows            all classified (phase-417 W-M2's first pass)
+#    33 `divergence` rows whose    phase-428 W6, this file's
+#       shape corresponds          `same_shaped_divergences`
+#   857 `divergence` rows whose    NOT gated -- the compiler points at the
+#       shape does NOT correspond  shape difference, so a ported file does not
+#                                  silently differ. Classifying them is the
+#                                  rest of W-M2, not a hole in this gate.
+#
+# The split is by what the COMPILER says, not by verdict alphabetics, and the
+# 33 are the ones where it says nothing at all. That count was 18 when this
+# gate was written and 33 after the merge, for a reason worth stating: the
+# OTHER half of W6 -- the `same:ret` promotion -- authored 20 `divergence`
+# rows on subjects that correlate `same`, so they land in exactly this set.
+# The two halves compound; they do not overlap.
 DISPOSITIONS = ("adopt", "adopt-bounded", "refuse-loud", "absent")
 
 BUCKETS = ("systematic", "arity-only", "differs", "ours-only", "theirs-only")
@@ -743,20 +777,87 @@ def undisposed(entries):
     disposition does not say whether a ported program gets a compile error or a
     surprise, and that is the only thing a porting user needs to know.
 
-    NOT wired into `--check`, on purpose, and phase-417 W-M2 is the work item
-    that wires it. Two reasons it waits. The classification pass has not run --
-    all ~700 declines would fail at once, so the gate would be turned off again
-    the same day it landed. And the ledger shards are being edited concurrently
-    by the correction track (issues 1012, 1022); a field that is required
-    before anyone has been asked to write it breaks whoever is mid-edit.
+    Reached only through `--require-disposition`, which opts in early so the
+    classification pass can gate itself as it goes rather than in one flip at
+    the end. Making a disposition mandatory on EVERY row is still phase-417
+    W-M2's; a field required before anyone has been asked to write it breaks
+    whoever is mid-edit on the correction track (issues 1012, 1022).
 
-    `--require-disposition` opts in early, so the pass can gate itself as it
-    goes rather than in one flip at the end.
+    This half covers `declined` only. The `divergence` half -- the rows where
+    the compiler says nothing -- is `same_shaped_divergences`, and it needs the
+    correlator's buckets, which is why it lives in `report` rather than here.
     """
     return sorted(
         key for key, value in entries.items()
         if value.get("verdict") == "declined" and not value.get("disposition")
     )
+
+
+def same_shaped_divergences(ledger, lang, rows):
+    """Ledger keys with verdict `divergence` whose SUBJECT correlates `same`.
+
+    The second half of `--require-disposition`, and the one that reaches the
+    class RFC-0089 was written about.
+
+    `undisposed` covers `declined` only, and a decline is the SAFE case: the
+    name is absent, so a ported file gets `undeclared identifier` and the
+    compiler has already told the user everything the disposition would. A
+    `divergence` is the opposite -- the name EXISTS and its shape corresponds,
+    so the ported file COMPILES, and whether the contract behind it holds is a
+    fact no compiler states. That is `PollingSubscription::take()`, and it is
+    `ParametersQoS()` at a hundredth of upstream's history depth.
+
+    So why not every `divergence` row? Because there are 890 of them (measured
+    2026-09-06, after the merge) and requiring a disposition on all at once
+    would fail the tree the day it landed, which this file's own `DISPOSITIONS`
+    comment calls "how a gate gets switched off". The subset chosen is the one
+    where the compiler is silent BY DEFINITION rather than by luck: if the
+    correlator puts our shape and upstream's in the same bucket, then the names
+    and arities agree and nothing about the difference reaches the user at
+    compile time. A `divergence` in any other bucket has a shape difference the
+    compiler can point at, which is the mechanical edit RFC-0089 asks for; the
+    disposition is worth having there too, and it is the rest of W-M2's pass,
+    not this gate. Measured, that subset is 33 ledger keys against 890 -- small
+    enough to author, and the only ones where authoring is the ONLY way the
+    user finds out.
+
+    A `same` row whose RETURN TYPE differs is in this set, deliberately: the
+    `_ret_of` fix gives it a `ret_differs` marker and `gate_rows` a separate
+    `same:ret` verdict, but its BUCKET is still `same`, because a discarded
+    result compiles exactly as silently as a changed contract does. The two
+    halves of W6 landed independently and compound here -- the `same:ret`
+    promotion authored 20 `divergence` rows on `same`-bucket subjects, which
+    is most of why this set is 33 today and was 18 when the gate was written.
+
+    Keyed on the PORTED-file bucket, not the native one, deliberately. The
+    question a disposition answers is what a porting user GETS, and a porting
+    user includes `<rclcpp/rclcpp.hpp>` and reaches the compat shim. Keyed on
+    the native surface the set is 23 rather than 33, and the ten it drops are
+    exactly the shim-only rows -- `SensorDataQoS`, `ServicesQoS`, `Server`,
+    `Logger`, `NodeOptions` -- which is the half of the class RFC-0089's
+    "shipping" table is made of.
+
+    A member that inherits its type's verdict reports the TYPE's ledger key,
+    because that is the row a disposition would be written on.
+    """
+    buckets = {r["key"]: r.get("bucket") for r in rows if r.get("bucket")}
+    out = set()
+    for r in rows:
+        if r.get("bucket") != "same":
+            continue
+        entry, inherited = lookup(ledger, lang, r["key"], "same", buckets)
+        if entry is None or entry.get("verdict") != "divergence":
+            continue
+        if entry.get("disposition"):
+            continue
+        key = ledger_key(lang, r["key"])
+        if inherited or key not in ledger:
+            # Find the row that actually answered -- the owning type, or the
+            # glob. Identity, not name reconstruction: `lookup` already made
+            # the choice and re-deriving it here is how two answers appear.
+            key = next((k for k, v in ledger.items() if v is entry), key)
+        out.add(key)
+    return sorted(out)
 
 
 # --------------------------------------------------------------------------
@@ -961,6 +1062,7 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
     unledgered = []
     ported_unledgered = []
     misfiled = []
+    same_shaped = []
     with tempfile.TemporaryDirectory() as tmpdir:
         for lang in langs:
             rows, prov, removed = run_lang(lang, tmpdir, include_internal)
@@ -977,6 +1079,9 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
                 if x not in set(unledgered)
             ]
             ported_unledgered.extend(ported_only)
+            # RFC-0089's other half: a ledgered `divergence` whose shape
+            # corresponds is the one difference no compiler mentions.
+            same_shaped.extend(same_shaped_divergences(ledger, lang, rows))
 
             print("\n=== %s vs %s ===" % (lang, prov.get("package", "?")))
             if prov:
@@ -1126,6 +1231,22 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
                     print("  " + key, file=sys.stderr)
                 if len(missing) > 40:
                     print("  ... and %d more" % (len(missing) - 40), file=sys.stderr)
+                return 1
+            shaped = sorted(set(same_shaped))
+            if shaped:
+                print(
+                    "\n%d `divergence` ledger row(s) whose SHAPE corresponds carry no "
+                    "disposition. The name exists, the arity and return type agree, so "
+                    "a ported file COMPILES and nothing tells the user the contract "
+                    "changed -- which is the case RFC-0089 exists for. Add "
+                    "`\"disposition\"` -- one of: %s"
+                    % (len(shaped), ", ".join(DISPOSITIONS)),
+                    file=sys.stderr,
+                )
+                for key in shaped[:40]:
+                    print("  " + key, file=sys.stderr)
+                if len(shaped) > 40:
+                    print("  ... and %d more" % (len(shaped) - 40), file=sys.stderr)
                 return 1
         failing = list(unledgered) + (ported_unledgered if check_ported else [])
         if failing:
@@ -1703,6 +1824,82 @@ def self_test():
                       "cpp:C": {"verdict": "gap", "why": "x"}}),
           ["cpp:A"])
 
+    # ------------------------------------------------------------- W6 (428)
+    # The OTHER half of `--require-disposition`: a `divergence` whose SHAPE
+    # corresponds. The negative control runs here, on the normal path, because
+    # the mutation this gate exists to catch is a row that stays silent.
+    #
+    # Four planted rows, one per arm of the rule:
+    #   S  `divergence` + `same`  and no disposition  -> MUST be reported
+    #   D  `divergence` + `differs`, no disposition   -> must NOT be (the
+    #      compiler already points at a shape difference; requiring a
+    #      disposition on all 890 `divergence` rows is how a gate gets
+    #      switched off)
+    #   P  `divergence` + `same`  WITH a disposition  -> must NOT be
+    #   G  `gap`        + `same`, no disposition      -> must NOT be (verdict
+    #      is not `divergence`)
+    sled = {
+        "cpp:S": {"verdict": "divergence", "why": "x"},
+        "cpp:D": {"verdict": "divergence", "why": "x"},
+        "cpp:P": {"verdict": "divergence", "why": "x", "disposition": "adopt"},
+        "cpp:G": {"verdict": "gap", "why": "x"},
+    }
+    srows = [{"key": "S", "bucket": "same"},
+             {"key": "D", "bucket": "differs"},
+             {"key": "P", "bucket": "same"},
+             {"key": "G", "bucket": "same"}]
+    check("a same-shaped divergence with no disposition is caught",
+          same_shaped_divergences(sled, "cpp", srows), ["cpp:S"])
+    # The same planting, ONE row at a time, so a pass cannot come from another
+    # row's presence -- `["cpp:S"]` above would also hold if `D` were dropped
+    # for the wrong reason.
+    for key, want in (("S", ["cpp:S"]), ("D", []), ("P", []), ("G", [])):
+        got = same_shaped_divergences(
+            {"cpp:" + key: sled["cpp:" + key]}, "cpp",
+            [r for r in srows if r["key"] == key])
+        check("planted %s alone" % key, got, want)
+    # A member inherits its TYPE's verdict only when the buckets agree, and the
+    # key REPORTED is the type's -- that is the row a disposition gets written
+    # on. Both halves are planted: `T::m` inherits, `U::m` does not because the
+    # type sits in a different bucket.
+    iled = {"cpp:T": {"verdict": "divergence", "why": "x"},
+            "cpp:U": {"verdict": "divergence", "why": "x"}}
+    irows = [{"key": "T", "bucket": "same"}, {"key": "T::m", "bucket": "same"},
+             {"key": "U", "bucket": "differs"}, {"key": "U::m", "bucket": "same"}]
+    check("an inherited member reports its type's ledger key",
+          same_shaped_divergences(iled, "cpp", irows), ["cpp:T"])
+
+    # `_ret_of` takes the FLATTENED ITEM, whose return types live one level
+    # down under `overloads`. Pinned because getting it wrong is SILENT: it was
+    # called with the item, always answered None, and the `same:ret` branch it
+    # gates could not fire on any of the three surfaces.
+    check("_ret_of unwraps overloads",
+          correlate._ret_of({"key": "X", "kind": "method",
+                             "overloads": [{"params": [], "ret": "Result"}]}),
+          "Result")
+    check("_ret_of refuses a disagreeing overload set",
+          correlate._ret_of({"key": "X", "kind": "method",
+                             "overloads": [{"params": [], "ret": "Result"},
+                                           {"params": [], "ret": "void"}]}),
+          None)
+    _rows = correlate.compare(
+        {"f": {"key": "f", "kind": "function", "qual": "f",
+               "overloads": [{"params": [], "ret": "nros::Result"}]}},
+        {"f": {"key": "f", "kind": "function", "qual": "f",
+               "overloads": [{"params": [], "ret": "void"}]}},
+        "c++")
+    check("a return-only difference is same:ret",
+          (_rows[0]["bucket"], bool((_rows[0]["detail"] or {}).get("ret_differs"))),
+          ("same", True))
+    _same = correlate.compare(
+        {"f": {"key": "f", "kind": "function", "qual": "f",
+               "overloads": [{"params": [], "ret": "nros::Result"}]}},
+        {"f": {"key": "f", "kind": "function", "qual": "f",
+               "overloads": [{"params": [], "ret": "rclcpp::Result"}]}},
+        "c++")
+    check("a namespace-only return spelling is not a difference",
+          _same[0]["detail"], None)
+
     failures.extend(public_surface.self_test())
     failures.extend(signature_rules.self_test())
     failures.extend(topics.self_test())
@@ -1723,8 +1920,10 @@ def main():
                     help="also gate the ported-file surface (rclcpp_compat.hpp); "
                          "phase-417 W-M2 makes this the default")
     ap.add_argument("--require-disposition", action="store_true",
-                    help="with --check, fail when a `declined` row carries no "
-                         "RFC-0089 disposition; phase-417 W-M2 makes this the default")
+                    help="with --check, fail when a `declined` row -- or a "
+                         "`divergence` row whose shape corresponds, so the "
+                         "compiler says nothing -- carries no RFC-0089 "
+                         "disposition; phase-417 W-M2 makes this the default")
     ap.add_argument("--suggest-renames", action="store_true",
                     help="pair unmatched names by similarity (suggestions, never findings)")
     ap.add_argument("--include-internal", action="store_true",

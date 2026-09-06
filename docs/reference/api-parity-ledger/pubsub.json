@@ -1245,7 +1245,8 @@
   },
   "rust:MessageInfo": {
     "verdict": "divergence",
-    "why": "see `cpp:MessageInfo`."
+    "disposition": "adopt-bounded",
+    "why": "see `cpp:MessageInfo`.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nUPSTREAM'S CONTRACT: `rclrs::MessageInfo` wraps `rmw_message_info_t` and exposes it whole.\n\nOURS: `packages/core/nros-core/src/message_info.rs:24` — a flat struct of source/received timestamps, publication/reception sequence numbers and a 16-byte `publisher_gid`. See `cpp:MessageInfo` for why the DDS-shaped whole is not carried.\n\nHOW A USER FINDS OUT: an accessor we do not have is a COMPILE ERROR. Two things are NOT loud, and they are the envelope:\n  * POPULATION. The fields are filled from the zenoh ATTACHMENT (`packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:1308`). A backend that carries no attachment leaves the `Default` in place, so a reader cannot distinguish \"the publisher sent 0\" from \"this backend does not report it\".\n  * GID WIDTH. `PUBLISHER_GID_SIZE` is 16 while the RMW ABI's `rmw_gid_t` is upstream's 24 (`packages/rmw/cffi/src/generated.rs`, which says so and says reconciling the two is its own change) — so a gid from a take and one from `get_gid_for_publisher` are not comparable today, and the narrower one truncates.\n\nNEITHER ENVELOPE IS IN THE TYPE'S DOC COMMENT TODAY. Recorded that way rather than claimed as documented: ADOPT-BOUNDED's envelope is supposed to be part of the API, and here half of it is only in this ledger."
   },
   "rust:MessageInfo::new": {
     "verdict": "extension",
@@ -1413,7 +1414,8 @@
   },
   "rust:Publisher": {
     "verdict": "divergence",
-    "why": "rclrs 0.5 splits every entity into `X` (an `Arc<XState>` alias) and `XState` (the inherent impl); ours is one type. The correlator folds the suffix, so the members listed here are the ones with no counterpart at all -- see `rust:PublisherState::get_subscription_count` and the loan rows."
+    "disposition": "adopt-bounded",
+    "why": "rclrs 0.5 splits every entity into `X` (an `Arc<XState>` alias) and `XState` (the inherent impl); ours is one type. The correlator folds the suffix, so the members listed here are the ones with no counterpart at all -- see `rust:PublisherState::get_subscription_count` and the loan rows.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nWHAT THIS KEY IS, stated first because it decides the disposition: `rclrs::Publisher` is an ALIAS for `Arc<PublisherState>` with ZERO members of its own in the recorded surface, and the correlator folds the `State` suffix. So this row is a TYPE-NAME correspondence and no signature was compared — it lands in `same` through the non-callable branch, not by agreeing on anything.\n\nUPSTREAM'S CONTRACT for the name: a publisher handle, shared, with `publish`, `topic_name`, `get_subscription_count`, `notify_on_subscriber_ready`, `borrow_loaned_message` and `can_loan_messages` on the state behind it.\n\nOURS: one type, no `Arc`, and no loan API — loans need a middleware that owns the buffer, which the RMW seam (RFC-0035) does not expose.\n\nHOW A USER FINDS OUT: COMPILE ERROR on every absent member, each carried by its own row (`rust:PublisherState::get_subscription_count`, the loan rows). ADOPT-BOUNDED for the NAME and the concept; this row makes no claim about any member, by construction."
   },
   "rust:Publisher::assert_liveliness": {
     "verdict": "extension",
@@ -1566,7 +1568,8 @@
   },
   "rust:Subscription": {
     "verdict": "divergence",
-    "why": "see `rust:PublisherState`."
+    "disposition": "adopt-bounded",
+    "why": "see `rust:PublisherState`.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nThe subscription half of `rust:Publisher`, and the same kind of key: `rclrs::Subscription` is an ALIAS with zero recorded members, so this row is a TYPE-NAME correspondence and no signature was compared.\n\nUPSTREAM'S CONTRACT for the name: a subscription handle whose callback is set on the state behind it, after construction — `set_callback`, `set_async_callback`, `set_worker_callback`, plus `topic_name` and `qos`.\n\nOURS: one type, no `Arc`, and the callback is bound at DECLARATION rather than set afterwards — with no allocator the entity set has to be known when `register` runs (RFC-0043/0044), so there is no post-construction setter to call.\n\nHOW A USER FINDS OUT: COMPILE ERROR — `set_callback` is `no method named`, and the fix is to move the closure into the declaration. ADOPT-BOUNDED for the name; the members are their own rows."
   },
   "rust:Subscription::buffer": {
     "verdict": "divergence",
