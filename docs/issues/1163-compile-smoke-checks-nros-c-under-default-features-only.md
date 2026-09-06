@@ -5,7 +5,7 @@ status: open
 type: bug
 area: ci, c
 severity: high
-related: [1040, 1059, 1080, 1102, 0417, RFC-0061]
+related: [1040, 1059, 1080, 1102, 1162, 0417, RFC-0061]
 found: 2026-09-06
 ---
 
@@ -44,7 +44,9 @@ its job went `failure` on every main run since `4ad88ef86` (07:49Z), which is
 a report, not a gate. #557 adds `clang` to the CI image and leaves a
 placeholder in `gate.yml` (line 789) saying the step is "NOT here yet".
 
-Fix for the symptom: PR #612 (`7b3bab8e9`). This issue is the gate.
+Fix for the symptom: PR #630 (issue 1162, which also asks for a static
+`no_mangle`-uniqueness gate — complementary to this one, which is about the
+feature shape the lanes compile). This issue is the CI gate.
 
 ## Why no other lane covers it
 
