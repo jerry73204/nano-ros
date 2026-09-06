@@ -1,0 +1,46 @@
+{#-
+  The param-services / lifecycle block that closes a C++ setup function.
+
+  Emitted at most once per TU: on the tiered path only tier 0 carries it,
+  because both are process facts rather than per-tier ones.
+
+  The two arms differ in more than the executor expression — the tiered arm's
+  non-fatal note names cyclonedds and the single arm's does not. That is one
+  comment with two authored spellings, which is this phase's own defect class;
+  it is preserved verbatim here because W2.3 is a byte-for-byte conversion, and
+  reconciling the two is a separate change with its own golden diff.
+
+  This renders NOTHING when neither service is declared: the caller writes the
+  lines around it, so an empty trailer must contribute no bytes at all rather
+  than a blank line inside a function.
+-#}
+{%- if param_services %}
+    /* Phase 269 (W1) — param-services: register the runtime get/set surface
+     * (seeding: emit_declare_params, pre-construction — issue 0745). */
+    {
+{%- if tiered %}
+        /* Non-fatal (issue 0745): on RMWs without service-server support
+         * (e.g. cyclonedds today) registration fails — the runtime get/set RPC
+         * is unavailable, but the SEEDED store above already carries the launch
+         * initials, so boot proceeds. */
+        (void)nros_cpp_register_parameter_services(executor);
+{%- else %}
+        void* __exec = ::nros::global_handle();
+        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
+        /* Non-fatal (issue 0745): on RMWs without service-server support
+         * registration fails — the seeded store already carries the launch
+         * initials, so boot proceeds without the get/set RPC. */
+        (void)nros_cpp_register_parameter_services(__exec);
+{%- endif %}
+    }
+{%- endif %}
+{%- if lifecycle_code is not none %}
+    /* Phase 269 (W2) — lifecycle-services: register + autostart. */
+    {
+{%- if not tiered %}
+        void* __exec = ::nros::global_handle();
+        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
+{%- endif %}
+        nros_cpp_lifecycle_autostart({% if tiered %}executor{% else %}__exec{% endif %}, {{ lifecycle_code }}u);
+    }
+{%- endif %}

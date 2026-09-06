@@ -1,0 +1,38 @@
+{#-
+  The entry point, in the board's boot shape.
+
+  Three shapes, one derivation: `nros_entry_lower::BoardFamily::boot_shape`
+  (phase-432 W2.2) answers which, and this template spells each in C++.
+  `static_cast<int>` belongs to the Zephyr/kernel shape alone — the other two
+  return the board's `int32_t` directly.
+
+  The board CALL is assembled here rather than handed over pre-rendered: it is
+  three already-correct values (the board path, whether the plan runs tiers,
+  how many) laid out, which is the line `render.rs` draws. Only the HOST board
+  resolves its locator at run time, so it is the one `run_components` that
+  takes no locator argument.
+-#}
+{%- set call -%}
+{%- if boot.tiers -%}
+{{ boot.board_path }}::run_tiers(nros_boot_config_node_name(&NROS_BOOT_CONFIG), __nros_tiers, {{ boot.n_tiers }}u)
+{%- elif boot.shape == "host" -%}
+{{ boot.board_path }}::run_components(nros_boot_config_node_name(&NROS_BOOT_CONFIG), &__nros_entry_setup)
+{%- else -%}
+{{ boot.board_path }}::run_components(NROS_ENTRY_LOCATOR, nros_boot_config_node_name(&NROS_BOOT_CONFIG), &__nros_entry_setup)
+{%- endif -%}
+{%- endset -%}
+{%- if boot.shape == "kernel" -%}
+int main(void) {
+    return static_cast<int>({{ call }});
+}
+{% elif boot.shape == "app" -%}
+extern "C" int nros_app_main(int /*argc*/, char** /*argv*/) {
+    return {{ call }};
+}
+
+NROS_APP_MAIN_REGISTER_VOID();
+{% else -%}
+int main(int /*argc*/, char** /*argv*/) {
+    return {{ call }};
+}
+{% endif -%}

@@ -45,6 +45,22 @@ const TEMPLATES: &[(&str, &str)] = &[
         "c_service_trailer.c.jinja",
         include_str!("templates/c_service_trailer.c.jinja"),
     ),
+    (
+        "cpp_entry.cpp.jinja",
+        include_str!("templates/cpp_entry.cpp.jinja"),
+    ),
+    (
+        "cpp_node_body.cpp.jinja",
+        include_str!("templates/cpp_node_body.cpp.jinja"),
+    ),
+    (
+        "cpp_boot_wrapper.cpp.jinja",
+        include_str!("templates/cpp_boot_wrapper.cpp.jinja"),
+    ),
+    (
+        "cpp_service_trailer.cpp.jinja",
+        include_str!("templates/cpp_service_trailer.cpp.jinja"),
+    ),
 ];
 
 static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {

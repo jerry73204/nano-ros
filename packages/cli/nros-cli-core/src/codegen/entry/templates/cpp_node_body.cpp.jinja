@@ -1,0 +1,49 @@
+{#-
+  One node's construction, inside the `{ }` its caller opened.
+
+  A partial rather than two copies: the tiered setup functions and the single
+  setup function differ ONLY in which executor expression they hand the node
+  (`executor`, the tier's own, versus the process-global handle), and that
+  difference is one `if` here instead of ~60 duplicated lines there. `n.decls`
+  is written by the caller, because the two callers indent it identically but
+  emit it before different things.
+
+  `n.tiered` is what selects the expression. It is a fact about WHERE this
+  body is being rendered, not about the node, which is why it rides on the
+  node view the caller builds rather than being derived here.
+-#}
+{%- if n.shape == "rust" %}
+{%- if n.tiered %}
+        int32_t crc = __nros_component_{{ n.pkg }}_install(nullptr, executor, nullptr);
+        if (crc != 0) return crc;
+{%- else %}
+        void* __exec = ::nros::global_handle();
+        if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
+        int32_t crc = __nros_component_{{ n.pkg }}_install(nullptr, __exec, nullptr);
+        if (crc != 0) return crc;
+{%- endif %}
+{%- elif n.shape == "rclcpp" %}
+        ::nros::NodeHandle __h({% if n.tiered %}executor{% else %}::nros::global_handle(){% endif %});
+        if (!__h.valid()) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
+        __nros_comp_{{ n.index }} = new (__nros_comp_buf_{{ n.index }}) ::{{ n.class }}(__h);
+        if (!__nros_comp_{{ n.index }}->ok()) {
+            ::nros::detail::report_component_failure("{{ n.name | c_str }}", __nros_comp_{{ n.index }}->error_what(), __nros_comp_{{ n.index }}->error_code());
+            return __nros_comp_{{ n.index }}->error_code();
+        }
+{%- else %}
+{%- if n.tiered %}
+        ::nros::Result r = ::nros::create_node_on(__nros_node_{{ n.index }}, executor, "{{ n.name | c_str }}");
+{%- else %}
+        ::nros::Result r = ::nros::create_node(__nros_node_{{ n.index }}, "{{ n.name | c_str }}");
+{%- endif %}
+        if (!r.ok()) return static_cast<int32_t>(r.raw());
+{{- n.qos }}
+{%- if n.shape == "c" %}
+        void* self = __nros_c_component_{{ n.pkg }}_create();
+        int32_t crc = __nros_c_component_{{ n.pkg }}_configure(__nros_node_{{ n.index }}.ffi_handle(), __nros_node_{{ n.index }}.executor_handle(), self);
+        if (crc != 0) return crc;
+{%- else %}
+        r = __nros_comp_{{ n.index }}.configure(__nros_node_{{ n.index }});
+        if (!r.ok()) return static_cast<int32_t>(r.raw());
+{%- endif %}
+{%- endif -%}
