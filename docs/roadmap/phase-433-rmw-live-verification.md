@@ -247,8 +247,11 @@ cleared:
    lands the host's glibc-2.39 `just` ahead of the box's. Sourcing
    `activate.sh` before `ros2-box-env.sh` makes that guard a no-op and works,
    but it is a workaround — box-env sources `activate.sh` itself, and the
-   ordering belongs there. Either way, assert it:
-   `command -v just | grep -q local-box || exit 1`.
+   ordering belongs there. **FIXED** (issue 1144, now archived): box-env seeds
+   `$HOME/.cargo/bin` at the tail before sourcing, so the guard is a no-op in
+   both shell kinds, and then asserts the outcome (`nros_box_check_path` — no
+   box-installed tool may resolve into `$HOME/.cargo/bin`). Join the source to
+   the command with `&&`, or a refusal does not stop the job.
 4. `just setup-cli`, then `bash scripts/build/fixtures-build.sh linux rust
    <rmw>` — the positional filter narrows to a coordinate without needing a
    lane. 54 rows for zenoh, 11 for cyclonedds; roughly an hour together.
