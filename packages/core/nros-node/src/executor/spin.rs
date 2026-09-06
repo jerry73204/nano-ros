@@ -1372,8 +1372,9 @@ pub struct Executor<'s> {
     /// installed the wake callback. Drives whether `spin_once`
     /// uses the wake-primitive wait (`NodeWake` / `Condvar`) or
     /// just `drive_io(timeout_ms)`. Poll-only backends
-    /// (XRCE-DDS-Client, current Cyclone/dust-DDS shims) leave
-    /// this `false`; the wait then becomes a no-op sleep that
+    /// (XRCE-DDS-Client, the dust-DDS shim) leave this `false`;
+    /// Cyclone sets it — it fills the slot and backs it with a real
+    /// `dds_set_listener` listener; the wait then becomes a no-op sleep that
     /// starves reliable retransmission (Phase 127.C.4 root
     /// cause: server's `send_response` flushes 100 ms once, then a
     /// blind `wait_ms(100)` sleeps with zero session activity, so
@@ -6516,8 +6517,8 @@ impl<'s> Executor<'s> {
         // entry, the predicate sees flag=true on first eval and
         // exits immediately.
         // Phase 130.4 — only sleep in the wake wait when a backend actually
-        // installed `set_wake_callback`. Poll-only backends (XRCE, current
-        // Cyclone) leave the vtable slot NULL → `has_async_wake == false` →
+        // installed `set_wake_callback`. Poll-only backends (XRCE) leave the
+        // vtable slot NULL → `has_async_wake == false` →
         // drive_io for the caller's full timeout instead of sleeping in a
         // never-signaled wait that starves reliable retransmission (Phase
         // 127.C.4 root cause: the server's `send_response` flushes 100 ms once,

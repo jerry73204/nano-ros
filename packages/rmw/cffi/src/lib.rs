@@ -2590,9 +2590,13 @@ impl Session for CffiSession {
 
     fn supports_wake_callback(&self) -> bool {
         // Phase 130.4 — the vtable slot's presence is the truthful
-        // signal. Poll-only backends (XRCE-DDS-Client, current
-        // Cyclone wrapper, current dust-DDS shim) leave the slot
-        // NULL; only backends with an async wake source fill it.
+        // signal. Poll-only backends (XRCE-DDS-Client, current dust-DDS
+        // shim) leave the slot NULL; only backends with an async wake
+        // source fill it. Cyclone DOES fill it (`vtable.cpp:322`) and
+        // backs it with a real `dds_set_listener` / `on_data_available`
+        // firing on a Cyclone worker thread — this comment named it
+        // poll-only long after that landed, which is misleading for
+        // exactly the reader asking whether their lane gets async wakes.
         self.vtable.set_wake_callback.is_some()
     }
 
