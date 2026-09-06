@@ -199,20 +199,80 @@ RFC-0091 is honest that the codegen cost becomes a pack while the
 with the least design behind it — treat the items as scoped questions, not as
 settled work.
 
-- **W3.1 — complete the C-ABI board surface.** The concrete unblocker, and it
-  is independent of Tracks 1–2. Most FFI-capable languages speak the C ABI and
-  not C++. Today `run_components` is C-callable for `native` only, while
-  `run_tiers` is C-callable on freertos/zephyr/nuttx — and the layering runs
-  opposite to the dispatch's own justification:
-  `nros_board_freertos_run_tiers` is **666 lines of C** that
-  `FreertosBoard::run_tiers` wraps. So declaring
-  `nros_board_<rtos>_run_components` is not new capability.
-  It deletes the language-crossing branch in `cmd/codegen.rs`, makes the C pack
-  serve every board the C++ one does, and **drops a C++ toolchain requirement
-  from users who write only C** — MISRA and certified-C shops today pay for a
-  C++ compiler to build an entry whose components are all C.
-  ThreadX has no C board API at all and should be DECLARED C++-entry-only
-  rather than silently routed.
+- **W3.1 — complete the C-ABI board surface.** Assessed in depth; the
+  CONCLUSION survives and the JUSTIFICATION did not. Correct the reasoning
+  before starting, because the original is checkable and wrong.
+
+  **What was wrong.** This said "declaring `nros_board_<rtos>_run_components`
+  is not new capability" because `nros_board_freertos_run_tiers` is 666 lines
+  of C. That inference does not hold. `run_tiers` and `run_components` are two
+  different architectures: the tiers path IS C underneath a 4-line C++ veneer,
+  but **`FreertosBoard::run_components` is fully implemented in the C++ header
+  and has no C function under it** — and the one C-ABI `run_components` that
+  does exist, native's, is **Rust**. So this is new code, not a
+  re-declaration. It is also the DOMINANT embedded path, not a corner:
+  `run_tiers` is reached only when a plan declares tiers.
+
+  **The justification that survives inspection:** the C++ `run_components`
+  uses no C++ feature a C function lacks — no exceptions, no RAII, and the
+  `template <typename Setup>` is only ever instantiated with a plain function
+  pointer at every generated call site (capturing lambdas appear only in
+  hand-written examples). Every primitive it calls (`nros_cpp_init`,
+  `nros_cpp_spin_once`, `nros_cpp_fini`) is already C-ABI and already called
+  from C by the sibling `run_tiers.c` in the same file.
+
+  **Two prerequisites, and they are the real risk — do them FIRST and
+  separately:**
+
+  1. `nros_board_network_wait` has exactly ONE definition in the tree and it
+     is a weak symbol in a C++ header (`main.hpp`). All three RTOS
+     `run_tiers.c` files call it `extern` and link only because the generated
+     entry is a `.cpp` that includes that header. A pure-C entry makes it an
+     undefined symbol at link. Needs a C stub plus a
+     `weak-symbols-allowlist.txt` row.
+  2. `NROS_ENTRY_LOCATOR` / `NROS_ENTRY_DOMAIN_ID` are derived in `main.hpp`
+     (from `CONFIG_NROS_ZENOH_LOCATOR`, else a synthesised XRCE address); the
+     C sibling `app_main.h` defines them as `""` and `0`. A pure-C entry would
+     compile, link, boot — **and dial nothing.** That is a byte-for-byte
+     re-run of issue **#174** (`rc=-100`, zero delivery), which the C++
+     derivation exists to fix. Move the derivation into a C header that
+     `main.hpp` then includes, so there is ONE derivation.
+
+  **Cost, freertos:** ~35-50 lines for the function itself (its helpers are
+  already in the TU), ~2-3 days end to end including cmake, gate and one green
+  fixture. Zephyr and NuttX ~2-4h each afterwards.
+
+  **ThreadX: do NOT.** It has no C entry runner at all — no
+  `nros_board_threadx_run_tiers` either — so it needs a new TU plus `build.rs`
+  wiring with nothing to copy. Declare it C++-entry-only with a configure-time
+  `FATAL_ERROR`; today `board_is_embedded("threadx")` is true, so a ThreadX C
+  entry silently becomes a `.cpp` with no diagnostic, which is worse than a
+  refusal.
+
+  **Acceptance is a BUILD, not a gate.** `examples/workspaces/c` must build
+  and pass with `CONFIG_NROS_CPP_API` and `LANGUAGES CXX` REMOVED — that
+  workspace contains zero C++ source and currently turns on Zephyr's whole C++
+  subsystem (`zephyr/Kconfig`: `config NROS_CPP_API` … `select CPP`) for one
+  generated TU. Anything less leaves the C++-toolchain claim unmeasured.
+
+  **And the headline benefit is RMW-CONDITIONAL — say so, or the acceptance
+  fixture measures a claim it cannot support.** "Drops a C++ toolchain
+  requirement from users who write only C" is true for **zenoh** and **XRCE**,
+  whose stacks are C all the way down. It is FALSE for **cyclonedds** and
+  **uorb**: `rmw_cyclonedds_cpp` and the uORB shim are C++ libraries, so a
+  C-only user on those RMWs still links `stdc++` whatever language the entry is
+  written in. Pin the acceptance fixture to **zenoh**, and state the benefit as
+  "on a C-only RMW" rather than unqualified.
+
+  **Blocking sites for deleting the routing branch** (`cmd/codegen.rs:281-295`),
+  found by enumeration rather than guess: `NanoRosEntry.cmake`'s `.cpp`
+  extension override and its `_lang_tag`; **`NanoRosNodeRegister.cmake`'s FOUR
+  call sites** selecting `*_entry_main_c_typed.cpp.in` — the largest site, and
+  one this doc did not previously name, though W2.6 folding those into the pack
+  would remove it; `emit_c.rs` + `c_entry.c.jinja`, which hardcode
+  `nros_board_native_*` for every board; the two prerequisites above; and
+  `check-entry-session-name.py`'s `PRODUCERS`, which errors if a listed glob
+  matches nothing.
 
 - **W3.1b — the surface decision, written down.** RFC-0091 §6 — a pack is a
   (language x SURFACE), not a language: Rust has FOUR packs and the `cpp` pack
@@ -263,7 +323,10 @@ and the one that unblocks the three deferred IR fields.
 Five C goldens (`c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`,
 `c_threadx_one`, `c_nuttx_tiers`) record output the pipeline never produces —
 the harness calls `emit_c` directly, but an embedded C entry routes to the C++
-emitter. They are byte-identical to the native rows except a comment and read
+emitter. W3.1's assessment confirmed they are not merely unreachable but WRONG
+if reached: `c_freertos_one.c.golden` emits `int main` +
+`nros_board_native_run_components_named` for `board = freertos`, and
+`c_nuttx_tiers` emits `nros_board_native_run_tiers` for `board = nuttx`. They are byte-identical to the native rows except a comment and read
 as board coverage they do not have. Route the harness through the dispatch, or
 relabel them to pin what they actually prove. W3.1 changes this answer: once
 the C pack serves every board, those rows become real coverage rather than a
