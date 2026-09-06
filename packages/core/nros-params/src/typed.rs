@@ -40,7 +40,13 @@ impl From<SetParameterResult> for ParameterError {
             SetParameterResult::ReadOnly => ParameterError::ReadOnly,
             SetParameterResult::NotFound => ParameterError::NotFound,
             SetParameterResult::StorageFull => ParameterError::StorageFull,
-            _ => panic!("Unexpected SetParameterResult"), // Should not happen with valid results
+            SetParameterResult::InvalidRange => ParameterError::InvalidRange,
+            // The typed API never auto-declares, so an unknown name is
+            // simply not there.
+            SetParameterResult::Undeclared => ParameterError::NotFound,
+            SetParameterResult::Success => {
+                panic!("SetParameterResult::Success is not an error")
+            }
         }
     }
 }
@@ -130,9 +136,13 @@ impl<'a, 's, T: ParameterVariant> ParameterBuilder<'a, 's, T> {
         if T::parameter_type() != ParameterType::Integer {
             return Err(ParameterError::InvalidRange);
         }
-        self.range = Some(ParameterRange::Integer(crate::IntegerRange::new(
-            min, max, step,
-        )));
+        let range = crate::IntegerRange::new(min, max, step);
+        // Issue 1150 — `min > max` or a negative step is refused here, where
+        // the caller can see it, not silently stored and published.
+        if !range.is_valid() {
+            return Err(ParameterError::InvalidRange);
+        }
+        self.range = Some(ParameterRange::Integer(range));
         Ok(self)
     }
 
@@ -141,9 +151,11 @@ impl<'a, 's, T: ParameterVariant> ParameterBuilder<'a, 's, T> {
         if T::parameter_type() != ParameterType::Double {
             return Err(ParameterError::InvalidRange);
         }
-        self.range = Some(ParameterRange::FloatingPoint(
-            crate::FloatingPointRange::new(min, max, step),
-        ));
+        let range = crate::FloatingPointRange::new(min, max, step);
+        if !range.is_valid() {
+            return Err(ParameterError::InvalidRange);
+        }
+        self.range = Some(ParameterRange::FloatingPoint(range));
         Ok(self)
     }
 
