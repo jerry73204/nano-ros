@@ -1,0 +1,32 @@
+# The upstream QoS profile constants — every field, verbatim.
+#
+# Derived, not asserted: the brace initialisers of every
+# `static const rmw_qos_profile_t` in the headers below, with the duration and
+# depth sentinels resolved from `rmw/time.h` and `rmw/types.h`. Recorded here
+# because the fast gate lane runs on hosts with no ROS, and a gate that
+# degrades to `nothing to check` reports a pass it never established.
+#
+# Sources:
+#   /opt/ros/humble/include/rcl_action/rcl_action/default_qos.h
+#   /opt/ros/humble/include/rmw/rmw/qos_profiles.h
+#   /opt/ros/humble/include/rmw/rmw/time.h
+#   /opt/ros/humble/include/rmw/rmw/types.h
+#
+# Windows are milliseconds; RMW_DURATION_UNSPECIFIED ({0,0}) lands on 0, which
+# is also nano-ros's `off`. `liveliness` is upstream's own spelling —
+# `QoSLivelinessPolicy::None` is nano-ros's name for SYSTEM_DEFAULT (phase-376
+# W5/B2 collapsed the two onto discriminant 0).
+#
+# Regenerate where a ROS install exists:
+#   python3 scripts/check-qos-profile-ssot.py --write-upstream
+#
+# Generated 2026-09-05, ROS 2 humble.
+# columns: profile history depth reliability durability deadline_ms lifespan_ms liveliness_kind liveliness_lease_ms avoid_ros_namespace_conventions
+rcl_action_qos_profile_status_default KEEP_LAST      1    RELIABLE       TRANSIENT_LOCAL 0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_default               KEEP_LAST      10   RELIABLE       VOLATILE        0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_parameter_events      KEEP_LAST      1000 RELIABLE       VOLATILE        0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_parameters            KEEP_LAST      1000 RELIABLE       VOLATILE        0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_sensor_data           KEEP_LAST      5    BEST_EFFORT    VOLATILE        0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_services_default      KEEP_LAST      10   RELIABLE       VOLATILE        0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_system_default        SYSTEM_DEFAULT 0    SYSTEM_DEFAULT SYSTEM_DEFAULT  0 0 SYSTEM_DEFAULT 0 false
+rmw_qos_profile_unknown               UNKNOWN        0    UNKNOWN        UNKNOWN         0 0 UNKNOWN        0 false

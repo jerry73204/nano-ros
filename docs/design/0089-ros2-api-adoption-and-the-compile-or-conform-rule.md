@@ -16,6 +16,111 @@ adoption.
 **Related:** RFC-0002 (one executor per RTOS task), RFC-0021 (blocking API
 rules), RFC-0035 (RMW seam), RFC-0044 (component model); issues 1012, 1019, 1020.
 
+## How to read this
+
+Folded 2026-09-05. This RFC was written by accretion over the campaign, and the
+order it was written in is not the order it should be read in — the governing
+principle arrived after most of the rule it explains.
+
+* **Part I** is the premise and the rule. The principle comes first because
+  everything else is a consequence of it.
+* **Part II** is the decisions, each with the date it was settled.
+* **Part III** is the node and timer design.
+* **Part IV** is argument order.
+* **Part V** is what the parity measurement can and cannot show — read it before
+  quoting any compatibility number.
+* **The appendix** holds two superseded node-API drafts. They are kept because
+  their MEASUREMENTS are still the evidence, and deleting them would delete the
+  reasoning behind decisions that stand; their conclusions are not current.
+
+Where a section is superseded, it says so at the top rather than being removed.
+
+# Part I — The principle, and the rule that follows from it
+
+## The governing principle (2026-09-05) — read this before the rule above
+
+The compile-or-conform rule at the top of this RFC is a CONSEQUENCE. This is the
+premise it follows from, stated after several sections had been written as if
+the rule were the premise.
+
+### The principle
+
+> **Our constraints come first. Within them, port upstream. A name may be kept
+> with a changed signature; a name may be invented where upstream has none. The
+> success criterion is that porting a ROS 2 file is a MECHANICAL edit — every
+> difference is one the compiler points at, and the fix is local and obvious.**
+
+Three clauses, in strict priority order:
+
+1. **RTOS and bare-metal constraints are non-negotiable.** No allocator on the
+   dispatch path, no exceptions (RFC-0018), no RTTI, a fixed executor arena, no
+   `dlopen`, `core`/`core+alloc` as the terminal state. An upstream shape that
+   cannot be expressed under these is not adopted, however central it is
+   upstream.
+2. **Within them, port upstream.** Same name, same argument order, same
+   semantics wherever the constraints permit. This is not a preference to be
+   traded away for a nicer local design — RFC-0036 already forbids recording a
+   preference as a divergence.
+3. **Invent only where upstream has nothing.** A capability upstream lacks
+   (caller-owned entity storage, `spin_once` with a budget, compile-time
+   declared QoS) gets a name in `rclcpp::` and a ledger row saying it is ours.
+
+This is **not a one-to-one mapping**, and it was never meant to be. A one-to-one
+mapping would force clause 1 to yield to clause 2, which is backwards.
+
+### What "mechanical" means, precisely
+
+The user's edit must be *directed by the compiler*, never discovered at
+runtime. That is the whole of the compile-or-conform rule, restated as a user
+outcome:
+
+| what differs | is it mechanical? | why |
+| --- | --- | --- |
+| name | yes — a rename | undeclared identifier |
+| argument order or types | yes — reorder or restate | no matching overload |
+| return type, **where the result is used** | yes | type mismatch at the use |
+| **return type, where the result is discarded** | **NO** | nothing is said |
+| behaviour behind an identical signature | **NO** | nothing is said, ever |
+
+The last two rows are the reason the rule exists. The fourth is the subtle one
+and it is live in this tree: **`rclcpp::init()` returns `void` upstream and
+`Result` here.** At a call site that writes `rclcpp::init(argc, argv);` as a
+statement, both compile, and the ported program silently stops checking an
+error it never checked. That is a changed signature that the compiler does NOT
+point at.
+
+So clause 2's licence to change a signature carries an obligation:
+
+> **A signature change is permitted when the compiler forces the edit. When it
+> does not, the difference must be made loud by other means.**
+
+For `init` the means is `[[nodiscard]]` on `Result` (or the
+`NROS_NODISCARD` spelling for C++14 targets), which turns the discarded-result
+case into a warning the `-D warnings` lanes already treat as an error.
+`grep -n nodiscard` on `result.hpp` returns nothing today, so this is an
+outstanding item rather than a description — filed against the node-merge work.
+
+### How the four dispositions follow
+
+`adopt`, `adopt-bounded`, `refuse-loud`, `absent` are not four independent
+choices; they are what clause 1 does to a candidate from clause 2:
+
+* the constraint permits it → **adopt**;
+* the constraint permits a weaker form, and the weakening is visible → **adopt-bounded**;
+* the constraint forbids it and the defect is knowable from the type →
+  **refuse-loud** at compile time;
+* the constraint forbids it and only the VALUE carries the defect → refuse-loud
+  at the call, which is what `rclcpp::init(argc, argv)` does with `--ros-args`;
+* upstream has it, we will not, and no ported file can reach it → **absent**.
+
+### The one-directional consequence, restated
+
+A ROS 2 file compiles here after a mechanical edit. A nano-ros file does not
+compile against ROS 2 — it uses names and shapes upstream lacks. That asymmetry
+is the principle working, not a gap in it: clause 1 outranks clause 2, so where
+our constraints demand something upstream does not have, we have it and upstream
+does not.
+
 ## The intent
 
 nano-ros should be a near drop-in replacement for ROS 2 client code. The
@@ -276,12 +381,81 @@ our names differ, so a shape that differs is *visible* — while the mismatches
 are still there. The two live inversions above (`ParametersQoS`, the inert
 `NodeOptions` setters) are exactly what "inherited by a rename" looks like.
 
-There is also one mismatch the rename makes strictly worse, and it is not
-fixable by a diagnostic: the shim `Node` pumps its own callbacks while
-`nros::Node` is arena-driven, and a file that mixes them gets no callbacks and
-no error. Today the two types have different NAMES, which is the only thing
-making that visible. That is a structural prerequisite for step 2, not a
-loudness item — see phase-417.
+There WAS one mismatch the rename made strictly worse, and it is fixed
+(corrected 2026-09-05). The shim `Node` pumped its own callbacks while
+`nros::Node` was arena-driven, so a file mixing them got no callbacks and no
+error, and only the differing NAMES made that visible at all. `pump()` and
+`rclcpp_compat.hpp` were both deleted by this phase — every entity a
+`rclcpp::Node` creates is now arena-registered through the same call the native
+path makes, and `nros.hpp` says so at the call site. This paragraph outlived the
+fix by a month and was still being cited as the reason the node-type merge was
+not scheduled, which is the cost of stating a prerequisite in two documents and
+retiring it in neither.
+
+# Part II — Settled decisions
+
+## Settled: `nros::` is phased out entirely; ours-only names take `rclcpp::` too (2026-09-05)
+
+The previous section kept `nros::create_node`, `nros::bind_timer`,
+`nros::Timer` and `nros::spin_once` in our namespace on the grounds that they
+are ours-only. **That is overturned.** The goal is that a user writes `rclcpp::`
+and never learns a second vocabulary, and a half-migrated API fails that goal
+just as surely as a wrong signature does. `nros::` is phased out; the ours-only
+names move to `rclcpp::` with the rest.
+
+Two sub-cases, and only the second needed deciding:
+
+* **Has an upstream counterpart** — moves, unconditionally. This was already
+  the rule.
+* **Has no upstream counterpart** — also moves. A user of nano-ros is writing
+  against nano-ros; making them spell one capability `nros::` and its neighbour
+  `rclcpp::` teaches a distinction that serves the implementer, not them.
+
+The ODR objection is retired for the reason already recorded: we do not link
+our `rclcpp` against ROS 2's in one image.
+
+### The real hazard, and why it is not a reason to refuse
+
+Taking a namespace we do not own means **upstream may later define a name we
+have already taken**, with different semantics. Then a ported file's
+`rclcpp::X` silently binds ours — compile-and-differ, deferred in time, which
+is exactly what this RFC forbids.
+
+It is not hypothetical. `spin_once` is not in rclcpp, but **`rclpy.spin_once`
+exists**, with a different signature (`spin_once(node, timeout_sec=None)`)
+against our `spin_once(timeout_ms) -> Result`. A user arriving from rclpy reads
+our name and brings rclpy's meaning. And `Timer` is free in rclcpp today only
+because upstream spells it `TimerBase` / `WallTimer` — a future `rclcpp::Timer`
+is entirely plausible.
+
+**So the decision comes with a tripwire rather than a hope.** We already record
+the upstream surface (`docs/reference/api-surface/rclcpp.json`, 198 distinct
+names today) and already diff our surface against it every `check-api-parity`
+run. A new gate asserts:
+
+> no name we define in `rclcpp::` as an OURS-ONLY extension may appear in the
+> recorded upstream surface.
+
+Today that passes: `Timer`, `spin_once` and `create_node` are absent upstream
+while `TimerBase`, `WallTimer` and `Node` are present. The value is what happens
+on the next `--refresh`: if upstream adds `rclcpp::Timer`, the refresh turns a
+silent semantic collision into a hard red naming the symbol, at the moment the
+recorded surface moves, and the response is a rename on our side. That is the
+earliest point the defect is knowable, which is this RFC's own rule applied to
+itself.
+
+Every such name also keeps a ledger row with `disposition: extension` and prose
+saying it is ours in upstream's namespace, so the parity report cannot be read
+as "upstream has this".
+
+### The cost, stated
+
+The drop-in becomes **one-directional, and always was**. A ROS 2 file compiles
+here unchanged; a nano-ros file using `rclcpp::spin_once` or the out-ref
+`create_publisher` does not compile against real ROS 2. That is the correct
+direction for the campaign — the goal is ROS 2 code running on nano-ros, not
+the reverse — but users will assume symmetry, so the book must say it plainly
+rather than letting a build failure say it later.
 
 ## Settled: C takes rcl's spellings (2026-09-04)
 
@@ -385,6 +559,649 @@ our value. A ported `if (ret == RCL_RET_TIMEOUT)` is correct. A program that
 hardcodes `if (ret == 2)` is not, and never was. That is a defensible line: we
 adopt rcl's vocabulary, not its numbering, and the vocabulary is what source
 compatibility is made of.
+
+## The error channel, settled (2026-09-05)
+
+Two channels, and the value-carrying one is renamed:
+
+| the operation | channel |
+| --- | --- |
+| cannot fail; answers a question | `bool` |
+| can fail, produces nothing | `Result` |
+| can fail, produces a value | `Result<T>` — **today's `Expected<T>`, renamed** |
+| **upstream THROWS** | `Result<T>` (or `Result`), never an exception — RFC-0018 |
+| a ported API whose upstream channel is `bool` | `bool`, unchanged |
+
+`Result` becomes `Result<void>` with `Result` as the alias, so there is one
+template and one name rather than two unrelated types a reader must learn.
+`Expected<T>` survives as a deprecated alias for one release.
+
+Two properties this has to keep, both already true and both worth stating so a
+refactor does not lose them:
+
+* **Both reach every target.** `result.hpp` carries zero capability gates and
+  parses under the ThreadX `-nostdinc++` shim — measured by the header lane, not
+  assumed. The rename must not introduce a gate.
+* **Neither may be silently discarded.** `[[nodiscard]]` (`NROS_NODISCARD` on
+  C++14) on both, which is what makes `rclcpp::init(argc, argv);` as a bare
+  statement a warning the `-D warnings` lanes already treat as an error. This is
+  the whole reason the channel question mattered: upstream returns `void` there,
+  and a widened return type at a discarding call site is a signature change the
+  compiler does not point at.
+
+## Settled: the three questions the node-type merge was waiting on (2026-09-05)
+
+The structural blocker was retired (see above); what remained were three
+decisions, not readings. All three are now made.
+
+### 1. `get_logger()` follows ROS 2 after the merge
+
+Today the two spellings collide on an identical signature: `rclcpp::Node::
+get_logger()` returns a `rclcpp::Logger` built from the hardcoded sentinel
+`"nros.compat"`, while `nros::Node::get_logger()` returns the real
+`nros_log::Logger` handle keyed on the node's own name. Same name, same arity,
+different observable behaviour — case (3) of "four ways a row correlates `same`
+falsely", which this RFC already names.
+
+**The merged accessor takes ROS 2's behaviour: a logger named for the node.**
+The sentinel was a placeholder for a shim that no longer exists, and a logger
+that cannot tell you which node emitted a record is worse than the one it
+replaced. This is a strict improvement in both directions, so it needs no
+disposition beyond `adopt`.
+
+### 2. Mirror ROS 2's node types — and the count that implies is ONE
+
+The instruction was to mirror rclcpp and avoid duplicates. Measured, the mapping
+that motivated the question is **inverted**, so recording it before acting:
+
+| type | where it is actually used |
+| --- | --- |
+| `nros::Node` | everywhere, and MOSTLY IN WORKSPACES — 51 files under `workspaces/features`, 41 under `workspaces/cpp`, 30 under `workspaces/c`, 27 under `workspaces/mixed`. The RFC-0043 typed component takes it by reference: `Result Configure(::nros::Node&)`. |
+| `nros::ComponentNode` | **five directories total** — one standalone POC (`native/cpp/component-node-poc`) and two workspace subnode packages. |
+
+So it is not "`Node` for standalone, `ComponentNode` for workspaces". Both live
+in workspaces; they differ by ROLE. `nros::Node` is a node you are handed;
+`ComponentNode` is a base class you derive from, constructed from an
+entry-supplied `NodeHandle`.
+
+Upstream has no counterpart to that distinction. `rclcpp_components` composes
+plain `rclcpp::Node`s — a ported component derives from `rclcpp::Node` and there
+is no second node type to mirror. Mirroring therefore means **one node type**,
+with `ComponentNode`'s two distinguishing features demoted from a type to
+constructors on it:
+
+* construction from an entry-supplied `NodeHandle` rather than the global
+  executor — a constructor overload;
+* RFC-0047's "one component, several named nodes" — genuinely ours-only,
+  because an rclcpp component IS one node. It stays, as a documented divergence
+  with a disposition, not as a second class.
+
+This also closes the duplication `nros.hpp` already flags against itself
+("KNOWN DUPLICATION… There should be ONE helper"): the parameter facade exists
+twice, once in C++14 on `rclcpp::Node` and once in C++17 `if constexpr` on
+`ComponentNode`. One node type is what makes one facade possible.
+
+### 3. Parameters live in Rust; C and C++ are thin wrappers
+
+RFC-0019/0020 already say the Rust API is the implementation SSoT and that
+ergonomics may live in the wrapper while behaviour may not. A node-local C++
+parameter store is behaviour living in the wrapper, and it has the visible
+consequence that a parameter declared through `rclcpp::Node` does not appear in
+`ros2 param list` — the store the parameter SERVICES read is the executor's, in
+Rust.
+
+**The merged node's parameters are the Rust store.** `rclcpp::Node`'s inline
+`ParameterServer<NROS_RCLCPP_MAX_PARAMS>` member and `ComponentNode`'s facade
+both become forwarders to it.
+
+The gap this exposes is small and specific: the FFI has
+`nros_cpp_declare_param` plus typed getters (integer / double / bool / string)
+and **no setter at all** — `grep -c nros_cpp_set_param` is 0, and there is no
+`set_parameter` on the Rust executor either. `set_parameter<T>` therefore has
+nothing to forward to yet, so the merge carries one piece of Rust-side work
+rather than a pure C++ refactor. That is the right shape: the capability is
+missing where the SSoT is, and adding it in C++ would have been the second
+implementation this rule exists to prevent.
+
+Resolves the C++ half of issue 0793.
+
+# Part III — The node, the timer, and what stays invented
+
+## The rclcpp node model, and what nano-ros actually needs from it (2026-09-05)
+
+Decision 2 above says "mirror rclcpp, which means one node type". That is the
+conclusion; this section is the reasoning, because the question it answers —
+*we don't build standalone node binaries, so doesn't that force a node type of
+our own?* — is a good one with a surprising answer.
+
+### What rclcpp actually has
+
+Four things that are easy to conflate:
+
+1. **`rclcpp::Node`** — an ordinary C++ object. Creating one does not create a
+   process, a thread, or a scheduler. It registers a node with the middleware
+   and owns the entities you create through it.
+2. **An executor** — a separate object that *drives* nodes. Nodes are added to
+   it (`add_node`), and it dispatches their callbacks. `rclcpp::spin(node)` is
+   sugar that constructs a `SingleThreadedExecutor`, adds the node, and spins.
+3. **Composition** — several nodes in ONE process, on one executor. Upstream
+   supports two ways to get there, and this is the crux:
+   * *dynamic composition*: `rclcpp_components` `dlopen`s a shared library and
+     instantiates a registered class into a running container process;
+   * **manual composition**: the components are LINKED into one executable
+     whose `main` constructs each of them and adds them to one executor.
+4. **`rclcpp_lifecycle::LifecycleNode`** — a genuinely distinct type, with a
+   state machine and its own interface set.
+
+### The answer to "we link, we don't spawn"
+
+**Manual composition is upstream's own answer to exactly our constraint, and it
+uses a plain `rclcpp::Node`.** A component in that model is a class that derives
+from (or holds) `rclcpp::Node`, with a constructor taking `NodeOptions`; the
+`RCLCPP_COMPONENTS_REGISTER_NODE` macro is what makes it *additionally*
+loadable, and omitting it costs nothing but that.
+
+So the constraint that motivated a nano-ros-specific node type — one image, no
+`dlopen`, no per-node binaries — is a constraint upstream already lives under
+whenever anyone does manual composition. It does not require a new node type. It
+requires the *component* shape, which is a class, not a node type.
+
+That is why the mapping collapses:
+
+| rclcpp | nano-ros |
+| --- | --- |
+| `rclcpp::Node` | the one node type |
+| manual composition (`main` constructs components, adds to one executor) | **exactly our model** — the generated entry constructs each component and the executor drives them |
+| `RCLCPP_COMPONENTS_REGISTER_NODE` + `dlopen` | absent, deliberately: no dynamic loading on firmware |
+| `NodeOptions` | `NodeOptions` |
+| `LifecycleNode` | our lifecycle set, a separate type as upstream has it |
+
+`nros::ComponentNode` was invented for the row that turns out not to need a new
+type. What it really carries is two things, and neither is a node kind:
+
+* **an entry-supplied `NodeHandle`** instead of the global executor. Upstream's
+  equivalent is that a manually-composed node is added to an executor the `main`
+  owns. This is a CONSTRUCTOR, and its nearest upstream spelling is passing
+  `NodeOptions` and letting the caller do `executor.add_node(...)`.
+* **RFC-0047's one-component-several-named-nodes.** This one IS ours-only: an
+  rclcpp component is one node, and a process wanting two makes two objects.
+  Ours exists because a fixed-arena image benefits from one object owning
+  several node identities. It stays — as a documented divergence with a
+  disposition, on the single node type, not as a second class.
+
+### What this means for the merge
+
+One node type, three constructors: the global-executor one (`rclcpp::Node`'s,
+what a ported file writes), the handle-taking one (what a generated entry
+writes), and the several-identities one (ours-only, RFC-0047). The RFC-0043
+typed component keeps taking a node by reference, which is unchanged — it was
+never a node type, only a `configure(Node&)` convention.
+
+The thing to NOT do is preserve two types because they have two construction
+paths. `rclcpp::Node` already has several constructors and remains one type;
+construction is not identity.
+
+## The node API, proposed under the governing principle (2026-09-05)
+
+Supersedes "The node API, revised" above, which predates the principle and kept
+four names in `nros::`. Every decision below is annotated with the clause it
+follows from: **[1]** constraints first, **[2]** port upstream within them,
+**[3]** invent only where upstream has nothing.
+
+### Type and namespace
+
+```cpp
+namespace rclcpp {
+class Node { /* ... */ };
+}
+namespace nros { using Node = ::rclcpp::Node; }   // transitional; deprecated, then deleted
+```
+
+`rclcpp::Node` is the class **[2]**. One type — `ComponentNode` is deleted, not
+aliased, because once its handle became a constructor it had no distinction
+left. `nros::` survives only as a migration alias so the remaining call sites
+are optional to move rather than a flag day.
+
+**Layout is probe-independent [1].** Hosted-only state lives out of line behind
+one unconditional pointer, allocated lazily on the first hosted-shape call and
+never on a freestanding target:
+
+```cpp
+nros_cpp_node_t handle_;
+bool            initialized_;
+void*           executor_handle_;
+Clock           clock_;
+void*           hosted_ = nullptr;   // detail::NodeHosted*, null on freestanding
+```
+
+Enforced by `check-cpp-capability-layout`; this is the rule `timers_` broke.
+
+### Construction
+
+Upstream constructs a node with a name and throws on failure. We cannot throw
+**[1]**, so the constructor is kept and the failure channel changes **[2]**:
+
+```cpp
+Node() noexcept;                                                  // [3] uninitialised, pair with init()
+explicit Node(const char* name, const char* ns = nullptr) noexcept;  // [2] upstream's shape, no allocator
+Result init(const char* name, const char* ns = nullptr) noexcept;    // [3] explicit-code form
+bool   ok() const noexcept;                                          // [2] replaces the throw
+```
+
+Hosted adds upstream's exact spellings **[2]**:
+
+```cpp
+explicit Node(const std::string& name, const NodeOptions& = NodeOptions());
+Node(const std::string& name, const std::string& ns, const NodeOptions& = NodeOptions());
+```
+
+`ok()` is **adopt-bounded**: upstream throws, we set a flag. That is weaker, and
+the weakening is only safe if it is loud. The generated entry checks `ok()` and
+halts naming the node (RFC-0044 Q2 already does this); a standalone `main` must
+check it, and the book must say so. This is the same class as `init()`'s
+discarded `Result` — a difference the compiler does not point at — so it is an
+outstanding loudness item, not a solved one.
+
+### Entity creation — one name, two signatures
+
+Upstream's name is kept and the signature changes **[2]**. The compiler forces
+the edit: there is no overload taking `(const std::string&, int)` on a
+freestanding target, so a ported line fails to compile rather than differing.
+
+```cpp
+// [2] freestanding — caller-owned storage, no allocator, every target
+Result create_publisher   (Publisher<M>&,    const char* topic, const QoS& = {}) noexcept;
+Result create_subscription(Subscription<M>&, const char* topic, void(*)(const M&), const QoS& = {}) noexcept;
+Result create_service     (Service<S>&,      const char* name,  ..., const QoS& = ServicesQoS()) noexcept;
+Result create_client      (Client<S>&,       const char* name,  ..., const QoS& = ServicesQoS()) noexcept;
+Result create_wall_timer  (Timer&, uint64_t period_ms, void(*)(void*), void* ctx) noexcept;
+
+// [2] hosted — upstream's exact signatures
+std::shared_ptr<Publisher<M>>    create_publisher<M>(const std::string& topic, const QoS&);
+std::shared_ptr<Subscription<M>> create_subscription<M>(const std::string& topic, const QoS&, Cb);
+std::shared_ptr<TimerBase>       create_wall_timer(std::chrono::duration<...>, Cb);
+std::shared_ptr<Service<S>>      create_service<S>(const std::string& name, ...);
+std::shared_ptr<Client<S>>       create_client<S>(const std::string& name, ...);
+```
+
+**Member-function binding folds into `create_wall_timer` [2] rather than being a
+free `bind_timer` [3].** A component binds its own method with no allocation and
+no `std::function`:
+
+```cpp
+template <typename C, void (C::*M)()>
+Result create_wall_timer(Timer& out, uint64_t period_ms, C* self) noexcept;
+```
+
+That removes an invented name by reusing an upstream one — which is what clause
+2 asks for, and it is why this proposal has fewer inventions than the previous
+one.
+
+### What is invented, and why each is unavoidable
+
+| name | why upstream has nothing | tripwire |
+| --- | --- | --- |
+| `rclcpp::Timer` | ours is a HANDLE; upstream's `TimerBase`/`WallTimer` are a virtual hierarchy we have no vtable budget for **[1]** | absent upstream today; `TimerBase`/`WallTimer` are present, so the gate watches for `Timer` appearing |
+| `rclcpp::spin_once(timeout_ms)` | upstream's one-cycle verb is `spin_some(node)`, with no timeout and no return | absent in rclcpp — but **`rclpy.spin_once` exists with a different signature**, so the ledger row must say so |
+| `Node::init` / `Node::ok` | upstream throws; a no-exception target needs a channel **[1]** | absent upstream |
+| the out-ref `create_*` family | caller-owned storage has no upstream counterpart **[1]** | shares upstream's NAME, so it is a ported signature, not an invention |
+
+Each invented name carries a ledger row with `disposition: extension`, and the
+collision gate asserts none of them appears in the recorded upstream surface.
+
+### Usage — standalone, hosted (a ported file, unchanged)
+
+```cpp
+rclcpp::init(argc, argv);
+auto node = std::make_shared<rclcpp::Node>("talker");
+auto pub  = node->create_publisher<std_msgs::msg::String>("chatter", 10);
+auto timer = node->create_wall_timer(std::chrono::seconds(1), [pub]{ /* ... */ });
+rclcpp::spin(node);
+rclcpp::shutdown();
+```
+
+### Usage — standalone, freestanding
+
+```cpp
+if (!rclcpp::init().ok()) return 1;
+
+rclcpp::Node node("talker");          // no allocation; upstream's shape
+if (!node.ok()) return 1;             // replaces upstream's throw
+
+rclcpp::Publisher<std_msgs::msg::String> pub;   // inline storage
+if (!node.create_publisher(pub, "chatter").ok()) return 1;
+
+while (rclcpp::ok()) {
+    pub.publish(msg);
+    rclcpp::spin_once(100);
+}
+```
+
+Every line is `rclcpp::`. Nothing names `nros::`.
+
+### Usage — workspace component (the firmware recommendation)
+
+Unchanged in structure; only the spellings move. No allocator, no derivation, no
+vtable — the only one of the three shapes that compiles on every target we ship.
+
+```cpp
+class Talker {
+    rclcpp::Publisher<std_msgs::msg::Int32> pub_;
+    rclcpp::Timer                           timer_;
+    int count_ = 0;
+
+    void on_tick();
+
+  public:
+    rclcpp::Result configure(rclcpp::Node& node) {
+        NROS_TRY(node.create_publisher(pub_, "chatter"));
+        return node.create_wall_timer<Talker, &Talker::on_tick>(timer_, 1000, this);
+    }
+};
+```
+
+The generated entry constructs each component and calls `configure(node)` —
+upstream's manual composition with the `main` generated instead of written.
+
+### Usage — workspace component, hosted (a ported component, unchanged)
+
+```cpp
+class Talker : public rclcpp::Node {
+  public:
+    explicit Talker(const rclcpp::NodeOptions& opts) : Node("talker", opts) {
+        pub_ = create_publisher<std_msgs::msg::Int32>("chatter", 10);
+    }
+};
+```
+
+Same type. Deriving needs the hosted constructor, so it is hosted-only; on a
+freestanding target the answer is the shape above, which needs no derivation.
+
+### Outstanding loudness items this proposal creates
+
+Both are cases where a signature changed and the compiler does NOT force the
+edit, which the governing principle requires be made loud by other means:
+
+1. `Result` needs `[[nodiscard]]` (`NROS_NODISCARD` on C++14 targets) so
+   `rclcpp::init(argc, argv);` as a bare statement warns. `grep -n nodiscard`
+   on `result.hpp` returns nothing today.
+2. `Node::ok()` needs a story for the standalone `main` that never calls it.
+   The generated entry already checks; a hand-written `main` does not, and a
+   node that failed to create currently proceeds silently.
+
+## Review of the invented parts (2026-09-05)
+
+Four items were listed as inventions. Reviewed against the governing principle,
+**two of the four are not inventions at all** and one of my stated risks was
+overstated. Evidence is the recorded upstream surface
+(`docs/reference/api-surface/rclcpp.json`) and our own headers.
+
+### 1. `Timer` — do NOT adopt upstream's hierarchy; DO adopt its names
+
+Upstream has `TimerBase`, `WallTimer`, `GenericTimer`, `TimerCallbackType`,
+`create_timer`, `create_wall_timer`. `TimerBase` is a POLYMORPHIC base;
+`WallTimer`/`GenericTimer` are templates over clock and callback;
+`create_wall_timer` returns `shared_ptr<WallTimer<...>>`, conventionally stored
+as `rclcpp::TimerBase::SharedPtr`.
+
+**Refactoring ours into that hierarchy is refused by clause 1.** A polymorphic
+base puts a vtable in every image that holds a timer, on targets chosen for
+having no allocator and a fixed arena. The benefit would be that a ported file
+could DERIVE from `TimerBase`, which is rare; the cost is paid by every image.
+
+**But the common ported line is not derivation — it is a member declaration:**
+
+```cpp
+rclcpp::TimerBase::SharedPtr timer_;      // idiomatic upstream member
+```
+
+That is a name, not a hierarchy, and clause 2 says port it. So on hosted
+targets:
+
+```cpp
+namespace rclcpp {
+using TimerBase = ::rclcpp::Timer;        // [2] the ported name
+}                                          //     Timer gains a SharedPtr typedef
+```
+
+A ported file's member declaration then compiles unchanged, and a file that
+tries to DERIVE from `TimerBase` fails to compile — mechanical, and honest,
+because we do not have the hierarchy.
+
+**Net: `Timer` stops being a pure invention.** `rclcpp::Timer` remains the
+freestanding spelling and the thing that actually exists; `TimerBase` is a
+ported alias. `WallTimer`/`GenericTimer` stay absent — they are templates over a
+clock type we do not have, and aliasing them would claim a genericity we cannot
+deliver.
+
+### 2. `spin_once` — keep it, and my collision risk was overstated
+
+**Upstream's verb is already ported.** `rclcpp::spin_some(node)` exists here
+(`nros.hpp:988`) with upstream's semantics — drain what is ready, no wait — as a
+0-timeout `spin_once`. So the question is not "should we adopt `spin_some`"; we
+already did.
+
+`spin_once(timeout_ms) -> Result` is a *blocking wait with a budget*, which
+rclcpp has no verb for. That is a real capability on an RTOS: a task that must
+not spin-poll needs to sleep until work arrives or the budget expires.
+
+**Correcting myself on the risk.** I flagged `rclpy.spin_once` as a live
+collision hazard. It is weaker than I said: rclpy's signature is
+`spin_once(node, timeout_sec=None)`, so a user carrying that habit writes
+`spin_once(node, 0.1)` in C++ and gets **no matching overload** — mechanical,
+not silent. The two names live in different languages, and the C++ compiler
+separates them for us. The ledger row should record the rclpy sibling for the
+reader's benefit; it is not an argument for renaming.
+
+**Keep `rclcpp::spin_once`.** It stays a genuine invention, with the collision
+gate watching in case rclcpp ever adds one.
+
+### 3. `Node::init` / `Node::ok` — and the error-channel rule they exposed
+
+Both stay, and neither is exotic: `ok()` is a state query and matches
+`rclcpp::ok()`'s own spelling; `init()` is the checked construction form a
+`-fno-exceptions` target needs in place of a throwing constructor.
+
+The review's real finding is that we have **two error channels and no stated
+rule** for choosing between them. `Result` (no value) and `Expected<T>` (value
+or error) both exist in `result.hpp`, and — measured, not assumed — `result.hpp`
+carries **zero capability gates** and parses under the ThreadX `-nostdinc++`
+shim, so both are available on every target.
+
+**The rule, stated:**
+
+| the operation | channel |
+| --- | --- |
+| ours-only, can fail, produces nothing | `Result` |
+| ours-only, can fail, produces a value | `Expected<T>` |
+| a state query that cannot fail | `bool` |
+| **a PORTED API** | **upstream's channel, even when that is `bool`** |
+
+The last row is clause 2 outranking local consistency, and it is load-bearing:
+`rclcpp::Node::get_parameter` returns `bool` upstream, so ours does too. A
+tidier all-`Expected` surface would be a preference recorded as a divergence,
+which RFC-0036 forbids.
+
+**What this makes outstanding:** `Result` and `Expected<T>` both need
+`[[nodiscard]]` (`NROS_NODISCARD` on C++14 targets). Without it,
+`rclcpp::init(argc, argv);` as a bare statement is a signature change the
+compiler does not point at — the exact case the governing principle says must
+be made loud by other means. `grep -n nodiscard` over `result.hpp` returns
+nothing today.
+
+### 4. The out-ref `create_*` family — forced by the arena, not a style
+
+Not an invention: it shares upstream's NAME and changes the signature, which is
+clause 2.
+
+And the signature is not a preference. **The executor arena stores `&entity` as
+its dispatch context and has no unregister path** (`nros.hpp:625-641`,
+`:806-812`). So the entity's address must be stable for the node's lifetime and
+owned by someone who outlives it. A value-returning
+`Expected<Publisher<M>> create_publisher(...)` would MOVE the object out of the
+function, changing the address the arena has already recorded — a dangling
+dispatch context, silently, on the first callback.
+
+That is why the hosted `shared_ptr` overload also keeps `owned_entities_`: the
+returned pointer is a co-owner, never the only owner. The allocation is
+inherent to the arena contract, not to the spelling — and the out-ref form is
+the shape that needs no allocation at all.
+
+`Expected<T>::make()` already exists as the hosted-friendly value-returning
+form (`result.hpp:190`), and its own doc comment says the out-param remains the
+canonical zero-cost API. That stands.
+
+### Revised inventory
+
+| item | verdict |
+| --- | --- |
+| `rclcpp::Timer` | ported name `TimerBase` added (hosted alias); `Timer` remains ours as the concrete type |
+| `rclcpp::spin_once` | **invention, kept** — upstream has no blocking-with-budget verb; `spin_some` already ported |
+| `Node::init` / `Node::ok` | kept; `ok()` matches upstream's spelling, `init()` is the no-exception channel |
+| out-ref `create_*` | **not an invention** — ported name, changed signature, forced by the arena |
+
+Two of four were mislabelled. What remains genuinely invented is `spin_once`
+and `Node::init`, plus `Timer` as a concrete type behind a ported alias.
+
+## Timer, studied against RTOS semantics (2026-09-05) — no `TimerBase`, no hierarchy
+
+The objection is right and it kills the alias: **`TimerBase` is a name that
+promises children.** A reader who finds it expects `WallTimer` and
+`GenericTimer` beside it, and aliasing a concrete class to that name sells a
+taxonomy we do not have. Either port the hierarchy or do not take the name.
+
+So: can the hierarchy be ported? Measured, not assumed.
+
+### What upstream's three types are FOR
+
+* `TimerBase` — a non-template base so the executor can hold a
+  `std::vector<TimerBase::WeakPtr>` without knowing the callback type. Its job
+  is **type erasure for the executor**.
+* `GenericTimer<FunctorT, ClockT>` — stores the callback functor BY VALUE and is
+  parameterised on the **clock**.
+* `WallTimer<FunctorT>` — `GenericTimer` pinned to the steady clock.
+
+The hierarchy exists because upstream's executor needs a type-erased handle
+while the timer wants the functor inline.
+
+### Why neither reason survives here
+
+**Type erasure is already done, one layer down.** Our `Timer` is not an owner —
+it is a HANDLE: `{void* executor_; size_t handle_id_; bool initialized_;}`. The
+callback lives in the executor arena as a raw `void(*)(void*)` plus a `void*`
+context, and dispatch goes through that pointer. The executor never needs a
+base class because it never holds a C++ timer object at all. A `TimerBase` here
+would be a vtable added for API shape with **no dispatch that uses it** —
+clause 1 refuses it, and unlike the usual vtable argument this one buys nothing
+even in principle.
+
+**The clock parameter corresponds to a capability we do not have, and that is
+the real finding.** Our timers are scheduled by the executor against
+`nros_platform_clock_ns` — one **monotonic** counter, with
+`ExecutorConfig::clock_us` as the only override (`executor/spin.rs:8746`).
+`create_timer` takes `(Timer&, uint64_t period_ms, callback, ctx)`: **no clock
+argument anywhere.** `nros::Clock` with its `NROS_CLOCK_{SYSTEM,ROS,STEADY}_TIME`
+types is a time-READING API; it does not drive timer scheduling.
+
+So upstream's `WallTimer` vs `GenericTimer<Clock>` distinction is exactly the
+distinction between a steady-clock timer and a **ROS-time / simulated-time**
+timer — and we only have the first. `GenericTimer` cannot be ported because the
+thing it is generic over does not exist here. Porting the NAME while having one
+clock would be the compile-and-differ this RFC forbids: a ported file passing a
+`Clock` would either fail to compile (fine, but then the name bought nothing) or
+compile and silently ignore the clock (forbidden).
+
+### Should we invent our own hierarchy instead?
+
+No, and for the same reason the alias was wrong. **A hierarchy with one leaf is
+a promise with no content.** The two axes that might have been children are
+already expressed better:
+
+* one-shot vs repeating → `create_timer_oneshot` and `set_oneshot`/
+  `set_repeating` **methods**, because a timer changes between them at runtime
+  and a type cannot;
+* clock source → does not exist yet.
+
+Inventing `nros::TimerBase` with a single `WallTimer` under it would reproduce
+the misleading promise we just refused to import, and charge a vtable for it.
+
+**Decision: `rclcpp::Timer` stays flat and stays ours.** No `TimerBase`, no
+`WallTimer`, no `GenericTimer`. A ported file's
+`rclcpp::TimerBase::SharedPtr timer_;` becomes `rclcpp::Timer timer_;` — a
+rename the compiler demands, which is a mechanical edit under the principle.
+
+The verb is already accurate and already ported: `create_wall_timer` says
+*wall*, and wall is what we schedule on.
+
+### AMENDED 2026-09-05 — ROS time is coming, and the conclusion survives
+
+The premise below ("the clock it is generic over does not exist here") is
+scheduled to change: **phase-430 brings ROS time**, for rosbag replay. The
+reasoning above was correct and one of its two legs is being removed.
+
+**The conclusion does not change.** The clock becomes a RUNTIME FIELD on the
+flat `Timer` plus a second verb (`create_timer(clock, period, cb)` beside
+`create_wall_timer`), not a type parameter and not a hierarchy — because the
+other leg is untouched: the executor dispatches through a raw function pointer
+in the arena, so it never needs a type-erased base, and a `TimerBase` would
+still be a vtable no dispatch uses.
+
+Upstream distinguishes the two cases by TYPE *and* by VERB. The type
+distinction stays unportable; **the verb distinction is portable and it is what
+ported code writes**, so that is what we take.
+
+### The condition under which this is revisited
+
+If ROS-time or simulated-time timers are ever implemented — a bag-driven or
+sim-driven clock feeding the executor's scheduler — the port is
+`create_timer(clock, period, callback)` plus a clock field on `Timer`. **Still
+flat.** The hierarchy would only become right if the executor needed a
+type-erased base, and it will not, because dispatch stays a raw function
+pointer in the arena.
+
+## Parameters: feature-complete, Rust-side SSoT, and `ros2 param list` must work
+
+Decision 3 says the store lives in Rust. Stating what "feature complete" costs,
+because the gap is larger than the missing setter.
+
+**What exists.** The executor owns a `nros_params::ParameterTable` and
+registers all six ROS 2 parameter services — `GetParameters`, `SetParameters`,
+`SetParametersAtomically`, `ListParameters`, `DescribeParameters`,
+`GetParameterTypes` (`executor/spin.rs:7182`). Service-wise that is the
+complete upstream set.
+
+**The gap is not the service list; it is the KEYING.** Those services are
+registered under ONE FQN, built from the executor's own `node_name` and
+`namespace`. The store is likewise executor-global. But an image composes
+several nodes onto one executor — that is the whole point of the model above.
+So today:
+
+* `ros2 param list` shows the executor's node, not the image's nodes;
+* two nodes declaring the same parameter name collide in one flat table;
+* a parameter declared through a C++ node facade is invisible to the services
+  entirely, because the facade's store is a different store (issue 0793).
+
+Upstream's model is one store and one set of six services PER NODE. Matching it
+means:
+
+1. **Key the table by node**, not by executor.
+2. **Register the six services per node identity**, under each node's FQN, so
+   `ros2 param list` enumerates the image's nodes as a ROS 2 user expects. Note
+   the cost this lands on: a service server IS a zenoh queryable, six per node,
+   against `ZPICO_MAX_QUERYABLES` — the CLAUDE.md pitfall about
+   `[param_services]` claiming six slots becomes six PER NODE, which is a
+   sizing decision, not an oversight to discover at runtime.
+3. **Add the missing setter.** `grep -c nros_cpp_set_param` is 0 and there is no
+   `set_parameter` on the executor either, so `SetParameters` currently has a
+   service without a store-side writer for the wrapper path.
+4. **Delete the C++ stores**, both of them, once 1–3 land. Not before: deleting
+   a store that has no replacement is how a capability disappears quietly.
+
+That ordering matters. Steps 1–3 are Rust-side, and step 4 is what makes the
+C/C++ side a thin wrapper rather than a second implementation — which is
+RFC-0019/0020's rule, and the reason this is a Rust job rather than a C++ one.
+
+# Part IV — Argument order, and what it forced
 
 ## Taking rclc's argument ORDER forces a decision on RFC-0041
 
@@ -503,6 +1320,8 @@ names each parameter and never a macro, and why its probe pins the reorder with
 `#pragma GCC diagnostic error "-Wincompatible-pointer-types"` scoped to that TU:
 the guard cannot be advisory when the reorder is the whole reason the forwarder
 exists. Without the pragma the guarding mutation PASSED.
+
+# Part V — What the measurement can and cannot show
 
 ## What "mostly full compat" can honestly mean
 
@@ -700,3 +1519,438 @@ whether the upstream name is adopted, bounded, refused loudly, or absent. A
 `declined` verdict with no disposition does not say whether a ported program
 gets a compile error or a surprise, which is the only thing a porting user needs
 to know.
+
+# Appendix — superseded drafts
+
+## The proposed node shape (2026-09-05)
+
+**SUPERSEDED** by "The node API, proposed under the governing principle"
+below. Kept because its measurement of the three working shapes is still the
+evidence; its namespace decisions are not.
+
+Grounded in the three shapes that actually exist in the tree, not in the two the
+merge question implied.
+
+### The three working shapes today
+
+**A — standalone `main`** (`examples/native/cpp/talker`, and every
+`examples/<plat>/<lang>/` leaf):
+
+```cpp
+nros::init();
+nros::Node node;                        // caller-owned storage
+nros::create_node(node, "talker");      // out-ref, returns Result
+node.create_publisher(pub, "/chatter"); // out-ref, returns Result
+while (running) nros::spin_once(100);
+```
+
+**B — workspace typed component** (RFC-0043; the dominant workspace shape —
+41 files in `workspaces/cpp` alone):
+
+```cpp
+class Talker {
+    Publisher<Int32> pub_;   // inline storage, no allocator
+    Timer timer_;
+    void on_tick();
+  public:
+    Result configure(nros::Node& node);   // node passed BY REFERENCE
+};
+```
+
+**C — `ComponentNode`** (RFC-0044/0047; five directories):
+
+```cpp
+class SubNode : public nros::ComponentNode {
+    SubNode(NodeHandle h) : ComponentNode(h, "sub_node") {}
+};
+```
+
+And upstream's component, for comparison:
+
+```cpp
+class Talker : public rclcpp::Node {
+    explicit Talker(const NodeOptions& o) : Node("talker", o) {
+        pub_ = create_publisher<M>("chatter", 10);           // returns shared_ptr
+        timer_ = create_wall_timer(1s, [this]{ on_tick(); });
+    }
+};
+```
+
+C is upstream's shape with the handle swapped for the executor. **B has no
+upstream counterpart at all** — and B is the one that carries our hardest
+constraint, because it needs neither an allocator nor derivation nor a vtable.
+
+### The proposal
+
+**One node type. Three constructors. Two entity-creation shapes. B unchanged.**
+
+```cpp
+namespace nros { class Node; }
+namespace rclcpp { using Node = ::nros::Node; }   // unconditional alias
+```
+
+*Constructors* — because construction is not identity, and `rclcpp::Node`
+already has several:
+
+1. `Node()` + `nros::create_node(node, name, ns)` — shape A, out-ref, no
+   allocator, works on every target. Stays exactly as it is.
+2. `Node(const std::string& name, const NodeOptions& = {})` — upstream's, for a
+   ported file. Hosted-only, because `std::string` is.
+3. `Node(NodeHandle handle, const char* name, const char* ns = nullptr)` —
+   shape C's, promoted from a second class to a constructor on the one type.
+
+*Entity creation* — both shapes on the one type, distinguished by argument
+order, which is already how the overloads resolve:
+
+| shape | signature | reach |
+| --- | --- | --- |
+| ours | `create_publisher(Publisher<M>& out, const char* topic, qos) -> Result` | every target |
+| upstream | `create_publisher<M>(const std::string& topic, qos) -> shared_ptr<Publisher<M>>` | hosted |
+
+The out-ref family is an **ours-only name for a capability upstream lacks**
+(caller-owned storage), which is a permanent divergence under this RFC's own
+rules, not a transitional one. The `shared_ptr` family allocates, and that is
+inherent to the arena contract rather than to the spelling: the arena stores a
+raw pointer and has no unregister, so anything handed back as a pointer needs a
+second owner with node lifetime (`owned_entities_`).
+
+*Derivation* — `class Talker : public rclcpp::Node` becomes available, which is
+what a ported component writes. It requires the hosted constructor, so it is
+hosted-only, and that is honest: on a freestanding target the answer is shape B.
+
+*Shape B survives untouched.* `Result configure(nros::Node&)` takes the one node
+type by reference. It was never a node type — only a convention — and after the
+merge it is the same convention over the same type. **This is the shape to keep
+recommending for firmware**, because it is the only one of the three that needs
+no allocator and no vtable.
+
+*`ComponentNode`* becomes `using ComponentNode = Node;` for one release, then
+goes. Its two real contents are already accounted for: the handle constructor
+(3 above) and RFC-0047's several-named-nodes, which stays as an ours-only
+capability on the single type.
+
+### What this costs, stated rather than implied
+
+* **`get_logger()` changes behaviour** on the `rclcpp::` spelling: a node-named
+  logger replaces the `"nros.compat"` sentinel. Decided above; strictly better,
+  but it IS a behaviour change and belongs in the changelog.
+* **A vtable appears** only if someone derives. Shapes A and B add none, so no
+  embedded image pays for the hosted shape unless it uses it.
+* **`sizeof(Node)` must not move with a capability probe** — the hosted members
+  live behind an unconditional owner member, enforced by
+  `check-cpp-capability-layout` and already the reason `timers_` is gone.
+* **The 409 `nros::` call sites do not have to move.** The alias is
+  unconditional and both spellings name one type, so migration becomes
+  optional per file rather than a flag day.
+
+## The node API, revised (2026-09-05)
+
+**SUPERSEDED** by "The node API, proposed under the governing principle"
+below. It predates the principle and kept four names in `nros::`, which is
+overturned.
+
+Three constraints, settled: **`rclcpp::Node` is the name**, there is **one node
+type**, and it **compiles freestanding**. The third is what shapes the rest,
+because upstream's constructor takes `std::string` and its `create_publisher`
+returns `shared_ptr` — neither of which exists on a `-nostdinc++` target.
+
+### Layout — one pointer, never a probe
+
+The hosted-only state cannot be a set of conditional members: that is the
+capability-layout rule, and `timers_` already shipped a violation of it. So it
+goes out of line behind ONE unconditional pointer.
+
+```cpp
+namespace rclcpp {
+class Node {
+    // ... freestanding core, identical on every target ...
+    nros_cpp_node_t handle_;
+    bool             initialized_;
+    void*            executor_handle_;
+    ::nros::Clock    clock_;
+    // The hosted extras -- `NodeOptions`, the co-ownership vector, the
+    // shared_ptr bookkeeping -- live in `detail::NodeHosted`, allocated LAZILY
+    // on the first hosted-shape call and never on a freestanding target.
+    // One pointer, present in every configuration, so `sizeof(Node)` does not
+    // follow a capability probe (`check-cpp-capability-layout`).
+    void* hosted_ = nullptr;
+};
+} // namespace rclcpp
+
+namespace nros { using Node = ::rclcpp::Node; }   // transitional alias, deprecated later
+```
+
+Note the direction: **`rclcpp::Node` is the class and `nros::Node` is the
+alias**, the reverse of the shim we are retiring. That is what makes the rename
+a rename rather than a second name — and it means the 409 remaining `nros::`
+call sites keep compiling while they migrate, instead of needing a flag day.
+
+`ComponentNode` is deleted, not aliased. It had no distinction left once the
+handle became a constructor.
+
+### The API, by reach
+
+**Freestanding core — every target, no allocator, no vtable, no `std::`:**
+
+```cpp
+Node();                                            // caller-owned storage
+Result nros::create_node(Node&, const char* name, const char* ns = nullptr);
+Result nros::create_node_on(Node&, void* handle, const char* name, const char* ns = nullptr);
+
+Result create_publisher   (Publisher<M>&,    const char* topic, const QoS& = {});
+Result create_subscription(Subscription<M>&, const char* topic, void(*cb)(const M&), const QoS& = {});
+Result create_service     (Service<S>&,      const char* name, ..., const QoS& = ServicesQoS());
+Result create_client      (Client<S>&,       const char* name, ..., const QoS& = ServicesQoS());
+Result create_timer       (Timer&, uint64_t period_ms, nros_cpp_timer_callback_t, void* ctx);
+
+const char* get_name() const;
+const char* get_namespace() const;
+Logger      get_logger() const;      // named for THIS node (decision 1)
+Time        now() const;
+// the 13 graph queries, unchanged
+```
+
+The out-ref family keeps `nros::`-side free functions (`nros::create_node`)
+because they are **ours-only names for a capability upstream lacks** —
+caller-owned storage. Under this RFC that is a permanent divergence, not a
+transitional spelling, so it is correct for them to keep our namespace while the
+TYPE takes upstream's.
+
+**Hosted additions — methods only, gated, layout-neutral:**
+
+```cpp
+explicit Node(const std::string& name, const NodeOptions& = NodeOptions());
+Node(const std::string& name, const std::string& ns, const NodeOptions& = NodeOptions());
+
+std::shared_ptr<Publisher<M>>    create_publisher<M>(const std::string& topic, const QoS&);
+std::shared_ptr<Subscription<M>> create_subscription<M>(const std::string& topic, const QoS&, Cb);
+std::shared_ptr<TimerBase>       create_wall_timer(std::chrono::duration<...>, Cb);
+std::shared_ptr<Service<S>>      create_service<S>(const std::string& name, ...);
+std::shared_ptr<Client<S>>       create_client<S>(const std::string& name, ...);
+
+// parameters -- forwarders to the Rust store after phase-426, never a second store
+T    declare_parameter<T>(const std::string&, const T&);
+bool get_parameter<T>(const std::string&, T&) const;
+```
+
+Deriving (`class Talker : public rclcpp::Node`) needs the hosted constructor, so
+it is hosted-only. On a freestanding target the answer is the workspace
+component shape below, which needs no derivation at all.
+
+### Usage — standalone
+
+*Hosted, a ported file, unchanged from upstream:*
+
+```cpp
+#include <nros/nros.hpp>
+
+int main(int argc, char** argv) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<rclcpp::Node>("talker");
+    auto pub  = node->create_publisher<std_msgs::msg::String>("chatter", 10);
+    auto timer = node->create_wall_timer(std::chrono::seconds(1), [pub]{ /* ... */ });
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+}
+```
+
+*Freestanding, the same type, our names for our capabilities:*
+
+```cpp
+#include <nros/nros.hpp>
+
+int main() {
+    NROS_TRY_RET(rclcpp::init(), 1);            // returns Result, unlike upstream's void
+    rclcpp::Node node;                          // no allocation
+    NROS_TRY_RET(nros::create_node(node, "talker"), 1);
+
+    rclcpp::Publisher<std_msgs::msg::String> pub;   // inline storage
+    NROS_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
+
+    while (rclcpp::ok()) {
+        pub.publish(msg);
+        rclcpp::spin_once(100);
+    }
+}
+```
+
+Both name **one** `rclcpp::Node`. The difference is which capabilities the
+target has, and every difference fails to COMPILE rather than differing at
+runtime — `create_publisher<M>("chatter", 10)` is simply not declared where
+`<memory>` is not.
+
+### Usage — workspace
+
+The RFC-0043 typed component is unchanged except that the node's type is now
+spelled upstream's way. **This stays the recommendation for firmware**: no
+allocator, no derivation, no vtable, and it is the only one of the three shapes
+that compiles on every target we ship.
+
+```cpp
+// talker_pkg/include/talker_pkg/Talker.hpp
+class Talker {
+    rclcpp::Publisher<std_msgs::msg::Int32> pub_;   // inline
+    nros::Timer                             timer_; // ours-only: upstream has no `Timer`
+    int count_ = 0;
+
+    void on_tick();                                  // bound BY IDENTITY, no string name
+
+  public:
+    rclcpp::Result configure(rclcpp::Node& node);    // the one node type, by reference
+};
+
+// talker_pkg/src/Talker.cpp
+rclcpp::Result Talker::configure(rclcpp::Node& node) {
+    NROS_TRY(node.create_publisher(pub_, "/chatter"));
+    return nros::bind_timer<Talker, &Talker::on_tick>(node, timer_, 1000, this);
+}
+```
+
+The generated entry constructs each component and calls `configure(node)` —
+which is upstream's *manual composition* with the `main` generated instead of
+written.
+
+*Hosted workspaces may instead derive, which is what a ported component looks
+like:*
+
+```cpp
+class Talker : public rclcpp::Node {
+  public:
+    explicit Talker(const rclcpp::NodeOptions& opts) : Node("talker", opts) {
+        pub_ = create_publisher<std_msgs::msg::Int32>("chatter", 10);
+    }
+};
+```
+
+Both are the same type. Which one a package uses is a reach decision, and the
+one that reaches further is the one with no `std::` in it.
+
+### What still has no upstream spelling, deliberately
+
+`nros::create_node`, `nros::bind_timer`, `nros::Timer`, `nros::spin_once`,
+`rclcpp::init`'s `Result` return, and the out-ref `create_*` family. Each is a
+capability upstream does not have, so each keeps our namespace and a ledger row
+with a disposition. Giving them upstream spellings would be the compile-and-differ
+this RFC exists to forbid.
+
+## Context and `init`, settled (2026-09-07)
+
+Two questions came out of the phase-428 closure: whether `rclrs::Context::
+default_from_env()` should exist beside `nros::init()`, and — behind it — what
+"from the environment" can mean on a target that has no environment. Both are
+settled here; the work items are phase-427 W9 and W10.
+
+### `Context` is not `Node`, in either language
+
+They answer different questions, and one image holds one of the first and
+several of the second. `Context` is WHERE this image is connected: locator,
+domain, RMW, session mode, and the source those came from. One per process or
+image; a resolved value, not an entity on the graph. `Node` is a named
+participant with its own entities. RFC-0047 already puts several named nodes
+in one image and the bridge image (`Executor::open_multi`) opens two sessions,
+so folding context into node would either copy session config onto every node
+or force one node per session. Upstream draws the same line: rclrs has an
+explicit `Context` object, rclcpp hides one behind `init()` as the global
+default context every `Node` reads. Our C++ already does the rclcpp thing;
+the Rust side doing the rclrs thing is the same model in each language's own
+spelling (clause "each language follows its own upstream").
+
+The value is thin — five fields and "create the executor from me". The
+executor owns the session; the context says where; the node has the name.
+
+### "From the environment" on a target with no environment
+
+rclrs's `default_from_env` reads the process environment (`ROS_DOMAIN_ID`,
+`RMW_IMPLEMENTATION`). Hosted, ours reads the same thing (`init.rs`,
+`try_resolve_hosted`), and a launcher projects per-node values into that
+environment before exec. On an RTOS or bare-metal image there is no process
+and no environment; the same values are BAKED at compile time —
+`option_env!("NROS_LOCATOR")`, `NROS_DOMAIN_ID` exported by the leaf
+`build.rs` from Kconfig or `config.toml` — with one runtime hook for a locator
+a board hands in. The semantics survive with the source moved from run time
+to build time: "the environment this image was built for or launched in".
+That is a bounded adoption, not a lie, and it is what the row says.
+
+Consequence: `Context` compiles on EVERY target. Today `init.rs` sits whole
+behind the `env` feature (`std::env`), so a freestanding image has no
+`Context` at all and the entry macros build an `ExecutorConfig` by hand from
+the baked constants. After W9 the `env` feature gates only the process-env
+reader; the freestanding constructor reads the baked constants, and the entry
+macros call it — one source of the baked shape.
+
+### The Rust shape
+
+```rust
+pub struct InitOptions { domain_id: Option<u32> }          // the one option that exists
+impl InitOptions { pub fn new() -> Self; pub fn with_domain_id(self, Option<usize>) -> Self; }
+
+impl Context {
+    pub fn default_from_env() -> Result<Context, InitError>;        // hosted: env; freestanding: baked
+    pub fn from_env(o: InitOptions) -> Result<Context, InitError>;  // + domain override
+    #[cfg(feature = "env")]
+    pub fn new(args: impl IntoIterator<Item = String>, o: InitOptions) -> Result<Context, InitError>;
+                                                                    // refuses --ros-args loudly; absent freestanding
+    #[cfg(feature = "alloc")]
+    pub fn create_executor(&self) -> Result<Executor<'static>, InitError>;
+    pub fn create_executor_in<'b>(&self, backing: &'b mut [MaybeUninit<u64>]) -> Result<Executor<'b>, InitError>;
+}
+impl Executor<'_> {
+    pub fn create_node(&mut self, name: &str) -> Result<Node, NodeError>;   // several named nodes: RFC-0047
+    pub fn spin(&mut self, opts: SpinOptions) -> Result<(), NodeError>;
+    pub fn spin_once(&mut self, timeout_ms: u32) -> Result<(), NodeError>; // ours, kept
+}
+pub fn init() -> Result<Context, InitError>;   // stays: the C++-symmetric anchor, equal to default_from_env()
+```
+
+| rclrs | ours | disposition |
+| --- | --- | --- |
+| `Context::default_from_env` | same | `adopt`; source bounded on freestanding, stated in the row |
+| `Context::from_env(InitOptions)` | same, domain only | `adopt-bounded` |
+| `Context::new(args, InitOptions)` | same hosted, refuses `--ros-args` at run time | `adopt-bounded` hosted, `absent` freestanding (no argv) |
+| `Context::create_executor` | returns `Result`, `alloc` only | `adopt-bounded` |
+| `create_executor_in` | ours | `extension` |
+| `Executor::create_node` | same | `adopt` |
+| `Executor::spin(SpinOptions)` | subset of options | `adopt-bounded` |
+| `spin_once` | ours | `extension` (kept, phase-427) |
+| `nros::init` | ours, equals `default_from_env` | kept; the C++ anchor |
+
+A ported rclrs `main` then changes in exactly two places, both `?` on calls
+that can fail here and cannot there (`create_executor`, `spin`); the error
+types differ (`InitError`/`NodeError` for `RclrsError`), invisible under `?`
+and loud under a `match`. The line that is a real design difference —
+`create_executor` needing a backing on a no-alloc target — is the one the
+compiler names.
+
+### The C++ shape, and why `init` has two overloads
+
+Not multiple ways to init a node. One way to init the process context, with
+argv OPTIONAL, and nodes constructed one way (`Node(name)` + `init()`
+freestanding, `make_shared<Node>(name)` hosted; phase-427 W2).
+
+```cpp
+inline void init(int argc, char const* const* argv);   // hosted text; aborts if argv carries --ros-args
+inline void init();                                    // no argv
+```
+
+Upstream has only the argc/argv form because upstream always has a
+`main(argc, argv)`. An RTOS image has no such `main` — Zephyr's takes nothing,
+ThreadX starts a thread, bare metal enters `app_main` — so the ported
+tutorial's `main` does not survive the port on those targets regardless, and
+the user writes `init()` (or `init(0, nullptr)`, which also compiles). The argv
+form is `adopt-bounded` on every target: it accepts argv, honours nothing in
+it, and refuses `--ros-args`. The single-spelling alternative (argv overload
+hosted-only) was considered and rejected: the argv form is what makes a ported
+hosted `main` compile unchanged, and on RTOS the `main` is rewritten anyway.
+
+Who initialises the context, per case:
+
+| case | who | the user writes |
+| --- | --- | --- |
+| standalone, hosted | the user's `main` | `rclcpp::init(argc, argv)` / `Context::default_from_env()` |
+| standalone, RTOS or bare | the user's entry function | `rclcpp::init()` / `Context::default_from_env()` (baked) |
+| workspace, hosted | generated entry | nothing; the node is a component |
+| workspace, RTOS | generated entry | nothing; the node is a component |
+
+In a workspace project the user never writes any of this: `nros::main!(launch
+= "bringup")` generates the entry, the config comes from the SystemModel, and
+the same node links into a Linux process or a Zephyr image unchanged.

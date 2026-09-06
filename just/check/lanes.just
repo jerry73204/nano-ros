@@ -443,6 +443,35 @@ cpp: cpp-fmt
     # from a `cc` line that says nothing about cargo. Diagnosing that cost four
     # wrong hypotheses; the build's own error names the cause in one line.
     cargo build -p nros-c -p nros-cpp --no-default-features --features "{{C_API_SHIPPED_FEATURES}}" --quiet
+    # phase-428 W5 finding 9 — a failed `rclcpp::Node::create_*` must ABORT,
+    # not hand back a shared_ptr to a dead entity. RUNTIME, and forking,
+    # because the defect was that nothing happened: a compile probe cannot tell
+    # "aborts" from "returns".
+    #
+    # Links NO nano-ros archive. What it exercises (`detail::require_created`)
+    # is a header-only inline function over `nros::Result`, so the only
+    # unresolved symbols are the issue-0360 VARIANT ANCHORS the config headers
+    # plant — `__attribute__((used))` data pointers nothing dereferences.
+    # `--unresolved-symbols=ignore-all` is deliberate and does not weaken 0360:
+    # the stamp exists to stop a TU linking an archive built with OTHER
+    # features, and there is no archive here to mismatch. Linking one instead
+    # was tried and is NOT reproducible — `target/nros-cpp-generated` is a
+    # shared dir written by whichever unit last ran its build script, so the
+    # header's variant is the CLIPPY step's while the archive is this build's,
+    # and the link fails on a stamp mismatch on every run after the first
+    # (issue 0834's class, not a race).
+    echo "  - a failed create aborts (runtime, c++14)"
+    mkdir -p target/nros-cpp-tests
+    c++ -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        -Wl,--unresolved-symbols=ignore-all \
+        -o target/nros-cpp-tests/failed_create_aborts \
+        packages/api/nros-cpp/tests/compile/failed_create_aborts.cpp
+    ./target/nros-cpp-tests/failed_create_aborts
     # issue 0730 — the (zephyr-embedded × C++ × cyclonedds) coordinate is a
     # pairwise-class gap no runtime tier covers (cyclone fixtures run on
     # native_sim, which appends `,std`), and it failed E0599 at COMPILE time:
@@ -465,11 +494,6 @@ cpp: cpp-fmt
         echo "  - embedded cyclone coordinate (issue 0730): SKIP — aarch64-unknown-none not installed"
     fi
     for hdr in packages/api/nros-cpp/include/nros/*.hpp; do
-        # Phase 209 — `rclcpp_compat.hpp` is a source-compat shim still
-        # being aligned with the live nros::Result / nros::QoS API. The
-        # clang-format check above still covers it; the freestanding
-        # C++14 probe stays opt-out until 209 lands its API touch-ups.
-        case "$hdr" in *rclcpp_compat.hpp) continue ;; esac
         # issue #52 — `main.hpp` is the HOSTED entry runtime (LinuxBoard / NuttX):
         # its rtos_e2e readiness/sample banners call `::std::printf`, which
         # `-ffreestanding` is not required to expose from `<cstdio>` (only the global
@@ -681,6 +705,76 @@ cpp: cpp-fmt
     # (renamed), so a textual sweep is exactly what this catches (issue 0160).
     # `-Wno-deprecated-declarations` because the TU names the old spellings
     # deliberately; the probe below is what proves they still warn.
+    # ----- the -nostdinc++ lane (phase-417) -----
+    #
+    # The probe ABOVE is host `c++ -ffreestanding` against the host's own,
+    # COMPLETE libstdc++. That is a useful syntax check and it is NOT a
+    # freestanding check: `__has_include(<memory>)` is true there, `<chrono>`'s
+    # `duration_cast` is present, and `std::abort` always resolves. Every header
+    # a real embedded lane cannot provide is still there.
+    #
+    # Two lanes actually build `-nostdinc++` against a minimal libcpp, and only
+    # they answer the question the name above claims to:
+    #
+    #   ThreadX-RISCV64  packages/boards/nros-board-threadx-qemu-riscv64/cxx-compat
+    #   Zephyr           zephyr/cxx-compat + zephyr's own 3-header minimal libcpp
+    #
+    # This lane found a live red on its first run, which is the argument for it:
+    # RFC-0089 W3.b's refusal path calls `::std::abort()` (`nros.hpp:369`), the
+    # ThreadX shim's `cstdlib` re-exported malloc/calloc/free/getenv/realloc and
+    # NOT abort, and `examples/qemu-riscv64-threadx/cpp/talker` includes
+    # `<nros/nros.hpp>` — so every ThreadX C++ image stopped compiling the
+    # moment `rclcpp::init` entered the umbrella header, and no gate could see
+    # it.
+    #
+    # Host compiler, real shim: this checks HEADER PARSE, not codegen, so it
+    # needs no cross toolchain and belongs on the same lane as its neighbours.
+    # The C library headers still come from the host, which is the one thing
+    # this probe does not model — a `<stdlib.h>` difference between glibc and
+    # picolibc would slip through. Named here rather than papered over.
+    echo "  - capability layout invariance (sizeof must not follow a probe)"
+    bash scripts/check-cpp-capability-layout.sh
+    echo "  - -nostdinc++ header parse (ThreadX shim)"
+    _nostd_tu="$(mktemp -d)/nostdincxx_probe.cpp"
+    _threadx_shim=packages/boards/nros-board-threadx-qemu-riscv64/cxx-compat
+    test -d "$_threadx_shim" || { echo "check-cpp: $_threadx_shim is MISSING — this lane would pass on absence" >&2; exit 1; }
+    for hdr in packages/api/nros-cpp/include/nros/*.hpp; do
+        # `main.hpp` is the HOSTED entry runtime, excluded for the same reason
+        # it is excluded above.
+        case "$hdr" in *main.hpp) continue ;; esac
+        printf '#include <nros/%s>\n' "$(basename "$hdr")" > "$_nostd_tu"
+        c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti -ffreestanding \
+            -nostdinc++ -isystem "$_threadx_shim" \
+            -Itarget/nros-cpp-generated \
+            -Itarget/nros-c-generated \
+            -Ipackages/api/nros-cpp/include \
+            -Ipackages/api/nros-c/include \
+            -Ipackages/platform/nros-platform-api/include \
+            "$_nostd_tu" || { echo "check-cpp: $(basename "$hdr") does not parse -nostdinc++ against the ThreadX shim" >&2; exit 1; }
+    done
+    # Zephyr layers `zephyr/cxx-compat` OVER zephyr's own minimal libcpp, so it
+    # needs the workspace checked out. Skipped LOUDLY when absent rather than
+    # silently: a skip that reads like a pass is how the synthesised-libcpp gap
+    # survived in the first place.
+    _zephyr_min=zephyr-workspace/zephyr/lib/cpp/minimal/include
+    if [ -d "$_zephyr_min" ]; then
+        echo "  - -nostdinc++ header parse (Zephyr minimal libcpp + cxx-compat)"
+        for hdr in packages/api/nros-cpp/include/nros/*.hpp; do
+            case "$hdr" in *main.hpp) continue ;; esac
+            printf '#include <nros/%s>\n' "$(basename "$hdr")" > "$_nostd_tu"
+            c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti -ffreestanding \
+                -nostdinc++ -isystem zephyr/cxx-compat -isystem "$_zephyr_min" \
+                -Itarget/nros-cpp-generated \
+                -Itarget/nros-c-generated \
+                -Ipackages/api/nros-cpp/include \
+                -Ipackages/api/nros-c/include \
+                -Ipackages/platform/nros-platform-api/include \
+                "$_nostd_tu" || { echo "check-cpp: $(basename "$hdr") does not parse -nostdinc++ against Zephyr's minimal libcpp" >&2; exit 1; }
+        done
+    else
+        echo "  - -nostdinc++ header parse (Zephyr): SKIP — $_zephyr_min absent (west workspace not initialised)"
+    fi
+
     echo "  - QoS policy accessors + ms boundary (c++14)"
     c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti -Wno-deprecated-declarations \
         -Itarget/nros-cpp-generated \
@@ -744,9 +838,11 @@ cpp: cpp-fmt
     # ran (issue 0196's class).
     #
     # `ros2_api_adoption.cpp` is HOSTED deliberately — no -ffreestanding. It
-    # includes `rclcpp_compat.hpp`, which pulls <memory>/<string> unconditionally
-    # and hands out std::shared_ptr in public signatures, so a freestanding
-    # compile would fail for a reason that says nothing about the surface.
+    # reaches `rclcpp::Node`, which hands out `std::shared_ptr` in public
+    # signatures, so a freestanding compile would fail for a reason that says
+    # nothing about the surface. (It used to say `rclcpp_compat.hpp`; that
+    # header was deleted in stage 6 step A and the class moved into
+    # `nros.hpp`.)
     for probe in ros2_api_adoption node_graph_forwarders; do \
         test -f "packages/api/nros-cpp/tests/compile/$probe.cpp" || { \
             echo "ERROR: $probe.cpp is MISSING -- this check would pass on absence." >&2; \

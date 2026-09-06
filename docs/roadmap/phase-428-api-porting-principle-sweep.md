@@ -513,7 +513,12 @@ contained it, on a branch that was still open.
 
 So the fourth red did not slip past a gate; it reached `main` through the
 absence of one. Every "that class is now gated" conclusion downstream is
-unsupported until `ci/land-node-std-gate` (`00e8f3087`) merges.
+unsupported until **PR #557** (`ci/land-node-std-gate`) merges — that PR
+is this finding's other half, and it lands the step whose absence is the
+subject here. Cited by PR NUMBER and not by commit: the hash this line
+first carried (`00e8f3087`) stopped naming anything the moment that
+branch was rebased, which is the same "believed because it was AUTHORED
+rather than OBSERVED" shape the paragraph above is about.
 `check-api-parity` remains run by no workflow on any event (issue 1066), which
 was correctly stated and is unchanged.
 
@@ -643,8 +648,9 @@ with the promotion absent — same six, and only those six. They are not in the
 > **Written independently of the section above, against the same base commit,
 > by an author who had not seen it.** Both halves found and fixed the SAME
 > `_ret_of` bug (it read `item["ret"]`; `flatten` stores return types one level
-> down under `overloads`). The section above landed first, in `fe807a999`, and
-> ITS fix is the one that ships — it is the superset: it applies `canon_type`
+> down under `overloads`). The section above landed first — the W6 commit
+> that promotes the correlator's return-type check to a verdict — and ITS
+> fix is the one that ships — it is the superset: it applies `canon_type`
 > inside `_ret_of` and additionally normalises `rcl_{time_point,duration}_value_t`
 > to `int64_t`, which the version here does not. What survives from this half is
 > what it was actually for: `same_shaped_divergences`, the `--require-disposition`
@@ -674,8 +680,9 @@ not have seen.
 | `divergence` rows whose subject correlates `same:ret` | 2, both by inheritance |
 | `divergence` rows in every other bucket — NOT gated | 819 |
 
-**Re-measured after the merge** (`839f69b5c` + this half), because the other
-half authored 20 `divergence` rows on subjects that correlate `same` and they
+**Re-measured after the merge** — the W6 commit that merges the second,
+independent `_ret_of` fix in, plus this half — because the other half
+authored 20 `divergence` rows on subjects that correlate `same` and they
 land in exactly this set — the two halves compound, they do not overlap:
 
 | set | before merge | after merge |
@@ -876,7 +883,7 @@ refusal is a declaration: once a name refuses it correlates `same` or
 
 ### Census
 
-| disposition | before (`9c492403d`) | after |
+| disposition | before (pre-Q1 branch state) | after |
 | --- | ---: | ---: |
 | refuse-loud | 144 | 20 |
 | absent | 518 | 652 |
@@ -891,14 +898,187 @@ The 20 refuse-loud rows now: `cpp:NodeOptions` and its ten refused members,
 and does not fully believe: its diagnostic is rustc's "expected struct, found trait",
 which names neither the constraint nor the alternative, and the row says so.
 
-### What the gate still cannot see
+### Leftovers, closed (2026-09-06, follow-through PR)
 
-`rust:init_with_args` is on no measured surface: `env` is not in
-`extract_rust.NROS_FEATURES`, so `init_with_args`, `init_with_launch*`, `Context::config`
-and nine other names are invisible to the correlator. Adding `env` was measured (12
-rows appear, `Context` moves `theirs-only` → `same`, most of them unledgered) and is its
-own item, not this one. Until then `misdeclared_refusals` cannot vouch for that row
-either way. Also left as found, and stated so nobody trusts them: `rust:init`'s `why`
-is about `nros::logging::init` (the orphan-refs gate already records this), and the
-`cpp:Node::create_{publisher,subscription,wall_timer}` rows still describe the
-discarded-`Result` state that `require_created` closed.
+Three things the pass above left as found. Each is now closed, and what was
+measured is stated apart from what was reasoned.
+
+1. **The `env` surface is measured.** `env` joined `extract_rust.NROS_FEATURES`
+   (it requires `std`, already in the set). Measured with
+   `scripts/api-parity.py --lang rust --show all` before and after, on
+   the branch state at the time: `same 88 → 89`, `theirs-only 503 → 502`,
+   `ours-only 1225 → 1238`.
+   `rust:Context` moved `theirs-only` → `same`, as predicted. What appeared was
+   **19 report lines, not the 12 the earlier estimate said**: 16 UNLEDGERED (the
+   six rclrs `Context::` members, which stop inheriting once their type is
+   `same` — a member gap inside a shipped type is argued on its own, per
+   `lookup`'s rule — plus `Context::config`, `ContextSource`, `InitError`,
+   `REFUSE_INIT_ARGS`, `args_have_ros_args`, `ExecutorConfigEnvExt`,
+   `ExecutorConfigEnvExt::from_env`, `resolve_hosted`, `try_resolve_hosted`,
+   `rmw_selector`) and 3 already ledgered (`init_with_args` — now printing
+   `<refuse-loud>` on a surface the gate can see, so `misdeclared_refusals`
+   vouches for it — `init_with_launch`, `init_with_launch_auto`). All 16 have
+   rows: `Context::new` / `default_from_env` / `domain_id` are `gap` + `absent`
+   (`default_from_env` is `nros::init()` under rclrs's spelling, and the row says
+   so rather than opening a rename on the entry-point family here);
+   `Context::from_env` / `ok` / `create_executor` are `declined` + `absent`
+   (options object, shutdown state, allocating factory — each names its
+   constraint); the rest are `extension`. `rust:Context` itself is
+   `divergence` + `adopt-bounded` (same identity, construction by the free
+   `init*` family, executor opened into caller storage), and its stale
+   `"bucket": "theirs-only"` field is gone.
+2. **Stale `why` texts.** `rust:init` now describes `nros::init()` — the
+   `nros::logging::init` text it carried was a mis-filing. The
+   `cpp:Node::create_{publisher,subscription,wall_timer}` rows describe
+   `detail::require_created` (`nros.hpp:384`) and keep the discarded-`Result`
+   state as one dated sentence; `cpp:Node::Node` and the
+   `create_wall_timer` rename resolution had the same predecessor and got the
+   same treatment. **The class was `rclcpp_compat.hpp` cited as if it
+   existed**: 42 rows across nine shards (one, `cpp:Result`, already said the
+   header was retired and stands) — 19 carrying the identical
+   "visible only because `rclcpp_compat.hpp` is now a translation unit"
+   sentence (rewritten once, mechanically), the QoS-profile family, `Rate` /
+   `WallRate`, `NodeOptions`, the parameter trio, `FutureReturnCode`, and two
+   rows claiming `NodeOptions::enable_rosout` is an inert bool when it is a
+   `static_assert` refusal (`options.hpp:250`). Every one now names the header
+   and line that owns the declaration and keeps the shim as history. Sweep:
+   `grep -o '.\{100\}rclcpp_compat.hpp' docs/reference/api-parity-ledger/*.json`
+   — every remaining hit sits in a sentence that says the file was deleted.
+   The orphan-refs gate was green throughout: it matches `dir/file.ext` and a
+   bare `rclcpp_compat.hpp` has no directory, which is why this needed a
+   reader and not a gate.
+3. **Gates.** `just check api-parity-ledger`, `ledger-orphan-refs`,
+   `gate-selftests` and `api-parity` (ending "every divergence carries a
+   ledger entry") all green; every shard re-parsed through a
+   duplicate-key-raising `object_pairs_hook` and round-trips byte-for-byte.
+   `api-parity`'s C extractor needed the duplicate
+   `nros_node_get_fully_qualified_name` fixed. That was cherry-picked as a
+   temporary aid when this was written, and attributed to PR #612 — which never
+   carried it. The fix is `add92bfcf` (PR #630, issue #1162), it is on `main`,
+   and this branch is rebased onto it, so no aid is needed any more.
+
+| disposition | before (the Q1 leftovers baseline) | after |
+| --- | ---: | ---: |
+| refuse-loud | 20 | 20 |
+| absent | 650 | 656 |
+| adopt | 96 | 96 |
+| adopt-bounded | 27 | 28 |
+| (none) | 1925 | 1934 |
+| rows | 2718 | 2734 |
+
+(Counted over every non-`_` key in the 17 shards; the census above was taken
+on an earlier tip, which is why its "after" column and this "before" column
+differ by the rows the merge with `main` added.)
+
+## Closure (2026-09-07) — two items the follow-through left open
+
+### 1. `check-ledger-orphan-refs` now sees a bare filename
+
+The gate matched `dir/file.ext` only, which is how 42 rows citing the deleted
+`rclcpp_compat.hpp` by bare name stayed green until a reader found them (item 2
+above; PR #634 fixed the rows and said so). Widened, and the rule stated once
+in the script's docstring:
+
+* **Two spellings.** A repo-relative path (`packages/`, `docs/`, ...) must exist
+  on disk, as before. A **bare `name.ext`** must match at least one tracked
+  file of that basename (`git ls-files`), for `ext` in `hpp h rs py cpp c toml
+  just md json jinja sh`. Both accept a `:NNN` line or a `:NNN-NNN` range,
+  stripped and not checked.
+* **The allow-list is three words**, sentence-scoped: `deleted`, `removed`,
+  `retired`. "`x.hpp` holds it. The shim was deleted." is still an orphan —
+  the first sentence claims the file is there. Nothing else excuses a bare
+  name.
+* **A directory-qualified path under a non-repo root is upstream and out of
+  scope** (`rclcpp/qos.hpp`, `rmw/rmw.h`). That was already the rule for
+  paths; it is now the convention the bare-name rule relies on: cite an
+  upstream file WITH its directory, and a bare name is always ours.
+* A work-item label (`W4.c`, `Q1.b`) has the shape of a bare name and is
+  skipped by its stem (one or two letters and digits). Two ledger rows cite
+  `W4.c` / `W5.c`; both would have been false findings.
+* Nested objects (`rename`, `their_rename`) are scanned too. The first version
+  read top-level strings only, and 14 of the 29 findings below sat in a
+  `rename.residue`.
+
+Self-test grew from three controls to ten: a planted bare orphan (red), the
+same name with a `:120-131` range (red), the same name in a sentence saying it
+was deleted (green), an existing basename with a line (green), a label
+(green), a nested `rename.resolution` orphan (red), and the "deleted" word in
+the NEXT sentence (red — the scoping control).
+
+**Run on the ledger it found 29 rows, all real, fixed in the same change that
+widened the gate to bare filenames:**
+
+| what | rows | fix |
+| --- | ---: | --- |
+| `param_deprecation_probe.c` / `param_name_aliases.c` in the `c:param_*` rows' `residue` | 14 | W-B5 (commit `4dc5caee9`) retired the forwarders and the four typedef aliases and deleted the probes; the rows said the forwarders "survive" and the probes prove they warn. Now: survived one release, retired, `residue: NONE` dated |
+| `service_deprecation_probe.c` in `c:service_send_reply_raw` | 1 | same class, same fix |
+| `action_deprecation_probe.c` in the two `c:action_server_*goal_count*` rows | 2 | same class, same fix |
+| `rmw.h` bare in the eight `*_get_actual_qos` rows | 8 | `rmw/rmw.h` |
+| `graph.h`, `network_flow_endpoint.hpp`, `range.rs`, `create_timer.hpp` bare | 4 | `rcl/graph.h`, `rclcpp/network_flow_endpoint.hpp`, `rclrs/src/parameter/range.rs`, `rclcpp/create_timer.hpp` |
+
+The 17 forwarder rows are the same class the gate's own docstring lists as its
+second bullet ("describing forwarders removed in phase-417 W-B5") — the
+filename was the only handle a filesystem check had on them, and it was
+enough. What the gate still cannot see, and says so: the `c:param_*` rows are
+`bucket: ours-only` for names no surface carries; that is the extractor's
+question, not a stat's.
+
+Gates: `just check ledger-orphan-refs`, `gate-selftests` (142/254 with a
+selftest), `grep-q-error-conflation` (the script greps nothing; 87 baselined
+sites, none grew), `gate-lists`, `api-parity-ledger` — all green.
+
+### 2. The `init*` entry points — one `rename`, not a family decision
+
+The Q1 follow-through filed `rust:Context::default_from_env` as `gap` +
+`absent` with a note that it is byte-for-byte `nros::init()` under rclrs's
+spelling, and deferred the verdict because "the entry-point spelling is one
+decision for the four of them". Surveyed here, against the recorded rclrs
+0.7.0 surface (`docs/reference/api-surface/rclrs.json`, `rclrs/src/context.rs`)
+and `packages/api/nros/src/init.rs`. rclrs has no free `init`; its entry
+points are the `Context` constructors. The RFC-0089 question is whether the
+porting edit is MECHANICAL — directed by the compiler, one local edit.
+
+| rclrs | ours | 1:1? | verdict | what the compiler says, and what to type |
+| --- | --- | --- | --- | --- |
+| `Context::default_from_env() -> Result<Self, RclrsError>` | `nros::init() -> Result<Context, InitError>` | **yes** — no args either side, same inputs (`ROS_DOMAIN_ID`, env rung), same output type, same fallibility | **`rename`** (was `gap`); disposition stays `absent` | `no function or associated item named default_from_env`; write `nros::init()?` — `rename.resolution` |
+| `Context::new(args, options)` | `nros::init_with_args(args)` | no — upstream PARSES `--ros-args`, ours REFUSES it at the call; upstream takes `InitOptions`, ours has none | `gap` + `absent` (unchanged) | maps only when argv has no `--ros-args` AND options were default: two facts a reader checks, not an edit the compiler directs |
+| `Context::from_env(options)` | `nros::init()` when `options == InitOptions::new()`; nothing otherwise | no — the argument has no counterpart | `declined` + `absent` (unchanged) | with default options the caller wanted `default_from_env`, whose row is the rename; with a domain id, it goes through the boot-config ladder (`rust:InitOptions`) |
+| — | `init_with_launch`, `init_with_launch_auto` | no upstream candidate | `extension` (unchanged) | nothing to port |
+| — | `nros::init()` (ours-only half) | pair of row 1 | **`rename`** (was `extension`) | `extension` says ROS 2 has none; rclrs has it under another name. Both halves carry the verdict (SCHEMA's pair rule) |
+
+So the family argument was wrong in its premise: only one member maps 1:1,
+and the decision is about one alias, not four spellings. Both `rename` rows
+are `status: blocked-needs-decision`, and `rust:Context` now points at the
+member that is a rename. **No code alias was added** — this is a ledger
+decision.
+
+**For the maintainer — would an alias make the port mechanical?** Yes, for
+this one member and cheaply: `impl Context { pub fn default_from_env() ->
+Result<Context, InitError> { init() } }` in `init.rs` behind `env`, two lines,
+`init()` untouched (it anchors `init_with_args` and the launch forms). RFC-0089
+clause 2 permits it and no constraint forbids it; the cost is a second spelling
+of one function on the Rust surface, and this phase's scope note says the
+sweep does not rename. It would NOT make `Context::new` or `from_env`
+mechanical — those differ in what they accept, which no alias fixes — and the
+ported program still changes the line after it (`Executor::open(&ctx.config(name))`
+for `ctx.create_executor(..)`, `rust:Context::create_executor`).
+
+Gates: `just check api-parity-ledger`, `api-parity` (ends "every divergence
+carries a ledger entry"; the report prints `Context::default_from_env  rename
+theirs-only <absent>` and `init  rename  ours-only`), `prelude-tiers` (a
+`rename` is prelude-eligible where an `extension` was not; 92 names, unchanged),
+`ledger-orphan-refs`. `cargo +nightly fmt --all -- --check` clean, no Rust
+edits. Every shard re-parsed with a duplicate-key-raising `object_pairs_hook`
+and round-trips byte-for-byte.
+
+### Decided (2026-09-07): the alias is taken, as a family, in phase-427
+
+Maintainer's call, after the discussion recorded in RFC-0089 "Context and
+`init`, settled": `Context::default_from_env()` is added beside `nros::init()`,
+together with `InitOptions` and `from_env`/`new`, and — the part the ledger
+could not see — `Context` compiles on every target with the baked build
+environment as its freestanding source. That is phase-427 W9; the executor/
+node split it exposes (`create_executor`, `create_node`) is W10. The two
+`rename` rows move from `blocked-needs-decision` to `decided` with W9 named as
+the resolution; their dispositions flip when the code lands, not before.
+

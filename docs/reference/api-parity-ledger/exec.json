@@ -310,12 +310,12 @@
   },
   "cpp:Executor::add_callback_group": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::add_node": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "an rclcpp node is standalone and is ATTACHED to an executor, which is what makes it movable between executors and spinnable by more than one. static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated. A node's entities are allocated in the arena of the executor that created it (`cpp:Executor::create_node`), so attachment is not a separate step and cannot be undone. What a user loses: handing an already-built node to a different executor."
   },
   "cpp:Executor::add_on_shutdown_callback": {
@@ -325,6 +325,11 @@
   "cpp:Executor::add_pre_shutdown_callback": {
     "verdict": "divergence",
     "why": "The ORDER is the feature: pre-shutdown callbacks run while the session is still open and every entity still works -- which is how a device publishes a final state, answers a last request, parks an actuator or releases a bus -- and on-shutdown callbacks run after the close. This is rclcpp's `Context::add_pre_shutdown_callback` on the object we have instead of a `Context`. The platform constraint is no allocator: rclcpp's registration takes a `std::function<void()>` (a heap allocation per callback) and hands back a handle owning a `std::shared_ptr` to it. Ours is a fixed-capacity static table of `(extern \"C\" fn, void* context)` sized by `NROS_EXECUTOR_MAX_SHUTDOWN_CBS` (default 2, small on issue 0460's precedent that a per-entity static slot is a cost every image pays), and the handle is the SLOT INDEX with its phase packed in so it cannot remove the other phase's callback. rclcpp hangs these on `Context`; we have none (see `c:context_*` / `cpp:Context` in init.json), and the executor is what `shutdown` / `close` / `fini` is called on, so it owns the tables. Issue 0790."
+  },
+  "cpp:Executor::cancel": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::Executor::cancel()` returns `void`; ours (`packages/api/nros-cpp/include/nros/executor.hpp:360`) returns `Result` wrapping `nros_cpp_executor_cancel`. RFC-0018 forbids exceptions, so a call that can fail has to say so in its return type — that is clause 1 over clause 2 and the widening is correct. It is also LOUD rather than silent: `Result` carries `[[nodiscard]]` (`result.hpp`, phase-428 W6), so a ported `exec.cancel();` written as a statement warns. Recorded, not actioned: the ONLY reason this row exists is that the correlator used to assign `same` here without looking at the return type at all."
   },
   "cpp:Executor::create": {
     "verdict": "divergence",
@@ -376,12 +381,12 @@
   },
   "cpp:Executor::remove_callback_group": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::remove_node": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Executor::add_node`."
   },
   "cpp:Executor::remove_on_shutdown_callback": {
@@ -401,9 +406,14 @@
     "verdict": "divergence",
     "why": "the executor IS the session and the context here. `Executor::create` opens the middleware connection, nodes are created ON it, and every entity lands in its arena; there is no `rclcpp::Context` to hold, register with, or shut down separately. See `cpp:Context`. rclcpp's teardown is context-scoped (`rclcpp::shutdown()`), and its executors have `cancel` for the stop-spinning half; ours folds both into the executor because it owns the session. The stop-spinning half now exists here too -- `Executor::cancel`, phase-417 W4.c -- and leaves the session intact: after it the executor is still `ok()`, still owns its entities, and can be spun again with no rediscovery. `shutdown()` remains the one that tears the session down."
   },
+  "cpp:Executor::spin": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::Executor::spin()` returns `void`; ours (`executor.hpp:336`) returns `Result`. Same RFC-0018 widening as `cpp:Executor::cancel`, same `[[nodiscard]]` loudness, and the ARITY half of this row is already argued elsewhere (issue 0338 made `exec.spin()` compile with a defaulted `poll_ms`; the deprecated two-argument overload at `executor.hpp:409` is a separate matter). Nothing here is silent, which is why the disposition is adopt and not a work item."
+  },
   "cpp:Executor::spin_all": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's 'keep collecting and executing until the ready set is empty or `max_duration` expires'. Same answer as `cpp:Executor::spin_some`: `spin_once` already drains the ready set, and `spin_for` is the duration-bounded loop -- differing from `spin_all` in that it keeps waiting for new work rather than returning when work runs out."
   },
   "cpp:Executor::spin_for": {
@@ -412,12 +422,12 @@
   },
   "cpp:Executor::spin_node_once": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "spins ONE node's callbacks on a temporary executor. RFC-0002 puts one executor per RTOS task, SHARED by every node in that tier, and the arena is indexed by `HandleId`, not by node -- a node is not a unit of dispatch here. What a user loses: draining one node's queue while another node's callbacks stay pending. Also needs a throwaway executor per call, which no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py."
   },
   "cpp:Executor::spin_node_some": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Executor::spin_node_once`."
   },
   "cpp:Executor::spin_some": {
@@ -436,7 +446,7 @@
   },
   "cpp:Executor::spin_until_future_complete": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "drives the executor until a `std::shared_future` resolves. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts it: the blocking helper is a method on the thing being waited FOR and it takes the executor (`promise.wait(&mut executor, timeout)`, `Client::call`), which is the same capability with the deadlock made unrepresentable. See `cpp:Future::wait` and the service stage's `cpp:Client::async_send_request`."
   },
   "cpp:ExecutorOptions": {
@@ -485,6 +495,11 @@
   "cpp:GuardCondition::set_on_trigger_callback": {
     "verdict": "divergence",
     "why": "rclcpp installs the on-trigger hook AFTER construction, so an executor can attach itself to a guard condition somebody else made. Ours is bound at creation (`Node::create_guard_condition(out, callback, context)`) and cannot be swapped -- RFC-0041/0043, the same divergence as the pubsub stage's `c:subscription_set_on_new_message_callback`. But see `c:guard_condition_set_callback`: our own C API does install it after the fact, so this constraint is only enforced in two of our three languages."
+  },
+  "cpp:GuardCondition::trigger": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::GuardCondition::trigger()` returns `void` (it throws `rclcpp::exceptions::RCLError` on failure); ours (`packages/api/nros-cpp/include/nros/guard_condition.hpp:50`) returns `Result`. This is the canonical RFC-0018 shape — the error channel had to move from the exception to the return value, so upstream's `void` could not be kept. `[[nodiscard]]` makes the discard loud."
   },
   "cpp:Node::create_callback_group": {
     "verdict": "divergence",
@@ -601,8 +616,8 @@
   },
   "cpp:spin_until_future_complete": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "the free form of `cpp:Executor::spin_until_future_complete`; see that row and RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`."
+    "disposition": "adopt-bounded",
+    "why": "the free form of `cpp:Executor::spin_until_future_complete`; see that row and RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt-bounded. The free function EXISTS and works: `packages/api/nros-cpp/include/nros/nros.hpp:1088`, `spin_until_future_complete(const Node::SharedPtr&, const Future&, int32_t timeout_ms = -1)` returning `FutureReturnCode` (SUCCESS / TIMEOUT / INTERRUPTED, upstream's enum). The old row's \"no futures\" was about the `Executor::` member, which is absent; the free form is what a ported tutorial calls, and it is implemented.\n\nWHAT THE COMPILER POINTS AT: the third argument. Upstream takes `std::chrono::duration<Rep, Period>` and a ported file passes `std::chrono::seconds(1)` or `1s`; ours takes `int32_t` milliseconds, and there is no conversion from a `duration` to an integer, so that call is `no matching function` with the candidate listed. The two-argument form (no timeout) ports unchanged: `Node::SharedPtr` binds to the first parameter and our `Future<T>` (`future.hpp:49`) is what `Client::async_send_request` returns here.\n\nTHE ENVELOPE: it spins the PROCESS executor (`nros::spin_once(10 ms)` slices, so the deadline is quantised to 10 ms) rather than an executor argument — there is one executor per task (RFC-0002) and no second one to pass. `-1` means unbounded, as upstream's default does."
   },
   "rust:ActionClientReady": {
     "verdict": "divergence",
@@ -825,6 +840,11 @@
     "verdict": "extension",
     "why": "How many hooks are registered for a phase. The tables are FIXED-capacity (`NROS_EXECUTOR_MAX_SHUTDOWN_CBS`, default 2), so \"did my registration land, and how much room is left\" is a question only a bounded table raises; rclcpp's nearest thing, `Context::get_pre_shutdown_callbacks`, hands back the heap-allocated callbacks themselves. Issue 0790."
   },
+  "rust:Executor::spin": {
+    "verdict": "divergence",
+    "disposition": "adopt-bounded",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. rclrs's `Executor::spin(&mut self, SpinOptions) -> Vec<RclrsError>` RETURNS — it collects the errors its callbacks produced and hands them back. Ours (`packages/core/nros-node/src/executor/spin.rs:7077`) is `pub fn spin(&mut self, timeout: core::time::Duration) -> !`: it never returns, so there is no place to put a `Vec` and no allocator to build one with. Both halves are clause 1: `alloc` is not available on the terminal `core`/`core+alloc` targets (ARCHITECTURE §2), and an RTOS entry task does not return to a caller. The bound a user gets instead is per-spin error reporting on the executor rather than a collected batch; that is what makes this `adopt-bounded` and not `adopt`. The divergence is LOUD — `let errs = exec.spin(opts);` cannot compile against `-> !` plus a different parameter type."
+  },
   "rust:Executor::spin*": {
     "verdict": "divergence",
     "why": "the spin family, and its shape is the divergence. `spin_once(Duration)` drives I/O then dispatches EVERY ready arena entry (RFC-0002 section 3) -- rclcpp's `spin_once` executes the next ONE, so the name matches and the meaning does not; see `cpp:Executor::spin_some`. `spin_default` and `spin` return `!` because they are the body of an RTOS task. `spin_blocking(SpinOptions)` is the form that can end. `spin_period` / `spin_one_period` / `spin_one_period_timed` are RFC-0002's fixed-period dispatch, which a control loop with a deadline needs and which rclrs has no counterpart for: rclrs spins as fast as work arrives.",
@@ -832,8 +852,8 @@
   },
   "rust:Executor::spin_async": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "rclrs drives spin_async on an async runtime (async-std/tokio). no_std targets have neither, and RFC-0002 puts one executor per RTOS task rather than a task-stealing runtime. The blocking `spin` is the whole model here."
+    "disposition": "adopt-bounded",
+    "why": "rclrs drives spin_async on an async runtime (async-std/tokio). no_std targets have neither, and RFC-0002 puts one executor per RTOS task rather than a task-stealing runtime. The blocking `spin` is the whole model here.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt-bounded, argued rather than defaulted.\n\nOURS EXISTS AND WORKS: `packages/core/nros-node/src/executor/spin.rs:7114`, `pub async fn spin_async(&mut self) -> !` — `spin_once(1 ms)` then a `poll_fn` that calls `wake_by_ref` and returns `Pending`, forever. rclrs's is `spin_async(self, SpinOptions) -> impl Future<Output = Vec<RclrsError>>`.\n\nWHY NOT REFUSE-LOUD: a refusal is a diagnostic naming the constraint; this name is a working entry point that the `Promise` pattern relies on (`select(executor.spin_async(), promise)`). Calling it refuse-loud claims a `compile_error!` that does not exist, and creating one means deleting a function that is the documented way to await a reply without an async runtime.\n\nWHAT THE COMPILER POINTS AT: arity. Ours takes no options, so the ported `executor.spin_async(SpinOptions::default())` is `this method takes 0 arguments but 1 was supplied`; `rust:SpinOptions` and `rust:SpinOptions::until_promise_resolved` are absent, so every stop condition upstream expresses through options is a compile error here rather than an ignored value.\n\nTHE ENVELOPE, in the doc comment and restated here: (1) it never returns and reports no errors — `!`, not `Vec<RclrsError>`; a stop condition is expressed by `select`ing against the thing you are waiting for. (2) The yield is an ALWAYS-READY poll — `wake_by_ref` before `Pending` — so any runtime that honours wakes re-polls immediately: it is CPU-bound by construction, and the 1 ms `spin_once` budget is the only sleep in it. That is the no-runtime constraint made visible (RFC-0002: one executor per task, no task-stealing runtime to park on), not a bug; it is stated so a porting user does not read `async` as `idle`."
   },
   "rust:Executor::wake*": {
     "verdict": "extension",
@@ -859,6 +879,11 @@
     "verdict": "extension",
     "why": "the session-identity builder an embedded image opens its executor with: locator, session mode, domain id, node name, namespace, monotonic clock, epoch clock, RMW selection. rclrs has no counterpart because its `Context` reads argv and the environment (`Context::from_env`, `default_from_env`) -- neither exists on a device (RFC-0045). The builder is `const fn` throughout so an image can bake the whole thing into a static. Covers the chaining setters (`new`, `default_const`, `domain_id`, `node_name`, `namespace`, `mode`, `rmw`, `epoch_us`) and the resolvers below."
   },
+  "rust:Context::create_executor": {
+    "verdict": "declined",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::create_executor(&self, runtime: E) -> Executor`: the context ALLOCATES an executor over a runtime it is handed. Ours opens one into caller-owned storage from the identity the context resolved: `Executor::open(&ctx.config(name))` (`packages/api/nros/src/init.rs:126`), because the executor's arenas are sized at compile time and placed by the caller (RFC-0045; no allocator) and there is exactly one session per image (issue 0465) — a factory on the context would imply a second. Absent: `no method named create_executor`; the two-line replacement is in `Context::config`'s doc comment."
+  },
   "rust:ExecutorConfig::resolve": {
     "verdict": "extension",
     "why": "RFC-0045 precedence model A, as a function: env rung > baked `BootConfig` > compiled default, resolved per FIELD so a baked node name and an env locator can both apply. rclrs's equivalent is `Context::from_env`, which is one rung and requires a process environment. Issue 0687 moved the environment READ out to the hosted edge (`nros::env::resolve_hosted`) so this stays no_std; an embedded caller fills the same rung from a settings partition or a Kconfig blob."
@@ -874,6 +899,14 @@
   "rust:ExecutorConfig::try_resolve_with": {
     "verdict": "extension",
     "why": "see `rust:ExecutorConfig::try_resolve`."
+  },
+  "rust:ExecutorConfigEnvExt": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — the trait that carries `ExecutorConfig::from_env()` on hosted builds (`packages/api/nros/src/env.rs:237`). It exists because issue 0687 / phase-359 W10 moved every environment read out of `nros-node` (which stays `no_std` and takes VALUES through `ExecutorConfig::resolve_with`) into `nros::env`, the one place that reads the process environment; an inherent method would have put `std::env` back in the core. Bring the trait into scope (the prelude has it) and the call site spelling is unchanged. rclrs's nearest is `Context::from_env`, which is a constructor of the context, not of a config — see `rust:Context`. Visible since `env` joined the measured feature set."
+  },
+  "rust:ExecutorConfigEnvExt::from_env": {
+    "verdict": "extension",
+    "why": "see `rust:ExecutorConfigEnvExt`. `from_env() -> ExecutorConfig<'static>` (`packages/api/nros/src/env.rs:263`): the env rung over an empty `BootConfig`, panicking on a malformed variable like `resolve_hosted` (RFC-0045 / issue 0206: malformed identity input is an error, never a silent fallback)."
   },
   "rust:ExecutorError": {
     "verdict": "divergence",
@@ -1090,7 +1123,7 @@
   },
   "rust:SpinOptions::until_promise_resolved": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs spins until a promise resolves, hiding the executor inside the wait. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts the call: `promise.wait(&mut executor, timeout)`, which cannot deadlock because the caller must hand over the executor to be driven. See the service stage's `cpp:Client::async_send_request`."
   },
   "rust:SpinPeriodPollingResult": {
@@ -1188,11 +1221,11 @@
     "disposition": "absent",
     "why": "part of rclrs 0.5's async executor machine: an `ExecutorRuntime` behind the `Executor`, an `ExecutorChannel` carrying work to it, `Worker`s with their own payloads, `ActivityListener`s, and `Waitable`s wrapping each rcl primitive. Three constraints refuse the whole layer at once. RFC-0021: no futures and no async runtime -- rclrs drives `spin_async` on async-std/tokio, and a no_std image has neither. RFC-0002: one executor per RTOS task, dispatching FIFO from a fixed arena, so there is no work to send anywhere and no second thread to send it from. no allocator -- the channels, the `Vec<Waitable>` and the boxed tasks all allocate per item on the dispatch path."
   },
-    "rust:Executor::release_jitter": {
+  "rust:Executor::release_jitter": {
     "verdict": "extension",
     "why": "MERGED 2026-09-04 during the phase-417 rebase onto main, from two independent rows that both landed -- this branch's W-M2 note and main's own filing. JSON keeps the LAST, so one author's reasoning was being discarded silently. Both said `extension`; the prose is combined here and neither is lost.\n\nLanded 2026-09-04 (`55324cc33`, sched). Ours-only, and there is no upstream name to align to: neither the recorded rclrs nor rclcpp surface contains `jitter` or `late_wake` at all. Returns `(max_release_jitter_us, late_wakes, total_wakes)` from `spin_period` (`executor/spin.rs:2152`). rclcpp has no counterpart because it does not own the wake: an rclcpp executor blocks in `rmw_wait` and a timer that fires late is simply a timer that fired, with nothing recording how late. Here `spin_period` IS the release, so lateness is measurable and is the figure of merit a periodic RTOS task is judged by. The RATIO is why both counters are returned rather than just the max -- one late wake in ten thousand is a glitch, ten thousand in ten thousand means the period cannot be met.\n\nphase-417 W-M2 note: ledgered here because `--require-disposition` armed the api-parity gate and this landed on main in parallel (`55324cc33 feat(sched): measure release jitter`).\n\nRFC-0052's real-time observability: `(max_release_jitter_us, late_wakes, total_wakes)` for a `spin_period` loop. rclcpp has no counterpart because it does not own the release -- a periodic rclcpp node is a wall timer on a general-purpose executor, and the lateness a scheduler introduces is not a quantity rclcpp is in a position to measure. Ours is, because one executor owns one RTOS task (RFC-0002) and the period is the task's own.\n\nThe RATIO is the point, not the maximum alone: one late wake in ten thousand is a glitch, ten thousand in ten thousand means the period cannot be met -- two different failures that a single max cannot tell apart. Zero on a clockless build, where `spin_period` refuses to run at all (issue 0709), so there is nothing to have measured."
   },
-    "rust:Executor::clear_release_jitter_stats": {
+  "rust:Executor::clear_release_jitter_stats": {
     "verdict": "extension",
     "why": "MERGED 2026-09-04 during the phase-417 rebase onto main, from two independent rows that both landed -- this branch's W-M2 note and main's own filing. JSON keeps the LAST, so one author's reasoning was being discarded silently. Both said `extension`; the prose is combined here and neither is lost.\n\nSibling of `Executor::release_jitter`, same commit, same reason there is no upstream name. Resets the window (`executor/spin.rs:2163`) so monitoring code can log-and-clear per period; without it a single early outlier pins the maximum for the life of the process, which is the failure mode that makes a max-only statistic useless on a long-running image.\n\nphase-417 W-M2 note: see `rust:Executor::release_jitter`. The reset half -- a measurement window is only meaningful if a caller can start one, and without this the counters are since-boot forever. rclcpp has no counterpart for the same reason it has none for the reading."
   },
@@ -1219,5 +1252,39 @@
   "rust:Executor::is_spinning": {
     "verdict": "extension",
     "why": "phase-417 W4.c — `cancel`/`is_spinning` under rclcpp's own names, replacing a three-way disagreement: C had `nros_executor_stop` mutating a C-side state enum, C++ could not stop a spin without `shutdown()` tearing down the session, and Rust's `halt`/`is_halted` were `alloc`-GATED, so a core-only image could not stop its own executor at all. One flag, in Rust; C and C++ forward. ADOPT-BOUNDED (RFC-0089): `cancel` sets a flag the spin loop observes at the NEXT POLL BOUNDARY, so it returns before spinning has stopped -- `is_spinning` is the observable that says when it has. `is_halted` (cancel REQUESTED) and `is_spinning` (a loop is RUNNING) stay distinct; all four combinations are reachable."
+  },
+  "c:executor_trigger_one": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-4. The third parameter changed meaning and kept its type, so the compiler has nothing to say.\n\nUPSTREAM'S CONTRACT: `rclc_executor_trigger_one(rclc_executor_handle_t *handles, unsigned int size, void *obj)` walks the handle array and returns true iff `obj` equals one handle's ENTITY POINTER. The documented idiom is `rclc_executor_set_trigger(&exec, rclc_executor_trigger_one, &my_subscription)`.\n\nOURS (`packages/api/nros-c/src/executor.rs:1346`): `rclc_executor_trigger_one(const bool *ready, size_t count, void *context)` reads `*(context as *const usize)` and treats it as an INDEX into `ready`.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. `void *` swallows any object pointer, so the upstream spelling compiles with zero warnings; at run time the entity ADDRESS is reinterpreted as an index, is essentially always >= `count`, and the trigger returns false forever — the executor dispatches nothing, with no diagnostic. (It is also a wild read of the first `usize` at the entity address.) The doc comment at `:1330` warns about the `(void*)(size_t)idx` spelling and not about the upstream one.\n\nA UNIT TEST PINS THE DIVERGENCE RATHER THAN RECORDING IT: `test_trigger_one_matches_behavior` (`packages/api/nros-c/src/executor.rs:3717`) passes `&mut idx as *mut usize as *mut c_void` in four cases. It names no upstream behaviour, so it reads as coverage.\n\nNothing in a fixed arena forces the index form — the handle array is right there — so the disposition is ADOPT: take `obj` as the entity pointer, or, if the index form is wanted as well, give it a DIFFERENT name. Never compile and differ. Re-verified by hand against the current worktree before this row was written."
+  },
+  "c:executor_spin_some": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-5. Same name, same arity, a return code upstream never produces.\n\nUPSTREAM'S CONTRACT: rclc's `rclc_executor_spin_some` does `rc = rcl_wait(...); RCLC_UNUSED(rc);` — it EXPLICITLY discards the wait's `RCL_RET_TIMEOUT` and returns `RCL_RET_OK` when nothing was ready. Its own callers then also tolerate TIMEOUT, so an idle tick is a success in both directions.\n\nOURS (`packages/api/nros-c/src/executor.rs:2863`): `if result.any_work() { NROS_RET_OK } else { NROS_RET_TIMEOUT }` — every idle tick is a non-OK return.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. The ported `if (rclc_executor_spin_some(&exec, t) != RCL_RET_OK) { error(); }` — legal against upstream — fires on the first idle tick. Our own code already routes around it twice (issues 0324/0355, `executor.rs:2896` and `:2989`), detecting a dead session through `session_io_failures()` because the return code is uninformative — which is evidence the value carries no information anyone wants, not evidence it is load-bearing.\n\nNothing platform-shaped requires the TIMEOUT; disposition ADOPT. If an idle/busy distinction is worth keeping, it belongs on a differently-named accessor. Re-verified by hand against the current worktree before this row was written."
+  },
+  "c:executor_spin_period": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-6, CORRECTED — the finding as recorded said `set_timeout` \"loses its only reader\", and that half is FALSE; see `c:executor_set_timeout`.\n\nUPSTREAM'S CONTRACT: `rclc_executor_spin_one_period` calls `rclc_executor_spin_some(executor, executor->timeout_ns)` and uses `period` only to sleep until the next invocation. The wait budget and the invocation rate are two knobs a caller sets independently — a short timeout for responsiveness, a long period for rate.\n\nOURS: `rclc_executor_spin_period` (`packages/api/nros-c/src/executor.rs:2989`) and `rclc_executor_spin_one_period` (`:3050`) both pass `period_ns` as the spin_some timeout, conflating the two.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. A ported node that sets a short `timeout_ns` and a long `period` gets its wait stretched to the whole period; `nros_executor_cancel`'s documented \"one spin_once timeout wide\" latency bound (`executor.rs:3063`) becomes period-wide. Nothing observable says so.\n\nNo platform constraint is involved — both values are already in the executor struct — so the disposition is ADOPT. Re-verified by hand against the current worktree before this row was written."
+  },
+  "c:executor_set_timeout": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. Filed to CORRECT the recorded form of RANKED-6, which said this setter \"loses its only reader\". Measured: `executor_ref.timeout_ns` is written at `packages/api/nros-c/src/executor.rs:238`, `:360` and `:385` and READ once, at `:2915`, inside `rclc_executor_spin`.\n\nThe accurate statement is narrower and still a divergence: `rclc_executor_set_timeout` is HONOURED BY `rclc_executor_spin` AND IGNORED BY BOTH PERIOD SPINS, where upstream honours it in all three. Upstream's contract is that the value set here is the wait budget every spin variant uses.\n\nHOW A USER FINDS OUT: SILENTLY WRONG, and only in the period spins — the same call is obeyed or ignored depending on which spin verb follows it, with no diagnostic either way. Disposition ADOPT; see `c:executor_spin_period`. Re-verified by hand against the current worktree before this row was written."
+  },
+  "c:guard_condition_fini": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. The `fini` half of W2 F11 — see `c:timer_fini` for the sibling and the sharper evidence.\n\nUPSTREAM'S CONTRACT: rcl's `fini` family is idempotent — a zero-initialised or already-finalised handle is not an error. `rcl/guard_condition.h` documents only OK / INVALID_ARGUMENT / ERROR and does NOT state the guarantee in words; rcl's implementation gates on `guard_condition->impl` and returns OK for a zero-initialised handle. EVIDENCE BOUND: only the Humble HEADERS are installed on the host this was checked on, so the timer half is header-confirmed and THIS half is implementation-derived and not verified here. Stated rather than asserted.\n\nOURS (`packages/api/nros-c/src/guard_condition.rs:257`): `validate_not_null!` returns `NROS_RET_INVALID_ARGUMENT` for NULL, then `validate_state!` returns `NROS_RET_NOT_INIT` for an already-finalised handle.\n\nHOW A USER FINDS OUT: RUNTIME ERROR, and only if checked — `rcl_*_fini` is `RCL_WARN_UNUSED` upstream, so a ported cleanup path that checks reports a spurious shutdown failure and one that ignores the value sees nothing. Idempotence costs nothing on any target, so the disposition is ADOPT."
+  },
+  "cpp:Executor::spin_once": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-26. Four differences under one name; two are loud and two are not.\n\nUPSTREAM'S CONTRACT: `virtual void rclcpp::Executor::spin_once(std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1))` — \"do ONE item of work\", blocking indefinitely by default.\n\nOURS (`packages/api/nros-cpp/include/nros/executor.hpp:167`): `Result spin_once(int32_t timeout_ms = 10)`.\n  * unit/type: milliseconds in an `int32_t` vs `std::chrono::nanoseconds` — COMPILE ERROR for a ported `spin_once(100ms)`. This is the loud half and it is correct under the rule.\n  * default: 10 ms vs -1/block — SILENTLY WRONG for a ported argument-free call.\n  * `-1`: ours clamps with `timeout_ms.max(0)` and POLLS (`packages/api/nros-cpp/src/lib.rs`), where upstream blocks — SILENTLY WRONG, and the sharpest of the four, because -1 is the value a porting user most plausibly writes explicitly.\n  * work done: ours DRAINS the ready set — every EDF then every FIFO job in every bucket (`packages/core/nros-node/src/executor/spin.rs`) — where upstream executes one item. SILENTLY WRONG. This is already recorded from the other direction at `cpp:Executor::spin_some`, which says `spin_once(0)` IS upstream's `spin_some`; the two rows are the same fact seen from each end, and together they say our `spin_once` is upstream's `spin_some` wearing upstream's `spin_once` name.\n\nDisposition ADOPT for the timeout semantics: nothing forbids a blocking default or a -1 sentinel. The DRAIN is the one place clause 1 has something to say — RFC-0002's single arena computes the ready bitmap once — so if the one-item form is not going to exist, the rule requires the name to move rather than the meaning. Re-verified by hand against the current worktree before this row was written."
+  },
+  "rust:SpinOptions::only_next": {
+    "verdict": "extension",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. W4 F14. A PREFERENCE, and the only item in that cluster with no ledger row at all until now. RFC-0036 forbids recording a PREFERENCE as a divergence, so this row says which it is rather than leaving the reader to infer it.\n\nUPSTREAM: rclrs's `SpinOptions` records `new`, `spin_once`, `until_promise_resolved`, `timeout` and `clone_partial` in the surface we compare against — the single-iteration intent is a CONSTRUCTOR, `SpinOptions::spin_once()`, and the flag behind it is not part of the API.\n\nOURS (`packages/core/nros-node/src/executor/types.rs:129`): a public `only_next: bool` field, consumed at `packages/core/nros-node/src/executor/spin.rs`. We ALSO ship `SpinOptions::spin_once()` (`types.rs:156`), which is rclrs's exact spelling and sets the flag — so the public field is a redundant second spelling of a name upstream keeps private. Nothing in `no_std`, and nothing in a fixed arena, requires the field to be public.\n\nHOW A USER FINDS OUT: they do not, and that is the point — it is an EXTRA name, so nothing a ported rclrs file writes breaks. An rclrs reader simply never finds it and uses the constructor, which works. That makes it cheap to retire and cheap to keep, which is exactly the kind of item that accumulates unless it is written down.\n\nNo disposition: there is no upstream candidate for a constraint to act on. See `rust:SpinOptions::until_promise_resolved` and `rust:SpinOptions::max_callbacks` for the siblings. Re-verified by hand against the current worktree before this row was written."
   }
 }

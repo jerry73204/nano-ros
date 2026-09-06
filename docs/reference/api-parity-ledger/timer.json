@@ -5,7 +5,7 @@
   ],
   "c:clock_add_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_change_e": {
@@ -46,7 +46,7 @@
   },
   "c:clock_remove_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_state_t": {
@@ -145,7 +145,7 @@
   },
   "c:sleep_ms": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. rclc's `rclc_sleep_ms` is the same shape. Our platform sleep (`nros_platform_sleep_us`) exists for the BOARD layer, not for application code."
   },
   "c:steady_clock_fini": {
@@ -251,6 +251,11 @@
     "verdict": "gap",
     "why": "Rust has `Timer::time_since_last_call`; C does not. See `c:timer_get_next_call_time`."
   },
+  "c:timer_get_time_until_next_call": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. The sharpest row of the twenty, and the one the old unconditional `same` hid best.\n\nUPSTREAM: `rcl_ret_t rcl_timer_get_time_until_next_call(const rcl_timer_t *, int64_t * time_until_next_call)`, marked `RCL_WARN_UNUSED`. The value is SIGNED on purpose — rcl's own header says \"a negative value indicates the timer call is overdue by that amount\" — and the return distinguishes `RCL_RET_OK`, `RCL_RET_INVALID_ARGUMENT`, `RCL_RET_TIMER_INVALID` and `RCL_RET_TIMER_CANCELED`.\n\nOURS: `uint64_t nros_timer_get_time_until_next_call(const struct nros_timer_t *, uint64_t current_time_ns)` (`packages/api/nros-c/include/nros/nros_generated.h:7278`). Three differences and only one of them is loud:\n  * the out-param became the return value and the clock became an IN param — a ported call is a COMPILE ERROR, correctly.\n  * the error channel is GONE. Our own doc comment says the result is \"Time until next firing in nanoseconds, or 0 if ready now OR INVALID\" — the ready case and the four error cases share one value, so a caller cannot tell a due timer from a dead one.\n  * unsigned cannot express OVERDUE. Upstream's negative range is not representable, so lateness reads as 0.\n\nNothing about a fixed arena requires either loss, so the disposition is ADOPT: an out-param plus a status return costs one pointer. Until that lands the row is a `gap`, not a settled divergence."
+  },
   "c:timer_get_zero_initialized": {
     "verdict": "extension",
     "why": "see `c:publisher_get_zero_initialized`."
@@ -288,7 +293,7 @@
   },
   "cpp:Clock::create_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:Clock::get_clock_handle": {
@@ -317,17 +322,17 @@
   },
   "cpp:Clock::sleep_for": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::sleep_until": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::wait_until_started": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp blocks the calling thread until the first `/clock` message arrives. RFC-0021 forbids a blocking helper that does not drive the executor -- a wait that spins nothing stops the transport for as long as the simulator takes to publish, and on a single-threaded executor that is forever. The predicate it waits on IS available (`Clock::started`, issue 0789): a node polls it from a timer, or simply publishes once time is non-zero."
   },
   "cpp:ClockQoS::ClockQoS": {
@@ -354,7 +359,8 @@
   },
   "cpp:Duration::from_nanoseconds": {
     "verdict": "divergence",
-    "why": "the name, the arity and the meaning all match; only the SPELLING of the parameter type differs, which is why this reads `arity-only` rather than `same`. rclcpp takes rcl's `rcl_duration_value_t`, ours takes a plain `int64_t` -- the same 64-bit signed nanosecond count. This is the C++ half of the decision already recorded on `c:duration_value_t`: no_std gives the two languages no shared typedef to hang on, and the unit is named in the parameter (`nanoseconds`) rather than in a type, which is why the QoS accessors read `deadline_ms` rather than `deadline`. Introducing a `nros::duration_value_t` alias purely to make the correlator match would contradict that row."
+    "disposition": "adopt",
+    "why": "the name, the arity and the meaning all match; only the SPELLING of the parameter type differs. It read `arity-only` until phase-428 W6 normalised `rcl_{time_point,duration}_value_t` to `int64_t` -- a spelling is not a divergence -- after which it correlates `same`, which is what brings it under W6's other half (`same_shaped_divergences`) and is why it now carries a disposition. rclcpp takes rcl's `rcl_duration_value_t`, ours takes a plain `int64_t` -- the same 64-bit signed nanosecond count. This is the C++ half of the decision already recorded on `c:duration_value_t`: no_std gives the two languages no shared typedef to hang on, and the unit is named in the parameter (`nanoseconds`) rather than in a type, which is why the QoS accessors read `deadline_ms` rather than `deadline`. Introducing a `nros::duration_value_t` alias purely to make the correlator match would contradict that row."
   },
   "cpp:Duration::from_rmw_time": {
     "verdict": "declined",
@@ -492,11 +498,11 @@
   },
   "cpp:Node::create_wall_timer": {
     "verdict": "divergence",
-    "why": "EXECUTED 2026-09-05 (phase-425 W1). `nros::Node::create_timer` -> `create_wall_timer`, with no deprecated alias, alongside the other three spellings the recommendation named (`nros::create_wall_timer` in `std_compat.hpp`, both `ComponentNode` overloads, and the macro, now `NROS_CREATE_WALL_TIMER`). The name is accurate: ours is monotonic, by the RFC-0073 platform-clock contract, so it is a WALL timer in rclcpp's sense.\n\nWhat is left is not a name difference and needs no campaign row of its own — the report now matches this item under the systematic `no-shared-ptr` rule (ours `(Timer&, uint64_t, cpp_timer_callback_t, void*)`, theirs `(chrono::duration, CallbackT, CallbackGroup::SharedPtr)`): caller-owned storage because there is no allocator, `uint64_t period_ms` because a freestanding build has no `<chrono>` (the chrono spelling is the free `nros::create_wall_timer` under `NROS_CPP_STD`), and a group passed to a separate `create_timer_in` rather than as a trailing argument.\n\nThe name this FREES is the point of the phase: rclcpp's bare `create_timer` is the CLOCK-TAKING form, and `cpp:create_timer` now records it as the gap phase-425 W4 fills.",
+    "why": "EXECUTED 2026-09-05 (phase-425 W1). `nros::Node::create_timer` -> `create_wall_timer`, with no deprecated alias, alongside the other three spellings the recommendation named (`nros::create_wall_timer` in `std_compat.hpp`, both `ComponentNode` overloads, and the macro, now `NROS_CREATE_WALL_TIMER`). The name is accurate: ours is monotonic, by the RFC-0073 platform-clock contract, so it is a WALL timer in rclcpp's sense.\n\nWhat is left is not a name difference and needs no campaign row of its own — the report now matches this item under the systematic `no-shared-ptr` rule (ours `(Timer&, uint64_t, cpp_timer_callback_t, void*)`, theirs `(chrono::duration, CallbackT, CallbackGroup::SharedPtr)`): caller-owned storage because there is no allocator, `uint64_t period_ms` because a freestanding build has no `<chrono>` (the chrono spelling is the free `nros::create_wall_timer` under `NROS_CPP_STD`), and a group passed to a separate `create_timer_in` rather than as a trailing argument.\n\nThe name this FREES is the point of the phase: rclcpp's bare `create_timer` is the CLOCK-TAKING form, and `cpp:create_timer` now records it as the gap phase-425 W4 fills.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding, RANKED-9, and phase-428 Q1 (2026-09-06) CLOSED it: the `rclcpp::Node` adapter's `create_wall_timer` (`packages/api/nros-cpp/include/nros/nros.hpp:785`) passes `node_.create_wall_timer`'s `Result` to `detail::require_created` (`:384`), which aborts naming the verb (`abort_failed_create`, `:376`, `NROS_RCLCPP_ABORT_FAILED_CREATE`) — and this is the site where a null or dead return would have been silent above all, because a ported node stores the timer handle and never dereferences it, so a dead timer would simply never fire. The entity name passed to the diagnostic is empty: a timer has none. History, one sentence: until Q1 this site (then `:707`) was one of seven that discarded the create `Result` with an explicit `(void)` and returned a non-null `shared_ptr` to an entity that was never initialised, SILENTLY WRONG. Separately, what it returns is `std::shared_ptr<rclcpp::TimerBase>`, and our `rclcpp::TimerBase` carries none of upstream's methods; see `cpp:Timer::cancel`.\n\nThe disposition for the create-`Result` finding is recorded on `cpp:Node::create_publisher`, which carries the full statement.",
     "rename": {
       "category": "B",
       "status": "resolved",
-      "resolution": "Executed 2026-09-05 (phase-425 W1), as ONE four-name decision plus the macro, on an owner's yes. Sweep, as the recommendation required, because half the sites are outside this report's TU set:\n\n    rg -w create_timer packages/api/nros-cpp/ examples/ docs/ cmake/\n\n`create_timer_oneshot`, `create_timer_in`, `ComponentNode::create_timer_in` and `bind_timer` KEEP the `timer` stem — recorded so the stem split is a decision, not an oversight. No deprecated alias: it would have kept the ours-only half of this pair alive permanently.\n\nThe soft collision the blocker predicted is real and harmless as predicted: `rclcpp::Node::create_wall_timer` (`rclcpp_compat.hpp:406`) is a different class in a different namespace, driven by its own `pump()` rather than by the nros executor. No ODR break, no overload set."
+      "resolution": "Executed 2026-09-05 (phase-425 W1), as ONE four-name decision plus the macro, on an owner's yes. Sweep, as the recommendation required, because half the sites are outside this report's TU set:\n\n    rg -w create_timer packages/api/nros-cpp/ examples/ docs/ cmake/\n\n`create_timer_oneshot`, `create_timer_in`, `ComponentNode::create_timer_in` and `bind_timer` KEEP the `timer` stem — recorded so the stem split is a decision, not an oversight. No deprecated alias: it would have kept the ours-only half of this pair alive permanently.\n\nThe soft collision the blocker predicted is real and harmless as predicted: `rclcpp::Node::create_wall_timer` (then `rclcpp_compat.hpp:406`; `packages/api/nros-cpp/include/nros/nros.hpp:785` since phase-417 stage 6 step A deleted the shim) is a different class in a different namespace — at the time driven by its own `pump()`, and since phase-417 dispatched by the nros executor like everything else, which changes nothing here. No ODR break, no overload set."
     }
   },
   "cpp:Node::get_node_clock_interface": {
@@ -516,18 +522,18 @@
   },
   "cpp:NodeOptions::clock_qos": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "a node option; see the node stage's `cpp:NodeOptions`."
   },
   "cpp:NodeOptions::use_clock_thread": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp spawns a dedicated thread to service the `/clock` subscription so simulated time advances even while callbacks run. RFC-0002 gives one executor per RTOS task and does not spawn; ROS time would advance on the executor that subscribes to it."
   },
   "cpp:Rate": {
     "verdict": "declined",
     "disposition": "adopt-bounded",
-    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `rclcpp_compat.hpp`, with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
+    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `packages/api/nros-cpp/include/nros/nros.hpp:1168` (`WallRate` at `:1228` (in `rclcpp_compat.hpp` until phase-417 stage 6 step A deleted it)), with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
   },
   "cpp:Rate::is_steady": {
     "verdict": "declined",
@@ -542,12 +548,12 @@
   "cpp:Rate::reset": {
     "verdict": "declined",
     "disposition": "adopt-bounded",
-    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `rclcpp_compat.hpp`, with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
+    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `packages/api/nros-cpp/include/nros/nros.hpp:1168` (`WallRate` at `:1228` (in `rclcpp_compat.hpp` until phase-417 stage 6 step A deleted it)), with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
   },
   "cpp:Rate::sleep": {
     "verdict": "declined",
     "disposition": "adopt-bounded",
-    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `rclcpp_compat.hpp`, with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
+    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `packages/api/nros-cpp/include/nros/nros.hpp:1168` (`WallRate` at `:1228` (in `rclcpp_compat.hpp` until phase-417 stage 6 step A deleted it)), with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
   },
   "cpp:Server::get_number_of_ready_timers": {
     "verdict": "declined",
@@ -639,7 +645,7 @@
   "cpp:WallRate": {
     "verdict": "declined",
     "disposition": "adopt-bounded",
-    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `rclcpp_compat.hpp`, with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
+    "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. CORRECTED 2026-09-04 (phase-417): THIS ROW SAID `declined` / `refuse-loud` ABOUT CODE THAT SHIPS. phase-417 W2.d implements `rclcpp::Rate` -- and `WallRate`, an alias for it -- in `packages/api/nros-cpp/include/nros/nros.hpp:1168` (`WallRate` at `:1228` (in `rclcpp_compat.hpp` until phase-417 stage 6 step A deleted it)), with `sleep()`, `reset()` and `period()`. RFC-0021's objection is ANSWERED rather than overridden: `sleep()` does not block the caller off the executor. It computes a deadline and makes exactly ONE call into `nros::spin(remaining_ms, poll_ms)`, so the executor keeps running and subscription and timer callbacks fire during the wait -- the one shape RFC-0020/0021 permit (a sleep loop in the wrapper is still forbidden, and so is a wrapper that blocks without spinning). Disposition moved `refuse-loud` -> `adopt-bounded`. The envelope is real and is documented at the definition: your callbacks RUN during the sleep where upstream's single-threaded executor would not; `Rate` and `WallRate` are the SAME monotonic clock, so `Rate` does not follow a sim clock; resolution is 1 ms so a rate above 1 kHz is not expressible; and before `nros::init()` there is no executor to spin, so `sleep()` returns immediately. The row survives because `--check` gates the NATIVE bucket, where this is still `theirs-only`: `nros::` has no rate type."
   },
   "cpp:WallTimer": {
     "verdict": "divergence",
@@ -678,7 +684,7 @@
   },
   "cpp:create_wall_timer": {
     "verdict": "divergence",
-    "why": "the free-function form, renamed with the base on 2026-09-05 (phase-425 W1): `nros::create_timer` -> `nros::create_wall_timer` (`std_compat.hpp:61`), matching rclcpp's free `create_wall_timer` in `create_timer.hpp`. It is reachable only under `NROS_CPP_STD` — it takes a `std::function` and a `std::chrono::milliseconds`, neither of which a freestanding build has.\n\nThe residue after the rename is shape, and it is the same constraint the base row names: ours `(Node&, Timer&, chrono::milliseconds, function<void()>)` against theirs `(duration, CallbackT, CallbackGroup::SharedPtr, NodeBaseInterface*, NodeTimersInterface*)` — caller-owned `Timer&` storage instead of a returned `shared_ptr` (no allocator), and a `Node&` instead of the pair of node interfaces (RFC-0002: one executor per task owns the seam, there is no interface-fragment layer to pass).",
+    "why": "the free-function form, renamed with the base on 2026-09-05 (phase-425 W1): `nros::create_timer` -> `nros::create_wall_timer` (`std_compat.hpp:61`), matching rclcpp's free `create_wall_timer` in `rclcpp/create_timer.hpp`. It is reachable only under `NROS_CPP_STD` — it takes a `std::function` and a `std::chrono::milliseconds`, neither of which a freestanding build has.\n\nThe residue after the rename is shape, and it is the same constraint the base row names: ours `(Node&, Timer&, chrono::milliseconds, function<void()>)` against theirs `(duration, CallbackT, CallbackGroup::SharedPtr, NodeBaseInterface*, NodeTimersInterface*)` — caller-owned `Timer&` storage instead of a returned `shared_ptr` (no allocator), and a `Node&` instead of the pair of node interfaces (RFC-0002: one executor per task owns the seam, there is no interface-fragment layer to pass).",
     "rename": {
       "category": "B",
       "status": "resolved",
@@ -687,7 +693,7 @@
   },
   "cpp:sleep_for": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "rust:AnyTimerCallback": {
@@ -709,6 +715,11 @@
   "rust:Clock::is_ros_time_override_active": {
     "verdict": "divergence",
     "why": "ROS time. rclrs models it as a `ClockSource` a `Clock` is built `with_source`, so the override is driven by whoever owns the source. Ours are methods on `Clock` itself, because with no allocator the source cannot be a separately-owned object shared between clocks -- an image has one clock and one owner of it."
+  },
+  "rust:Clock::new": {
+    "verdict": "divergence",
+    "disposition": "adopt-bounded",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. rclrs's `Clock::new(ClockType) -> (Self, Option<ClockSource>)` hands back the clock AND, for a ROS_TIME clock, the `ClockSource` that DRIVES it — so the only way to obtain a simulatable clock upstream is to receive its source handle in the same expression. Ours (`packages/core/nros-core/src/clock.rs:220`) is `pub const fn new(ClockType) -> Self`; time overriding is an ASSOCIATED function on the type instead (`Clock::set_ros_time_override`, `clock.rs:317`), i.e. one process-wide override rather than a per-clock handle.\n\nClause 1: a per-clock source is a shared owner (`Arc` upstream), and the terminal `core`/`core+alloc` targets have neither `Arc` nor a place to keep one per clock; `const fn new` is also what lets a `Clock` be a `static`. The bound is that sim-time is global here, not per-clock. LOUD: `let (clock, source) = Clock::new(ClockType::RosTime);` does not destructure a `Clock`. Sim-time semantics belong to phase-425; this row records only the shape."
   },
   "rust:Clock::ros_time": {
     "verdict": "divergence",
@@ -1049,7 +1060,8 @@
   },
   "rust:Timer": {
     "verdict": "divergence",
-    "why": "our `Timer` is an entity in the executor's static table with a MODE (`inert`, `oneshot`, `repeating`) that can be changed in place, because a static table cannot grow a timer at runtime and re-arming is how a one-shot is reused. rclcpp's `WallTimer` is created per use and cancelled when done, which needs an allocation each time."
+    "disposition": "adopt-bounded",
+    "why": "our `Timer` is an entity in the executor's static table with a MODE (`inert`, `oneshot`, `repeating`) that can be changed in place, because a static table cannot grow a timer at runtime and re-arming is how a one-shot is reused. rclcpp's `WallTimer` is created per use and cancelled when done, which needs an allocation each time.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nUPSTREAM'S CONTRACT: `rclrs::Timer` is `Arc<TimerState>`, created per use and dropped when done. Note what is NOT a difference: upstream's `TimerState` also carries `set_inert` / `set_repeating` / `set_oneshot`, so the MODE vocabulary the text above describes is shared with rclrs rather than invented here.\n\nOURS: an entity in the executor's static table whose mode is changed in place, because a static table cannot grow a timer at runtime.\n\nHOW A USER FINDS OUT: the LIFETIME is what differs, and it shows at creation — there is no per-use construction to write, so a ported timer is declared in `register` and re-armed rather than re-created. Separately, four predicates differ in RETURN TYPE (`is_canceled`, `is_ready`, `time_since_last_call`, `time_until_next_call`: `Result<_, RclrsError>` upstream, bare values here). The correlator reports those as `same:ret` only since the phase-428 W6 `_ret_of` fix — before it, `_ret_of` was handed the flattened item instead of its `overloads` and always answered None, so the return-type comparison could not fire anywhere in the tree. Each of the four is its own row, verdict `extension`.\n\nADOPT-BOUNDED for the name and the mode vocabulary; the envelope is the lifetime."
   },
   "rust:Timer::cancel": {
     "verdict": "extension",
@@ -1240,5 +1252,20 @@
   "rust:Executor::timer_is_ready": {
     "verdict": "divergence",
     "why": "phase-417 W5.c — a read of the arena's own timer accounting, exposed so the C accessors forward rather than recompute. rclrs puts the equivalents on `Timer`; RFC-0002's arena owns timer state here, so there is no owning `Timer` object to hang them on and they sit on the executor. Returns `Option` deliberately: \"not a timer handle\" is a different answer from `0`/`false`, which is issue 1008's shape."
+  },
+  "c:timer_fini": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. W2 F11, the header-confirmed half.\n\nUPSTREAM'S CONTRACT, verbatim from `rcl/timer.h`: \"A timer that is already invalid (zero initialized) or `NULL` will not fail.\" Both of the values we return are ones upstream promises never to return.\n\nOURS (`packages/api/nros-c/src/timer.rs:236`): NULL -> `NROS_RET_INVALID_ARGUMENT`; a second `fini` (state UNINITIALIZED or SHUTDOWN) -> `NROS_RET_NOT_INIT`.\n\nHOW A USER FINDS OUT: RUNTIME ERROR on a path upstream defines as success. A ported cleanup that checks the return — which `RCL_WARN_UNUSED` asks it to — reports a failure at shutdown that did not happen. Nothing about a fixed arena forbids accepting the idempotent call, so the disposition is ADOPT. See `c:guard_condition_fini`. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:Timer::cancel": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. W3 F15 — \"`rclcpp::TimerBase` adopts the name and none of the methods\" — plus a widening the finding did not name. Two separable halves.\n\n(1) THE ADOPTED NAME IS EMPTY. Our `rclcpp::TimerBase` (`packages/api/nros-cpp/include/nros/timer.hpp:232`) is three `shared_ptr` aliases and a virtual destructor — ZERO methods — where upstream's carries `cancel`, `is_canceled`, `reset`, `time_until_trigger`, `is_steady` and `is_ready`. `rclcpp::Node::create_wall_timer` hands back a `shared_ptr<TimerBase>`, so the ported `timer_->cancel()` is a COMPILE ERROR: \"no member named 'cancel'\". Loud, and therefore permitted by the letter of the rule — but there is NO FIX WITHIN THE ADOPTED API, which is what makes it a finding. (Not literally impossible: `rclcpp::detail::WallTimer` is a public class with a public `::nros::Timer timer;` member, so `std::static_pointer_cast<rclcpp::detail::WallTimer>(timer_)->timer.cancel()` compiles. That is a reach into `detail`, not an API.)\n\n(2) WHERE THE METHOD DOES EXIST, IT IS WIDENED. `nros::Timer::cancel` (`packages/api/nros-cpp/include/nros/timer.hpp:77`) returns `Result` where upstream returns `void`; same for `reset`. RFC-0018 forces an error channel, and `Result` is `[[nodiscard]]` (`packages/api/nros-cpp/include/nros/result.hpp:110`), so the discarded statement now warns — the widening is LOUD and this half is closed. `is_canceled` matches upstream exactly.\n\nDisposition ADOPT: the three methods exist on `nros::Timer` and forwarding them onto the adopted base is a spelling, not a second implementation (RFC-0089, \"who implements an adopted name\"). `time_until_trigger` and `is_ready` are already separate `gap` rows. RFC-0089 also decided (2026-09-05) that a compat class carrying a name and none of its surface should not exist at all — the alternative disposition is to delete `rclcpp::TimerBase` rather than fill it, and that decision belongs to the stage-6 rename, not here. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:Timer::reset": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. The `reset` half of `cpp:Timer::cancel`: absent from our `rclcpp::TimerBase` (compile error on a ported `timer_->reset()`, with no fix inside the adopted API), and widened `void` -> `Result` on `nros::Timer` (`packages/api/nros-cpp/include/nros/timer.hpp:84`) — loud since `Result` became `[[nodiscard]]`. See that row."
   }
 }

@@ -92,7 +92,8 @@
   },
   "c:publisher_get_actual_qos": {
     "verdict": "gap",
-    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline."
+    "disposition": "adopt",
+    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-14, CORRECTED — the finding as recorded said six `*_get_actual_qos` implementations \"echo the request\", and that headline is FALSE for this checkout. `read_entity_qos` (`packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/qos.cpp:140`) does a REAL read-back: `dds_get_qos` then `dds_qget_{reliability,durability,history,deadline,lifespan,liveliness}` (issue 0823 / phase-393 W1), and all six thunks call it.\n\nTHE DEFENSIBLE STATEMENT IS NARROWER AND STILL A DIVERGENCE. `out` arrives PRE-LOADED with the request — the caller does `let mut granted = qos_struct;` before invoking the slot (`packages/rmw/cffi/src/lib.rs`) — and `read_entity_qos` overwrites only the fields whose `dds_qget_*` returns true. So every field Cyclone CANNOT report reads back as the REQUESTED value. Upstream's `rmw/rmw.h` requires `*_UNKNOWN` for exactly that case, and the one consumer compares requested against granted — so an unreportable field reads as GRANTED, the inverse of upstream's meaning. The code says so itself at `qos.cpp:134` and the header repeats it at `packages/core/nros-rmw-abi/include/nros/rmw_entity.h` (that header sentence is now itself imprecise, since the REPORTABLE fields no longer echo).\n\nTHE `*_UNKNOWN` SUB-CLAIM IS CONFIRMED BY GREP: the only non-test writes of any `*_UNKNOWN` value in the tree are in the graph endpoint-info trampoline (`packages/rmw/cffi/src/rust_adapter.rs`), NOT a `get_actual_qos`. No `*_get_actual_qos` implementation anywhere writes one — the slots whose own documentation defines the contract are exactly the ones that do not honour it. Every backend other than Cyclone leaves the six slots NULL.\n\nHOW A USER FINDS OUT: this row's `gap` verdict already says the READBACK is not exposed to a C or C++ caller, so today nobody can observe it — a Rust user cannot reach it at all (`grep -rn actual_qos` over the facade and the node handles finds nothing; the read-back is consumed only by `report_qos_downgrade`). That is what makes this the moment to record it: closing the gap by surfacing the accessor would ship the inverted meaning to users, so the disposition ADOPT covers BOTH halves — expose the accessor AND write `*_UNKNOWN` for a policy the backend cannot report. Re-verified by hand against the current worktree before this row was written."
   },
   "c:publisher_get_context": {
     "verdict": "declined",
@@ -129,7 +130,7 @@
   "c:publisher_init_default": {
     "verdict": "declined",
     "disposition": "adopt",
-    "why": "rclc's convenience wrapper: publisher with the default QoS. `nros_publisher_init` takes no QoS and IS the default form; `nros_publisher_init_with_qos` is the explicit one."
+    "why": "rclc's convenience wrapper: publisher with the default QoS. `nros_publisher_init` takes no QoS and IS the default form; `nros_publisher_init_with_qos` is the explicit one.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. The `adopt` above is the DECISION, not a description of today: this entry point reaches the same body as `nros_publisher_init_with_qos`, which applies neither namespace expansion nor remap where upstream applies both. See `c:publisher_init` for the seam, the eight callers that do reach it, and how a porting user discovers the difference."
   },
   "c:publisher_init_with_options": {
     "verdict": "extension",
@@ -166,7 +167,7 @@
   },
   "c:publisher_wait_for_all_acked": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "blocks until every matched reliable subscription has acknowledged everything sent. Needs per-sample ack tracking the backends do not expose uniformly, and a blocking call that cannot bound its wait is the shape RFC-0021 exists to prevent."
   },
   "c:return_loaned_message_from_publisher": {
@@ -211,11 +212,12 @@
   },
   "c:subscription_get_actual_qos": {
     "verdict": "gap",
-    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline."
+    "disposition": "adopt",
+    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-14, CORRECTED — the finding as recorded said six `*_get_actual_qos` implementations \"echo the request\", and that headline is FALSE for this checkout. `read_entity_qos` (`packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/qos.cpp:140`) does a REAL read-back: `dds_get_qos` then `dds_qget_{reliability,durability,history,deadline,lifespan,liveliness}` (issue 0823 / phase-393 W1), and all six thunks call it.\n\nTHE DEFENSIBLE STATEMENT IS NARROWER AND STILL A DIVERGENCE. `out` arrives PRE-LOADED with the request — the caller does `let mut granted = qos_struct;` before invoking the slot (`packages/rmw/cffi/src/lib.rs`) — and `read_entity_qos` overwrites only the fields whose `dds_qget_*` returns true. So every field Cyclone CANNOT report reads back as the REQUESTED value. Upstream's `rmw/rmw.h` requires `*_UNKNOWN` for exactly that case, and the one consumer compares requested against granted — so an unreportable field reads as GRANTED, the inverse of upstream's meaning. The code says so itself at `qos.cpp:134` and the header repeats it at `packages/core/nros-rmw-abi/include/nros/rmw_entity.h` (that header sentence is now itself imprecise, since the REPORTABLE fields no longer echo).\n\nTHE `*_UNKNOWN` SUB-CLAIM IS CONFIRMED BY GREP: the only non-test writes of any `*_UNKNOWN` value in the tree are in the graph endpoint-info trampoline (`packages/rmw/cffi/src/rust_adapter.rs`), NOT a `get_actual_qos`. No `*_get_actual_qos` implementation anywhere writes one — the slots whose own documentation defines the contract are exactly the ones that do not honour it. Every backend other than Cyclone leaves the six slots NULL.\n\nHOW A USER FINDS OUT: this row's `gap` verdict already says the READBACK is not exposed to a C or C++ caller, so today nobody can observe it — a Rust user cannot reach it at all (`grep -rn actual_qos` over the facade and the node handles finds nothing; the read-back is consumed only by `report_qos_downgrade`). That is what makes this the moment to record it: closing the gap by surfacing the accessor would ship the inverted meaning to users, so the disposition ADOPT covers BOTH halves — expose the accessor AND write `*_UNKNOWN` for a policy the backend cannot report. Re-verified by hand against the current worktree before this row was written."
   },
   "c:subscription_get_content_filter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "c:subscription_get_options": {
@@ -272,7 +274,7 @@
   },
   "c:subscription_is_cft_enabled": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "c:subscription_options_fini": {
@@ -282,7 +284,7 @@
   },
   "c:subscription_options_set_content_filter_options": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "c:subscription_release": {
@@ -291,7 +293,7 @@
   },
   "c:subscription_set_content_filter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "c:subscription_set_liveliness_changed_callback": {
@@ -423,22 +425,22 @@
   },
   "cpp:GenericPublisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:GenericSubscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:LifecycleNode::create_generic_publisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:LifecycleNode::create_generic_subscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:LifecycleNode::create_publisher": {
@@ -467,12 +469,12 @@
   },
   "cpp:Node::create_generic_publisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:Node::create_generic_subscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:Node::create_polling_subscription": {
@@ -481,7 +483,7 @@
   },
   "cpp:Node::create_publisher_in": {
     "verdict": "extension",
-    "why": "creates the entity in a named callback group, so its callbacks run on the tier that group maps to (RFC-0002). rclcpp passes the group through `PublisherOptions` instead."
+    "why": "creates the entity in a named callback group, so its callbacks run on the tier that group maps to (RFC-0002). rclcpp passes the group through `PublisherOptions` instead.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-17, third of three: THE GROUP IS DROPPED. `packages/api/nros-cpp/include/nros/node.hpp:847` takes the `CallbackGroup&` as an UNNAMED parameter and forwards to plain `create_publisher<M>(out, topic, qos)`. The sibling `create_subscription_in` (`packages/api/nros-cpp/include/nros/subscription.hpp:728`) really does pass `ffi_options.callback_group = group.get_name()`, so the two verbs that read as a pair behave differently.\n\nHOW A USER FINDS OUT: SILENTLY WRONG — it compiles, returns ok, and the publisher runs outside the group named in the call. It IS documented at the method (`node.hpp:835`, API symmetry with no scheduling effect, RFC-0047 OQ1), which is why this is an amendment and not a new finding; recorded because \"documented inert\" is exactly the deferral RFC-0089 exists to end.\n\nNO DISPOSITION IS WRITTEN on this row. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089), and this verb is ours: rclcpp passes the callback group through `PublisherOptions` and has no `create_publisher_in`, so there is no upstream candidate for a constraint to permit, weaken or refuse. What the finding asks for is that the parameter either work or not be accepted, which is a correctness question rather than an adoption decision."
   },
   "cpp:Node::create_subscription_in": {
     "verdict": "extension",
@@ -517,6 +519,11 @@
     "disposition": "absent",
     "why": "rclcpp's type-erased base, which the correlator normally folds onto `Publisher`. This row is the CONSTRUCTOR, which has no counterpart because ours is not constructed by a subclass."
   },
+  "cpp:Publisher::assert_liveliness": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::PublisherBase::assert_liveliness()` returns `bool`; ours (`packages/api/nros-cpp/include/nros/publisher.hpp:288`) returns `Result`. The widening itself is the ordinary RFC-0018 one and is LOUD (`Result` is `[[nodiscard]]`, and `if (pub->assert_liveliness())` inverts against `Result`'s truthiness rather than compiling wrong — worth checking at the call site).\n\nFiled `gap`, not `divergence`, because the return type is the smaller half. phase-428 W5 RANKED-15 records that on zenoh this call produces NO WIRE TRAFFIC — \"one question, four answers\" across the backends, with the header documenting a fifth. A `Result::ok` from a call that asserted nothing is exactly the silently-wrong shape RFC-0089 Part I is about, and it is not fixed by the return type being wider. The behavioural half stays open at `packages/rmw/zenoh/nros-rmw-zenoh/src/shim/publisher.rs:416`."
+  },
   "cpp:Publisher::borrow_loaned_message": {
     "verdict": "divergence",
     "why": "RE-VERDICTED 2026-09-04 from `rename`. The row argued that \"in C++ both sides return a typed RAII handle … so unlike the C API there is no shape difference here to justify the different verb\". The word TYPED is false, and it was the whole argument.\n\nrclcpp's `borrow_loaned_message()` takes NO arguments and returns `LoanedMessage<T>` whose `get()` yields `MessageT&`. Ours is `Expected<Loan> loan(size_t requested_len)` (`publisher.hpp:171`) over a byte span: `uint8_t* data()` (`:121`), `Result commit(size_t actual_len)` (`:128`). A byte token sized by an explicit caller-supplied length is precisely the shape this row said applies only to C — and `cpp:LoanedMessage` in this same file already says so (\"Ours is `Publisher::Loan`\"), as do all four C and Rust loan rows, which carry `divergence`. Two rows described one object and disagreed about whether it was typed.\n\nThe constraint is RFC-0010 D7 and issue 0814: the lent slot is `len` BYTES because CDR length is not known before encoding, and upstream's loan carries a `rosidl_message_type_support_t*` that this ABI declines. Giving a byte token rclcpp's typed name would be a worse divergence than the verb is.",
@@ -539,7 +546,8 @@
   },
   "cpp:Publisher::get_actual_qos": {
     "verdict": "gap",
-    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline."
+    "disposition": "adopt",
+    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-14, CORRECTED — the finding as recorded said six `*_get_actual_qos` implementations \"echo the request\", and that headline is FALSE for this checkout. `read_entity_qos` (`packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/qos.cpp:140`) does a REAL read-back: `dds_get_qos` then `dds_qget_{reliability,durability,history,deadline,lifespan,liveliness}` (issue 0823 / phase-393 W1), and all six thunks call it.\n\nTHE DEFENSIBLE STATEMENT IS NARROWER AND STILL A DIVERGENCE. `out` arrives PRE-LOADED with the request — the caller does `let mut granted = qos_struct;` before invoking the slot (`packages/rmw/cffi/src/lib.rs`) — and `read_entity_qos` overwrites only the fields whose `dds_qget_*` returns true. So every field Cyclone CANNOT report reads back as the REQUESTED value. Upstream's `rmw/rmw.h` requires `*_UNKNOWN` for exactly that case, and the one consumer compares requested against granted — so an unreportable field reads as GRANTED, the inverse of upstream's meaning. The code says so itself at `qos.cpp:134` and the header repeats it at `packages/core/nros-rmw-abi/include/nros/rmw_entity.h` (that header sentence is now itself imprecise, since the REPORTABLE fields no longer echo).\n\nTHE `*_UNKNOWN` SUB-CLAIM IS CONFIRMED BY GREP: the only non-test writes of any `*_UNKNOWN` value in the tree are in the graph endpoint-info trampoline (`packages/rmw/cffi/src/rust_adapter.rs`), NOT a `get_actual_qos`. No `*_get_actual_qos` implementation anywhere writes one — the slots whose own documentation defines the contract are exactly the ones that do not honour it. Every backend other than Cyclone leaves the six slots NULL.\n\nHOW A USER FINDS OUT: this row's `gap` verdict already says the READBACK is not exposed to a C or C++ caller, so today nobody can observe it — a Rust user cannot reach it at all (`grep -rn actual_qos` over the facade and the node handles finds nothing; the read-back is consumed only by `report_qos_downgrade`). That is what makes this the moment to record it: closing the gap by surfacing the accessor would ship the inverted meaning to users, so the disposition ADOPT covers BOTH halves — expose the accessor AND write `*_UNKNOWN` for a policy the backend cannot report. Re-verified by hand against the current worktree before this row was written."
   },
   "cpp:Publisher::get_allocator": {
     "verdict": "declined",
@@ -646,7 +654,7 @@
   },
   "cpp:Publisher::wait_for_all_acked": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `c:publisher_wait_for_all_acked`."
   },
   "cpp:PublisherFactory": {
@@ -707,7 +715,8 @@
   },
   "cpp:Subscription::Subscription<M>": {
     "verdict": "divergence",
-    "why": "see `cpp:Publisher::Publisher<M>`."
+    "disposition": "adopt-bounded",
+    "why": "see `cpp:Publisher::Publisher<M>`.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-27, recorded on this key because the extractor does not emit destructors: the MOVE CONSTRUCTOR and move-assignment carry the same defect and do surface here.\n\nUPSTREAM'S CONTRACT: an `rclcpp` subscription is owned by a `shared_ptr` the node holds, so destroying or relocating the user's handle cannot leave the executor dispatching into it.\n\nOURS: the destructor (`packages/api/nros-cpp/include/nros/subscription.hpp:451`) unregisters only in POLL mode — `if (initialized_ && !callback_mode_)`. In callback mode it clears a flag and nothing else, and NO unregister FFI exists at all (`grep -n \"unregister\\|deregister\" packages/api/nros-cpp/include/nros/nros_cpp_ffi.h` finds nothing). The arena still holds `&out` as its dispatch context. The move constructor (`:465`) and move-assignment (`:480`) are the same shape: they copy the callback fields, SKIP the relocate for callback mode, and clear `other.initialized_` — leaving the arena pointing at the moved-from object.\n\nHOW A USER FINDS OUT: RUNTIME UB, unattributable. The next `spin_once` calls the trampoline with a pointer to a destroyed or moved-from object, at an arbitrary later tick, with nothing naming the subscription. THE ONLY GUARD IS PROSE — the class comment at `:461` and a `@param`-level \"CONSTRAINT: do not move `out` after this returns\" at `packages/api/nros-cpp/include/nros/node.hpp:581`. No `= delete`, no `static_assert`, no runtime check. RFC-0089 says a refusal fires at the earliest point the defect is KNOWABLE, and for a move that point is the TYPE: deleting the move operations in callback mode makes it a compile error. (The `rclcpp::Node` adapter path is safe by construction — `owned_entities_` pins the cell for the node's lifetime.) Re-verified by hand against the current worktree before this row was written.\n\nDISPOSITION REFUSE-LOUD, recorded in the field. For a move the defect is knowable from the TYPE, which RFC-0089 makes the earliest point loudness is available: `= delete` the move constructor and move-assignment in callback mode, so relocating a dispatching subscription is a compile error naming the constraint, instead of a comment asking the user not to.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt-bounded, because a refusal that is only OWED is not a refusal. The paragraph above records the decision (delete the move operations in callback mode); nothing in the header does it yet, and a row reads as the shipped state.\n\nWHAT THE COMPILER POINTS AT: the constructor set. Ours is the default constructor (`packages/api/nros-cpp/include/nros/subscription.hpp:505`), a move constructor and move-assignment (`:465`, `:480`), and deleted copies (`:549`). Upstream's `Subscription(node_base, type_support, topic, qos, callback, options, ...)` is not among them, so naming it is `no matching constructor` — and a ported file rarely does: rclcpp constructs subscriptions through `Node::create_subscription`, which is `cpp:Node::create_subscription`'s row.\n\nTHE ENVELOPE, and the half that is NOT loud: a callback-mode subscription must not be moved after registration (the arena holds `this` as the trampoline context) and the only guard is prose (`:461`, and `node.hpp`'s CONSTRAINT note). RFC-0089 puts that refusal at the TYPE; until the `= delete` lands this row is adopt-bounded with the envelope stated here and in the header, and the deletion stays owed."
   },
   "cpp:Subscription::Subscription<MessageT, AllocatorT, SubscribedT, ROSMessageT, MessageMemoryStrategyT>": {
     "verdict": "declined",
@@ -758,11 +767,12 @@
   },
   "cpp:Subscription::get_actual_qos": {
     "verdict": "gap",
-    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline."
+    "disposition": "adopt",
+    "why": "reports the QoS an entity actually ended up with, which can differ from what its call site requested. RE-VERDICTED 2026-09-04 (phase-417), declined -> gap, and the old justification DELETED rather than patched. It said QoS is selected at COMPILE time, so actual and requested are the same value by construction and an accessor would return its own input. That is false in both languages. QoS is a RUNTIME argument here (`nros_publisher_init_with_options(..., const struct nros_qos_t *qos, ...)`; `Node::create_publisher<M>(out, topic, qos)`), and a launch-lowered override table changes it AFTER the call site: `nros_node_set_qos_overrides` (`nros_generated.h:5205`) and `Node::set_qos_overrides` (`packages/api/nros-cpp/include/nros/node.hpp:292`) install `nros_qos_override_t` / `nros_cpp_qos_override_t` rows, and every entity created afterwards folds the matching `(topic, role)` entries in before the backend-compat check (`apply_qos_overrides`, `packages/api/nros-cpp/src/lib.rs:1283`, `packages/api/nros-c/src/qos.rs:194`). Actual differs from requested exactly when a deploy plan says so -- which is the accessor's whole use case. Nobody has built the readback: the folded profile is handed to the backend and not retained for a getter. That is a gap, not a decline.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-14, CORRECTED — the finding as recorded said six `*_get_actual_qos` implementations \"echo the request\", and that headline is FALSE for this checkout. `read_entity_qos` (`packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/qos.cpp:140`) does a REAL read-back: `dds_get_qos` then `dds_qget_{reliability,durability,history,deadline,lifespan,liveliness}` (issue 0823 / phase-393 W1), and all six thunks call it.\n\nTHE DEFENSIBLE STATEMENT IS NARROWER AND STILL A DIVERGENCE. `out` arrives PRE-LOADED with the request — the caller does `let mut granted = qos_struct;` before invoking the slot (`packages/rmw/cffi/src/lib.rs`) — and `read_entity_qos` overwrites only the fields whose `dds_qget_*` returns true. So every field Cyclone CANNOT report reads back as the REQUESTED value. Upstream's `rmw/rmw.h` requires `*_UNKNOWN` for exactly that case, and the one consumer compares requested against granted — so an unreportable field reads as GRANTED, the inverse of upstream's meaning. The code says so itself at `qos.cpp:134` and the header repeats it at `packages/core/nros-rmw-abi/include/nros/rmw_entity.h` (that header sentence is now itself imprecise, since the REPORTABLE fields no longer echo).\n\nTHE `*_UNKNOWN` SUB-CLAIM IS CONFIRMED BY GREP: the only non-test writes of any `*_UNKNOWN` value in the tree are in the graph endpoint-info trampoline (`packages/rmw/cffi/src/rust_adapter.rs`), NOT a `get_actual_qos`. No `*_get_actual_qos` implementation anywhere writes one — the slots whose own documentation defines the contract are exactly the ones that do not honour it. Every backend other than Cyclone leaves the six slots NULL.\n\nHOW A USER FINDS OUT: this row's `gap` verdict already says the READBACK is not exposed to a C or C++ caller, so today nobody can observe it — a Rust user cannot reach it at all (`grep -rn actual_qos` over the facade and the node handles finds nothing; the read-back is consumed only by `report_qos_downgrade`). That is what makes this the moment to record it: closing the gap by surfacing the accessor would ship the inverted meaning to users, so the disposition ADOPT covers BOTH halves — expose the accessor AND write `*_UNKNOWN` for a policy the backend cannot report. Re-verified by hand against the current worktree before this row was written."
   },
   "cpp:Subscription::get_content_filter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "cpp:Subscription::get_event_handlers": {
@@ -819,7 +829,7 @@
   },
   "cpp:Subscription::is_cft_enabled": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "cpp:Subscription::is_serialized": {
@@ -874,7 +884,7 @@
   },
   "cpp:Subscription::set_content_filter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "cpp:Subscription::set_on_new_intra_process_message_callback": {
@@ -969,7 +979,7 @@
   },
   "cpp:SubscriptionContentFilterOptions": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
   "cpp:SubscriptionFactory": {
@@ -1026,12 +1036,12 @@
   },
   "cpp:create_generic_publisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:create_generic_subscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "generic pub/sub loads typesupport by name at RUNTIME so a tool (rosbag, ros2 topic) can handle a type it was not compiled against. That needs a dynamic loader and a heap; an image links the types it uses."
   },
   "cpp:create_publisher_factory": {
@@ -1060,7 +1070,7 @@
   },
   "rust:DynamicPublisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicPublisher::get_subscription_count": {
@@ -1080,7 +1090,7 @@
   },
   "rust:DynamicSubscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:DynamicSubscription::structure": {
@@ -1235,7 +1245,8 @@
   },
   "rust:MessageInfo": {
     "verdict": "divergence",
-    "why": "see `cpp:MessageInfo`."
+    "disposition": "adopt-bounded",
+    "why": "see `cpp:MessageInfo`.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nUPSTREAM'S CONTRACT: `rclrs::MessageInfo` wraps `rmw_message_info_t` and exposes it whole.\n\nOURS: `packages/core/nros-core/src/message_info.rs:24` — a flat struct of source/received timestamps, publication/reception sequence numbers and a 16-byte `publisher_gid`. See `cpp:MessageInfo` for why the DDS-shaped whole is not carried.\n\nHOW A USER FINDS OUT: an accessor we do not have is a COMPILE ERROR. Two things are NOT loud, and they are the envelope:\n  * POPULATION. The fields are filled from the zenoh ATTACHMENT (`packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:1308`). A backend that carries no attachment leaves the `Default` in place, so a reader cannot distinguish \"the publisher sent 0\" from \"this backend does not report it\".\n  * GID WIDTH. `PUBLISHER_GID_SIZE` is 16 while the RMW ABI's `rmw_gid_t` is upstream's 24 (`packages/rmw/cffi/src/generated.rs`, which says so and says reconciling the two is its own change) — so a gid from a take and one from `get_gid_for_publisher` are not comparable today, and the narrower one truncates.\n\nNEITHER ENVELOPE IS IN THE TYPE'S DOC COMMENT TODAY. Recorded that way rather than claimed as documented: ADOPT-BOUNDED's envelope is supposed to be part of the API, and here half of it is only in this ledger."
   },
   "rust:MessageInfo::new": {
     "verdict": "extension",
@@ -1287,7 +1298,7 @@
   },
   "rust:Node::create_async_dynamic_subscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:Node::create_async_subscription": {
@@ -1297,12 +1308,12 @@
   },
   "rust:Node::create_dynamic_publisher": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:Node::create_dynamic_subscription": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs 0.7.0's dynamic-message surface: load a type's structure at RUNTIME by name and read or build a message without compiling against it. It needs the introspection typesupport library loaded from disk plus heap for the field table. An image links the types it uses; the same decision the pubsub stage records for rclcpp's `GenericPublisher`/`GenericSubscription`."
   },
   "rust:Node::create_subscription": {
@@ -1403,11 +1414,12 @@
   },
   "rust:Publisher": {
     "verdict": "divergence",
-    "why": "rclrs 0.5 splits every entity into `X` (an `Arc<XState>` alias) and `XState` (the inherent impl); ours is one type. The correlator folds the suffix, so the members listed here are the ones with no counterpart at all -- see `rust:PublisherState::get_subscription_count` and the loan rows."
+    "disposition": "adopt-bounded",
+    "why": "rclrs 0.5 splits every entity into `X` (an `Arc<XState>` alias) and `XState` (the inherent impl); ours is one type. The correlator folds the suffix, so the members listed here are the ones with no counterpart at all -- see `rust:PublisherState::get_subscription_count` and the loan rows.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nWHAT THIS KEY IS, stated first because it decides the disposition: `rclrs::Publisher` is an ALIAS for `Arc<PublisherState>` with ZERO members of its own in the recorded surface, and the correlator folds the `State` suffix. So this row is a TYPE-NAME correspondence and no signature was compared — it lands in `same` through the non-callable branch, not by agreeing on anything.\n\nUPSTREAM'S CONTRACT for the name: a publisher handle, shared, with `publish`, `topic_name`, `get_subscription_count`, `notify_on_subscriber_ready`, `borrow_loaned_message` and `can_loan_messages` on the state behind it.\n\nOURS: one type, no `Arc`, and no loan API — loans need a middleware that owns the buffer, which the RMW seam (RFC-0035) does not expose.\n\nHOW A USER FINDS OUT: COMPILE ERROR on every absent member, each carried by its own row (`rust:PublisherState::get_subscription_count`, the loan rows). ADOPT-BOUNDED for the NAME and the concept; this row makes no claim about any member, by construction."
   },
   "rust:Publisher::assert_liveliness": {
     "verdict": "extension",
-    "why": "manual liveliness assertion. rclcpp has `PublisherBase::assert_liveliness`, which folds onto ours by the *Base rule; recorded here because the Rust side has no rclrs counterpart -- rclrs does not expose liveliness at all."
+    "why": "manual liveliness assertion. rclcpp has `PublisherBase::assert_liveliness`, which folds onto ours by the *Base rule; recorded here because the Rust side has no rclrs counterpart -- rclrs does not expose liveliness at all.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-15: one question, and the tree answers it five different ways. NO DISPOSITION IS WRITTEN. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089); this item has no upstream candidate, so there is nothing for a constraint to permit, weaken or refuse.\n\n  1. TRAIT DEFAULT (`packages/core/nros-rmw/src/traits.rs:2276`): `Ok(())` unconditionally — no state change, no liveliness-kind check.\n  2. ZENOH (`packages/rmw/zenoh/nros-rmw-zenoh/src/shim/publisher.rs:416`): `Ok(())`, and for `ManualByTopic`/`ManualByNode` it sets an IN-PROCESS `last_assert_at_ms` cell. NO WIRE TRAFFIC — no token refresh, no put — so the remote lease expires exactly as if the call had never happened.\n  3. CffiPublisher (`packages/rmw/cffi/src/lib.rs`): the slot is NULL, so `Err(TransportError::Unsupported)`, unconditionally — it never consults `liveliness_kind`.\n  4. CYCLONE and XRCE both install a NULL slot (`packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/vtable.cpp`), so every caller there gets answer 3.\n  5. THE HEADER DOCUMENTS A FIFTH that exists nowhere: `packages/core/nros-rmw-abi/include/nros/rmw_vtable.h` says a NULL slot means the runtime returns OK for AUTOMATIC/NONE callers and UNSUPPORTED for MANUAL_*. No such gate exists — `PublisherHandle::assert_liveliness` (`packages/core/nros-node/src/executor/handles.rs`) does not read `liveliness_kind`, and `CffiPublisher`'s own comment claims the runtime gates the call for it.\n  (A sixth spelling, in C: `rcl_publisher_assert_liveliness` (`packages/api/nros-c/src/publisher.rs`) collapses `Err(_)` to `NROS_RET_PUBLISH_FAILED`, so a C caller is told \"publish failed\" for \"unsupported\".)\n\nHOW A USER FINDS OUT: SPLIT BY BACKEND, which is the worst case — on zenoh SILENTLY WRONG (`Ok(())`, nothing on the wire, the lease still expires), on cyclone/xrce a RUNTIME ERROR for the AUTOMATIC/NONE caller the header promises OK. Same source line, opposite outcomes. This is the header prose in the SSoT that phase-428 F5 catalogues, with a user-visible consequence attached. Re-verified by hand against the current worktree before this row was written."
   },
   "rust:Publisher::borrow_loaned_message": {
     "verdict": "divergence",
@@ -1440,7 +1452,7 @@
   },
   "rust:Publisher::publish_raw_with_attachment": {
     "verdict": "extension",
-    "why": "see `cpp:Subscription::take_serialized_with_attachment` (this pointed at `cpp:Subscription::try_recv_raw_with_attachment`, which is now only the deprecated forwarder's row -- corrected 2026-09-04, phase-417)."
+    "why": "see `cpp:Subscription::take_serialized_with_attachment` (this pointed at `cpp:Subscription::try_recv_raw_with_attachment`, which is now only the deprecated forwarder's row -- corrected 2026-09-04, phase-417).\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-12. A capability claimed by a name and implemented by nobody — the class RFC-0089 exists for. NO DISPOSITION IS WRITTEN. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089); this item has no upstream candidate, so there is nothing for a constraint to permit, weaken or refuse.\n\n`Publisher::publish_raw_with_attachment` (`packages/core/nros-rmw/src/traits.rs:2124`) is a TRAIT DEFAULT whose body is `self.publish_raw(data)` — the attachment is dropped. There are ZERO overrides in the tree: the only four hits for the two attachment methods are the two trait defaults and the two `nros-node` forwarders. There is no vtable slot either (`grep -n attachment packages/core/nros-rmw-abi/include/nros/rmw_vtable.h` finds prose only), so no C-ABI backend could carry it even if one wanted to.\n\nCORRECTION TO THE SIBLING ROW: `rust:Subscription::take_serialized_with_attachment` says \"zenoh carries the source timestamp and publisher GID there\". No code in this tree does. The claim describes rmw_zenoh's wire behaviour, not ours.\n\nCOUNT BOUND: the finding says \"four doc comments\". Four claim sites exist inside `traits.rs` (the two method docs, plus `process_raw_in_place_with_info` and `take_serialized_with_info`, which describe `MessageInfo` as extracted from a transport-level attachment), and two more exist in `packages/core/nros-node/src/executor/handles.rs`. Which four was meant is ambiguous; the substance is not.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. It compiles on every backend, returns `Ok(())`, and the receiver reads `attachment_len == 0`. The `bridge_origin` echo-suppression use case the doc names cannot work — which shares a root with the bridge dedup defect recorded in this phase's F3. Re-verified by hand against the current worktree before this row was written."
   },
   "rust:Publisher::publish_streamed": {
     "verdict": "extension",
@@ -1476,7 +1488,7 @@
   },
   "rust:PublisherOptions::qos": {
     "verdict": "divergence",
-    "why": "ours carries QoS and nothing else; rclrs's publisher options also carry the callback group and the allocator. See `compile-time-options`."
+    "why": "ours carries QoS and nothing else; rclrs's publisher options also carry the callback group and the allocator. See `compile-time-options`.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-10, with the recorded form CORRECTED in two places. The row above describes a functioning setter; it is not one, on the standalone node.\n\nWHAT IS TRUE: `PublisherOptions::qos` (field `packages/core/nros-node/src/node.rs:146`, builder method `:159`) IS copied — `Node::create_publisher` (`:267`) does `qos: options.qos` into `PublisherInfo`. The dead end is one level down: `PublisherInfo::qos` is never READ. `grep -n '\\.qos' packages/core/nros-node/src/node.rs` yields exactly four hits — the two builder writes and the two struct-literal copies. `publisher_topic_info` returns a `TopicInfo` with name/type/hash/domain and no QoS, and `StandaloneNode` has no transport at all.\n\nSECOND CORRECTION: the `#[allow(dead_code)]` the finding blames is on the PRIVATE info structs (`node.rs:82`, `:98`, both commented \"Fields used when transport is connected\"), not on the options. A `pub` field on a `pub` struct would never have triggered `dead_code` anyway — so the compiler was not silenced here; it was never going to speak.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. The builder chains, returns `Self`, and the QoS is never applied. Same shape as the `NodeOptions` setters RFC-0089's hazard section names.\n\nThe divergence recorded above (ours carries QoS and nothing else, where rclrs's options also carry the callback group and the allocator) is unaffected and still holds. Re-verified by hand against the current worktree before this row was written.\n\nNO DISPOSITION IS WRITTEN on this row. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089), and the row's `divergence` is about WHICH FIELDS the options carry, and the finding is that the field we do carry is not applied. Neither is an adoption decision about an upstream item: rclrs's options exist, we have ours, and what is missing is that ours does anything. Fixing it changes no name and refuses nothing."
   },
   "rust:RawMessageInfo": {
     "verdict": "extension",
@@ -1556,7 +1568,8 @@
   },
   "rust:Subscription": {
     "verdict": "divergence",
-    "why": "see `rust:PublisherState`."
+    "disposition": "adopt-bounded",
+    "why": "see `rust:PublisherState`.\n\nphase-428 W6 (2026-09-06) — disposition, required because this row's SHAPE CORRESPONDS: the name exists on the ported surface and the correlator files it `same`, so nothing in a build says the contract differs. That is the class RFC-0089 exists for.\n\nThe subscription half of `rust:Publisher`, and the same kind of key: `rclrs::Subscription` is an ALIAS with zero recorded members, so this row is a TYPE-NAME correspondence and no signature was compared.\n\nUPSTREAM'S CONTRACT for the name: a subscription handle whose callback is set on the state behind it, after construction — `set_callback`, `set_async_callback`, `set_worker_callback`, plus `topic_name` and `qos`.\n\nOURS: one type, no `Arc`, and the callback is bound at DECLARATION rather than set afterwards — with no allocator the entity set has to be known when `register` runs (RFC-0043/0044), so there is no post-construction setter to call.\n\nHOW A USER FINDS OUT: COMPILE ERROR — `set_callback` is `no method named`, and the fix is to move the closure into the declaration. ADOPT-BOUNDED for the name; the members are their own rows."
   },
   "rust:Subscription::buffer": {
     "verdict": "divergence",
@@ -1646,7 +1659,7 @@
   },
   "rust:Subscription::take_serialized_with_attachment": {
     "verdict": "extension",
-    "why": "receive with the transport attachment (zenoh carries the source timestamp and publisher GID there rather than in the payload); rclrs has no counterpart. Renamed from `try_recv_raw_with_attachment` by phase-379 W6 decision 1 (2026-09-03). See `rust:Subscription::take_serialized`."
+    "why": "receive with the transport attachment (zenoh carries the source timestamp and publisher GID there rather than in the payload); rclrs has no counterpart. Renamed from `try_recv_raw_with_attachment` by phase-379 W6 decision 1 (2026-09-03). See `rust:Subscription::take_serialized`.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-12, receive half, AND A CORRECTION TO THE SENTENCE ABOVE: \"zenoh carries the source timestamp and publisher GID there\" is not true of any code in this tree. `Subscription::take_serialized_with_attachment` (`packages/core/nros-rmw/src/traits.rs:2339`) is a trait default that delegates to `take_serialized` and reports `attachment_len = 0`; nothing overrides it and no vtable slot exists. SILENTLY WRONG. See `rust:Publisher::publish_raw_with_attachment`.\n\nThe disposition for this finding is recorded on `rust:Publisher::publish_raw_with_attachment` (which writes none, and says why), which carries the full statement."
   },
   "rust:Subscription::take_serialized_with_info": {
     "verdict": "extension",
@@ -1654,7 +1667,7 @@
   },
   "rust:Subscription::take_validated": {
     "verdict": "extension",
-    "why": "receive WITH the end-to-end integrity verdict attached (`IntegrityStatus`). RFC-0028; ROS 2 has no counterpart because a desktop DDS link is not treated as a safety channel. Renamed from `try_recv_validated` by phase-379 W6 decision 1 (2026-09-03)."
+    "why": "receive WITH the end-to-end integrity verdict attached (`IntegrityStatus`). RFC-0028; ROS 2 has no counterpart because a desktop DDS link is not treated as a safety channel. Renamed from `try_recv_validated` by phase-379 W6 decision 1 (2026-09-03).\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-13, with the finding NARROWED — it said the synthesis is what `take_validated` does; two backends do override, and one of them re-synthesises the same value. NO DISPOSITION IS WRITTEN. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089); this item has no upstream candidate, so there is nothing for a constraint to permit, weaken or refuse.\n\nThe trait default (`packages/core/nros-rmw/src/traits.rs:2519`, behind `safety-e2e`) maps `take_serialized` into `IntegrityStatus { gap: 0, duplicate: false, crc_valid: None }`. `crc_valid: None` is honest — no CRC present. `gap: 0` and `duplicate: false` are AFFIRMATIVE claims nothing established, and `IntegrityStatus::is_valid()` (`packages/core/nros-rmw/src/safety.rs:80`) is `gap == 0 && !duplicate && crc_valid != Some(false)`, so the synthesised value PASSES the validity predicate.\n\nNARROWING: `ZenohSubscriber` (`packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs`) and `CffiSubscription` (`packages/rmw/cffi/src/lib.rs`) both override — but cffi's override falls back to the IDENTICAL literal when the C side reports nothing, so the all-clear is reachable on the C-ABI path too, one level down. The metadata backend inherits the default outright.\n\nHOW A USER FINDS OUT: SILENTLY WRONG, and outside the porting question — rclrs has no counterpart (this is an RFC-0028 extension), so there is no upstream expectation to violate. The reader who is misled is a SAFETY user reading `status.is_valid() == true` on a backend that tracks neither sequence numbers nor CRC. RFC-0028's own terms make \"unknown\" a different answer from \"clean\", and the type can express it (`crc_valid: Option<bool>` already does); the default currently cannot. Re-verified by hand against the current worktree before this row was written."
   },
   "rust:Subscription::topic_name": {
     "verdict": "gap",
@@ -1678,7 +1691,7 @@
   },
   "rust:SubscriptionOptions::qos": {
     "verdict": "extension",
-    "why": "The builder-style QoS setter on the standalone node's `SubscriptionOptions`. rclrs carries QoS in `SubscriptionOptions` too but reaches it through `IntoPrimitiveOptions`/`.qos(..)` on the topic string rather than a method on the options struct, so the member does not correlate. Surfaced 2026-08-26 by the `subscriber`->`subscription` rename: the type's old name meant this member was filed under a key that no longer exists."
+    "why": "The builder-style QoS setter on the standalone node's `SubscriptionOptions`. rclrs carries QoS in `SubscriptionOptions` too but reaches it through `IntoPrimitiveOptions`/`.qos(..)` on the topic string rather than a method on the options struct, so the member does not correlate. Surfaced 2026-08-26 by the `subscriber`->`subscription` rename: the type's old name meant this member was filed under a key that no longer exists.\n\nphase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-10, subscription half. Same measurement as `rust:PublisherOptions::qos`: the builder writes the field, `Node::create_subscription` (`packages/core/nros-node/src/node.rs:298`) copies it into `SubscriberInfo`, and `SubscriberInfo::qos` is read by nothing — `subscription_topic_info` carries no QoS and `StandaloneNode` has no transport. SILENTLY WRONG: the setter compiles, chains and does not configure. See that row for the two corrections to the finding's wording.\n\nThe disposition for this finding is recorded on `rust:PublisherOptions::qos`, which carries the full statement."
   },
   "rust:SubscriptionTag": {
     "verdict": "extension",
@@ -1714,8 +1727,8 @@
   },
   "cpp:NodeOptions::parameter_event_publisher_options": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0089 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+    "disposition": "absent",
+    "why": "phase-417 stage 0 — visible only because the rclcpp adapter (then `rclcpp_compat.hpp`; deleted at stage 6 step A, each declaration moved to the header owning its concept) became a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. This member is NOT declared here at all: `packages/api/nros-cpp/include/nros/options.hpp` refuses the ten option setter/getter pairs a tutorial chains (`arguments`, `use_intra_process_comms`, `enable_rosout`, ...) with a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_NODE_OPTIONS`, and declares nothing else on the type. So a ported call to THIS one gets `no member named` -- honest, and it names neither the constraint nor the alternative. phase-428 Q1 (2026-09-06): this row used to say it was a `= delete` overload; it never was, and the disposition is corrected from refuse-loud to absent. The refusal that does exist is per-CONCEPT and `cpp:NodeOptions` carries it."
   },
   "c:typed_subscription_callback_t": {
     "verdict": "rename",
@@ -1741,5 +1754,53 @@
   "c:executor_add_subscription_raw": {
     "verdict": "divergence",
     "why": "phase-417 stage 6 — the callback moved OFF `*_init` and onto registration, so `rclc_{subscription,service}_init_default` now matches rclc's four-argument shape and the callback arrives here, exactly as rclc supplies it at `rclc_executor_add_subscription`.\n\nIt keeps the `nros_` prefix DELIBERATELY, and that is the whole content of this row. rclc's same-named calls deliver a DESERIALISED message into caller-owned storage; these deliver CDR BYTES. Taking rclc's spelling for a byte-oriented entry point would be a name whose contract differs -- the `PollingSubscription::take()` failure, which had rclcpp's name, rclcpp's signature and the opposite contract, and cost a spinning loop with no compile error.\n\nThe faithful rclc-shaped entry point exists beside it and DOES take the name: `nros_executor_add_subscription_typed` (W5.a), reached per-message as `<Msg>_executor_add_subscription(exec, sub, &msg, cb, ctx, invocation)` -- rclc's six arguments in rclc's order. So the two shapes are distinguished by NAME rather than by a reader noticing which one deserialises, which is what RFC-0089 asks for."
+  },
+  "c:subscription_is_valid": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. The subscription half of `c:client_is_valid` (`packages/api/nros-c/src/subscription.rs:986`): false for `NROS_SUBSCRIPTION_STATE_POLLING`, which `nros_subscription_init_polling` / `_with_qos` set. See that row for the contract, the discovery path and the disposition."
+  },
+  "c:subscription_get_topic_name": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. The name-accessor half of `c:subscription_is_valid` (`packages/api/nros-c/src/subscription.rs:963`) — NULL for a polling subscription. See `c:client_is_valid`."
+  },
+  "c:publisher_init": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-3. A publisher is the ONE entity kind that never reaches the name-resolution seam every other kind goes through.\n\nUPSTREAM'S CONTRACT: `rcl_publisher_init` expands the topic name (`~`, relative -> fully qualified, against the node's name and namespace) and applies the remap rules before the entity is created. `rclc_publisher_init_default` inherits that.\n\nOURS: the seam is `Executor::resolve_entity_name` (`packages/core/nros-node/src/executor/spin.rs:1961`) -> `crate::names::resolve_name`, which does ROS 2 expansion PLUS the per-node launch remap table. It is called from eight sites in `packages/api/nros-c/src/executor.rs` — the four subscription-add spellings, service, client, action server, action client. `grep -n resolve_entity_name packages/api/nros-c/src/publisher.rs` returns ZERO. All three publisher entry points (`rclc_publisher_init_default`, `nros_publisher_init_with_qos`, `nros_publisher_init_with_options`) funnel into one body that copies the raw string and hands it to `TopicInfo::new` verbatim. The `.with_namespace(...)` call nearby does not rebut this: `TopicInfo::namespace` is documented as feeding LIVELINESS TOKEN generation and takes no part in the topic key. Timers and guard conditions have no name, so their absence from the seam is correct rather than a gap.\n\nHOW A USER FINDS OUT: SILENTLY WRONG. `NROS_RET_OK` is returned; a relative topic or a launch `<remap>` publishes on the UNRESOLVED key while every subscription in the same image resolved theirs. It is a delivery hole with no error anywhere.\n\nThe seam exists and eight callers already use it, so clause 1 does not bind and the disposition is ADOPT.\n\nSECOND DEFECT ON THE SAME PATH, the entity-name half of RANKED-24: the copy is `copy_cstr_into` (`packages/api/nros-c/src/util.rs:18`), which truncates to the buffer (256 bytes for topic/type) and signals nothing; callers check only `len == 0`. An over-long topic creates the entity on a DIFFERENT key and returns `NROS_RET_OK`. See `c:parameter_declare_*` for the parameter-name sibling and the in-crate idiom that gets it right. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:Publisher::publish": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-7, with one half now closed and one half live. This is the hottest line in a ported node.\n\nUPSTREAM'S CONTRACT: `rclcpp::Publisher<M>::publish(const M&)` returns `void` and throws on failure.\n\nOURS (`packages/api/nros-cpp/include/nros/publisher.hpp:95`): `Result publish(const M& msg)`. RFC-0018 forbids exceptions, so the WIDENING itself is a constraint and not a preference — and RFC-0089's rule is that a signature change is permitted when the compiler forces the edit. THE WIDENING IS NOW LOUD: `Result` carries `[[nodiscard]]` (`packages/api/nros-cpp/include/nros/result.hpp:110`, phase-428 W6, whose rationale block names this exact method), so a ported `pub->publish(msg);` warns, and the `-D warnings` lanes make that an error. The finding's \"silently discarded\" premise is STALE for the return type; recorded here so nobody re-derives it.\n\nWHAT IS STILL LIVE, and why the verdict is `gap`: `publish` is the ONLY entry point on the class with no `initialized_` guard. `publish_raw` (:99), `publish_streamed` (:114), `loan` (:213), `get_topic_name` (:223), `on_liveliness_lost` (:272), `on_offered_deadline_missed` (:280) and `assert_liveliness` (:288) all have one. On an uninitialised publisher `M::ffi_publish` reaches `nros_cpp_publish_raw`, whose only check is `storage.is_null()` — and `storage_` is an in-object array that is never null — so it dereferences zero-initialised bytes as an `RmwPublisher`.\n\nHOW A USER FINDS OUT: SILENTLY WRONG then UB, with no diagnostic at any warning level. That matters most beside `cpp:Node::create_publisher`, which hands back a non-null pointer to exactly such a publisher. The guard is one line and costs nothing on any target, so the disposition is ADOPT. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:Node::create_publisher": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding, RANKED-9, the whole class in one row: seven call sites across five verbs (`create_service` and `create_client` each appear twice).\n\nUPSTREAM'S CONTRACT: `rclcpp::Node::create_*` either returns a usable entity or THROWS. A non-null return is a promise.\n\nOURS NOW (`packages/api/nros-cpp/include/nros/nros.hpp`, the `rclcpp::Node` adapter): every factory passes the inner `nros::Result` to `detail::require_created` (`:384`) — `create_publisher` at `:679`, `create_subscription` `:750`, `create_wall_timer` `:785`, `create_service` `:929` / `:942`, `create_client` `:966` / `:979` — which on failure calls `abort_failed_create` (`:376`): `NROS_ERROR` naming the verb, the entity name and the `nros::ErrorCode`, then the `NROS_RCLCPP_ABORT_FAILED_CREATE` text (`log.hpp:209`) naming the underlying `nros::Node` verbs that return the `Result` for a caller who wants to handle it, then `std::abort()`. `require_created` takes the `Result` BY VALUE so the `[[nodiscard]]` is consumed there and cannot be dropped a second time. A returned pointer is therefore an initialised entity, which is upstream's promise minus the throw (RFC-0018: no exceptions; terminating with a diagnostic is what an uncaught throw does to a tutorial `main` anyway).\n\nHOW A USER FINDS OUT: the process dies at the failing create naming it. The remaining silence is one frame UP — constructing a `Node` before `rclcpp::init()` yields `initialized() == false` with no diagnostic until the first create (`cpp:Node::Node`), and `rclcpp::spin` / `spin_some` (`:1065` / `:1072`) still return without a word on such a node; with every create aborting, that path is only reachable by a node that created nothing.\n\nDisposition ADOPT: the information exists at the create, so the refusal fires at the earliest point the defect is KNOWABLE, and nothing in RFC-0018 requires a non-null pointer to a dead entity. The verdict stays `gap` for the throw itself: a hosted build with exceptions could throw `rclcpp::exceptions::RCLError` here instead of aborting, and nobody has done it.\n\nHistory, one sentence: until phase-428 Q1 (2026-09-06) each of the seven sites discarded the `Result` with an explicit `(void)` and returned a non-null pointer to an entity whose `initialized_` was false, so a ported node built clean, published into nothing and `spin` returned immediately with exit code 0 — SILENTLY WRONG, the exact shape RFC-0089's \"return type, where the result is discarded\" row calls non-mechanical. Siblings: `cpp:Node::create_subscription`, `cpp:Node::create_service`, `cpp:Node::create_client`, `cpp:Node::create_wall_timer`."
+  },
+  "cpp:Node::create_subscription": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. TWO findings on one key; they have different dispositions and are stated apart on purpose.\n\n(1) RANKED-9, the create's `Result`: CLOSED. `packages/api/nros-cpp/include/nros/nros.hpp:750` passes `create_subscription_raw`'s `Result` to `detail::require_created` (`:384`), which aborts naming the verb and the topic (`abort_failed_create`, `:376`, `NROS_RCLCPP_ABORT_FAILED_CREATE`) instead of returning a pointer to a dead entity; the returned `shared_ptr` is a keep-alive over an initialised subscription. Disposition ADOPT — `cpp:Node::create_publisher` carries the full statement and the other six call sites. History, one sentence: until phase-428 Q1 (2026-09-06) this site (then `:677`) discarded the `Result` with `(void)`, SILENTLY WRONG.\n\n(2) W3 F16, the ARGUMENT ORDER, and this half must be split into a constraint and a PREFERENCE because RFC-0036 forbids recording the second as the first.\n  * `nros::Node::create_subscription(Subscription<M>& out, const char* topic, F callback, const QoS& qos = ..., const SubscriptionOptions& options = {})` (`packages/api/nros-cpp/include/nros/node.hpp:594`) vs upstream's `create_subscription(const std::string& topic_name, const rclcpp::QoS& qos, CallbackT&& callback, const SubscriptionOptions& options = ...)`.\n  * The OUT-PARAM plus `Result` return IS a constraint: RFC-0018/0019 — no exceptions, no heap — so the entity is caller-placed. Not a preference.\n  * `callback` BEFORE `qos` is NOT a platform constraint. The only force is a C++ default-argument rule: putting `qos` first would make the three-argument form illegal, and upstream simply makes `qos` mandatory. The decisive evidence that it is a choice is in this tree: the `rclcpp::Node` adapter at `nros.hpp:673` uses UPSTREAM'S order. Both orders coexist here, so nothing forces the inversion.\n  * HOW A USER FINDS OUT: COMPILE ERROR — a `QoS` will not convert to the handler type, and the SFINAE guard at `node.hpp:591` makes that explicit. Loud, therefore permitted by the rule; but it is a per-call-site edit paid for by no constraint, which is what makes it a finding rather than a divergence. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:SubscriptionOptions::sched_context": {
+    "verdict": "extension",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-17, first of three. rclcpp's `SubscriptionOptions` has no counterpart; RFC-0047's scheduling context is ours. NO DISPOSITION IS WRITTEN. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089); this item has no upstream candidate, so there is nothing for a constraint to permit, weaken or refuse. Forcing one here would invent a decision about upstream that nobody made.\n\nTHE FINDING: the field is STRUCTURALLY UNREACHABLE on the poll overload. The guard at `packages/api/nros-cpp/include/nros/subscription.hpp:674` is `if (options.sched_context != SCHED_CONTEXT_UNSET && out.has_sched_handle())`, and `has_sched_handle()` is `sched_handle_id_ != SIZE_MAX`. That field defaults to `SIZE_MAX` and is assigned at exactly four sites (`:717`, `:750`, `:783`, `:830`), all four in the CALLBACK-mode creates. The poll create sets none, so the second conjunct is a compile-time-constant false for this overload.\n\nHOW A USER FINDS OUT: SILENTLY WRONG — the option is accepted, the call returns ok, and the entity runs on the default context. It is at least documented at the field (`packages/api/nros-cpp/include/nros/options.hpp:66`) and at the create (`subscription.hpp:656`), which is the difference between this and a trap; the row exists because a documented no-op is still a capability claimed by a name. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:SubscriptionOptions::message_info": {
+    "verdict": "extension",
+    "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-17, second of three. NO DISPOSITION IS WRITTEN. The four dispositions are what clause 1 does to a CANDIDATE FROM CLAUSE 2 (RFC-0089); this item has no upstream candidate, so there is nothing for a constraint to permit, weaken or refuse. Forcing one here would invent a decision about upstream that nobody made.\n\nTHE FINDING: `bool message_info = false` (`packages/api/nros-cpp/include/nros/options.hpp:89`) is stored and READ BY NOTHING. Repo-wide the only occurrences in `include/` and `src/` are the declaration, three doc comments and a `TODO` at `packages/api/nros-cpp/include/nros/subscription.hpp:672`. The field's own doc says setting it \"has no effect (it is intentionally ignored)\".\n\nHOW A USER FINDS OUT: SILENTLY WRONG — the setter compiles, the create succeeds, and no message info arrives. This is the `NodeOptions` shape RFC-0089's hazard section names: a stored-and-never-read option that makes the idiomatic call configure nothing. The constraint that would justify it does not exist — `Node::create_subscription_with_info` already delivers the capability under another verb — so the honest end state is either to honour the flag or to delete it, not to keep an inert field the header apologises for. Re-verified by hand against the current worktree before this row was written."
+  },
+  "cpp:NodeOptions::start_parameter_event_publisher": {
+    "verdict": "divergence",
+    "disposition": "refuse-loud",
+    "why": "`rclcpp::NodeOptions::start_parameter_event_publisher` -- REFUSE-LOUD, per-CONCEPT with the rest of the option family (`cpp:NodeOptions` carries the reasoning; this row carries the SITE).\n\nSITE: `packages/api/nros-cpp/include/nros/options.hpp:269` (setter) and `:273` (getter). Each is a `template <typename T = void>` whose body is `static_assert(detail::refuse<T>::value, NROS_RCLCPP_REFUSE_NODE_OPTIONS)` -- dependent on `T` so it fires on USE, not on include, and a caller writes the chain exactly as upstream does. Probe: `packages/api/nros-cpp/tests/compile/ros2_refuse_node_options_probe.cpp`.\n\nHOW A USER FINDS OUT: COMPILE ERROR at the call carrying the constraint and the alternative. For this member: there is no parameter-event publisher; parameter services are an explicit executor registration (`c:executor_register_parameter_services`).\n\nphase-428 Q1 (2026-09-06): this member used to INHERIT its disposition from `cpp:NodeOptions` and had no row of its own, which is how a live refusal stayed invisible to the ledger -- a refusal is a declaration, it correlates `same`, and `--check` stopped asking. A refusal site now gets its own row so `--require-disposition` can see it."
+  },
+  "c:subscription_init": {
+    "verdict": "divergence",
+    "disposition": "absent",
+    "why": "phase-428 Q1 (2026-09-06) -- `rcl_subscription_init(subscription, node, type_support, topic_name, options)`. No symbol answers to this key. rclc code reaches it through `rclc_subscription_init_default(sub, node, type_support, topic)`, which exists at rclc's arity (`c:subscription_init_default`, `packages/api/nros-c/src/subscription.rs:225`); the options-bearing forms are `nros_subscription_init_with_qos` / `_with_options` (`packages/api/nros-c/include/nros/nros_generated.h:6791`, `:6834`). `rcl_subscription_options_t` is built, copied and finalised upstream; ours is a `const nros_qos_t*` or an inline options struct, the same lifecycle collapse `c:node_options_*` records. Argument 3 keeps our `nros_message_type_t` -- RFC-0089 (2026-09-04): a rosidl typesupport's members, including its `func` dispatcher, are its contract, and we do not have them.\n\nABSENT, not adopt-bounded: the rcl-layer name does not exist; the rclc-layer name does and carries the bounded adoption."
   }
 }

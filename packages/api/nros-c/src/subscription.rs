@@ -490,6 +490,21 @@ pub unsafe extern "C" fn nros_subscription_init_polling_with_qos(
     subscription_mut.context = ptr::null_mut();
     subscription_mut.handle_id = usize::MAX;
 
+    // Resolve the SOURCE topic name to its wire name. The L2 (callback) path
+    // gets this from `nros_executor_add_subscription`; the L1 path creates the
+    // entity right here and so never reached that seam — the same gap
+    // `nros_publisher_init_with_qos` had, and the reason both are fixed
+    // together rather than at the site the sweep reported.
+    let _resolved_topic = {
+        let source = core::str::from_utf8_unchecked(
+            &subscription_mut.topic_name[..subscription_mut.topic_name_len],
+        );
+        match crate::node::resolve_entity_name_on_node(node_ref, source) {
+            Some(r) => r,
+            None => return NROS_RET_INVALID_ARGUMENT,
+        }
+    };
+
     // Create the subscriber NOW (vs deferred for L2). The L1 path
     // owns the entity inline; no executor arena involved.
     #[cfg(feature = "rmw-cffi")]
@@ -516,7 +531,10 @@ pub unsafe extern "C" fn nros_subscription_init_polling_with_qos(
         let namespace_str =
             core::str::from_utf8_unchecked(&node_ref.namespace[..node_ref.namespace_len]);
 
-        let topic_info = TopicInfo::new(topic_str, type_str, type_hash_str)
+        // RESOLVED name on the wire; `topic_str` stays the SOURCE spelling for
+        // the QoS-override lookup below (the plan writes overrides against
+        // launch names — same split as `nros-cpp/src/publisher.rs`).
+        let topic_info = TopicInfo::new(_resolved_topic.as_str(), type_str, type_hash_str)
             .with_domain(domain_id)
             .with_node_name(node_name_str)
             .with_namespace(namespace_str);

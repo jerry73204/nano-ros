@@ -2070,7 +2070,7 @@ fn use_sim_time_attaches_and_detaches_the_clock_source() {
     // Declared BEFORE any node exists, which is the order a generated entry
     // uses: `nros::main!` emits `apply_param_services` ahead of its per-node
     // `register` calls.
-    executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Bool(true));
+    assert!(executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Bool(true)));
     assert!(
         !executor.ros_time_source_installed(),
         "declaring the parameter must not subscribe on the spot — there is no \
@@ -2110,7 +2110,12 @@ fn use_sim_time_attaches_and_detaches_the_clock_source() {
 
     // Turning it off stops SAMPLES. The subscription stays — the executor has
     // no entity removal — so the gate is what must change.
-    executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Bool(false));
+    // The store REFUSES a re-declaration (phase-428 W6: `declare` is
+    // `#[must_use]` and `false` is a refusal), yet the switch still flips,
+    // because `note_reserved_parameter` runs before the store answers. The
+    // store keeps `true` while the source detaches — recorded as a phase-430
+    // work item; this test pins the behaviour that exists.
+    assert!(!executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Bool(false)));
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
     assert!(
         !crate::time_source::is_active(),
@@ -2131,7 +2136,7 @@ fn a_non_bool_use_sim_time_attaches_nothing() {
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
-    executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Integer(1));
+    assert!(executor.declare_parameter("use_sim_time", nros_params::ParameterValue::Integer(1)));
     let _ = executor.spin_once(core::time::Duration::from_millis(0));
     assert!(
         !executor.ros_time_source_installed(),

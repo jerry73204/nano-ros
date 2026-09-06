@@ -519,6 +519,19 @@ pub unsafe extern "C" fn nros_service_init_polling(
     service_mut.callback = None;
     service_mut.context = ptr::null_mut();
 
+    // Resolve the SOURCE service name to its wire name — see
+    // `nros_publisher_init_with_qos`. The callback-mode service reaches this
+    // through `nros_executor_add_service`; the polling one creates here.
+    let _resolved_name = {
+        let source = core::str::from_utf8_unchecked(
+            &service_mut.service_name[..service_mut.service_name_len],
+        );
+        match crate::node::resolve_entity_name_on_node(node_ref, source) {
+            Some(r) => r,
+            None => return NROS_RET_INVALID_ARGUMENT,
+        }
+    };
+
     #[cfg(feature = "rmw-cffi")]
     {
         use nros_node::{ServiceInfo, Session};
@@ -530,9 +543,6 @@ pub unsafe extern "C" fn nros_service_init_polling(
             None => return NROS_RET_NOT_INIT,
         };
 
-        let service_str = core::str::from_utf8_unchecked(
-            &service_mut.service_name[..service_mut.service_name_len],
-        );
         let type_str =
             core::str::from_utf8_unchecked(&service_mut.type_name[..service_mut.type_name_len]);
         let type_hash_str =
@@ -541,7 +551,9 @@ pub unsafe extern "C" fn nros_service_init_polling(
         let namespace_str =
             core::str::from_utf8_unchecked(&node_ref.namespace[..node_ref.namespace_len]);
 
-        let info = ServiceInfo::new(service_str, type_str, type_hash_str)
+        // RESOLVED name on the wire — the source spelling is what the caller
+        // stored in `service_mut.service_name` and what the getters return.
+        let info = ServiceInfo::new(_resolved_name.as_str(), type_str, type_hash_str)
             .with_domain(domain_id)
             .with_node_name(node_name_str)
             .with_namespace(namespace_str);
@@ -1377,6 +1389,18 @@ pub unsafe extern "C" fn nros_client_init_polling(
     client_mut.response_callback = None;
     client_mut.context = ptr::null_mut();
 
+    // Resolve the SOURCE service name to its wire name — see
+    // `nros_publisher_init_with_qos`. A client that resolved differently from
+    // the server it calls is the same split one direction over.
+    let _resolved_name = {
+        let source =
+            core::str::from_utf8_unchecked(&client_mut.service_name[..client_mut.service_name_len]);
+        match crate::node::resolve_entity_name_on_node(node_ref, source) {
+            Some(r) => r,
+            None => return NROS_RET_INVALID_ARGUMENT,
+        }
+    };
+
     #[cfg(feature = "rmw-cffi")]
     {
         use nros_node::{ServiceInfo, Session};
@@ -1388,8 +1412,6 @@ pub unsafe extern "C" fn nros_client_init_polling(
             None => return NROS_RET_NOT_INIT,
         };
 
-        let service_str =
-            core::str::from_utf8_unchecked(&client_mut.service_name[..client_mut.service_name_len]);
         let type_str =
             core::str::from_utf8_unchecked(&client_mut.type_name[..client_mut.type_name_len]);
         let type_hash_str =
@@ -1398,7 +1420,8 @@ pub unsafe extern "C" fn nros_client_init_polling(
         let namespace_str =
             core::str::from_utf8_unchecked(&node_ref.namespace[..node_ref.namespace_len]);
 
-        let info = ServiceInfo::new(service_str, type_str, type_hash_str)
+        // RESOLVED name on the wire — see the resolution above.
+        let info = ServiceInfo::new(_resolved_name.as_str(), type_str, type_hash_str)
             .with_domain(domain_id)
             .with_node_name(node_name_str)
             .with_namespace(namespace_str);

@@ -1416,8 +1416,8 @@ mod tests {
         use alloc::boxed::Box;
 
         let mut server = leaked_server();
-        server.declare("speed", InternalValue::Double(1.0));
-        server.declare("enabled", InternalValue::Bool(true));
+        assert!(server.declare("speed", InternalValue::Double(1.0)));
+        assert!(server.declare("enabled", InternalValue::Bool(true)));
 
         // Use Box for request due to large heapless::Vec size (~1MB+)
         // Handler returns Box<Response> internally
@@ -1440,7 +1440,7 @@ mod tests {
         use alloc::boxed::Box;
 
         let mut server = leaked_server();
-        server.declare("speed", InternalValue::Double(1.0));
+        assert!(server.declare("speed", InternalValue::Double(1.0)));
 
         // Use Box for request due to large heapless::Vec size (~1MB+)
         // Handler returns Box<Response> internally
@@ -1463,9 +1463,9 @@ mod tests {
         use alloc::boxed::Box;
 
         let mut server = leaked_server();
-        server.declare("robot.speed", InternalValue::Double(1.0));
-        server.declare("robot.name", InternalValue::from_string("bot1").unwrap());
-        server.declare("sensor.range", InternalValue::Double(10.0));
+        assert!(server.declare("robot.speed", InternalValue::Double(1.0)));
+        assert!(server.declare("robot.name", InternalValue::from_string("bot1").unwrap()));
+        assert!(server.declare("sensor.range", InternalValue::Double(10.0)));
 
         // Use Box for request due to large heapless::Vec size
         let request = Box::new(ListParametersRequest::default());
@@ -1479,8 +1479,8 @@ mod tests {
         use alloc::boxed::Box;
 
         let mut server = leaked_server();
-        server.declare("speed", InternalValue::Double(1.0));
-        server.declare("count", InternalValue::Integer(5));
+        assert!(server.declare("speed", InternalValue::Double(1.0)));
+        assert!(server.declare("count", InternalValue::Integer(5)));
 
         // Use Box for request due to large heapless::Vec size
         let mut request = Box::new(GetParameterTypesRequest::default());

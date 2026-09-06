@@ -68,9 +68,6 @@ for entry in "packages/api/nros-cpp/include/nros:1" \
   # included.
   for hdr in $(ls "$dir"/*.hpp "$dir"/*.cpp 2>/dev/null); do
     base="$(basename "$hdr")"
-    # rclcpp_compat.hpp is a deliberately-ungated source-compat shim, excluded
-    # from the freestanding probe by design (phase 209) — skip it here too.
-    case "$base" in rclcpp_compat.hpp) continue ;; esac
 
     # Walk the file tracking NROS_CPP_STD guard depth. Flag a hosted `#include`
     # that appears at guard-depth 0.
