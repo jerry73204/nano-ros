@@ -791,6 +791,34 @@ $CHAIN_OUT"
         fail "no fixpoint at $_calls calls: a second build re-ran cmake $CHAIN_RERUNS time(s), delivered '$CHAIN_DELIVERED':
 $CHAIN_OUT"
     fi
+
+    # Case I's question at this shape. The bound is what a per-CALL arm burned
+    # fastest -- N leaves spent N of it per configure -- so an aged build dir is
+    # where the two defects meet. Two alternating edits, same dir.
+    _j_ok=1
+    _j_log=""
+    for _step in big:1496 small:880; do
+        _which="${_step%%:*}"; _want="${_step##*:}"
+        if [ "$_which" = "big" ]; then _body="$EDIT_BODY_BIG"; else _body="$EDIT_BODY_SMALL"; fi
+        touch "$_j_src/CMakeLists.txt"
+        run_chain "$_j_src" "$_j_build" "$_body"
+        _j_log="$_j_log
+  edit ($_which): delivered=$CHAIN_DELIVERED want=$_want reruns=$CHAIN_RERUNS"
+        [ "$CHAIN_DELIVERED" = "$_want" ] || _j_ok=0
+        if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+            _j_ok=0
+            _j_log="$_j_log  <-- hit the bound"
+        fi
+    done
+    check
+    if [ "$_j_ok" -eq 1 ]; then
+        log_success "and two declaration edits in that dir each delivered their own answer"
+    else
+        fail "at $_calls producer calls per configure the dir stopped converging as it aged:$_j_log
+
+  The arm is being counted per CALL again, so an image with N interface leaves
+  spends N of NROS_RECONFIGURE_MAX_PASSES per configure instead of one."
+    fi
 done
 
 log_header "Result"
