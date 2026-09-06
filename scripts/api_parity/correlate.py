@@ -91,7 +91,12 @@ TYPE_SYNONYMS = {
 # Longest first: `rclc_` must be stripped before `rcl_`, or every rclc symbol
 # normalises to a stray leading `c_`.
 LIB_PREFIXES = {
-    "c": (("nros_", "NROS_"), ("rclc_", "RCLC_", "rcl_", "RCL_")),
+    # OURS carries `rclc_`/`RCLC_` as well as `nros_`: nros-c ships
+    # rclc-compatible entry points under upstream's exact spelling, and a key
+    # that keeps the prefix on our side can never meet the same symbol on
+    # theirs (issue 1188). Stripping it on both sides is what makes
+    # `rclc_executor_spin` correlate with `rclc_executor_spin`.
+    "c": (("nros_", "NROS_", "rclc_", "RCLC_"), ("rclc_", "RCLC_", "rcl_", "RCL_")),
 }
 
 
