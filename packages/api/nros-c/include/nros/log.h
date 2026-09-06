@@ -323,18 +323,23 @@ bool nros_log_timestamp_available(void);
  *                     `static uint64_t x = 0;`, one per call site. Caller-owned
  *                     rather than a handle into a pool because a pool needs a
  *                     bound, and a throttled call site is not a resource anyone
- *                     should have to budget.
+ *                     should have to budget. OPAQUE: `0` means "never emitted"
+ *                     and every other value is written by this function — read
+ *                     it as a timestamp and you will read it wrong (bit 0 is a
+ *                     flag; the timestamp sits above it, mod 2^63).
  * @param interval_ms  Minimum gap between emitted records at this site.
  * @return true when the record should be emitted. The FIRST record at a site
  *         always is (as in `rclcpp`). NULL `last_ns` returns true: a broken
  *         caller gets every record, never silence.
  *
- * The rule itself is `nros_log::throttle_admits` — the same function the Rust
- * `nros_*_throttle!` macros use. Only the storage differs.
+ * The rule itself is `nros_log::throttle_decide` — the same function the Rust
+ * `nros_*_throttle!` macros use. Only the storage differs. A clock that wraps
+ * still measures real elapsed time across the wrap; a clock that is STUCK (at
+ * any value, 0 included) admits once and then never (issue 1152).
  *
  * Without a monotonic clock every timestamp is 0, the window can never elapse,
- * and every record is emitted; the first such call reports that at WARN rather
- * than degrading quietly.
+ * and each site emits its first record and nothing after it; the first such
+ * call reports that at WARN rather than degrading quietly.
  */
 bool nros_log_throttle_admit(uint64_t* last_ns, uint64_t interval_ms);
 

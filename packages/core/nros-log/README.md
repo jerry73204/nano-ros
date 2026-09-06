@@ -45,8 +45,8 @@ fn main() {
   clock. **Needs the `platform-clock` feature**, and says so with a
   `compile_error!` rather than compiling into a window with no time base:
   without a clock every timestamp is a constant `0`, so the window can never
-  elapse and the site would emit every record while reading exactly like a
-  working throttle.
+  elapse and the site would emit its first record and then nothing, while
+  reading exactly like a working throttle.
 - `nros_info_throttle_at!(logger, now_ns, interval_ms, fmt, args…)` — you supply
   the time. This is `rclcpp`'s shape (`RCLCPP_INFO_THROTTLE(logger, clock, …)`
   names its clock) and the only throttled form available with no platform port.
@@ -55,8 +55,13 @@ fn main() {
 - The FIRST record at a site always emits, as in `rclcpp`. The severity
   threshold is tested BEFORE the window, so a record the level filters does not
   consume it.
-- The rule itself is `nros_log::throttle_admits`, a pure function; the C API's
-  `nros_log_throttle_admit` calls the same one over caller-owned storage.
+- The rule itself is `nros_log::throttle_decide`, a pure function over ONE
+  state word — bit 0 says "has emitted", the 63 bits above it hold the last
+  emitted timestamp; the C API's `nros_log_throttle_admit` calls the same one
+  over caller-owned storage. A clock that wraps still measures real elapsed
+  time across the wrap; a clock that is STUCK (at any value, `0` included)
+  admits once and then never (issue 1152 — the old `0`-sentinel-plus-skew made
+  a clock pinned at 0 admit every record after the first).
 
 There is no `*_once` / `*_skip_first` family here. `nros_core::logger::Logger`
 has one, on the logger that forwards to the `log` crate rather than to
