@@ -33,7 +33,7 @@
 //!
 //! [`Context::default_from_env`], [`Context::from_env`] and (hosted only)
 //! [`Context::new`] are the `rclrs::Context` constructors under the same
-//! names; [`InitOptions`] is rclrs's, with the one option it has. [`init`] is
+//! names; [`InitOptions`] is rclrs's, with the one option it has. [`init()`] is
 //! the C++-symmetric anchor (`rclcpp::init`) and equals `default_from_env()`.
 //!
 //! Three patterns are supported (per the Phase 212.L canonical pkg shape):
@@ -99,7 +99,7 @@ pub enum InitError {
     EnvParseFailed,
     /// A domain id — from the environment, the bake, or an
     /// [`InitOptions::with_domain_id`] override — exceeds
-    /// [`DOMAIN_ID_MAX`](crate::DOMAIN_ID_MAX). Rejected here rather than
+    /// [`crate::DOMAIN_ID_MAX`]. Rejected here rather than
     /// handed to a backend that can only fail later (the #206 rule).
     DomainIdOutOfRange,
 }
@@ -155,7 +155,7 @@ pub struct Context {
 /// Where the [`Context`] came from. Diagnostics only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextSource {
-    /// Built from env vars by [`init`] / [`init_with_args`] /
+    /// Built from env vars by [`init()`] / [`init_with_args`] /
     /// [`Context::new`], or by [`Context::default_from_env`] /
     /// [`Context::from_env`] on a hosted build.
     Env,
@@ -268,8 +268,8 @@ impl Context {
         }
     }
 
-    /// `rclrs::Context::from_env(options)` — [`default_from_env`]
-    /// (`Self::default_from_env`) with the [`InitOptions`] applied on top: a
+    /// `rclrs::Context::from_env(options)` — [`default_from_env`](Self::default_from_env)
+    /// with the [`InitOptions`] applied on top: a
     /// `Some` domain replaces the resolved one, `None` keeps it.
     pub fn from_env(options: InitOptions) -> Result<Context, InitError> {
         let mut ctx = Self::default_from_env()?;
@@ -479,7 +479,7 @@ where
     }
 }
 
-/// Pattern 3 — like [`init`] but accepts a `[--arg=value, ...]`-style argv
+/// Pattern 3 — like [`init()`] but accepts a `[--arg=value, ...]`-style argv
 /// iterator. The free-function twin of [`Context::new`] with default options.
 ///
 /// **What it does with the arguments:** it does NOT parse them, and it does
@@ -810,7 +810,7 @@ mod baked_tests {
 /// 2. `<CARGO_MANIFEST_DIR>/launch/<pkg>.launch.xml` or
 ///    `<CARGO_MANIFEST_DIR>/launch/system.launch.xml`. (NOT yet parsed;
 ///    placeholder.)
-/// 3. The env vars described in [`init`] — the launcher projects launch
+/// 3. The env vars described in [`init()`] — the launcher projects launch
 ///    params into the child env before `exec()`, so the env path is the
 ///    de-facto launch overlay today.
 ///
