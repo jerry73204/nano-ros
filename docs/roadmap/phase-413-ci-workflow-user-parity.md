@@ -1,5 +1,10 @@
 # Phase 413 — make CI run the process a user runs
 
+**Status (2026-09-06). W1, W4, W5 and W6 done and verified; W2 substantially
+advanced; W3 done; W7 open.** Every claim here was re-derived from the tree on
+2026-09-06 — three items were already complete and said otherwise, which is the
+same stale-status class this phase's own audit is about.
+
 **Status (2026-09-03). Opened from the workflow audit in issue 0996.** The
 workflows are meant to read as a transcript of a user session: `just setup
 <scope>`, then one command a developer can type (phase-411 W4). Six of eleven
@@ -51,7 +56,19 @@ a conversion did not break something in a lane that was already red.
 
 ---
 
-## W1 — collapse the duplicated `l3` lane
+## W1 — collapse the duplicated `l3` lane — DONE (verified 2026-09-06)
+
+**Landed.** Issue 0992 is resolved, and the lane now runs ONCE per change:
+`build-wide.yml` is `workflow_dispatch:` only — the "reduce it to the
+scheduled/dispatch entry point it also serves" option below — while `queue.yml`
+runs `just ci matrix build` on `merge_group`, which is where a gate belongs. The
+four hand-rolled sync steps are gone (retired by W1b).
+
+*The stated acceptance is wrong and was never the test.* `grep -c 'nros sync'
+.github/workflows/queue.yml` returns **2**, and both hits are COMMENTS describing
+the steps that were retired. A grep that counts prose cannot answer "does this
+lane still sync by hand"; the steps themselves are what to look at, and they are
+gone.
 
 Blocked on issue 0992 (PR #208) landing; that is what lets `build-wide` provision
 through the verb instead of by hand.
@@ -73,6 +90,43 @@ workflow runs the l3 lane; a full change cycle shows the lane running once.
 
 Not a conversion task — a debugging one, and it comes first because no
 conversion can be verified in a lane that is already red.
+
+### Progress (2026-09-06), each item measured against the lane rather than the doc
+
+* **`nuttx` — DONE.** `9de62f253` (09-04) made `just nuttx setup` provision the
+  RISC-V board its `build-all` builds. nuttx is the only module with two boards
+  under one setup/build-all pair, so the class has no other instance.
+* **`freertos` / `threadx_linux` — DONE, by a route this doc did not predict.**
+  Both cells now report `Real failures: 1 / 1` with **8 tests actually running**
+  and nothing skipped for an unmet precondition — recovered from "0/0, all 9
+  skipped". The fix was not the two image changes prescribed below: it was
+  `575dc4372` (09-05, W3's own work) adding `nros setup --system --sudo` to
+  nightly's `platform` job, which installs the declared closure at run time.
+  A PR that baked the package into the CI image was closed as redundant — a
+  second mechanism installing one package, where the runtime path is better on
+  this campaign's own terms because it takes the name from the index instead of
+  freezing a copy into an image. What remains in each cell is ONE genuine
+  failure (`test_rtos_pubsub_e2e … Freertos/Rust`), which is signal restored.
+* **`threadx_riscv64` — half of it was still open.** The reported manifest-parse
+  failure was fixed, but only the central-table half: a leaf that also patches a
+  message crate fails the same way one path deeper, because only `nros sync`
+  materialises `generated/`. This lane's six rust roles build through
+  Corrosion/CMake, the one seam that never reaches `fixtures-build.sh`'s
+  per-row presync. Fixed with `nros_ensure_leaf_synced`.
+* **`run-matrix` — diagnosed, and the top failure was self-inflicted.**
+  `nros codegen resolve-deps` was refused by phase-431 W1's workspace guard: the
+  zephyr lane builds into a west workspace that on the runner sits under a
+  DIFFERENT nano-ros tree, so a correct, freshly built binary was rejected. The
+  build-tool verbs skip that check now. **This does not make the lane green** —
+  `run-matrix` has failed every scheduled run since at least 09-01 and the guard
+  landed 09-05 22:00, so an older cause is now visible underneath.
+* **`host-tests` — its named step is green.** *Build workspace fixtures* passes;
+  the two breaks that stopped it (issues 1162, 1136) are fixed. The lane is red
+  one step later at `just ci tier1`, on ten `E0599`s in `nros-c`'s no-alloc
+  build — filed as issue 1169, with the measurement that this build has **never**
+  compiled, so restoring it is an addition rather than a repair.
+* **`build-wide`** — now `workflow_dispatch:` only (see W1), so it is no longer
+  a per-change lane at all.
 
 1. **`host-tests`** — dies in *Build workspace fixtures*. This is the honest
    failure: the step `exit 1`s instead of laundering into a skip, which is the
@@ -166,7 +220,17 @@ Two halves:
 Acceptance: the gate reproduces each of the three sites before the fix and passes
 after; no workflow apt-installs an indexed package.
 
-## W4 — decide what the required check promises on a pull request
+## W4 — decide what the required check promises on a pull request — DONE (verified 2026-09-06)
+
+**Decided: the DOC moved, not the trigger list.** `test-unit`'s `if:` still
+names `merge_group`, `schedule` and `workflow_dispatch`, and CLAUDE.md now says
+so outright — *"`test-unit` is NOT in it"* — with the reasoning beside it: it
+costs a measured ~3.5 min per BATCH there instead of per PR push, nothing broken
+lands because the queue runs it before merging, and an ejection comment is how
+you hear about it. A contributor can predict what green means, which is what the
+item was for.
+
+
 
 `test-unit` does not run on `pull_request` — only on `merge_group`, `schedule`
 and `workflow_dispatch`. So a PR shows a green required `CI` having never run a
@@ -182,7 +246,24 @@ value of this line is that a contributor can predict what green means.
 Acceptance: the doc and the trigger list agree, and the reasoning is recorded
 next to whichever moved.
 
-## W5 — one scope vocabulary
+## W5 — one scope vocabulary — DONE (verified 2026-09-06)
+
+**All six lanes converted**, and the two loose ends with them:
+
+| workflow | provisioning today |
+| --- | --- |
+| `build-wide`, `run-matrix` | `just setup tier2` |
+| `nightly` (matrix) | `just setup tier2-nightly` |
+| `nightly` (platform) | `just setup ${{ matrix.plat }}` — the dispatcher form |
+| `queue` | `just setup tier2` (the four hand-rolled steps are gone) |
+| `host-tests` | `just setup native` |
+
+The *"22-line Build nros CLI block repeated verbatim in four jobs"* is now the
+composite action `./.github/actions/setup-nros-cli`, used by all six sites — the
+step NAME survives, which is what makes a grep still find "four copies".
+
+`just ci provision-zenohd` is absorbed: `just native setup` calls it, so it is
+reachable from `just setup native` rather than being a verb only a workflow knew.
 
 phase-411 W4: a CI job is `just setup <scope>` then one command a developer can
 type. Three lanes do this; three do not.
