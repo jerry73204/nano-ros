@@ -225,8 +225,9 @@ fn render_package_xml(args: &NewArgs) -> String {
 /// Append the `board-support.toml` row, at `tier = "scaffold"`.
 ///
 /// Scaffold is the honest starting tier and `check-board-tiers` demands nothing
-/// of it. A tier with a promise needs a named maintainer (phase-375 W1: tier 3
-/// >= 1, tier 2 >= 2, tier 1 >= 3), and a scaffold that claimed one would be
+/// of it. A tier with a promise needs a named maintainer (phase-375 W1: at
+/// least 1 for tier 3, 2 for tier 2, 3 for tier 1), and a scaffold that claimed
+/// one would be
 /// exactly the unearned promise that gate exists to refuse.
 fn append_registry_row(root: &Path, args: &NewArgs) -> Result<()> {
     let path = root.join("packages/boards/board-support.toml");
@@ -238,7 +239,7 @@ fn append_registry_row(root: &Path, args: &NewArgs) -> Result<()> {
     );
     // Before the `# ===== infra` section, which is not boards.
     match body.find("# ===== infra") {
-        Some(i) => body.insert_str(i, &row.trim_start_matches('\n').to_string()),
+        Some(i) => body.insert_str(i, row.trim_start_matches('\n')),
         None => body.push_str(&row),
     }
     std::fs::write(&path, body)?;

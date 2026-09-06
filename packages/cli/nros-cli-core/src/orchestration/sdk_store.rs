@@ -187,7 +187,7 @@ pub fn installed_versions(root: &Path, tool: &str) -> Vec<String> {
         }
         found.push(name);
     }
-    found.sort_by(|a, b| version_key(a).cmp(&version_key(b)));
+    found.sort_by_key(|v| version_key(v));
     found
 }
 

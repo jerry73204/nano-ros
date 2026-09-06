@@ -874,7 +874,6 @@ impl BoardCatalog {
 
     fn collect_board_dirs(
         dir: &Path,
-        root: &Path,
         depth: usize,
         out: &mut Vec<PathBuf>,
     ) -> Result<(), BoardLoadError> {
@@ -909,7 +908,7 @@ impl BoardCatalog {
             if name.starts_with('.') || cargo_nano_ros::provider_scan::is_pruned_dir(name) {
                 continue;
             }
-            Self::collect_board_dirs(&path, root, depth + 1, out)?;
+            Self::collect_board_dirs(&path, depth + 1, out)?;
         }
         out.sort();
         Ok(())
@@ -923,7 +922,7 @@ impl BoardCatalog {
         let mut dirs = Vec::new();
         // The in-tree dir must exist; an extra root was existence-checked by
         // `extra_board_roots`, so a race here is still an error.
-        Self::collect_board_dirs(root, root, 0, &mut dirs)?;
+        Self::collect_board_dirs(root, 0, &mut dirs)?;
         for dir in dirs {
             let descriptor_path = dir.join("nros-board.toml");
             Self::require_announcement(&dir, &descriptor_path)?;
@@ -952,27 +951,8 @@ impl BoardCatalog {
         }
         Ok(())
     }
-
-    /// issue 0729 — conf-bundle boards join the catalog as ALIASES of their
-    /// family's descriptor.
-    ///
-    /// Phase-337 W9.a folded per-board Zephyr crates into
-    /// `packages/boards/nros-board-<family>/boards/<name>/` (board.cmake +
-    /// confs, no `Cargo.toml`, no `nros-board.toml`), so no descriptor claimed
-    /// their names and every consumer of `resolve_deploy` — the site-config
-    /// gate, `board-facts` — answered Unknown for them. A bundle is a conf
-    /// overlay on its family's PLATFORM lane, so the facts a descriptor
-    /// carries (platform, toolchain, entry_kind, capabilities) are the
-    /// family's; the per-board knobs live in the bundle's `board.cmake` and in
-    /// site config, which the consumers read separately.
-    ///
-    /// The bundle's dir name and, when parseable, its `NROS_BOARD_ZEPHYR_ID`
-    /// are appended to the `names` of the descriptor whose `platform` matches
-    /// the family suffix (`nros-board-zephyr` → `zephyr`) — and only when no
-    /// existing descriptor already claims that name and exactly ONE descriptor
-    /// matches the family, so a hand-authored claim always wins and an
-    /// ambiguous family attaches nothing rather than guessing.
-
+    /// A catalog over descriptors already in memory (tests, and callers that
+    /// built them some other way).
     pub fn from_descriptors(descriptors: Vec<BoardDescriptor>) -> Self {
         Self { descriptors }
     }
