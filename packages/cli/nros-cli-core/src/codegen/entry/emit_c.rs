@@ -100,6 +100,41 @@ fn node_view(n: &super::PlanNode, i: usize) -> CNodeView {
 }
 
 pub fn emit_typed(plan: &Plan) -> Result<String, String> {
+    // phase-432 W3.1 — this emitter is NATIVE-ONLY, and now says so.
+    //
+    // Every board call it renders is hardcoded `nros_board_native_*`, because
+    // that is the whole C-ABI board surface that exists: native has
+    // `run_components`, `run_components_named` and `run_tiers`; the three RTOS
+    // boards have `run_tiers` alone; ThreadX has neither.
+    //
+    // Emitting anyway is what it used to do, and it produced source that
+    // NAMES A SYMBOL THE TARGET DOES NOT HAVE — `c_freertos_one.c.golden`
+    // called `nros_board_native_run_components_named` for `board = freertos`,
+    // and `c_nuttx_tiers` called `nros_board_native_run_tiers` for
+    // `board = nuttx`. Five goldens recorded that as if it were coverage.
+    //
+    // Nothing shipped through it: the dispatch routes an embedded C entry to
+    // the C++ emitter, so only the golden harness ever called this with an
+    // embedded board. That is exactly why it survived — the bytes were wrong
+    // in a file nobody compiled. Refusing turns five silent wrong records into
+    // five true ones, and makes the routing rule load-bearing instead of
+    // merely observed.
+    //
+    // W3.1 is the item that lifts this: give each RTOS board a C-ABI
+    // `run_components` and the refusal narrows to what still lacks one.
+    if nros_entry_lower::board_family(&plan.board).is_embedded() {
+        return Err(format!(
+            "typed C entry emit: board `{}` has no C-ABI `run_components` — the C \
+             board surface is native-only, so this emitter would name \
+             `nros_board_native_*` on a target that does not have it. An embedded \
+             C entry is rendered by the C++ pack (which drives the C++ board runner \
+             and calls each C node through its `extern \"C\"` seam); that routing is \
+             what `nros codegen entry-pack --lang c --board {}` reports. phase-432 \
+             W3.1 is the item that would give this board a C runner.",
+            plan.board, plan.board,
+        ));
+    }
+
     for n in &plan.nodes {
         if !is_c_node(n) {
             return Err(format!(

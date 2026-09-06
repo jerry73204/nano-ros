@@ -379,13 +379,55 @@ settled work.
   re-declaration. It is also the DOMINANT embedded path, not a corner:
   `run_tiers` is reached only when a plan declares tiers.
 
-  **The justification that survives inspection:** the C++ `run_components`
-  uses no C++ feature a C function lacks — no exceptions, no RAII, and the
-  `template <typename Setup>` is only ever instantiated with a plain function
-  pointer at every generated call site (capturing lambdas appear only in
-  hand-written examples). Every primitive it calls (`nros_cpp_init`,
-  `nros_cpp_spin_once`, `nros_cpp_fini`) is already C-ABI and already called
-  from C by the sibling `run_tiers.c` in the same file.
+  **The justification that survives inspection, and the part of it that does
+  not.** The C++ `run_components` uses no C++ feature a C function lacks — no
+  exceptions, no RAII, and the `template <typename Setup>` is only ever
+  instantiated with a plain function pointer at every generated call site
+  (capturing lambdas appear only in hand-written examples). That half holds.
+
+  **"Every primitive it calls is already C-ABI" does NOT hold — it enumerated
+  three and missed the two that matter.** `nros_cpp_init`, `nros_cpp_spin_once`
+  and `nros_cpp_fini` are indeed C-ABI and indeed already called from C by
+  `run_tiers.c`. But `run_components` also calls `nros::ok()` — through
+  `detail::component_spin_loop`, which is its exit condition — and
+  `nros::shutdown()`. **Neither is C-ABI, and neither can be made so by
+  moving a definition**, which is what closed the other two prerequisites.
+
+  Measured: `nros::ok()` is `Node::global_initialized()`, which is
+  `GlobalStorageHolder<>::initialized` — a C++ **template static emitted by the
+  header** and COMDAT-collapsed across TUs. `nros-cpp` ships no C++ translation
+  unit at all (its `src/` is Rust, the CFFI implementation; the only `.cpp`
+  files are tests), so there is nowhere in the crate to put an `extern "C"`
+  accessor without adding one. `main.hpp`'s own comment already said this and
+  the assessment did not read it: the loop "stays in the header because the
+  per-tick yield (`k_yield()` on Zephyr) and the `nros::ok()` check are
+  platform / C++-global coupled — there is no Rust-side yield or shutdown
+  primitive to move it behind the CFFI".
+
+  **Why `run_tiers.c` does not hit this**, which is what made the omission easy
+  to make: its spin loops are bare `for (;;)` with no exit check — embedded
+  firmware runs forever — so the sibling cited as proof never calls the two
+  primitives that are missing.
+
+  **So W3.1 has a THIRD prerequisite, and it is a different KIND from the other
+  two.** Those were "one fact, two spellings; move the definition". This one is
+  "the state a C runner must observe does not exist in C, and cannot be
+  relocated". It needs a decision, not a move:
+
+  - **(a) Move the global-initialized flag behind the CFFI**, into Rust beside
+    `nros_cpp_init` / `nros_cpp_fini`, so `ok()` becomes a call. This is the
+    right shape — one owner of "is the global session up" — and it touches a
+    hot header path every C++ consumer inlines.
+  - **(b) Add a shipped C++ TU to `nros-cpp` exporting
+    `extern "C" bool nros_cpp_global_ok(void)`.** Ten lines, but it puts a C++
+    TU in a crate that deliberately has none, and adds a second READER of a
+    flag that would still have one owner.
+  - **(c) Give the C `run_components` a different exit condition entirely.**
+    Cheapest and worst: a second answer to "should this loop stop", which is
+    this phase's own defect class.
+
+  Estimate (a) or (b) before the ~35-50 lines this item quotes for the runner
+  itself; the runner is not the work.
 
   **Two prerequisites, and they are the real risk — do them FIRST and
   separately:**
@@ -440,12 +482,22 @@ settled work.
   already in the TU), ~2-3 days end to end including cmake, gate and one green
   fixture. Zephyr and NuttX ~2-4h each afterwards.
 
-  **ThreadX: do NOT.** It has no C entry runner at all — no
+  **ThreadX: do NOT** build it a C runner. It has no C entry runner at all — no
   `nros_board_threadx_run_tiers` either — so it needs a new TU plus `build.rs`
-  wiring with nothing to copy. Declare it C++-entry-only with a configure-time
-  `FATAL_ERROR`; today `board_is_embedded("threadx")` is true, so a ThreadX C
-  entry silently becomes a `.cpp` with no diagnostic, which is worse than a
-  refusal.
+  wiring with nothing to copy.
+
+  **But the prescribed `FATAL_ERROR` was wrong, and is not what landed.** Half
+  the reasoning holds: "a ThreadX C entry silently becomes a `.cpp` with no
+  diagnostic" was true, and the silence was the defect. The other half does
+  not: the routing WORKS — the C++ board runner drives the entry and reaches
+  each C node through its `extern "C"` seam — so refusing would break something
+  that ships. ThreadX is not special either; every embedded board routes the
+  same way, so a ThreadX-only refusal would have been arbitrary as well as
+  breaking.
+
+  What landed instead is the diagnostic the item actually wanted: `nros codegen
+  entry` prints why the TU is C++ and what would change it, and `nros codegen
+  entry-pack` reports `routed=1` so CMake and a human can both see it.
 
   **Acceptance is a BUILD, not a gate.** `examples/workspaces/c` must build
   and pass with `CONFIG_NROS_CPP_API` and `LANGUAGES CXX` REMOVED — that
@@ -620,17 +672,28 @@ and the one that unblocks the three deferred IR fields.
 
 ## Known gap this phase must not inherit
 
-Five C goldens (`c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`,
-`c_threadx_one`, `c_nuttx_tiers`) record output the pipeline never produces —
+**CLOSED.** Five C goldens (`c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`,
+`c_threadx_one`, `c_nuttx_tiers`) recorded output the pipeline never produces —
 the harness calls `emit_c` directly, but an embedded C entry routes to the C++
-emitter. W3.1's assessment confirmed they are not merely unreachable but WRONG
-if reached: `c_freertos_one.c.golden` emits `int main` +
+emitter. They were not merely unreachable but WRONG if reached:
+`c_freertos_one.c.golden` emitted `int main` +
 `nros_board_native_run_components_named` for `board = freertos`, and
-`c_nuttx_tiers` emits `nros_board_native_run_tiers` for `board = nuttx`. They are byte-identical to the native rows except a comment and read
-as board coverage they do not have. Route the harness through the dispatch, or
-relabel them to pin what they actually prove. W3.1 changes this answer: once
-the C pack serves every board, those rows become real coverage rather than a
-mislabel — so fix them WITH W3.1, not before.
+`c_nuttx_tiers` emitted `nros_board_native_run_tiers` for `board = nuttx` —
+symbols those targets do not have.
+
+Fixed at the SOURCE rather than by relabelling: `emit_c` now REFUSES an
+embedded board, because every board call it renders is hardcoded
+`nros_board_native_*` and native is the whole C-ABI board surface that exists.
+The harness records a refusal as its golden, so the five rows now say what is
+true — this emitter cannot serve that board — instead of showing source nobody
+compiled. Exactly those five moved and no others, which is the check that the
+refusal is scoped to what it claims.
+
+Nothing shipping changed: the dispatch already routed embedded C to the C++
+emitter, so only the harness ever called this with an embedded board. That is
+precisely why it survived — the bytes were wrong in a file nobody compiled.
+When W3.1 gives a board a C-ABI `run_components`, the refusal narrows to what
+still lacks one, and those rows become real coverage.
 
 ## Also carried, from measuring this area
 
