@@ -1,6 +1,9 @@
 use crate::{
     config::{CapacityResolver, FieldKind as CapFieldKind, FieldStorage, StorageMode},
-    templates::{CField, CppFfiField, CppField, FieldKind, NrosField, RmwField, SequenceStructDef},
+    templates::{
+        CField, CppFfiField, CppField, FieldKind, IdiomaticField, NrosField, RmwField,
+        SequenceStructDef,
+    },
     types::{
         C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
         NrosCodegenMode, c_cdr_read_method, c_cdr_write_method, c_type_for_field_heap,
@@ -210,66 +213,121 @@ fn c_borrowed_view_for_field(
     }
 }
 
-/// Determine the exhaustive FieldKind enum variant for a given ROS 2 field type
-/// This function provides compile-time guarantees that all field type combinations are handled
-pub(crate) fn determine_field_kind(field_type: &FieldType) -> FieldKind {
-    match field_type {
-        // Scalar types
-        FieldType::Primitive(_) => FieldKind::Primitive,
+/// One string shape, as the idiomatic pack's `FieldKind` splits it: narrow or
+/// wide, `.msg`-bounded or not.
+///
+/// The lowered IR deliberately models NONE of this — `FieldShape::Str` and
+/// `CdrOp::String` are one variant each, because the C, C++, nros and rmw
+/// surfaces all spell a string off `field_type` and none of them branches on
+/// the flavour. Adding four variants to the shared IR for one pack's template
+/// conditionals would put a fact in every surface's context that four of them
+/// ignore, which is the inverse of what W2.5a is for. So this reads the IR's
+/// `field_type` and stays a per-surface FILTER — the same shape as `c_type`.
+#[derive(Clone, Copy)]
+enum StringFlavour {
+    Narrow,
+    NarrowBounded,
+    Wide,
+    WideBounded,
+}
 
-        FieldType::String => FieldKind::UnboundedString,
-        FieldType::BoundedString(_) => FieldKind::BoundedString,
+fn string_flavour(ft: &FieldType) -> Option<StringFlavour> {
+    match ft {
+        FieldType::String => Some(StringFlavour::Narrow),
+        FieldType::BoundedString(_) => Some(StringFlavour::NarrowBounded),
+        FieldType::WString => Some(StringFlavour::Wide),
+        FieldType::BoundedWString(_) => Some(StringFlavour::WideBounded),
+        _ => None,
+    }
+}
 
-        FieldType::WString => FieldKind::UnboundedWString,
-        FieldType::BoundedWString(_) => FieldKind::BoundedWString,
+/// The idiomatic Rust pack's exhaustive field classification, projected from
+/// the lowered IR (phase-432 W2.5a).
+///
+/// The STRUCTURAL spine — scalar / string / array / sequence / nested, the
+/// array length, and what the element is — comes from `LoweredField::shape` and
+/// the element accessors, which is where the IR states those facts. Only the
+/// two questions the IR does not model are answered off `field_type`: the
+/// string flavour (see [`StringFlavour`]) and whether a sequence's bound came
+/// from the `.msg` (`FieldShape::Sequence` covers both `T[]` and `T[<=N]`,
+/// because storage is what every other surface asks about and both are
+/// `LoweredStorage::Bounded`).
+pub(crate) fn determine_field_kind(f: &rosidl_lower::LoweredField) -> FieldKind {
+    use rosidl_lower::FieldShape;
 
-        FieldType::NamespacedType { .. } => FieldKind::NestedMessage,
+    let element = element_type_of(&f.field_type);
+    match f.shape {
+        FieldShape::Scalar => FieldKind::Primitive,
+        FieldShape::Nested => FieldKind::NestedMessage,
 
-        // Array types
-        FieldType::Array { element_type, size } => {
-            // Arrays > 32 elements don't impl Copy/Clone in Rust
-            if *size > 32 {
-                return FieldKind::LargeArray;
-            }
+        FieldShape::Str => match string_flavour(&f.field_type) {
+            Some(StringFlavour::Narrow) => FieldKind::UnboundedString,
+            Some(StringFlavour::NarrowBounded) => FieldKind::BoundedString,
+            Some(StringFlavour::Wide) => FieldKind::UnboundedWString,
+            Some(StringFlavour::WideBounded) => FieldKind::BoundedWString,
+            // Unreachable: `FieldShape::Str` is set by exactly those four arms.
+            None => FieldKind::UnboundedString,
+        },
 
-            match element_type.as_ref() {
-                FieldType::Primitive(_) => FieldKind::PrimitiveArray,
-
-                FieldType::String => FieldKind::UnboundedStringArray,
-                FieldType::BoundedString(_) => FieldKind::BoundedStringArray,
-
-                FieldType::WString => FieldKind::UnboundedWStringArray,
-                FieldType::BoundedWString(_) => FieldKind::BoundedWStringArray,
-
-                _ => FieldKind::NestedMessageArray,
+        // Arrays > 32 elements don't impl Copy/Clone in Rust, so they are their
+        // own kind whatever the element is.
+        FieldShape::Array { len } if len > 32 => FieldKind::LargeArray,
+        FieldShape::Array { .. } => {
+            if f.element_is_primitive() {
+                FieldKind::PrimitiveArray
+            } else {
+                match element.and_then(string_flavour) {
+                    Some(StringFlavour::Narrow) => FieldKind::UnboundedStringArray,
+                    Some(StringFlavour::NarrowBounded) => FieldKind::BoundedStringArray,
+                    Some(StringFlavour::Wide) => FieldKind::UnboundedWStringArray,
+                    Some(StringFlavour::WideBounded) => FieldKind::BoundedWStringArray,
+                    None => FieldKind::NestedMessageArray,
+                }
             }
         }
 
-        // Bounded sequences (T[<=N])
-        FieldType::BoundedSequence { element_type, .. } => match element_type.as_ref() {
-            FieldType::Primitive(_) => FieldKind::BoundedPrimitiveSequence,
+        FieldShape::Sequence => {
+            // `T[<=N]` vs `T[]` — the one distinction `FieldShape::Sequence`
+            // does not carry.
+            let msg_bounded = matches!(f.field_type, FieldType::BoundedSequence { .. });
+            if f.element_is_primitive() {
+                return if msg_bounded {
+                    FieldKind::BoundedPrimitiveSequence
+                } else {
+                    FieldKind::UnboundedPrimitiveSequence
+                };
+            }
+            match (msg_bounded, element.and_then(string_flavour)) {
+                (true, Some(StringFlavour::Narrow)) => FieldKind::BoundedUnboundedStringSequence,
+                (true, Some(StringFlavour::NarrowBounded)) => {
+                    FieldKind::BoundedBoundedStringSequence
+                }
+                (true, Some(StringFlavour::Wide)) => FieldKind::BoundedUnboundedWStringSequence,
+                (true, Some(StringFlavour::WideBounded)) => {
+                    FieldKind::BoundedBoundedWStringSequence
+                }
+                (true, None) => FieldKind::BoundedNestedMessageSequence,
+                (false, Some(StringFlavour::Narrow)) => FieldKind::UnboundedUnboundedStringSequence,
+                (false, Some(StringFlavour::NarrowBounded)) => {
+                    FieldKind::UnboundedBoundedStringSequence
+                }
+                (false, Some(StringFlavour::Wide)) => FieldKind::UnboundedUnboundedWStringSequence,
+                (false, Some(StringFlavour::WideBounded)) => {
+                    FieldKind::UnboundedBoundedWStringSequence
+                }
+                (false, None) => FieldKind::UnboundedNestedMessageSequence,
+            }
+        }
+    }
+}
 
-            FieldType::String => FieldKind::BoundedUnboundedStringSequence,
-            FieldType::BoundedString(_) => FieldKind::BoundedBoundedStringSequence,
-
-            FieldType::WString => FieldKind::BoundedUnboundedWStringSequence,
-            FieldType::BoundedWString(_) => FieldKind::BoundedBoundedWStringSequence,
-
-            _ => FieldKind::BoundedNestedMessageSequence,
-        },
-
-        // Unbounded sequences (T[])
-        FieldType::Sequence { element_type } => match element_type.as_ref() {
-            FieldType::Primitive(_) => FieldKind::UnboundedPrimitiveSequence,
-
-            FieldType::String => FieldKind::UnboundedUnboundedStringSequence,
-            FieldType::BoundedString(_) => FieldKind::UnboundedBoundedStringSequence,
-
-            FieldType::WString => FieldKind::UnboundedUnboundedWStringSequence,
-            FieldType::BoundedWString(_) => FieldKind::UnboundedBoundedWStringSequence,
-
-            _ => FieldKind::UnboundedNestedMessageSequence,
-        },
+/// The element of an array or sequence, or `None` for a non-container.
+fn element_type_of(ft: &FieldType) -> Option<&FieldType> {
+    match ft {
+        FieldType::Array { element_type, .. }
+        | FieldType::Sequence { element_type }
+        | FieldType::BoundedSequence { element_type, .. } => Some(element_type.as_ref()),
+        _ => None,
     }
 }
 
@@ -633,6 +691,33 @@ pub(super) fn build_rmw_fields(
                 .as_ref()
                 .map(constant_value_to_rust)
                 .unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// Build every idiomatic-Rust field of a message, projected from the lowered IR
+/// (phase-432 W2.5a).
+///
+/// The `rmw` surface plus one classification: `determine_field_kind`, which the
+/// pack branches on. Like `build_rmw_fields` it replaces three byte-identical
+/// closures that each mapped over `rosidl_parser`'s fields.
+pub(super) fn build_idiomatic_fields(
+    package_name: &str,
+    message_name: &str,
+    msg: &rosidl_parser::Message,
+) -> Vec<IdiomaticField> {
+    lowered_ros_abi_fields(package_name, message_name, &msg.fields)
+        .iter()
+        .map(|f| IdiomaticField {
+            name: escape_keyword(&f.name),
+            field_type: f.field_type.clone(),
+            current_package: package_name.to_string(),
+            default_value: f
+                .default_value
+                .as_ref()
+                .map(constant_value_to_rust)
+                .unwrap_or_default(),
+            kind: determine_field_kind(f),
         })
         .collect()
 }

@@ -1,18 +1,18 @@
 use super::common::{
-    GeneratorError, PayloadLang, SchemaCaps, build_c_fields, build_nros_fields,
-    build_nros_schema_for_struct, build_rmw_fields, determine_field_kind,
+    GeneratorError, PayloadLang, SchemaCaps, build_c_fields, build_idiomatic_fields,
+    build_nros_fields, build_nros_schema_for_struct, build_rmw_fields,
     ensure_supported_storage_for_payload,
 };
 use crate::{
     config::CapacityResolver,
     templates::{
-        BuildRsTemplate, CConstant, CargoNrosTomlTemplate, CargoTomlTemplate, IdiomaticField,
-        LibNrosRsTemplate, LibRsTemplate, MessageConstant, ServiceCHeaderTemplate,
-        ServiceCSourceTemplate, ServiceIdiomaticTemplate, ServiceNrosTemplate, ServiceRmwTemplate,
+        BuildRsTemplate, CConstant, CargoNrosTomlTemplate, CargoTomlTemplate, LibNrosRsTemplate,
+        LibRsTemplate, MessageConstant, ServiceCHeaderTemplate, ServiceCSourceTemplate,
+        ServiceIdiomaticTemplate, ServiceNrosTemplate, ServiceRmwTemplate,
     },
     types::{
-        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, escape_keyword,
-        nros_type_for_constant, rust_type_for_constant, to_c_package_name,
+        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, nros_type_for_constant,
+        rust_type_for_constant, to_c_package_name,
     },
     utils::{extract_dependencies, needs_big_array, to_snake_case},
 };
@@ -80,22 +80,8 @@ pub fn generate_service_package(
     let message_to_rmw_fields =
         |member: &str, msg: &Message| build_rmw_fields(package_name, member, msg);
 
-    let message_to_idiomatic_fields = |msg: &Message| {
-        msg.fields
-            .iter()
-            .map(|f| IdiomaticField {
-                name: escape_keyword(&f.name),
-                field_type: f.field_type.clone(),
-                current_package: package_name.to_string(),
-                default_value: f
-                    .default_value
-                    .as_ref()
-                    .map(constant_value_to_rust)
-                    .unwrap_or_default(),
-                kind: determine_field_kind(&f.field_type),
-            })
-            .collect()
-    };
+    let message_to_idiomatic_fields =
+        |member: &str, msg: &Message| build_idiomatic_fields(package_name, member, msg);
 
     let message_to_constants = |msg: &Message, _rmw_layer: bool| {
         msg.constants
@@ -125,9 +111,9 @@ pub fn generate_service_package(
     let service_idiomatic_template = ServiceIdiomaticTemplate {
         package_name,
         service_name,
-        request_fields: message_to_idiomatic_fields(&service.request),
+        request_fields: message_to_idiomatic_fields(&request_member, &service.request),
         request_constants: message_to_constants(&service.request, false),
-        response_fields: message_to_idiomatic_fields(&service.response),
+        response_fields: message_to_idiomatic_fields(&response_member, &service.response),
         response_constants: message_to_constants(&service.response, false),
     };
     let service_idiomatic =
