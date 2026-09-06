@@ -354,6 +354,9 @@ def map_problems(
     the binary REALLY runs, in both directions, so a rename, an addition or a
     deletion turns this red rather than moving evidence quietly.
     """
+    # Every message names its test binary: `record()` selects the ones about
+    # the cell it is recording, and a message that named only a case would let
+    # a broken map through for exactly the binary being attributed.
     problems: list[str] = []
     by_test: dict[str, list[dict]] = {}
     for c in cells:
@@ -373,15 +376,16 @@ def map_problems(
         if o["cell"] is None:
             if not o["reason"].strip():
                 problems.append(
-                    f"  interop::CASE_CELLS:{o['line']}: `{o['case']}` owns no "
-                    f"cell and says no why."
+                    f"  interop::CASE_CELLS:{o['line']}: `{o['case']}` of "
+                    f"`{o['test']}` owns no cell and says no why."
                 )
             continue
         owner = next((c for c in cells if c["id"] == o["cell"]), None)
         if owner is None:
             problems.append(
-                f"  interop::CASE_CELLS:{o['line']}: `{o['case']}` names "
-                f"`{o['cell']}`, which is not a `Tier::Runtime` interop cell."
+                f"  interop::CASE_CELLS:{o['line']}: `{o['case']}` of "
+                f"`{o['test']}` names `{o['cell']}`, which is not a "
+                f"`Tier::Runtime` interop cell."
             )
         elif owner["test"] != o["test"]:
             problems.append(
@@ -1194,10 +1198,23 @@ def _self_test_case_map(
     ghost = [dict(o) for o in owners]
     ghost[0] = dict(ghost[0], cell="cell-nowhere")
     bad_map(ghost, "not a `Tier::Runtime` interop cell", "a case naming no cell")
+    reasonless = [dict(o, reason="") if o["cell"] is None else o for o in owners]
+    bad_map(reasonless, "owns no cell and says no why", "an unexplained unowned case")
     binding_cited = owners + [
         dict(owners[0], case="cases_bound_to_interop_cells", cell="cell-gamma-pubsub")
     ]
     bad_map(binding_cited, "BINDING test", "a binding test named as a cell's case")
+    # `record()` filters these by the binary they name, so every message must
+    # name one — a map problem invisible to that filter is a broken map used.
+    for rows in (
+        [], renamed, twice, elsewhere, ghost, reasonless, binding_cited,
+        [o for o in owners if o["case"] != "host_only_probe"],
+    ):
+        for p in map_problems(cells, src, rows):
+            assert "gamma_e2e" in p, (
+                f"selftest: a map problem names no test binary, so `--record` "
+                f"would not see it: {p!r}"
+            )
 
 
 def _self_test_junit(
