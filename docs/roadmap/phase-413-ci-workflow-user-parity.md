@@ -375,7 +375,7 @@ phase-435 implemented it — the `buildtool` role, the `[build_type.*]` axis,
 `ros_package` derivation (retiring issue 1128's placeholder), `[board.zephyr]`,
 and a gate that a non-family board alias names one board.
 
-## W7 — ANSWERED: the arena-budget walk cannot be scoped; move it to where images are (issue 1001)
+## W7 — DONE: the arena-budget walk cannot be scoped, so the gate moved (issue 1001)
 
 Found while doing W1, and it is the fast line's own promise at stake.
 
@@ -445,8 +445,10 @@ no pruning keyed on the anchor's own shape can pay.**
 
 ### Q3 — should `tmp/` and `test-logs/` be pruned? Only as a stated narrowing
 
-`tmp/` holds **7 real anchors** today, so pruning it is not free. Cheap and
-small, but it must be recorded as a narrowing rather than sold as an
+`tmp/` holds **7 anchors** today — 7 generated configs in one profile dir — so
+pruning it is not free in principle. It is out of the derived root set, and
+that dir is one of the 320 recorded below: its configs predate issue 0900 W2,
+so nothing decidable was lost. Recorded as a narrowing rather than sold as an
 optimisation.
 
 ### Q4 — is a cold-cache cost acceptable on the pre-push line? The question is upstream of that
@@ -490,19 +492,70 @@ Falling out of it: `check-lane-contracts` stops asserting something false about
 `check fast` (`"buildless and source-only"` is true again once this gate
 leaves), and `pre-push` loses its only cache-hostile step.
 
-### Acceptance for the implementation wave
+### Landed
 
-- `--verbose` captured on a fully built tree BEFORE and AFTER, diffed; the
-  examined-image set is identical or every difference is named and justified.
-  A smoke test cannot see this regression — that is how attempt 2 passed.
-- Cold-cache timing measured, not assumed: drop caches or use a fresh tree,
-  and report the before/after for `check fast` as a whole.
-- The 7 `tmp/` anchors and any anchor outside the derived root set are counted
-  and recorded as a deliberate narrowing, with the number.
-- `check-lane-contracts` reverts to asserting `check::fast` is buildless and
-  source-only, with no carve-out.
+All three changes, plus the acceptance the issue demanded.
 
-Tracked in issue 1001, which carries the measurements.
+**`roots` is derived.** `derived_roots()` reads `fixtures-manifest.py` —
+`fixture-groups` (the resolved form of the join `nros_fixture_row_artifact_dir`
+makes in shell, so this is the same derivation read, not a second one),
+`list-workspaces` for the `target-fixtures` dirs, `west-leaves` for the west
+build dirs — plus `<repo>/target`, `<build_root>/metadata-probe` and
+`<build_root>/corrosion-cargo`, the three directories no manifest row places.
+110 roots. `--all-roots` restores the whole-checkout walk for an audit.
+
+**The gate left the fast line.** `.config/gate-lane-exempt.txt` classifies it,
+`build-test-fixtures` runs it as a hard failure beside
+`check-archive-lang-items.sh`, and `check fast` is 246 gates instead of 247.
+
+**Examining nothing exits 1.** The 78/SKIP path is gone, and both new
+properties are bound in the script's own self-test, which runs on the normal
+path: the derived root set must be non-empty, duplicate-free and contain the
+root workspace's target dir, and `main` must return 1 when it examines nothing.
+
+### Acceptance, measured
+
+**The examined set is bit-identical.** `--verbose` before and after, diffed:
+**135 images, 0 lost, 0 gained**, and the same summary — 21 agreed, 114
+over-budgeted, 0 undecidable. The first draft was **not**: it lost 34 images
+(33 `build/metadata-probe`, one esp32 workspace entry), which is what named the
+three extra roots. That diff is the acceptance, exactly as issue 1001 warned —
+the tool prints the same shape while examining a smaller set.
+
+**Directories walked: 288,305 → 62,481, a 78 % cut.** Better than the 47 %
+ceiling computed for a `CACHEDIR.TAG` glob, because the derived roots also skip
+the west trees' CMake and ninja interiors and every source tree. Warm wall
+clock 5.9 s → 4.3 s; the remainder is one `nm` per image and does not move.
+
+**Cold was not measured** — dropping the page cache needs `sudo`, so the
+directory count above stands in for it. It is the same proxy issue 1001 used.
+
+**The narrowing, with its number.** 320 profile dirs that used to print
+`[not examined]` are no longer reached (344 → 24). **Every one of them declares
+no `ARENA_ACTION_CLIENTS`**, so not one was decidable; the loss is reach, not
+verdicts. By shape: 119 legacy per-leaf `target/` (pre-phase-340), 75 legacy
+`target-<rmw>/` variants (issue 0488 residue), 56 per-leaf metadata probes
+under `build/nros-metadata/`, 36 `target-ros-edition-*` docker-axis dirs, and
+~30 CMake/Corrosion `cargo-target` dirs inside NuttX example leaves, and one
+`tmp/` scratch checkout. The last
+group is the only one worth revisiting: those are cross images, they are
+C/C++ and therefore INDETERMINATE on this probe today, and `--all-roots` is how
+to re-check them. `build/corrosion-cargo` is in the root set because the NuttX
+cross images that land there are precisely this gate's population.
+
+### What did not need changing
+
+`check-lane-contracts` needed no edit: it checks stamp resolution, not
+directory walks, so `check::fast`'s `"buildless and source-only"` claim was
+false in prose only. It is true now.
+
+`check-gate-visibility` needed no baseline entry either — it reads
+`fast-serial` and `build-serial`, and the gate is in neither. Its objection is
+answered on the merits rather than waived: the gate is no longer fail-open, so
+"a gate that rots" no longer describes it — a fixture lane that finds no images
+is red.
+
+`.config/gate-registry-baseline.txt` was regenerated to drop the one name.
 
 ## Acceptance for the phase
 

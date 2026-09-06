@@ -36,6 +36,7 @@
 # class caught in passing, recorded so it stops being invisible.
 
 _gate-list-end  # the `build-serial:` terminator, a no-op, not a gate
+action-client-arena-budget  # reads BUILT IMAGES; `build-test-fixtures` runs it (phase-413 W7, issue 1001)
 api-parity  # a REPORT, not a gate; `just ci gate` and gate.yml run it by name
 archive-lang-items  # in no lane and no caller found — issue 1071's class
 book-identifiers  # in no lane and no caller found — issue 1071's class

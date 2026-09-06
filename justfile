@@ -1727,6 +1727,17 @@ build-test-fixtures lane="all": check::fast _require-build-sources _clear-fixtur
     # Hard failure, not `|| true`: a duplicate lang item is a broken image, not
     # a drifting number.
     bash scripts/check-archive-lang-items.sh
+    # phase-413 W7 (issue 1001) — the arena-budget gate's home. It reads BUILT
+    # IMAGES, so this is the only lane where its precondition is guaranteed
+    # rather than coincidental: it used to sit on `check::fast`, where it
+    # examined nothing on every pull request and cost a developer with a
+    # populated tree a walk of the whole checkout (240,754 dirs post-PRUNE,
+    # past 600 s on a cold page cache). Its roots come from THIS manifest now.
+    #
+    # Hard failure, like the lang-item check above and for the same reason:
+    # having just built fixtures, "examined nothing" means the build did not
+    # happen, and a check that verified nothing must never read as a pass.
+    just check action-client-arena-budget
 
 # phase-319 W1 (issue 0351) — clear the stamp BEFORE building, so a failed or
 # interrupted run leaves none and `_require-fixtures` fails with its build hint

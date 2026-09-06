@@ -114,16 +114,40 @@ reason: there is no `nros_node_config.rs` this tool can attribute to them, so th
 knob half of the comparison is missing too. Both halves fail for the same
 population, which is why not covering it costs nothing that was ever available.
 
+WHERE IT LOOKS, AND WHY IT IS NOT THE REPOSITORY (phase-413 W7, issue 1001)
+
+The roots are DERIVED from `fixtures-manifest.py` — the same join
+`nros_fixture_row_artifact_dir` makes in shell (issue 1025) — plus the west
+lane's build dirs and the root workspace's own `target/`. It used to walk the
+whole checkout, which is 240,754 directories post-`PRUNE` on a developer tree:
+0.6 s warm, past 600 s cold, on the one lane the `pre-push` hook runs alone.
+
+Every way of scoping the WALK was measured and rejected. Pruning inside the
+anchor's own `build/<pkg>-<hash>/out` shape saves 0.0 % once the predicate is
+correct — attempt 2's entire reported win WAS the amputation that silently
+dropped 159 of 410 findings — and splitting on `CACHEDIR.TAG` caps the saving at
+47 % while losing 223 of 2,415 anchors, because cargo driven by Corrosion, CMake
+and west writes no tag. `--all-roots` restores the whole-checkout walk for an
+audit; it is the switch that re-measures what the derived set does not reach.
+
+AND IT FAILS CLOSED
+
+Examining nothing is a FAILURE, not a skip. The gate runs where a fixture build
+has just finished, so "no image with an attributable config" means the build did
+not happen. It was fail-open for as long as it sat on the fast line — it skipped
+in most CI runs, examined nothing on a pull request, and charged the one person
+who had images — which is what `check-gate-visibility` was objecting to when it
+refused the build tier.
+
 Usage::
 
     check-action-client-arena-budget.py                # the gate
     check-action-client-arena-budget.py --root DIR ... # extra trees to examine
+    check-action-client-arena-budget.py --all-roots    # walk the whole checkout
     check-action-client-arena-budget.py -v             # every image, not just findings
 
 Exit codes: 0 = agreed (or only advisories), 1 = an image will fail at
-registration, 78 = examined nothing (the lane records a SKIP; see
-`scripts/build/check-skip.sh` — a check that verified nothing must not read as a
-pass).
+registration, OR nothing was examined.
 """
 
 import argparse
@@ -134,11 +158,6 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# Nothing to examine. `lane-skip.sh` already spells "I did no work" as 78
-# (sysexits EX_CONFIG); reusing the number keeps ONE spelling of it rather than
-# inventing a second for the check tier.
-RC_NOTHING_EXAMINED = 78
 
 # The creation paths. Deliberately the whole `create_action_client` /
 # `create_action_server` families (`_raw`, `_sized`, `_with_callbacks`,
@@ -311,6 +330,79 @@ def is_elf_image(path):
     return e_type in (2, 3)  # ET_EXEC, ET_DYN
 
 
+# --------------------------------------------------------------------------
+# where to look — the manifest, not the repository (phase-413 W7, issue 1001)
+# --------------------------------------------------------------------------
+
+MANIFEST = os.path.join(ROOT, "scripts", "build", "fixtures-manifest.py")
+
+
+def _manifest(subcommand):
+    """Rows of `fixtures-manifest.py <subcommand>`, split on the US separator.
+
+    A failure here is FATAL rather than an empty root set: an empty root set
+    looks exactly like "nothing is built", and issue 1001's whole lesson is
+    that this tool reports the same SHAPE while examining a smaller set.
+    """
+    out = subprocess.run(
+        [sys.executable, MANIFEST, subcommand],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    return [ln.split("\x1f") for ln in out.splitlines() if ln.strip()]
+
+
+def derived_roots():
+    """The directories a fixture build actually writes images into.
+
+    Issue 1001. This used to be `[ROOT]` — the whole checkout — which is
+    240,754 directories post-`PRUNE` on a developer tree, 0.6 s warm and past
+    600 s cold, on the lane the `pre-push` hook runs alone.
+
+    Every candidate for scoping the WALK was measured and rejected (phase-413
+    W7): pruning inside the anchor's own `build/<pkg>-<hash>/out` shape saves
+    0.0 % once its predicate is correct — attempt 2's entire reported win was
+    the amputation that dropped 159 of 410 findings — and splitting on
+    `CACHEDIR.TAG` caps the saving at 47 % while losing 223 of 2,415 anchors,
+    because cargo driven by Corrosion, CMake and west writes no tag.
+
+    So the root set is DERIVED instead, from the manifest that already decides
+    where each row builds. `nros_fixture_row_artifact_dir` is the shell
+    spelling of the same join (issue 1025); `fixture-groups` is that function's
+    two inputs already resolved, so this is not a second derivation of the
+    group key — it is the same one, read.
+    """
+    build_root = os.environ.get("NROS_BUILD_ROOT") or os.path.join(ROOT, "build")
+    zephyr_root = (os.environ.get("NROS_ZEPHYR_BUILD_ROOT")
+                   or os.path.join(ROOT, "zephyr-workspace"))
+
+    roots = set()
+    # `<artifact_root>\x1f<platform>\x1f<group_slug>\x1f<eligible>` — an empty
+    # slug means the platform does not share, so the row keeps its leaf `target`.
+    for row in _manifest("fixture-groups"):
+        artifact_root, slug = row[0], (row[2] if len(row) > 2 else "")
+        roots.add(os.path.join(build_root, "cargo-fixtures", slug) if slug
+                  else os.path.join(ROOT, artifact_root))
+    # Workspace rows carry their own `--target-dir` NAME (`target-fixtures`)
+    # rather than a group slug: field 2 is the workspace, field 6 the dir.
+    for row in _manifest("list-workspaces"):
+        if len(row) > 6 and row[2] and row[6]:
+            roots.add(os.path.join(ROOT, row[2], row[6]))
+    # The west lane builds outside cargo's layout; field 6 is its build-dir name.
+    for row in _manifest("west-leaves"):
+        if len(row) > 6 and row[6]:
+            roots.add(os.path.join(zephyr_root, row[6]))
+    # Two named dirs under `<build_root>` that no manifest row places: the
+    # metadata half of issue 0900 builds host probes in the first, and CMake
+    # reaches cargo through Corrosion into the second — which is where the
+    # NuttX cross images land, exactly the population this gate exists for.
+    roots.add(os.path.join(build_root, "metadata-probe"))
+    roots.add(os.path.join(build_root, "corrosion-cargo"))
+    # The root workspace's own target dir. One named directory, not a walk: the
+    # `nros-tests` bins and the reference entries build here with no manifest row.
+    roots.add(os.path.join(ROOT, "target"))
+    return sorted(roots)
+
+
 def find_image_roots(roots):
     """{cargo profile dir: [generated config path, …]}.
 
@@ -427,7 +519,7 @@ def symbols(elf):
     return run.stdout
 
 
-def main(argv=None):
+def main(argv=None, _self_test=True):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument(
         "--root",
@@ -438,14 +530,21 @@ def main(argv=None):
     )
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="print every image, not only the findings")
+    ap.add_argument(
+        "--all-roots",
+        action="store_true",
+        help="walk the whole checkout instead of the manifest's roots. An "
+        "AUDIT switch: it is minutes on a cold page cache (issue 1001) and is "
+        "how you re-measure what the derived root set does not reach.",
+    )
     args = ap.parse_args(argv)
 
-    self_test()
+    # `_self_test=False` only from inside `self_test` itself, which drives this
+    # function to prove the empty-root verdict; re-entering would not terminate.
+    if _self_test:
+        self_test()
 
-    build_root = os.environ.get("NROS_BUILD_ROOT") or os.path.join(ROOT, "build")
-    roots = [ROOT]
-    if os.path.abspath(build_root) != os.path.abspath(os.path.join(ROOT, "build")):
-        roots.append(build_root)
+    roots = [ROOT] if args.all_roots else derived_roots()
     roots.extend(args.root)
 
     verdicts = {MATCHED: [], OVER: [], UNDER: [], INDETERMINATE: []}
@@ -472,14 +571,23 @@ def main(argv=None):
 
     examined = sum(len(v) for v in verdicts.values())
     if examined == 0:
-        reasons = ["no built image with an attributable nros_node_config.rs was found"]
+        # FAILURE, not a skip. This gate runs where a fixture build has just
+        # finished, so "no image with an attributable config" means the build
+        # did not happen — and a check that verified nothing must never read as
+        # a pass (issue 1001; the same lesson as `check-no-vacuous-tests` and
+        # `check-lane-contracts`). It was fail-open for as long as it sat on the
+        # fast line, which is what `check-gate-visibility` was objecting to.
+        print("check-action-client-arena-budget: examined NOTHING.", file=sys.stderr)
+        print("  - no built image with an attributable nros_node_config.rs was "
+              "found under:", file=sys.stderr)
+        for r in roots:
+            print(f"      {display(r)}", file=sys.stderr)
         for profile, why, n in skipped_roots:
-            reasons.append(f"{display(profile)}: {why} ({n} image(s))")
-        print("check-action-client-arena-budget: examined NOTHING.")
-        for r in reasons:
-            print(f"  - {r}")
-        print("  Build something first (e.g. `just build-test-fixtures lane=native`).")
-        return RC_NOTHING_EXAMINED
+            print(f"  - {display(profile)}: {why} ({n} image(s))", file=sys.stderr)
+        print("\n  Build first (`just build-test-fixtures lane=native`), or pass "
+              "--root DIR\n  for a tree outside the manifest. `--all-roots` walks "
+              "the whole checkout.", file=sys.stderr)
+        return 1
 
     def show(name, rows, prefix):
         for elf, arena, detail in rows:
@@ -643,6 +751,35 @@ def self_test(quiet=True):
             fails.append("is_elf_image: ET_REL (an object file) must not count")
         if is_elf_image(text_file):
             fails.append("is_elf_image: a non-ELF must not count")
+
+    # Phase-413 W7 / issue 1001. Two properties of the scoping, both of which
+    # a "it printed OK" reading cannot distinguish from their absence.
+    #
+    # 1. The derived root set is NON-EMPTY and holds no duplicates. An empty
+    #    root set examines nothing while printing the same shape — which is
+    #    exactly how attempt 2 passed inspection while dropping 159 findings.
+    roots = derived_roots()
+    if not roots:
+        fails.append("derived_roots: empty — the manifest yielded no root at all")
+    if len(roots) != len(set(roots)):
+        fails.append("derived_roots: duplicate roots")
+    if not any(os.path.basename(r) == "target" for r in roots):
+        fails.append("derived_roots: the root workspace's own target/ is missing")
+    # 2. Examining nothing is a FAILURE. This gate was fail-open for as long as
+    #    it sat on the fast line, and that is the defect the move fixes; a
+    #    regression here would restore a green over zero images.
+    _saved = globals()["derived_roots"]
+    globals()["derived_roots"] = lambda: []
+    try:
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc_empty = main([], _self_test=False)
+    finally:
+        globals()["derived_roots"] = _saved
+    if rc_empty != 1:
+        fails.append(f"examining nothing must exit 1, got {rc_empty}")
 
     if fails:
         for f in fails:

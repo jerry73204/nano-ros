@@ -2,7 +2,7 @@
 id: 1001
 title: "`check-action-client-arena-budget` walks the whole repo, so `check fast`
   costs minutes on a cold page cache — the pre-push gate is where that is felt"
-status: open
+status: resolved
 type: bug
 area: tooling, ci
 related: [0900, 0981, 0996]
@@ -157,3 +157,46 @@ what answers the visibility objection, and it is a stronger anti-rot property
 than a PR seat where the gate always skipped. `check-lane-contracts` can then go
 back to asserting `check::fast` is buildless and source-only with no carve-out.
 Design and acceptance: phase-413 W7.
+
+## RESOLVED (phase-413 W7, 2026-09-06)
+
+Three changes, together.
+
+`roots` is derived from `fixtures-manifest.py` — `fixture-groups` (the resolved
+form of the join `nros_fixture_row_artifact_dir` makes in shell, so it is the
+same derivation read rather than a second one), `list-workspaces` and
+`west-leaves` — plus `<repo>/target`, `<build_root>/metadata-probe` and
+`<build_root>/corrosion-cargo`, the three directories no manifest row places.
+110 roots. `--all-roots` restores the whole-checkout walk for an audit.
+
+The gate left the fast line (`.config/gate-lane-exempt.txt`) and
+`build-test-fixtures` runs it as a hard failure, beside
+`check-archive-lang-items.sh`; `check fast` is 246 gates instead of 247.
+
+Examining nothing exits **1**. The 78/SKIP path is gone. Both new properties
+are bound in the script's own self-test, on the normal path: the derived root
+set must be non-empty, duplicate-free and contain the root workspace's target
+dir, and `main` must return 1 when it examines nothing.
+
+### Acceptance
+
+The examined set is **bit-identical**: `--verbose` before and after, diffed —
+135 images, 0 lost, 0 gained, same summary (21 agreed, 114 over-budgeted, 0
+undecidable). The first draft was not: it lost 34 images, which is what named
+the three extra roots. That diff is the acceptance this issue asked for.
+
+**Directories walked: 288,305 → 62,481, a 78 % cut** — better than the 47 %
+ceiling computed for a `CACHEDIR.TAG` glob, because the derived roots also skip
+the west trees' CMake and ninja interiors and every source tree. Warm 5.9 s →
+4.3 s; the rest is one `nm` per image. Cold was NOT measured — dropping the
+page cache needs `sudo` — so the directory count stands in for it, the same
+proxy this issue used.
+
+**The narrowing, with its number:** 320 profile dirs that printed
+`[not examined]` are no longer reached (344 → 24). Every one declares no
+`ARENA_ACTION_CLIENTS`, so none was decidable — the loss is reach, not
+verdicts. By shape: 119 legacy per-leaf `target/`, 75 legacy `target-<rmw>/`
+(issue 0488 residue), 56 per-leaf metadata probes under `build/nros-metadata/`,
+36 `target-ros-edition-*`, ~30 CMake/Corrosion `cargo-target` dirs inside NuttX
+example leaves, and one `tmp/` scratch checkout. The NuttX group is the only
+one worth revisiting; `--all-roots` is how.
