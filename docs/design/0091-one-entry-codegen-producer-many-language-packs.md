@@ -291,6 +291,69 @@ than silently routed.
 
 ---
 
+## 6b. The common interface — what a pack may see and call
+
+The design assumes a pack renders from the IR. Measured on the MESSAGE
+pipeline, it does not, and the gap is why "adding a language = adding a pack"
+is currently false.
+
+### What is actually shared
+
+| layer | shared? | what it is |
+| --- | --- | --- |
+| `render(name, ctx)` | **yes** | one entry point |
+| `snake_case` filter | **yes** | the one language-neutral filter |
+| `CapacityResolver` storage decision | **yes** | reaches every surface |
+| the rest of `LoweredField` | **no** | never reaches a template |
+| view structs | **no** | **38** of them, per surface |
+| type-spelling filters | **no** | 9 of 10 are per-language |
+
+### The two findings
+
+**`lower_fields` output is reduced to storage before anything sees it.** Its
+one caller (`lowered_storages`) returns `Vec<FieldStorage>` — the capacity
+decision alone. `shape`, `cdr_op`, `align` and `plain` are computed and then
+dropped. So Stage 2's IR is not the context; a projection of one field of it
+is.
+
+**Each surface re-derives from the PARSER, not the IR.** `RmwField` is built
+straight from `rosidl_parser`'s field:
+
+```rust
+.map(|f| RmwField { name: escape_keyword(&f.name), field_type: f.field_type.clone(), … })
+```
+
+and there are FOUR such views of one field — `RmwField`, `IdiomaticField`,
+`NrosField`, `CField` — each projecting independently. That is the same "one
+fact, several authored spellings" this RFC exists to remove, one layer above
+where it was found.
+
+### The filters are already the right shape
+
+`c_type` takes a `CTypeSpell` and returns a spelling. That IS the
+neutral-fact-to-language-syntax boundary the design wants, done properly and
+already load-bearing for five surfaces. The view structs are the wrong shape;
+the filters are the model to follow.
+
+### What the interface should be
+
+- **One context: `LoweredField` / `LoweredType`.** Not four field views and 38
+  template structs. A surface that needs something the IR lacks makes the case
+  for adding it to the IR, where every surface gets it, rather than projecting
+  privately from the parser.
+- **A language contributes a FILTER SET** — its type spellings — registered on
+  the environment. That is Rust, and it should be: a spelling is a correctness
+  property, and §5's memory-agreement gate exists precisely because two filters
+  can disagree.
+- Then "adding a language = a pack plus a filter set" becomes TRUE. Today's
+  claim in `render.rs` — "no other Rust" — is aspirational, and a newcomer
+  discovers that only after writing the pack.
+
+This raises §6's bar for the entry side too: `LoweredEntry` must be the
+context, not the seed for a per-surface projection. The entry pipeline has not
+paid this cost yet because it has two surfaces; W2.3 (converting `emit_cpp`) is
+where it would first bite.
+
 ## 7. One path per outcome
 
 **Delete `emit_rust.rs`.** No consumer; the CLI's Rust story is
@@ -429,6 +492,11 @@ language first is what made the shortcut visible at all.
   memory (§5).
 - The surface axis is named as such: `packs/<surface>/`, and the procedure in
   §8 starts by choosing surfaces rather than assuming one.
+- The template context IS `LoweredField`/`LoweredType` — no per-surface view
+  struct re-derives from the parser, and no field fact is computed by Stage 2
+  and then dropped before a template can read it (§6b).
+- A language contributes a pack and a FILTER SET, and nothing else in Rust.
+  `render.rs`'s "no other Rust" becomes true rather than aspirational.
 - The proc-macro and the CLI share lowering; a gate compares the two Rust
   renderings.
 - The tier table uses designated initialisers, and the mirror gate covers
