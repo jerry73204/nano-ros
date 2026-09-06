@@ -233,7 +233,11 @@ interop-cell-runners:
 # why it is green on a host with no ROS: real cell, required fields, cases that
 # still exist, an OPEN issue behind every `fail`, and no BINDING test cited as
 # evidence (`cases_bound_to_interop_cells` passes with no peer, forever — citing
-# one would put the defect inside the fix). Report: `just interop-verdicts`.
+# one would put the defect inside the fix). Issue 1191 added the half that says
+# WHICH cell a case belongs to: four binaries host more than one Runtime cell
+# (interop_e2e hosts five), so `interop::CASE_CELLS` maps case → cell and this
+# gate checks that map against the cases each binary actually runs, both ways.
+# Report: `just interop-verdicts`.
 [private]
 interop-verdict-ledger:
     @python3 scripts/check-interop-verdicts.py

@@ -388,6 +388,158 @@ pub const CELLS: &[InteropCell] = &[
        NativeFixtures, RosEdition(Cyclonedds), BiDir, "advertised_state_interop"),
 ];
 
+/// `cell` sentinel for a case that is evidence for NO interop cell.
+pub const NO_CELL: &str = "(no cell — evidence for none)";
+
+/// One CASE of a shared interop binary and the cell it is evidence FOR —
+/// issue 1191.
+///
+/// Eleven binaries host the nineteen Runtime cells, and four of them host more
+/// than one: `interop_e2e` (5), `graph_interop` (2), `ros2_action_e2e` (2),
+/// `xrce_ros2_interop` (2). Until this table existed, the verdict ledger
+/// (`scripts/check-interop-verdicts.py`) attributed a junit case to the BINARY,
+/// so every case of `interop_e2e` was evidence — and counter-evidence — for all
+/// five of its cells at once: one failing case (issue 1190's
+/// `case_2_zenoh_pubsub_ros2_to_nano`) refused a recording for the four cells
+/// whose own cases had all passed.
+///
+/// A coordinate cannot do this job. `native-action-rust-cyclone-{r2n,n2r}` are
+/// ONE `(Linux, Rust, Cyclonedds, Action)` coordinate in ONE binary and differ
+/// only by direction, which [`coords_for`] collapses on purpose. Nor may a case
+/// be matched to a cell by NAME: a cell id and a case name are different
+/// vocabularies, and a substring rule reads as working until a rename.
+///
+/// So the assignment is WRITTEN DOWN here, and gated from both ends:
+///
+/// * Rust (below): every `cell` is a real `Tier::Runtime` cell of that same
+///   binary, no `(test, case)` pair is claimed twice, and every cell of a
+///   shared binary owns at least one case — a cell owning none could never be
+///   recorded again.
+/// * Python (`check-interop-verdicts.py`): the case names here are exactly the
+///   cases the binary's source actually runs — derived from `#[test]` /
+///   `#[rstest]` and rstest's own `case_<n>_<description>` naming — so a
+///   renamed, added or deleted case turns the gate RED instead of silently
+///   dropping or inventing evidence. A junit that carries a case this table
+///   does not name is REFUSED at `--record` time for the same reason.
+///
+/// `case` is spelled AS THE JUNIT SPELLS IT: `<fn>` for a plain `#[test]`, and
+/// `<fn>::case_<n>_<description>` for an rstest `#[case::<description>(…)]`
+/// (`n` left-zero-padded to the width of the case count, which is rstest's
+/// rule, not ours).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct CaseOwner {
+    /// The test binary — an `ic(...)` row's `test`.
+    pub test: &'static str,
+    /// The case, as the junit spells it.
+    pub case: &'static str,
+    /// The [`CELLS`] id this case is evidence for, or [`NO_CELL`].
+    pub cell: &'static str,
+    /// Why no cell owns it. Non-empty exactly when `cell` is [`NO_CELL`] — an
+    /// unowned case is a DECISION (a lane that does not exist), not an
+    /// omission, and it stops being evidence for anybody.
+    pub reason: &'static str,
+}
+
+const fn co(test: &'static str, case: &'static str, cell: &'static str) -> CaseOwner {
+    CaseOwner {
+        test,
+        case,
+        cell,
+        reason: "",
+    }
+}
+
+const fn unowned(test: &'static str, case: &'static str, reason: &'static str) -> CaseOwner {
+    CaseOwner {
+        test,
+        case,
+        cell: NO_CELL,
+        reason,
+    }
+}
+
+/// The case → cell map for every binary that hosts more than one Runtime cell.
+///
+/// A binary listed here is mapped EXHAUSTIVELY: the Python gate requires its
+/// rows to cover exactly the cases the source runs (binding tests excluded —
+/// they are evidence of nothing). A binary with a single Runtime cell needs no
+/// rows: its every case is that cell's, which is what the ledger already
+/// assumed. Such a binary gaining a second cell turns the gate red, which is
+/// the moment the map becomes necessary.
+#[rustfmt::skip]
+pub const CASE_CELLS: &[CaseOwner] = &[
+    // ── interop_e2e — five cells, nine cases ────────────────────────────
+    // Each row is `scenario_coord()`'s answer for that case's `Scenario`
+    // (tests/interop_e2e.rs), and those five coordinates are distinct, so the
+    // assignment is the one the per-case tripwire already asserts — written
+    // where a tool without a compiler can read it. Direction does NOT split a
+    // cell: `case_2`/`case_3` run ROS-2-to-nano against the cell whose id ends
+    // `-n2r`, exactly as `coords_for` collapses the two.
+    co("interop_e2e", "interop::case_1_zenoh_pubsub_nano_to_ros2",      "native-pubsub-rust-zenoh-n2r"),
+    co("interop_e2e", "interop::case_2_zenoh_pubsub_ros2_to_nano",      "native-pubsub-rust-zenoh-n2r"),
+    co("interop_e2e", "interop::case_3_zenoh_pubsub_stock_demo_nodes_cpp", "native-pubsub-rust-zenoh-n2r"),
+    co("interop_e2e", "interop::case_4_zenoh_service_nano_server",      "native-service-rust-zenoh-r2n"),
+    co("interop_e2e", "interop::case_5_zenoh_service_ros2_server",      "native-service-rust-zenoh-r2n"),
+    co("interop_e2e", "interop::case_6_cyclone_pubsub_nano_to_ros2",    "native-pubsub-c-cyclone-n2r"),
+    co("interop_e2e", "interop::case_7_cyclone_pubsub_ros2_to_nano",    "native-pubsub-c-cyclone-n2r"),
+    co("interop_e2e", "interop::case_8_cyclone_service_nano_server",    "native-service-c-cyclone-r2n"),
+    co("interop_e2e", "interop::case_9_zenoh_lifecycle_full_cycle",     "native-lifecycle-rust-zenoh"),
+
+    // ── graph_interop — one case per RMW, and the RMW is in the body ────
+    // (`require_ros2()` vs `require_ros2_cyclonedds()`), not only in the name.
+    co("graph_interop", "nano_ros_enumerates_a_stock_ros2_node", "native-graph-rust-zenoh-r2n"),
+    co("graph_interop", "cyclone_enumerates_a_stock_ros2_node",  "native-graph-rust-cyclone-r2n"),
+
+    // ── ros2_action_e2e — ONE coordinate, two directions ────────────────
+    // The pair no coordinate can separate: which side drives is the whole
+    // difference between the two cells, and it is what each case does.
+    co("ros2_action_e2e", "a_stock_ros2_client_drives_the_nano_ros_action_server",
+       "native-action-rust-cyclone-r2n"),
+    co("ros2_action_e2e", "the_nano_ros_action_client_drives_a_stock_ros2_server",
+       "native-action-rust-cyclone-n2r"),
+
+    // ── xrce_ros2_interop — pubsub, service, and three cases with no cell ─
+    co("xrce_ros2_interop", "test_xrce_to_ros2_pubsub",      "native-pubsub-rust-xrce-n2r"),
+    co("xrce_ros2_interop", "test_ros2_to_xrce_pubsub",      "native-pubsub-rust-xrce-n2r"),
+    co("xrce_ros2_interop", "test_xrce_service_ros2_client", "native-service-rust-xrce-r2n"),
+    co("xrce_ros2_interop", "test_ros2_service_xrce_client", "native-service-rust-xrce-r2n"),
+    // The file runs three ACTION cases and `interop::CELLS` declares no
+    // Xrce/Action cell — `cases_bound_to_interop_cells` names Pubsub and
+    // Service only, and a coordinate set cannot show what has no row. They ran
+    // as the pubsub and service cells' evidence until this table said
+    // otherwise. Recorded rather than assigned: the gap is a missing CELL, not
+    // a missing case.
+    unowned("xrce_ros2_interop", "test_xrce_action_ros2_client",
+            "no Xrce/Action interop cell exists; the case runs, and nothing in \
+             interop::CELLS claims its coordinate"),
+    unowned("xrce_ros2_interop", "test_xrce_action_ros2_concurrent",
+            "no Xrce/Action interop cell exists (the concurrent-goal variant of \
+             the case above)"),
+    unowned("xrce_ros2_interop", "test_ros2_action_xrce_client",
+            "no Xrce/Action interop cell exists (the ROS-2-drives-nano direction \
+             of the two above)"),
+];
+
+/// Which cell, if any, a case of `test` is evidence for. `None` when the binary
+/// carries no map (it has one cell, so every case is that cell's) — callers
+/// that need the difference ask [`is_mapped`] first.
+pub fn owner_of_case(test: &str, case: &str) -> Option<&'static CaseOwner> {
+    CASE_CELLS.iter().find(|o| o.test == test && o.case == case)
+}
+
+/// Does this binary carry a case → cell map?
+pub fn is_mapped(test: &str) -> bool {
+    CASE_CELLS.iter().any(|o| o.test == test)
+}
+
+/// The cases declared as evidence for one cell id.
+pub fn cases_of(cell_id: &str) -> impl Iterator<Item = &'static str> {
+    CASE_CELLS
+        .iter()
+        .filter(move |o| o.cell == cell_id)
+        .map(|o| o.case)
+}
+
 /// Runtime interop/bridge cells only.
 pub fn runtime_cells() -> impl Iterator<Item = &'static InteropCell> {
     CELLS
@@ -489,6 +641,94 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for c in CELLS {
             assert!(seen.insert(c.id), "duplicate interop cell id: {}", c.id);
+        }
+    }
+
+    /// Issue 1191 — every mapped case names a real Runtime cell OF THAT
+    /// BINARY. A row pointing at another binary's cell, or at a cell that no
+    /// longer exists, would attribute a live result to the wrong place, which
+    /// is worse than the undercount the map replaces.
+    #[test]
+    fn case_owners_name_a_runtime_cell_of_their_own_binary() {
+        for o in CASE_CELLS {
+            if o.cell == NO_CELL {
+                assert!(
+                    !o.reason.is_empty(),
+                    "`{}` of `{}` owns no cell and says no why — an unowned case \
+                     is a decision, not an omission",
+                    o.case,
+                    o.test
+                );
+                continue;
+            }
+            assert!(
+                o.reason.is_empty(),
+                "`{}` of `{}` names cell `{}` AND a reason; the reason field is \
+                 for NO_CELL rows only",
+                o.case,
+                o.test,
+                o.cell
+            );
+            let cell = by_id(o.cell)
+                .unwrap_or_else(|| panic!("no interop cell `{}` (case `{}`)", o.cell, o.case));
+            assert!(
+                matches!(cell.cell.tier, Tier::Runtime),
+                "case `{}` names `{}`, which is not Tier::Runtime",
+                o.case,
+                o.cell
+            );
+            assert_eq!(
+                cell.test, o.test,
+                "case `{}` of `{}` names cell `{}`, whose test binary is `{}`",
+                o.case, o.test, o.cell, cell.test
+            );
+        }
+    }
+
+    /// One case, one owner. Two rows for the same case would make a result
+    /// count twice — and, with different cells, count for a cell that did not
+    /// produce it.
+    #[test]
+    fn case_owners_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for o in CASE_CELLS {
+            assert!(
+                seen.insert((o.test, o.case)),
+                "case `{}` of `{}` is claimed twice",
+                o.case,
+                o.test
+            );
+        }
+    }
+
+    /// Every binary hosting more than one Runtime cell is mapped, and every one
+    /// of its cells owns at least one case. A cell owning none could never be
+    /// recorded from a run again — the undercount of issue 1191, made
+    /// permanent.
+    #[test]
+    fn every_shared_binary_maps_all_of_its_cells() {
+        let mut per_test: std::collections::BTreeMap<&str, Vec<&str>> = Default::default();
+        for c in runtime_cells() {
+            per_test.entry(c.test).or_default().push(c.id);
+        }
+        for (test, ids) in per_test {
+            if ids.len() < 2 {
+                continue;
+            }
+            assert!(
+                is_mapped(test),
+                "`{test}` hosts {} Runtime cells ({ids:?}) and no CASE_CELLS row \
+                 says which case is whose — every case would be evidence for \
+                 every one of them (issue 1191)",
+                ids.len()
+            );
+            for id in ids {
+                assert!(
+                    cases_of(id).next().is_some(),
+                    "cell `{id}` shares binary `{test}` with others and owns no \
+                     case — nothing could ever record it"
+                );
+            }
         }
     }
 

@@ -104,6 +104,8 @@ LEDGER = ROOT / ".config" / "interop-cells-without-runner.txt"
 RUNNER_PATHSPECS = ("justfile", "just", ".github/workflows")
 
 CELLS_HEADER = "pub const CELLS: &[InteropCell] = &["
+# The case -> cell map for shared test binaries (issue 1191).
+CASE_CELLS_HEADER = "pub const CASE_CELLS: &[CaseOwner] = &["
 
 # `Tier`'s three variants, as `matrix.rs` spells them. Listed so an unknown
 # token is an ERROR rather than a silent "not Runtime" -- a tier added later
@@ -290,6 +292,62 @@ def _parse_test(arg: str, line: int) -> dict:
             f"string test name nor `NO_TEST`: {arg[:40]!r}"
         )
     return {"test": test}
+
+
+# --- which CASE is which cell's (issue 1191) -----------------------------
+
+
+def parse_case_owners(src: str) -> list[dict]:
+    """[{test, case, cell, reason, line}] for every `CASE_CELLS` row.
+
+    The case -> cell map for the binaries that host more than one Runtime cell
+    (issue 1191). Parsed HERE, beside `parse_cells`, because the repo rule is
+    one parser per table: `check-interop-verdicts.py` imports this module rather
+    than growing a second reader that would drift row by row.
+
+    An EMPTY table is legitimate (nothing is mapped yet); a malformed row is
+    not, and neither is a missing `CASE_CELLS` -- both raise, so a shape change
+    fails loudly instead of quietly reading fewer rows.
+    """
+    cat = categorize(src)
+    head = src.find(CASE_CELLS_HEADER)
+    if head < 0:
+        raise ParseError(f"no `{CASE_CELLS_HEADER}` in {INTEROP_RS.name}")
+    open_at = head + len(CASE_CELLS_HEADER) - 1
+    end = _match(src, cat, open_at, "]")
+
+    rows = []
+    for m in re.finditer(r"\b(co|unowned)\s*\(", src):
+        if m.start() < open_at or m.end() > end or cat[m.start()] != CODE:
+            continue
+        kind = m.group(1)
+        paren = m.end() - 1
+        close = _match(src, cat, paren, ")")
+        line = src.count("\n", 0, m.start()) + 1
+        args = _split_args(src, cat, paren + 1, close)
+        if len(args) != 3:
+            raise ParseError(
+                f"{INTEROP_RS.name}:{line}: `{kind}(...)` has {len(args)} "
+                f"argument(s), expected 3 "
+                f"({'test, case, cell' if kind == 'co' else 'test, case, reason'})"
+            )
+        vals = [_string_of(a) for a in args]
+        if any(v is None for v in vals):
+            raise ParseError(
+                f"{INTEROP_RS.name}:{line}: `{kind}(...)` takes three string "
+                f"literals; got {args!r}"
+            )
+        test, case, third = vals
+        rows.append(
+            {
+                "test": test,
+                "case": case,
+                "cell": None if kind == "unowned" else third,
+                "reason": third if kind == "unowned" else "",
+                "line": line,
+            }
+        )
+    return rows
 
 
 # --- who invokes a test binary ------------------------------------------
@@ -510,6 +568,14 @@ pub const CELLS: &[InteropCell] = &[
          CarveOut("no lane; the string mentions ic( and Runtime on purpose")),
        ZephyrWestLeaves, RosEdition(Cyclonedds), BiDir, NO_TEST),
 ];
+
+/// A doc comment naming co( and unowned(, which are not rows.
+#[rustfmt::skip]
+pub const CASE_CELLS: &[CaseOwner] = &[
+    co("alpha_e2e", "meets_a_peer", "cell-alpha"),
+    unowned("alpha_e2e", "meets_nobody",
+            "no cell for this shape; the string mentions co( on purpose"),
+];
 '''
 
 
@@ -545,6 +611,30 @@ def self_test(verbose: bool = False) -> None:
             assert want in str(e), f"selftest: wrong error for {want!r}: {e}"
         else:
             raise AssertionError(f"selftest: accepted malformed source ({want})")
+
+    # --- the case -> cell map (issue 1191) --------------------------------
+    owners = parse_case_owners(_MINI_RS)
+    assert [o["case"] for o in owners] == ["meets_a_peer", "meets_nobody"], owners
+    assert owners[0]["cell"] == "cell-alpha" and owners[0]["reason"] == "", owners[0]
+    assert owners[1]["cell"] is None and owners[1]["reason"], (
+        "selftest: `unowned(...)` did not read as an unowned case"
+    )
+    for bad, want in (
+        ('pub const CASE_CELLS: &[CaseOwner] = &[\n    co("t", "c"),\n];',
+         "expected 3"),
+        ('pub const CASE_CELLS: &[CaseOwner] = &[\n    co("t", "c", CELL),\n];',
+         "three string literals"),
+        ("nothing here", "no `pub const CASE_CELLS"),
+    ):
+        try:
+            parse_case_owners(bad)
+        except ParseError as e:
+            assert want in str(e), f"selftest: wrong error for {want!r}: {e}"
+        else:
+            raise AssertionError(f"selftest: accepted a malformed map ({want})")
+    assert parse_case_owners("pub const CASE_CELLS: &[CaseOwner] = &[\n];") == [], (
+        "selftest: an empty map was not read as empty"
+    )
 
     # --- the runner scan -------------------------------------------------
     just = "\n".join([
