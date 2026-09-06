@@ -155,7 +155,27 @@ to remove.
   weight that created this duplication once already (issue 0083).
   Depends on W2.2.
 
-- **W2.5 — packs move to `packs/entry/<lang>/`.** Mirrors the message side's
+- **W2.5a — the message-side context becomes the IR.** Measured (RFC-0091
+  §6b): `lower_fields`' output is reduced to `Vec<FieldStorage>` before any
+  template sees it, so `shape`, `cdr_op`, `align` and `plain` are computed and
+  dropped; and each surface re-derives from the PARSER — `RmwField`,
+  `IdiomaticField`, `NrosField`, `CField`, four views of one field, built from
+  `rosidl_parser` rather than from `LoweredField`. Collapse them onto the IR.
+  This is the same "one fact, several authored spellings" defect this phase
+  exists to remove, one layer above where it was found, and it is what makes
+  `render.rs`'s "no other Rust" claim true instead of aspirational.
+  Do it surface by surface with the message goldens as the guard, not in one
+  commit.
+
+- **W2.5b — a language contributes a FILTER SET.** Nine of the ten registered
+  filters are per-language type spellings (`c_type`, `rust_type_rmw`,
+  `cpp_repr_c_type`, `nros_type`, …) and they are already the RIGHT shape — a
+  neutral fact in, a spelling out. Name that as the language's Rust surface
+  area, so "a pack plus a filter set" is the whole contract. The memory-
+  agreement gate (W1.2) exists because two filters can disagree, so the two
+  work items are each other's justification.
+
+- **W2.5 — packs move to `packs/<surface>/` and `packs/entry/<surface>/`.** Mirrors the message side's
   `rosidl-codegen/packs/<lang>/*.jinja` registry rather than the `templates/`
   layout the renderer shipped with. One convention or it drifts, which is the
   whole point.
@@ -167,7 +187,10 @@ to remove.
 
 **Acceptance.** `LoweredEntry` carries no rendered text; a third language is
 renderable without a Stage 2 change; the proc-macro and the CLI share lowering
-and a gate compares their two Rust renderings; goldens byte-stable throughout.
+and a gate compares their two Rust renderings; the template context IS the IR
+(no per-surface view re-derives from the parser, no lowered fact is dropped
+before a template can read it); a language's Rust surface area is a filter set
+and nothing more; goldens byte-stable throughout.
 
 ## Track 3 — make wiring a language actually good
 
@@ -190,6 +213,13 @@ settled work.
   C++ compiler to build an entry whose components are all C.
   ThreadX has no C board API at all and should be DECLARED C++-entry-only
   rather than silently routed.
+
+- **W3.1b — the surface decision, written down.** RFC-0091 §6 — a pack is a
+  (language x SURFACE), not a language: Rust has FOUR packs and the `cpp` pack
+  emits Rust. So the first question for a new language is which surfaces it
+  needs (idiomatic / embedded-idiomatic / FFI / bridge / packaging), not "write
+  a pack". Zig would want idiomatic and FFI and no cargo scaffold. Stating this
+  is most of what a newcomer is owed, and it costs a table.
 
 - **W3.2 — a pack manifest.** `packs/entry/<lang>/pack.toml`: which template
   renders which output, the file extension, and whether the TU is C-family (so
@@ -220,7 +250,7 @@ settled work.
   Track 3  W3.1                          independent (board C ABI)
   Track 2  W2.1 -> W2.2 -> W2.3          the spine
                         \-> W2.4
-                            W2.5 -> W2.6
+                            W2.5a -> W2.5b -> W2.5 -> W2.6
   Track 3  W3.2 -> W3.3 -> W3.4          needs W2.5's pack layout
            W3.5                          a decision, not a work item
 ```
