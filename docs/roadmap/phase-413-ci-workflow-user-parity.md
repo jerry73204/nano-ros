@@ -209,7 +209,7 @@ Acceptance: every job body is `just setup <scope>` plus one command; the repeate
 CLI-build block exists once; `just ci provision-zenohd` is reachable from
 `just setup`.
 
-## W6 — DESIGN REQUIRED: `package.xml` as the dependency SSoT (rosdep parity)
+## W6 — ANSWERED: `package.xml` as the dependency SSoT (rosdep parity)
 
 **This one is not an implementation task and must not be started as one.** It
 changes what a `package.xml` means in this repo, so it needs an RFC first.
@@ -253,6 +253,46 @@ Questions the RFC has to answer, none of which have obvious answers:
 
 Deliverable for W6 is **an RFC in `docs/design/`**, not code. Only once it is
 `Draft` and reviewed does an implementation work item get opened.
+
+### ANSWERED (2026-09-06) — [RFC-0062 amendment 4](../design/0062-unified-dependency-ssot.md), implemented by phase-435
+
+The RFC this item required exists, and the five questions above have answers.
+Recorded here because a work item that reads DESIGN REQUIRED after its design
+landed is how a settled question gets reopened.
+
+**The premise needed correcting first.** This item opened on *"406 package.xml
+files … not one names a system dependency"* and read it as a gap. Measurement
+says it mostly is not one: the bridge already exists — `run_workspace_scan`
+resolves every `<depend>` against `[prereq.*]` and classifies by role — and
+these packages have nothing to declare, being message and node packages whose
+content depends on no system library. What was missing was not a bridge but the
+other three axes.
+
+1. **Key namespace** — `[prereq.*]` names, not rosdep keys. A ROS *package*
+   dependency is the one case that resolves by derivation (`ros_package` →
+   `ros-<distro>-<pkg>`), so the ROS-facing vocabulary is honoured where it
+   actually appears.
+2. **Who owns the mapping** — the index stays the mapping; `package.xml` is the
+   declaration. The real rosdep database is not consulted: we have no oracle to
+   validate a name against, so an unknown name must fail a gate rather than an
+   `apt` invocation on a user's machine.
+3. **The 406 existing files** — untouched. The new axes read `<build_type>` and
+   the `<nano_ros>` export, both of which already existed; `<depend>` keeps
+   exactly the meaning codegen gives it.
+4. **Scope resolution** — unchanged. The board and rmw axes resolve from the
+   manifest's own export tag, so a workspace does not need a new scope.
+5. **`--build-sources`** — not subsumed. It is the repo's own build-stage union,
+   which is a different question from what a consumer's workspace declares.
+
+The answer in one line: **four axes, and `package.xml` is the only input** —
+`<build_type>`, `<depend>`, and the board/rmw selections in the `<nano_ros>`
+export. Never a `CMakeLists.txt` or a `Cargo.toml` entry: those are build-system
+facts in a different vocabulary, and a resolver reading them inherits every
+shape they take.
+
+phase-435 implemented it — the `buildtool` role, the `[build_type.*]` axis,
+`ros_package` derivation (retiring issue 1128's placeholder), `[board.zephyr]`,
+and a gate that a non-family board alias names one board.
 
 ## W7 — DESIGN: scope the arena-budget walk (issue 1001)
 
