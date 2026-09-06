@@ -111,21 +111,37 @@ impl Scenario {
     }
 }
 
-/// The `interop::CELLS` coordinate a scenario exercises — all native/rust; the
-/// rmw + workload come from the scenario. Direction and the stock-demo variant
+/// The `interop::CELLS` coordinate a scenario exercises — all native; the lang,
+/// rmw and workload come from the scenario. Direction and the stock-demo variant
 /// collapse onto the same coordinate (the binding is at coordinate level).
+///
+/// phase-433 W3 — the LANGUAGE is the one the case actually spawns, not a
+/// constant. It was `Lang::Rust` unconditionally while every cyclone case runs
+/// `nano_cyclone_c_binary(...)` — `c_talker` / `c_listener` /
+/// `c_service_server` out of `examples/native/c/`. The per-case tripwire below
+/// could not catch it: `interop::CELLS` declared the same wrong language, so
+/// the coordinate agreed with itself and C/Cyclone ran while Rust/Cyclone was
+/// the shape the matrix claimed. The zenoh + lifecycle cases really are Rust —
+/// `talker_binary` / `listener_binary` / `service_{server,client}_binary` /
+/// `lifecycle_node_binary` all resolve `examples/native/rust/*`, and the
+/// stock-demo case's nano side is the Rust `bins/ros2-string-interop` (the C++
+/// in it is the PEER, which no coordinate names).
 fn scenario_coord(s: Scenario) -> (PlatformId, Lang, Rmw, Workload) {
     use Scenario::*;
-    let (rmw, workload) = match s {
+    let (lang, rmw, workload) = match s {
         ZenohPubsubNanoToRos2 | ZenohPubsubRos2ToNano | ZenohPubsubStockDemoToNano => {
-            (Rmw::Zenoh, Workload::Pubsub)
+            (Lang::Rust, Rmw::Zenoh, Workload::Pubsub)
         }
-        ZenohServiceNanoServer | ZenohServiceRos2Server => (Rmw::Zenoh, Workload::Service),
-        CyclonePubsubNanoToRos2 | CyclonePubsubRos2ToNano => (Rmw::Cyclonedds, Workload::Pubsub),
-        CycloneServiceNanoServer => (Rmw::Cyclonedds, Workload::Service),
-        ZenohLifecycle => (Rmw::Zenoh, Workload::Lifecycle),
+        ZenohServiceNanoServer | ZenohServiceRos2Server => {
+            (Lang::Rust, Rmw::Zenoh, Workload::Service)
+        }
+        CyclonePubsubNanoToRos2 | CyclonePubsubRos2ToNano => {
+            (Lang::C, Rmw::Cyclonedds, Workload::Pubsub)
+        }
+        CycloneServiceNanoServer => (Lang::C, Rmw::Cyclonedds, Workload::Service),
+        ZenohLifecycle => (Lang::Rust, Rmw::Zenoh, Workload::Lifecycle),
     };
-    (PlatformId::Linux, Lang::Rust, rmw, workload)
+    (PlatformId::Linux, lang, rmw, workload)
 }
 
 /// One interop matrix cell.
@@ -751,8 +767,10 @@ fn cases_bound_to_interop_cells() {
         &[
             (Linux, Rust, Zenoh, Pubsub),
             (Linux, Rust, Zenoh, Service),
-            (Linux, Rust, Cyclonedds, Pubsub),
-            (Linux, Rust, Cyclonedds, Service),
+            // The cyclone cases spawn the C examples, not the Rust ones
+            // (phase-433 W3) — see `scenario_coord`.
+            (Linux, C, Cyclonedds, Pubsub),
+            (Linux, C, Cyclonedds, Service),
             (Linux, Rust, Zenoh, Lifecycle),
         ],
     );

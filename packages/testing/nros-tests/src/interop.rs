@@ -218,12 +218,41 @@ pub const CELLS: &[InteropCell] = &[
     ic("native-service-rust-zenoh-r2n",
        c(Linux, Rust, Zenoh, Service, Interop, Runtime),
        NativeFixtures, RosEdition(Zenoh), BiDir, "interop_e2e"),
-    ic("native-pubsub-rust-cyclone-n2r",
-       c(Linux, Rust, Cyclonedds, Pubsub, Interop, Runtime),
+    // phase-433 W3 — the cyclone half is C, not Rust. `interop_e2e`'s three
+    // cyclone cases spawn `nano_cyclone_c_binary(...)`: `c_talker`,
+    // `c_listener`, `c_service_server` out of `examples/native/c/`. These rows
+    // said Rust, `scenario_coord` returned `Lang::Rust` unconditionally, and
+    // the per-case tripwire compared the two — so the language axis was
+    // inverted and agreed with itself. The vacated Rust/Cyclonedds shapes are
+    // carved below.
+    ic("native-pubsub-c-cyclone-n2r",
+       c(Linux, C, Cyclonedds, Pubsub, Interop, Runtime),
        NativeFixtures, RosEdition(Cyclonedds), NanoToRos, "interop_e2e"),
-    ic("native-service-rust-cyclone-r2n",
-       c(Linux, Rust, Cyclonedds, Service, Interop, Runtime),
+    ic("native-service-c-cyclone-r2n",
+       c(Linux, C, Cyclonedds, Service, Interop, Runtime),
        NativeFixtures, RosEdition(Cyclonedds), BiDir, "interop_e2e"),
+    // The shapes the two rows above used to claim. Recorded rather than
+    // dropped because the artifacts EXIST — `examples/native/rust/{talker,
+    // listener,service-server,service-client}` all have `linux/rust/cyclonedds`
+    // rows in `examples/fixtures.toml` — so the absence is a missing lane, not
+    // a missing build, and nothing else in the tree would say so. Rust ↔
+    // stock-ROS-2 over Cyclone is not wholly unproven: `native-graph-rust-
+    // cyclone-r2n` runs that pairing for the Graph workload. Delivery is what
+    // has never been run.
+    ic("native-pubsub-rust-cyclone-n2r-CARVED",
+       c(Linux, Rust, Cyclonedds, Pubsub, Interop,
+         CarveOut("no Rust/Cyclonedds pubsub-interop lane; interop_e2e's cyclone \
+                   pubsub cases run the C examples (c_talker/c_listener). The Rust \
+                   cyclone talker/listener fixtures are built, so the lane is \
+                   affordable — file one if wanted.")),
+       NativeFixtures, RosEdition(Cyclonedds), NanoToRos, NO_TEST),
+    ic("native-service-rust-cyclone-r2n-CARVED",
+       c(Linux, Rust, Cyclonedds, Service, Interop,
+         CarveOut("no Rust/Cyclonedds service-interop lane; interop_e2e's cyclone \
+                   service case runs the C example (c_service_server). The Rust \
+                   cyclone service-server/client fixtures are built, so the lane is \
+                   affordable — file one if wanted.")),
+       NativeFixtures, RosEdition(Cyclonedds), BiDir, NO_TEST),
 
     // ── phase-381 — READ the graph a stock ROS 2 node is in ──────────────
     // tests/graph_interop.rs. The only cell whose subject is DISCOVERY rather
