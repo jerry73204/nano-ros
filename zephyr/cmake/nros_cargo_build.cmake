@@ -164,6 +164,42 @@ function(_nros_resolve_knob env_name kconfig_value)
         "every nros knob resolved during this configure")
 endfunction()
 
+# _nros_c_array_pool_floor(<out_var> <value> <knob>)
+#
+# Issue 1015 — raise a DERIVED demand to what a fixed C array can be sized to.
+#
+# The three zenoh pools reach `zpico.c` as the extents of real C arrays
+# (`queryable_entry_t queryables[ZPICO_MAX_QUERYABLES]` and its siblings). A
+# derived 0 is a legitimate demand — the reference island declares no service
+# servers — and it produced a board that transmitted NOTHING in 15 seconds: no
+# panic, no log line, core in WFI, every gate green, because the value was
+# derived correctly and delivered faithfully. The same image at 4 transmitted
+# 110 bytes, and at 1 it transmitted 110.
+#
+# The floor is applied HERE, at the consumer that names the knob, and NOT in
+# the derivation. The same `NROS_DERIVED_*` numbers reach
+# `NROS_XRCE_MAX_SUBSCRIBERS` / `NROS_XRCE_MAX_SERVICE_SERVERS` below, where a
+# zero is the ANSWER and worth 33,296 / 4,384 bytes of heap a slot (issue
+# 1033). One derivation, two consumers, two different legal minima.
+#
+# EMPTY passes through untouched: empty means "rung 4, nothing resolved", and
+# turning that into a 1 would state a number where the reading build script is
+# supposed to fall through to its own default.
+#
+# An explicit environment value is NOT floored — `_nros_resolve_knob` applies
+# it after this, so a person who states 0 gets the `#error` in `zpico.c` that
+# names the knob and this issue, rather than a number they did not ask for.
+function(_nros_c_array_pool_floor out_var value knob)
+    set(_v "${value}")
+    if(_v MATCHES "^[0-9]+$" AND _v LESS 1)
+        message(STATUS
+            "nros: ${knob}=${_v} raised to 1 — it sizes a fixed C array in "
+            "zpico.c, where zero is not a smaller pool (issue 1015)")
+        set(_v 1)
+    endif()
+    set(${out_var} "${_v}" PARENT_SCOPE)
+endfunction()
+
 # =============================================================================
 # The DERIVE sentinel (phase-403 W8, issue 0940)
 #
@@ -519,9 +555,19 @@ function(nros_resolve_knobs)
     # therefore stay ABOVE this block; it was written below it first, and this
     # is what that cost.
     if(CONFIG_NROS_RMW_ZENOH)
-        _nros_resolve_knob(ZPICO_MAX_PUBLISHERS "${NROS_RESOLVED_NROS_MAX_PUBLISHERS}")
-        _nros_resolve_knob(ZPICO_MAX_SUBSCRIBERS "${NROS_RESOLVED_NROS_MAX_SUBSCRIBERS}")
-        _nros_resolve_knob(ZPICO_MAX_QUERYABLES "${NROS_RESOLVED_NROS_MAX_QUERYABLES}")
+        # issue 1015 — these three size C arrays; a derived 0 silences the
+        # board with no diagnostic. Floored at the CONSUMER, because the same
+        # derived numbers reach the XRCE pools where 0 is legal and load-bearing
+        # (issue 1033). See `_nros_c_array_pool_floor` above.
+        _nros_c_array_pool_floor(_nros_zpico_pubs
+            "${NROS_RESOLVED_NROS_MAX_PUBLISHERS}" ZPICO_MAX_PUBLISHERS)
+        _nros_c_array_pool_floor(_nros_zpico_subs
+            "${NROS_RESOLVED_NROS_MAX_SUBSCRIBERS}" ZPICO_MAX_SUBSCRIBERS)
+        _nros_c_array_pool_floor(_nros_zpico_qrys
+            "${NROS_RESOLVED_NROS_MAX_QUERYABLES}" ZPICO_MAX_QUERYABLES)
+        _nros_resolve_knob(ZPICO_MAX_PUBLISHERS "${_nros_zpico_pubs}")
+        _nros_resolve_knob(ZPICO_MAX_SUBSCRIBERS "${_nros_zpico_subs}")
+        _nros_resolve_knob(ZPICO_MAX_QUERYABLES "${_nros_zpico_qrys}")
         _nros_resolve_knob(ZPICO_MAX_LIVELINESS "${CONFIG_NROS_MAX_LIVELINESS}")
         _nros_resolve_knob(ZPICO_MAX_PENDING_GETS "${CONFIG_NROS_MAX_PENDING_GETS}")
         _nros_resolve_knob(ZPICO_GET_REPLY_BUF_SIZE "${CONFIG_NROS_GET_REPLY_BUF_SIZE}")

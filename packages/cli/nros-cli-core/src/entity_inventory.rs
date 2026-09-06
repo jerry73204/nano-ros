@@ -530,6 +530,28 @@ const ACTION_SERVER_QUERYABLES: usize = 3;
 const ACTION_SERVER_PUBLISHERS: usize = 2;
 const ACTION_CLIENT_SUBSCRIPTIONS: usize = 1;
 
+/// Issue 1015 -- the smallest a pool that SIZES A FIXED C ARRAY may be.
+///
+/// Not a property of the derivation: the demand is whatever the image declares,
+/// zero included. It is a property of the STORAGE the knob reaches, so it is
+/// applied by the consumer that names the knob -- and only by the consumers
+/// whose storage is a C array. `ZPICO_MAX_QUERYABLES` at 0 gave a board that
+/// transmitted nothing for 15 s with no diagnostic; `XRCE_MAX_SUBSCRIBERS` at 0
+/// is 33,296 bytes of heap an image gets back (issue 1033). The same derived
+/// number feeds both, so the floor cannot live where the number is made.
+pub const C_ARRAY_POOL_FLOOR: usize = 1;
+
+/// Raise a derived demand to what a fixed C array can actually be sized to.
+///
+/// ONE spelling for the Rust lane, so a second consumer cannot round up by a
+/// slightly different rule. The CMake lane's copy is
+/// `_nros_c_array_pool_floor()` in `zephyr/cmake/nros_cargo_build.cmake`, and
+/// `check-c-array-pool-floors` holds the two to the set of knobs whose arrays
+/// carry the `#if ... < 1 / #error` guard.
+pub fn c_array_pool_floor(demand: usize) -> usize {
+    demand.max(C_ARRAY_POOL_FLOOR)
+}
+
 /// The knobs an entity inventory can answer, plus how it got there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedEntityKnobs {
@@ -1125,38 +1147,42 @@ impl EntityInventory {
         // session slots, so the session pools are the per-kind count PLUS the
         // multipliers held beside the calls that decide them. Reading the raw
         // count would size every action-carrying image short.
+        // These three numbers are the image's DEMAND, and they are published
+        // unfloored -- a declaration with no subscriptions demands 0. Issue
+        // 1015 floored them HERE first, and that was the wrong layer: whether
+        // zero is a legal pool size is a property of the CONSUMER's storage,
+        // not of the count, and this one derivation feeds two consumers that
+        // answer it differently.
+        //
+        //   zenoh   `queryable_entry_t queryables[ZPICO_MAX_QUERYABLES]` and
+        //           its two siblings are fixed C arrays, and a derived 0 gave
+        //           a board that transmitted NOTHING in 15 s -- no panic, no
+        //           log, core in WFI (issue 1015, measured on the reference
+        //           island). Those knobs carry a floor of ONE, applied where
+        //           they are named: [`c_array_pool_floor`] on the cargo lane
+        //           and `_nros_c_array_pool_floor` in `nros_cargo_build.cmake`
+        //           for the CMake one, with `#if ... < 1 / #error` beside the
+        //           arrays in `zpico.c` as the backstop that binds a producer
+        //           neither of those reaches.
+        //
+        //   xrce    the same derived numbers reach `NROS_XRCE_MAX_SUBSCRIBERS`
+        //           and `NROS_XRCE_MAX_SERVICE_SERVERS`, where ZERO IS THE
+        //           ANSWER and is worth 33,296 and 4,384 bytes of heap per
+        //           slot (issue 1033, measured from the zephyr cpp listener's
+        //           DWARF). Its `build.rs` lowered those minima from 1 to 0 on
+        //           purpose; a floor here silently defeated that the day
+        //           before it landed, and no gate could see it, because the
+        //           number was derived correctly and delivered faithfully.
+        //
+        // So: demand here, floors at the pools. `check-c-array-pool-floors`
+        // holds both ends together.
         let n = |tag: &str| per_kind.get(tag).copied().unwrap_or(0);
-        let floor1 = |v: usize| v.max(1);
-        let max_subscribers = floor1(
-            n(EntityKind::Subscription.tag())
-                + n(EntityKind::ActionClient.tag()) * ACTION_CLIENT_SUBSCRIPTIONS,
-        );
-        let max_publishers = floor1(
-            n(EntityKind::Publisher.tag())
-                + n(EntityKind::ActionServer.tag()) * ACTION_SERVER_PUBLISHERS,
-        );
-        // Issue 1015 -- FLOOR OF ONE on any pool that backs a fixed C array.
-        //
-        // phase-403's rule is that a derived value carries NO headroom: it is
-        // exactly the declared demand, so the running image checks its own
-        // declaration. That is right for a table the executor INDEXES, where
-        // registering past the end returns `ExecutorFull` and names the knob.
-        //
-        // It is wrong here. These three size C arrays in `zpico.c`
-        // (`queryable_entry_t queryables[ZPICO_MAX_QUERYABLES]` and its
-        // siblings), and a zero-length array is not a smaller pool -- it is a
-        // different kind of object, and it is not the last member of that
-        // struct. Measured on the reference island, which declares no service
-        // servers and so derived exactly 0: the board transmitted NOTHING in
-        // 15 seconds, no panic, no log, core in WFI. The same image with the
-        // pool at 4 transmitted 110 bytes. Every gate was green either way,
-        // because 0 was derived correctly and delivered faithfully.
-        //
-        // One slot costs a handful of bytes. A zero costs the whole image.
-        let max_queryables = floor1(
-            n(EntityKind::ServiceServer.tag())
-                + n(EntityKind::ActionServer.tag()) * ACTION_SERVER_QUERYABLES,
-        );
+        let max_subscribers = n(EntityKind::Subscription.tag())
+            + n(EntityKind::ActionClient.tag()) * ACTION_CLIENT_SUBSCRIPTIONS;
+        let max_publishers = n(EntityKind::Publisher.tag())
+            + n(EntityKind::ActionServer.tag()) * ACTION_SERVER_PUBLISHERS;
+        let max_queryables = n(EntityKind::ServiceServer.tag())
+            + n(EntityKind::ActionServer.tag()) * ACTION_SERVER_QUERYABLES;
         let max_nodes = self.components().len();
 
         Derivation::Derived(Box::new(DerivedEntityKnobs {
@@ -2662,6 +2688,44 @@ structure:
         let k = d.knobs().expect("wiring yields knobs");
         assert_eq!(k.max_subscribers, 2, "two subscriptions across the image");
         assert_eq!(k.max_publishers, 1, "one publisher");
+        assert_eq!(
+            k.max_queryables, 0,
+            "no service server is declared, so the DEMAND is zero"
+        );
+    }
+
+    /// Issues 1015 + 1033 — the derivation publishes DEMAND, and the floor
+    /// belongs to whichever consumer's storage cannot be empty.
+    ///
+    /// A publisher-only image demands zero subscribers and zero queryables.
+    /// Flooring that here reaches BOTH consumers of the number: it stopped a
+    /// zenoh board transmitting at 0 (1015) and it silently re-charged an XRCE
+    /// image 33,296 bytes for a subscriber slot it does not have and 4,384 for
+    /// a service-server slot (1033, measured from the listener's DWARF). One of
+    /// those two is right at any given moment and the other is wrong, which is
+    /// the argument for keeping this number honest and flooring at the pools.
+    #[test]
+    fn a_publisher_only_image_derives_a_demand_of_zero() {
+        let mut inv = EntityInventory::new("test");
+        inv.insert(ComponentEntities {
+            pkg: "p".into(),
+            component: "talker".into(),
+            class: "Talker".into(),
+            declaration: Declaration::Stated(vec![EntityDecl {
+                kind: EntityKind::Publisher,
+                type_name: Some("std_msgs/msg/String".into()),
+                name: Some("/chatter".into()),
+                depth: None,
+            }]),
+        });
+        let d = inv.derive();
+        let k = d.knobs().expect("a stated declaration derives");
+        assert_eq!(k.max_publishers, 1);
+        assert_eq!(k.max_subscribers, 0, "declares none, so demands none");
+        assert_eq!(k.max_queryables, 0, "declares none, so demands none");
+        // And the floor a C-array consumer applies to that demand.
+        assert_eq!(c_array_pool_floor(k.max_subscribers), 1);
+        assert_eq!(c_array_pool_floor(3), 3, "a real demand passes through");
     }
 
     /// phase-412 -- the merge takes the larger list of each kind, whichever

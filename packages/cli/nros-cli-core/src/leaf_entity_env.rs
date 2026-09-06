@@ -403,13 +403,21 @@ pub fn render_env_sidecar(
     ));
     s.push_str("# see whether this image enables the parameter or lifecycle service\n");
     s.push_str("# families, and a count short of them fails at registration.\n\n");
+    s.push_str(
+        "# The two `ZPICO_*` rows are FLOORED AT ONE: they size fixed C arrays in\n\
+         # `zpico.c`, where zero is not a smaller pool (issue 1015). The floor is\n\
+         # applied here, at the consumer, and not in the derivation -- the same\n\
+         # derived counts reach the XRCE pools, where zero IS the answer and is\n\
+         # worth 33,296 bytes of heap a slot (issue 1033).\n\n",
+    );
     s.push_str("[env]\n");
+    let floor = crate::entity_inventory::c_array_pool_floor;
     let vals: BTreeMap<&str, usize> = BTreeMap::from([
         ("NROS_EXECUTOR_ACTION_CLIENTS", knobs.heavy_slots),
         ("NROS_EXECUTOR_MAX_CBS", knobs.max_cbs),
         ("NROS_RMW_SUBSCRIBER_SLOTS", knobs.max_subscribers),
-        ("ZPICO_MAX_PUBLISHERS", knobs.max_publishers),
-        ("ZPICO_MAX_SUBSCRIBERS", knobs.max_subscribers),
+        ("ZPICO_MAX_PUBLISHERS", floor(knobs.max_publishers)),
+        ("ZPICO_MAX_SUBSCRIBERS", floor(knobs.max_subscribers)),
     ]);
     for (k, v) in &vals {
         s.push_str(&format!("{k} = \"{v}\"\n"));
@@ -500,19 +508,59 @@ mod tests {
         };
         assert_eq!(k.entity_total, 2);
         assert_eq!(k.max_publishers, 1);
-        // ONE, not zero, and that is `entity_inventory`'s rule rather than a
-        // rounding-up here: issue 1015 puts a FLOOR OF ONE on any pool backing
-        // a fixed C array, because `queryable_entry_t queryables[0]` is not a
-        // smaller pool, it is a different kind of object. This assertion
-        // originally read 0 — the shared derivation corrected it, which is the
-        // whole reason this module reuses it instead of counting for itself.
+        // The DEMAND, unfloored: a talker declares no subscription, so it
+        // demands none. Issue 1015 floored this in the shared derivation and
+        // that reached the XRCE pools too, where a slot costs 33,296 bytes of
+        // heap and zero is the measured answer (issue 1033). The floor now
+        // lives at the `ZPICO_*` rows of the sidecar — see
+        // `the_zpico_rows_are_floored_and_the_others_are_not`.
         assert_eq!(
-            k.max_subscribers, 1,
-            "floored at one (issue 1015), not the raw 0"
+            k.max_subscribers, 0,
+            "the demand is the count, not a pool size"
         );
         assert_eq!(
             k.max_cbs, 1,
             "the timer claims the slot; the publisher does not"
+        );
+    }
+
+    /// Issue 1015 + issue 1033 — the floor is the CONSUMER's, so it applies to
+    /// the two knobs that size C arrays and to nothing else.
+    ///
+    /// A talker demands zero subscriptions. `ZPICO_MAX_SUBSCRIBERS` sizes
+    /// `subscriber_entry_t subscribers[...]` in `zpico.c` and must still be 1;
+    /// `NROS_RMW_SUBSCRIBER_SLOTS` sizes a Rust array, where zero is a legal
+    /// pool that fails loudly at registration, and must carry the raw 0.
+    #[test]
+    fn the_zpico_rows_are_floored_and_the_others_are_not() {
+        let (pkg, comp, d) = declaration_from_probe(TALKER).unwrap();
+        let mut inv = EntityInventory::new("t");
+        inv.insert(ComponentEntities {
+            pkg,
+            component: comp.clone(),
+            class: comp,
+            declaration: d,
+        });
+        let Derivation::Derived(k) = inv.derive() else {
+            panic!("expected a derivation from a stated declaration");
+        };
+        let out = render_env_sidecar(&k, "test");
+        // Whole rows, matched as text through `contains`, NOT through a local
+        // `row(NAME)` helper: `config-knob-census` reads this file as a
+        // build-time knob source and refuses an unknown callee taking a knob
+        // name, which is how a `knob()` wrapper once took five knobs out of
+        // that census. Measured — the helper version failed the gate.
+        assert!(
+            out.contains("ZPICO_MAX_SUBSCRIBERS = \"1\"\n"),
+            "floored at one (issue 1015), not the raw 0:\n{out}"
+        );
+        assert!(
+            out.contains("ZPICO_MAX_PUBLISHERS = \"1\"\n"),
+            "the talker's one publisher:\n{out}"
+        );
+        assert!(
+            out.contains("NROS_RMW_SUBSCRIBER_SLOTS = \"0\"\n"),
+            "a Rust-backed pool takes the demand; only the C arrays are floored:\n{out}"
         );
     }
 
