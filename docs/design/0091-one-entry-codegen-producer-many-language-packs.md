@@ -248,15 +248,59 @@ idiomatic and FFI (it speaks the C ABI natively) and no cargo scaffold. That is
 a smaller and much more honest question than "write a pack", and stating it is
 most of what §8 owes a newcomer.
 
+### The surface decision table
+
+The question a newcomer has to answer is not "how do I write a pack" but "which
+of these do I need". Each row is independently optional; each carries its own
+obligation, and the obligations are the part that is easy to miss.
+
+**Message surfaces** — one message package, rendered several ways:
+
+| surface | what it emits | a language needs it when | what it drags in |
+| --- | --- | --- | --- |
+| idiomatic | the type a user of the language writes against | always — this is the point of adding the language | nothing beyond the pack |
+| embedded-idiomatic | the same type without an allocator (`no_std`, bounded storage) | the language runs on the RTOS targets, not just the host | the bounded-storage vocabulary; capacities come from the IR, not from the pack |
+| FFI / ABI | the layout that crosses the C ABI boundary | the language talks to `libnros`, i.e. almost always | **the memory-agreement gate (§5)** — its layout is compared against the C pack's on a cross target |
+| bridge glue | two spellings of ONE type, for a pair of languages | the language must hand structs to another language in-process | both halves move together or the layouts disagree; the `cpp` pack is this, and it emits Rust |
+| packaging | the build files that make the generated tree a unit the toolchain accepts | the language has a package manager the build must satisfy | its own manifest vocabulary — this is the surface with the least in common between languages |
+
+**Entry surfaces** — the generated program that boots the image. A second axis,
+not a sixth row: a language may take an entry surface without any message
+surface (it consumes another language's messages) or the reverse.
+
+| surface | what it emits | a language needs it when |
+| --- | --- | --- |
+| entry TU | the `main` / `app_main` that constructs nodes and hands them to the board | users write ENTRIES in this language, not only components |
+| component seam | the `extern "C"` declarations an entry calls to install a component | users write COMPONENTS in this language that some other entry installs |
+
+Read the two axes together and the honest sizing falls out. Rust today takes
+four message surfaces and both entry surfaces. C takes two message surfaces
+(idiomatic, FFI — they are the same surface for C) and both entry ones. Zig
+would take idiomatic and FFI on the message side, and could ship with only the
+component seam on the entry side — a Zig component installed by a C or C++
+entry — which is a materially smaller first version than "add Zig".
+
+**The costs that do NOT scale down with the surface count** are in §8's closing
+paragraph and in Track 3 of phase-432: the toolchain story. Picking two surfaces
+instead of five shrinks the codegen work and leaves the build integration where
+it was.
+
 The naming should follow: `packs/<surface>/` is what the directories already
 are, and the registry keys (`message.h`, `message.c`, `build.rs`) are already
 surface names rather than language names. The entry side should join that
 convention — `packs/entry/<surface>/` — rather than inventing a second one.
 
-Two entry renderers exist today (`rust_entry.rs.jinja`, `c_entry.c.jinja` +
-`c_service_trailer.c.jinja`) with 20 goldens proving byte-equivalence with the
-emitters they replaced. They should move from `templates/` to
-`packs/entry/<lang>/` so there is one convention.
+All three entry renderers exist today — `rust_entry.rs.jinja`, the C pack
+(`c_entry.c.jinja` + `c_service_trailer.c.jinja`) and, since phase-432 W2.3,
+the C++ pack (`cpp_entry.cpp.jinja` plus partials for one node's construction,
+the boot wrapper and the service trailer) — with **35 goldens** proving
+byte-equivalence with the emitters they replaced. Two partials are SHARED by
+the C and C++ packs rather than duplicated, because their bytes are identical C
+that a C++ entry compiles unchanged: `declare_calls.c.jinja` (the remap and
+param calls, with the executor expression as a field) and `boot_config.c.jinja`
+(the `NROS_BOOT_CONFIG` blob). They should move from `templates/` to
+`packs/entry/<lang>/`, with the shared pair somewhere that says it is shared,
+so there is one convention.
 
 **The tier table must use DESIGNATED initialisers.** It was emitted positionally
 against `nros_native_tier_spec_t` — mirrored by hand across **eight** sites, not
@@ -489,12 +533,13 @@ CMake-side property no pack can state about itself.
 
 ## 8. Adding a language — the whole procedure
 
-0. **Decide which SURFACES the language needs** — idiomatic, embedded-idiomatic,
-   FFI/ABI, bridge glue, packaging. This is the step the first draft omitted by
-   assuming one pack per language, and it is the step that sizes the work: Rust
-   has four packs, and the `cpp` pack emits Rust as well as C++. A language that
-   speaks the C ABI (most of them) needs an FFI surface and inherits the memory
-   agreement gate with it (§5).
+0. **Decide which SURFACES the language needs** — the decision table is in §6.
+   This is the step the first draft omitted by assuming one pack per language,
+   and it is the step that sizes the work: Rust has four message packs, and the
+   `cpp` pack emits Rust as well as C++. A language that speaks the C ABI (most
+   of them) needs an FFI surface and inherits the memory-agreement gate with it
+   (§5). Answer this before writing anything; a language can ship with two
+   surfaces and gain the rest later.
 1. `packs/entry/<lang>/entry.<ext>.jinja` — over `LoweredEntry`. Boot shape,
    board path, tier rows, QoS codes and escaped literals arrive computed.
 2. One row in the pack registry (`include_str!`).
