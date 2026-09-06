@@ -1272,6 +1272,18 @@ pub struct Executor<'s> {
     // executor had no halt flag at all and so could not be stopped.
     #[cfg(feature = "alloc")]
     pub(crate) halt_flag: portable_atomic_util::Arc<portable_atomic::AtomicBool>,
+    /// Is a spin loop running right now? — the observable behind
+    /// `is_spinning()` (phase-417 W4.c, rclcpp's `Executor::is_spinning`).
+    ///
+    /// A plain atomic, not an `Arc` like `halt_flag`: nothing hands this one
+    /// out. `halt_flag()` is a public getter that gives a caller its own
+    /// handle to set from another thread; `spinning` is only ever set by the
+    /// executor's own loops through `&self`, so it needs no shared ownership.
+    ///
+    /// It rides `alloc` for the same reason the impl that reads it does: the
+    /// lifecycle block also touches `halt_flag`.
+    #[cfg(feature = "alloc")]
+    pub(crate) spinning: portable_atomic::AtomicBool,
     /// Phase 104.C.6 — shared executor wake flag. Any source of work
     /// (foreign thread handing off a callback, signal handler, future
     /// per-session vtable wake hook) sets this; `spin_once` swaps it to
@@ -1585,6 +1597,8 @@ impl<'s> Executor<'s> {
             },
             #[cfg(feature = "alloc")]
             halt_flag: portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(false)),
+            #[cfg(feature = "alloc")]
+            spinning: portable_atomic::AtomicBool::new(false),
             #[cfg(feature = "alloc")]
             wake_flag: portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(false)),
             #[cfg(all(feature = "alloc", feature = "rmw-cffi"))]
@@ -7978,6 +7992,10 @@ impl<'s> Executor<'s> {
 // Executor lifecycle — cancel / is_spinning (phase-417 W4.c)
 // ============================================================================
 
+// `alloc`, because every method here reads `halt_flag` or `spinning` and both
+// are `alloc` fields. Un-gated, this block did not compile without the feature
+// at all — `cancel()` stores into a field that is not there.
+#[cfg(feature = "alloc")]
 impl<'s> Executor<'s> {
     /// Request the executor to stop spinning — `rclcpp::Executor::cancel`.
     ///
@@ -8387,28 +8405,6 @@ impl<'s> Executor<'s> {
             task: Some(task),
             halt,
         }
-    }
-
-    /// Request the executor to stop spinning.
-    ///
-    /// Sets a flag that causes [`spin_blocking()`](Self::spin_blocking) or
-    /// [`spin_period()`](Self::spin_period) to exit on the next iteration.
-    /// Safe to call from another thread or signal handler.
-    ///
-    /// Also raises the Phase 104.C.6 wake flag so a `spin_once` already
-    /// blocked inside a backend's `drive_io` falls through to the halt
-    /// check on its next loop iteration instead of waiting out its full
-    /// `timeout_ms` first.
-    pub fn halt(&self) {
-        self.halt_flag
-            .store(true, core::sync::atomic::Ordering::SeqCst);
-        self.wake_flag
-            .store(true, core::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Check if halt has been requested.
-    pub fn is_halted(&self) -> bool {
-        self.halt_flag.load(core::sync::atomic::Ordering::SeqCst)
     }
 
     /// Phase 104.C.6 — wake the executor from another thread / ISR /
