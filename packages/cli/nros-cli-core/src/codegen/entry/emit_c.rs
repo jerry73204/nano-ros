@@ -157,8 +157,36 @@ struct CEntryView {
 struct CTiersView {
     n: usize,
     setups: Vec<CTierSetupView>,
-    groups_arrays: Vec<String>,
-    spec_rows: Vec<String>,
+    /// One row per tier. STRUCTURED, not a rendered initialiser: the C pack
+    /// spells `{ "name", groups, 1u, 80LL, … }`, a Rust or Zig pack spells its
+    /// own, and neither needs a lowering change (RFC-0091 §8b).
+    tiers: Vec<TierView>,
+}
+
+/// One tier, in neutral terms.
+///
+/// Every field is a VALUE, and the strings are RAW — the pack quotes them
+/// through its own escaping filter. `groups` is empty when the tier names none,
+/// which is what makes the pack able to choose `NULL` over an array symbol
+/// without the lowering knowing that C has a `NULL`.
+#[derive(serde::Serialize)]
+struct TierView {
+    index: usize,
+    name: String,
+    groups: Vec<String>,
+    priority: i64,
+    stack_bytes: u64,
+    spin_period_us: u64,
+    /// 0 = unpinned; otherwise the core index PLUS ONE (the ABI's encoding).
+    core_plus1: u32,
+    /// -1 = unset (the ABI's encoding).
+    preempt_threshold: i64,
+    /// `None` = unset; the pack decides that is `NULL`.
+    class: Option<String>,
+    period_us: u64,
+    budget_us: u64,
+    deadline_us: u64,
+    deadline_policy: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -174,16 +202,16 @@ struct CTierSetupView {
 struct CNodeView {
     index: usize,
     pkg: String,
-    name_lit: String,
+    /// RAW node name. The pack quotes it with the `c_str` filter; pre-escaping
+    /// here would spell C into a stage that has no language (RFC-0091 §8b).
+    name: String,
+    /// STILL pre-rendered, and deliberately so for now: the declaration
+    /// helpers (`emit_declare_remaps` / `_params` / `_qos_overrides`) are
+    /// `pub(super)` and shared with the UNCONVERTED `emit_cpp`. Structuring
+    /// them here alone would give the C++ emitter a second producer of the
+    /// same text — the duplication this whole design exists to remove. They
+    /// become `Vec<Decl>` when `emit_cpp` converts, tracked on issue 1102.
     decls: String,
-}
-
-/// Escape a value into a C string literal body.
-///
-/// Stays in Rust deliberately: a template that got this wrong would emit
-/// source that fails to compile, or worse, compiles with the wrong string.
-fn c_str_lit(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// The remap / param / QoS declarations for one node, at the given indent.
@@ -209,7 +237,7 @@ fn node_view(n: &super::PlanNode, i: usize, indent: &str) -> CNodeView {
     CNodeView {
         index: i,
         pkg: sanitize_pkg(&n.pkg),
-        name_lit: c_str_lit(n.name.as_deref().unwrap_or(&n.exec)),
+        name: n.name.as_deref().unwrap_or(&n.exec).to_string(),
         decls: node_decls(n, i, indent),
     }
 }
@@ -348,63 +376,36 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
             groups_per_tier.push(g);
         }
 
-        let groups_arrays: Vec<String> = groups_per_tier
-            .iter()
-            .enumerate()
-            .filter(|(_, g)| !g.is_empty())
-            .map(|(ti, g)| {
-                let items: String = g
-                    .iter()
-                    .map(|x| format!("\"{}\", ", c_str_lit(x)))
-                    .collect();
-                format!("static const char* __nros_tier_{ti}_groups[] = {{{items}}};")
-            })
-            .collect();
-
-        let c_lit = |s: Option<&str>| match s {
-            Some(v) => format!("\"{}\"", c_str_lit(v)),
-            None => "NULL".to_string(),
-        };
-        let spec_rows: Vec<String> = tiers
+        let tier_views: Vec<TierView> = tiers
             .tiers
             .iter()
             .enumerate()
-            .map(|(ti, tier)| {
-                let groups = &groups_per_tier[ti];
-                let (groups_expr, n_groups_val) = if groups.is_empty() {
-                    ("NULL".to_string(), 0usize)
-                } else {
-                    (format!("__nros_tier_{ti}_groups"), groups.len())
-                };
+            .map(|(ti, tier)| TierView {
+                index: ti,
+                name: tier.name.clone(),
+                groups: groups_per_tier[ti].clone(),
+                priority: tier.priority,
+                stack_bytes: tier.stack_bytes.unwrap_or(0) as u64,
+                spin_period_us: tier.spin_period_us.unwrap_or(0),
                 // RFC-0052 W2 — stack_bytes/core/preempt_threshold propagate;
                 // phase-296 W5.7 — the generic real-time policy rides the spec
-                // (see emit_cpp for the field semantics). NULL/0 = unset.
-                format!(
-                    "    {{ \"{name}\", {groups_expr}, {n_groups_val}u, \
-{priority}LL, {stack}u, {spin}ull, \
-&__nros_entry_setup_tier_{ti}, {core}u, {preempt}LL, \
-{class}, {period}ull, {budget}ull, {deadline}ull, \
-{dpolicy} }},",
-                    name = c_str_lit(&tier.name),
-                    priority = tier.priority,
-                    stack = tier.stack_bytes.unwrap_or(0),
-                    spin = tier.spin_period_us.unwrap_or(0),
-                    core = tier.core.map(|c| c + 1).unwrap_or(0),
-                    preempt = tier.preempt_threshold.unwrap_or(-1),
-                    class = c_lit(tier.class.as_deref()),
-                    period = tier.period_us.unwrap_or(0),
-                    budget = tier.budget_us.unwrap_or(0),
-                    deadline = tier.deadline_us.unwrap_or(0),
-                    dpolicy = c_lit(tier.deadline_policy.as_deref()),
-                )
+                // (see emit_cpp for the field semantics). The ENCODINGS (core
+                // plus one, -1 for unset) are ABI facts and stay here; how they
+                // are spelled is the pack's business.
+                core_plus1: tier.core.map(|c| c + 1).unwrap_or(0),
+                preempt_threshold: tier.preempt_threshold.unwrap_or(-1),
+                class: tier.class.clone(),
+                period_us: tier.period_us.unwrap_or(0),
+                budget_us: tier.budget_us.unwrap_or(0),
+                deadline_us: tier.deadline_us.unwrap_or(0),
+                deadline_policy: tier.deadline_policy.clone(),
             })
             .collect();
 
         Some(CTiersView {
             n: tiers.tiers.len(),
             setups,
-            groups_arrays,
-            spec_rows,
+            tiers: tier_views,
         })
     } else {
         None
