@@ -111,3 +111,49 @@ losing an image the gate currently finds. Open questions:
    claim (asserted by `check-lane-contracts`) is already false for it.
 
 Tracked as phase-413 W7.
+
+## Answered (phase-413 W7, measured 2026-09-06)
+
+All four questions were measured on a fully built developer tree. Post-`PRUNE`
+the walk is **240,754 directories**, reaching **1,417 profile dirs** and
+**2,415 generated configs**. Anchors by tree: `examples/` 1,184, `build/` 709,
+`target/` 195, `zephyr-workspace/` 192, `packages/` 128, `tmp/` 7.
+
+**Attempt 2's entire win was the amputation.** Repaired so the predicate
+requires the `<pkg>-<hash>` shape — which is what stops it matching the
+top-level `build/` group dirs — the sibling prune saves **2 directories of
+240,754, 0.0 %**, with the profile set and the config set bit-identical. A
+`<pkg>-<hash>` dir holds little but `out`, and `out` already stops the descent.
+No pruning keyed on the anchor's own shape can pay; the family is closed.
+
+**Q1 — the root set IS derivable, from the existing SSoT.**
+`nros_fixture_row_artifact_dir` plus `fixtures-manifest.py west-leaves` already
+answer "where does this row build". Over every manifest row the distinct roots
+collapse to seven shared group dirs (`build/cargo-fixtures/<platform>`) plus the
+per-leaf `build-<rmw>/target` dirs. No second hand-maintained list.
+
+**Q2 — the ceiling is 47 %, and the obvious discriminator loses images.**
+Split by whether a directory sits inside a `CACHEDIR.TAG` target root:
+**113,764 inside, 126,990 outside** — so a perfect fixed-depth glob inside
+target roots saves at most 47 %, and cold, half of minutes is minutes. And the
+tag is unsound: **223 of 2,415 anchors have no tagged root above them** (cargo
+driven by Corrosion, CMake and west writes none), and the anchor's depth below
+its root is 4, 5 **or** 6, depending on whether `--target <triple>` is in the
+path. That is attempt 2's failure mode with a new predicate.
+
+**Q3 — `tmp/` holds 7 real anchors.** Pruning it is a narrowing, not free.
+
+**Q4 — the framing was upstream of the cold-cache question.** The gate exits 78
+and SKIPS when nothing is built, which is most CI runs — its own recipe says so.
+It is a developer-tree gate: on the pull-request line it examines nothing, on a
+developer's tree it examines a hundred gigabytes. `check-gate-visibility`'s
+objection ("if it passes with no build artifacts it does not belong in the build
+tier at all") is about the gate being **fail-open**, and keeping it on the fast
+line does not fix that — it only relocates where the fail-open passes.
+
+**Decision:** `roots` from the manifest, the gate onto the fixture/test tier,
+and "no images" becomes a FAILURE rather than a skip — the last of the three is
+what answers the visibility objection, and it is a stronger anti-rot property
+than a PR seat where the gate always skipped. `check-lane-contracts` can then go
+back to asserting `check::fast` is buildless and source-only with no carve-out.
+Design and acceptance: phase-413 W7.
