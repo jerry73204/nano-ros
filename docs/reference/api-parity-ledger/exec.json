@@ -310,12 +310,12 @@
   },
   "cpp:Executor::add_callback_group": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::add_node": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "an rclcpp node is standalone and is ATTACHED to an executor, which is what makes it movable between executors and spinnable by more than one. static entity storage: the executor's entity table is an arena sized at compile time (`NROS_EXECUTOR_MAX_HANDLES`) with no allocator behind it, and a `HandleId` is an index into it. Registration is one-way -- no slot is ever reclaimed and no handle is ever invalidated. A node's entities are allocated in the arena of the executor that created it (`cpp:Executor::create_node`), so attachment is not a separate step and cannot be undone. What a user loses: handing an already-built node to a different executor."
   },
   "cpp:Executor::add_on_shutdown_callback": {
@@ -381,12 +381,12 @@
   },
   "cpp:Executor::remove_callback_group": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "RFC-0047: a callback group here is a NAME, not an object the executor holds. The group structure is declared in code (`Node::create_callback_group(\"ctrl\")`) and the group -> tier POLICY is declared in the workspace `system.toml`; the executor carries a config-seeded `group -> sched_context` table and binds each callback to its group's context at REGISTRATION, once, into a fixed arena. There is no group object to add to or remove from an executor, and no membership that can change after registration."
   },
   "cpp:Executor::remove_node": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Executor::add_node`."
   },
   "cpp:Executor::remove_on_shutdown_callback": {
@@ -413,7 +413,7 @@
   },
   "cpp:Executor::spin_all": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's 'keep collecting and executing until the ready set is empty or `max_duration` expires'. Same answer as `cpp:Executor::spin_some`: `spin_once` already drains the ready set, and `spin_for` is the duration-bounded loop -- differing from `spin_all` in that it keeps waiting for new work rather than returning when work runs out."
   },
   "cpp:Executor::spin_for": {
@@ -422,12 +422,12 @@
   },
   "cpp:Executor::spin_node_once": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "spins ONE node's callbacks on a temporary executor. RFC-0002 puts one executor per RTOS task, SHARED by every node in that tier, and the arena is indexed by `HandleId`, not by node -- a node is not a unit of dispatch here. What a user loses: draining one node's queue while another node's callbacks stay pending. Also needs a throwaway executor per call, which no allocator -- one global `nros_platform_alloc` and inline caller-owned storage. See `cpp:Node::make_shared` and the `no-shared-ptr` rule in signature_rules.py."
   },
   "cpp:Executor::spin_node_some": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Executor::spin_node_once`."
   },
   "cpp:Executor::spin_some": {
@@ -446,7 +446,7 @@
   },
   "cpp:Executor::spin_until_future_complete": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "drives the executor until a `std::shared_future` resolves. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts it: the blocking helper is a method on the thing being waited FOR and it takes the executor (`promise.wait(&mut executor, timeout)`, `Client::call`), which is the same capability with the deadlock made unrepresentable. See `cpp:Future::wait` and the service stage's `cpp:Client::async_send_request`."
   },
   "cpp:ExecutorOptions": {
@@ -1110,7 +1110,7 @@
   },
   "rust:SpinOptions::until_promise_resolved": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs spins until a promise resolves, hiding the executor inside the wait. RFC-0021: no futures and no async runtime. Every blocking helper takes the executor and drives it (`promise.wait(&mut executor, timeout)`), because on a single-threaded executor awaiting a result that only that executor can produce is a deadlock. See `cpp:Future`. Ours inverts the call: `promise.wait(&mut executor, timeout)`, which cannot deadlock because the caller must hand over the executor to be driven. See the service stage's `cpp:Client::async_send_request`."
   },
   "rust:SpinPeriodPollingResult": {

@@ -48,7 +48,7 @@
   },
   "c:support_init_with_options": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc's options-taking variant. Same constraint as `compile-time-options`: there is no `rcl_init_options_t` to pass."
   },
   "c:support_is_valid": {
@@ -91,7 +91,7 @@
   },
   "cpp:init_and_remove_ros_arguments": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see remove_ros_arguments."
   },
   "cpp:install_signal_handlers": {
@@ -118,7 +118,7 @@
   },
   "cpp:remove_ros_arguments": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "argv filtering, and there is no argv. RFC-0045 resolves boot config from baked values and the board."
   },
   "cpp:shutdown": {
