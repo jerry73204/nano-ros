@@ -446,6 +446,60 @@ alone, so the ROS-ABI mirror (`rmw`) must keep spelling the `.msg` type while
 questions with two answers, which is not the same as one fact with two
 spellings.
 
+### Corrections from implementing W2.5b
+
+The counts above HOLD — measured, not repeated. Ten filters are registered;
+`snake_case` is the one that belongs to no language and the other nine are
+per-language type spellings. Three things the numbers do not say:
+
+**The nine do not split three ways.** It is **C 2, C++ 4, Rust 3** — the C++
+pack carries twice what C does because it emits a PAIR (§6b's W2.5a
+correction), so it needs `cpp_type` / `cpp_array_suffix` for the header AND
+`cpp_repr_c_type` / `cpp_view_repr_type` for the `repr(C)` mirror.
+
+**One of the names is a lie, and it is the one this document quotes.**
+`cpp_repr_c_type` and `cpp_view_repr_type` return **Rust** — `[u8; 32]`, `u32`,
+`nros_cpp_heap_str_t`, straight out of `repr_c_type_for_field`. The `cpp_`
+prefix names the pack that CALLS them, not the language they spell. That is
+§6's "the `cpp` pack emits Rust" showing up in the filter names, and it settles
+how the registry is keyed: **by the pack that calls a filter, not by the syntax
+it emits.** Keying by emitted syntax would file those two under Rust, and then
+the first language that wanted its own FFI mirror would grow the *Rust* set —
+backwards for a procedure whose whole promise is "your language, your set".
+
+**`snake_case`'s neutrality is provable, not merely plausible.** The same
+`utils::to_snake_case` builds C header names in `generator/srv.rs`, C++ header
+names in `generator/cpp.rs`, and Rust constant names in the `nros` pack: one ROS
+naming convention, three languages. It is the rosidl convention, not a Rust one.
+
+The set now lives in `rosidl_codegen::filters` as `FILTER_SETS`, keyed by
+`nros_lang::Language`, and four tests hold it together in both directions —
+every `Language` has a set, every declared name is one its `register` really
+adds, every filter a bundled pack CALLS is registered, and every registered
+filter is CALLED. The third of those is the one with teeth: minijinja resolves a
+filter at render time, so before it, a pack naming a filter nobody registers
+failed at some user's build.
+
+They are Rust tests and not a `just check` gate on purpose. `check-cli-tests`
+is on the required `CI` context for every pull request, so they gate a merge
+either way; and the checks read `bundled_packs()` and the registry directly,
+which a Python gate could only do by re-spelling both — a second spelling of
+one rule is the drift this whole phase is about. (This is also not W3.3: that
+item is a CONFORMANCE gate for ENTRY packs — declared templates, required
+outputs for a reference plan, a golden coordinate — and it depends on W3.2's
+`pack.toml`. This is the message side's own "and nothing more" clause.)
+
+**The entry side's `c_str` is the same shape and is deliberately still
+separate.** It is a per-language escape (`nros-cli-core`'s
+`codegen/entry/render.rs` argues the point itself: C, Rust and Zig escape
+differently, so there is no neutral pre-escaped value), so by KIND it belongs in
+the C set. What keeps it out is not the contract but the ENVIRONMENT: entry
+templates are not in `bundled_packs()`, which feeds the codegen fingerprint, and
+registering them there would tie entry codegen to message-fixture staleness.
+`FilterSet::register` takes an `&mut Environment`, so both environments can
+share one registry without sharing one template list — that unification belongs
+with W2.5/W2.6, when the entry templates become packs.
+
 ### The filters are already the right shape
 
 `c_type` takes a `CTypeSpell` and returns a spelling. That IS the
