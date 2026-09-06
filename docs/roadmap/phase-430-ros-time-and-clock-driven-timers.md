@@ -1,6 +1,46 @@
 # Phase 430 — ROS time, and timers that work in production and under rosbag replay
 
-**Status (2026-09-05). Planned.** Adds a second time base so a nano-ros image
+**Status (2026-09-06). RESCOPED — phase-425 owns sim-time; this phase is the
+follow-ups 425 does not cover.**
+
+Settled 2026-09-06. This document was written as if ROS time were unstarted
+work. It was not: **phase-425 landed a `sim-time` clock source on `main` while
+this was being drafted** — `5200437c5` (`use_sim_time` attaches the clock
+source), its `reconcile_ros_time_source` called at the head of every spin, and
+a book page at `d2e5e5c6f`. It was found by hitting it in a rebase conflict,
+not by looking, which is the coordination failure worth recording alongside the
+decision.
+
+**The division of work:** phase-425 owns the sim-time capability — the `/clock`
+subscription, `use_sim_time`, the clock source and its attach/detach. This
+phase keeps only what 425 does not cover.
+
+**The delta is NOT yet measured.** Before any item below is started, someone
+must read what 425 actually landed and strike the items it already answers.
+The three properties the design section argues from are the place to start,
+because they are what a from-scratch implementation is most likely to have
+skipped:
+
+* a ROS-time timer's wake source is a MESSAGE, not a timeout, so the wall
+  timeout handed to the platform must be computed from wall timers only;
+* time can go BACKWARDS on a bag loop, so a rewind must reset outstanding
+  deadlines rather than fire a catch-up storm;
+* a ROS-time timer with no `/clock` must NOT fall back to wall time, and must
+  say so — otherwise a debug session behaves like production and the bag looks
+  correct.
+
+The known live defect is one of these: `use_sim_time_attaches_and_detaches_the_clock_source`
+FAILS on a pristine `origin/main` worktree, at
+`crate::time_source::is_active()` — "installed and not armed would drop every
+sample". That is 425's to fix, and it is evidence that the arming half of
+property 3 is incomplete.
+
+The design reasoning below stands and is what the delta should be measured
+against. The WORK ITEMS below are provisional pending that measurement.
+
+---
+
+*(original status: Planned)* Adds a second time base so a nano-ros image
 can be debugged against a rosbag. Amends RFC-0089's timer study, which concluded
 `GenericTimer`'s clock parameter was unportable *because we had one clock* —
 that premise is what this phase changes.
