@@ -129,10 +129,23 @@ where
     //
     // Note the direction. W7 was drafted the other way round — add `nros_log`
     // to the boards that lack it — on the premise that `log` needs `std`.
-    // qemu-esp32-baremetal disproves that: it bridges `log` on a `no_std`
-    // target through `esp_println`. So `log` is the user-facing facade
-    // everywhere and `nros_log` stays the platform/ABI layer (it is what
-    // `nros_platform_log_write`, and therefore the C API, is built on).
+    // `no_std` is indeed not what stops `log`: THIS board bridges it on a
+    // `no_std` target through semihosting, one line below. So `log` is the
+    // user-facing facade wherever it can be installed and `nros_log` stays the
+    // platform/ABI layer (it is what `nros_platform_log_write`, and therefore
+    // the C API, is built on).
+    //
+    // Issue 1048 — W7's evidence for that premise USED to be
+    // qemu-esp32-baremetal ("it bridges `log` on a `no_std` target through
+    // `esp_println`"), and that claim was FALSE: the call was there, it did
+    // nothing, and nobody had read the console. `log::set_logger` is
+    // `#[cfg(target_has_atomic = "ptr")]`, esp32-c3 is `riscv32imc` (no `A`
+    // extension), so on that board the facade cannot hold a logger at all and
+    // dropped every record for as long as the claim stood. What separates the
+    // two boards is ATOMICS, not `std` and not `no_std`: thumbv7m has them,
+    // riscv32imc and thumbv6m do not. A board on a non-atomic target must
+    // deliver through `nros_log` + the platform writer, which is why that half
+    // is not optional anywhere.
     crate::log_bridge::install_semihosting_log_bridge();
 
     // Phase 248 C5a (#60 T4) — the board owns RMW selection: register the linked
