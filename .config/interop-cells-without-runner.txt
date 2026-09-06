@@ -1,0 +1,33 @@
+# `Tier::Runtime` cells in `nros_tests::interop::CELLS` that NOTHING invokes.
+#
+# phase-433 W4, issue 1127. `matrix_fixture_coverage.rs` G1 promised "a Runtime
+# cell nothing runs ... fails here" and checked that `tests/<test>.rs` EXISTS.
+# `check-interop-cell-runners` checks the other half: some `just` recipe or some
+# `.github/workflows/` file NAMES the test binary. Measured 2026-09-06, the
+# first time anything asked: 8 of 17 Runtime cells had a runner, and the 9 below
+# did not.
+#
+# Each of these declares a live ROS 2 peer, a direction, a build channel and a
+# coordinate, and is bound to that coordinate by `interop::assert_test_bound`.
+# The declaration is exact; nothing drives it. Issue 1127 owns closing that, and
+# phase-433 W5 is the lane work.
+#
+# FORMAT: `<cell-id>  # issue NNNN -- reason`, one per line, sorted. The cell id
+# is the key, so a RENAMED cell moves its line -- the gate reports the id as
+# unknown rather than quietly excusing whatever took the name.
+#
+# THIS FILE ONLY SHRINKS. Delete a line when its cell gets a lane; the gate
+# fails on a listed cell that HAS a runner, so W5 cannot land a lane and leave
+# the exclusion behind. There is no flag that regenerates it: a regenerate
+# button would turn "add a Runtime cell no lane runs" back into a one-command
+# move, which is the thing being ratcheted.
+
+bridge-zenoh-to-cyclone  # issue 1127 -- `declarative_bridge_zenoh_to_cyclonedds` has no lane
+bridge-zenoh-to-cyclone-imperative  # issue 1127 -- `bridge_zenoh_to_cyclonedds` has no lane
+bridge-zenoh-to-xrce  # issue 1127 -- `declarative_bridge_zenoh_to_xrce` has no lane
+native-graph-rust-cyclone-r2n  # issue 1127 -- `graph_interop` has no lane; the cyclone reader has never met a live participant
+native-graph-rust-zenoh-r2n  # issue 1127 -- `graph_interop` has no lane, the gap issue 0903 rode in through
+native-multinode-cpp-zenoh  # issue 1127 -- `cpp_multi_node_entry` has no lane
+native-multinode-rust-zenoh  # issue 1127 -- `rust_multi_node_per_node_graph` has no lane
+native-qos-override-rust-zenoh  # issue 1127 -- `qos_override_e2e` has no lane
+zephyr-qos-rust-zenoh  # issue 1127 -- `qos_zephyr_ros2_interop_e2e` has no lane; needs the west leaf built too

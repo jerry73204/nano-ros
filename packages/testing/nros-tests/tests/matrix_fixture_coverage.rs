@@ -443,10 +443,17 @@ fn every_fixture_token_is_producible_by_the_module_that_owns_it() {
 // what its test builds/runs — a gate failure rather than a silent pass.
 // ============================================================================
 
-/// G1 — test coverage. Every Runtime interop/bridge cell names a real test
-/// binary (`tests/<test>.rs` exists); every carved-out cell names no test. A
-/// Runtime cell nothing runs, or a runnable cell pointed at a test file that
-/// does not exist, fails here.
+/// G1 — test coverage. Every Runtime interop/bridge cell names a test binary
+/// whose SOURCE FILE exists (`tests/<test>.rs`); every carved-out cell names no
+/// test. A cell pointed at a test file that does not exist fails here.
+///
+/// It does NOT establish that anything runs the binary, and this doc comment
+/// claimed it did ("a Runtime cell nothing runs … fails here") until phase-433
+/// W4 measured it: 9 of the 17 Runtime cells named a binary no `just` recipe and
+/// no workflow invoked, and all five gates here were green. That half is
+/// `check-interop-cell-runners` (issue 1127), which has to live outside this
+/// file — the answer is in `just/*.just` and `.github/workflows/`, not in the
+/// table.
 #[test]
 fn interop_bindings_g1_every_runtime_cell_names_a_real_test() {
     let tests_dir = nros_tests::project_root().join("packages/testing/nros-tests/tests");

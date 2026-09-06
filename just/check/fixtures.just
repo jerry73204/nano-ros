@@ -219,6 +219,17 @@ fixtures-manifest:
 lane-scope-consumers:
     @python3 scripts/check-lane-scope-consumers.py
 
+# phase-433 W4 / issue 1127 — `matrix_fixture_coverage.rs` G1 promises "a Runtime
+# cell nothing runs ... fails here" and asserts that `tests/<test>.rs` EXISTS.
+# This is the other half: every `Tier::Runtime` cell in `interop::CELLS` names a
+# test binary some `just` recipe or workflow actually INVOKES. 8 of 17 did when
+# it was written; the other 9 are `.config/interop-cells-without-runner.txt`,
+# which only shrinks. Buildless — parses `interop.rs`, reads the justfiles and
+# the workflows.
+[private]
+interop-cell-runners:
+    @python3 scripts/check-interop-cell-runners.py
+
 # Issue 0743 fallout — a `binary()` in .config/nextest.toml naming a deleted test
 # target makes nextest refuse to PARSE the config, which kills every nextest run
 # in the repo, not just that lane. It went unnoticed behind a green `just check`
