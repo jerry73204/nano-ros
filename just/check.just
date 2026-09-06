@@ -108,262 +108,35 @@ fast:
 [private]
 _gate-list-end:
 
-# The GATE LIST, and the serial runner — phase-395 W11.
+# The serial runner — phase-395 W11, emptied by this commit.
 #
-# `fast` (below) fans these out; this recipe both DECLARES them and runs
-# them one at a time. Keep it: `run-gates-parallel.sh` derives its list from
-# this dependency line, so the list has exactly one home, and a serial run is
-# the right thing when you want fail-fast ordering or unshredded output.
+# The 230-name dependency list that used to live here is GONE, for the third
+# time of asking. Issue 1072 removed the registry as a CONCEPT — `check-fast`
+# membership is derived (`check-gate-lists.py --list`), and
+# `run-gates-parallel.sh`, `check-gate-lists.py` and `check-default-gates-run-
+# somewhere.py` all say in their own comments that the line no longer exists.
+# It did. `6c52892cc`, whose subject is "delete the 218-name gate registry",
+# left all 230 names in place, so the repo has been carrying a shared append
+# target that its own documentation describes as deleted.
+#
+# It had already drifted, which is the argument rather than the tidiness:
+# `entry-rmw-vocabulary` is in the DERIVED fast lane and was absent from this
+# list, so `just check fast-serial` silently ran 230 gates where `just check
+# fast` ran 231. A gate that one lane skips is exactly what the derivation
+# exists to prevent.
+#
+# And it was the worst conflict surface in the repo. `just/check.just` is
+# touched by 48 of the last 300 commits on main — four times the next file —
+# and two pull requests adding alphabetically adjacent gate names insert at the
+# same line with certainty. Two of the four genuinely conflicting open PRs on
+# 2026-09-06 collided here and nowhere else.
+#
+# `--serial` runs the same derived set one gate at a time, fail-fast, output
+# unshredded. `run-gates-parallel.sh` already owns the skip-ledger reset and
+# the qualified closing report, so the body is the one line.
 [group("main")]
-fast-serial: \
-    abi-bindings \
-    absolute-paths \
-    action-client-arena-budget \
-    activate-shells \
-    api-parity-ledger \
-    artifact-identity-budget \
-    atomic-sync-writes \
-    board-abi-mirror \
-    board-cargo-config-applied \
-    board-facts-delivery \
-    board-manifest-drift \
-    board-tiers \
-    board-vocabulary \
-    book-links \
-    book-no-just \
-    boot-report-layout \
-    box-sync-covers-tracked-source \
-    build-profile-literals \
-    build-root \
-    build-rs-rerun-paths \
-    build-type-spelling \
-    c-fmt \
-    capability-flavour-guards \
-    capability-slot-counts \
-    cargo-config-tracked \
-    cargo-custom-command-depfile \
-    cargo-locked \
-    cargo-profile-mirror \
-    cargo-target-spelling \
-    cbindgen-headers \
-    cbindgen-pin \
-    cc-build-policy \
-    ci-cli-from-source \
-    ci-doc-workflow-refs \
-    ci-image-python-deps \
-    ci-no-fixture-tolerance \
-    ci-no-verb-fallback \
-    claim-protocol \
-    cli-fmt \
-    cli-source-dirs \
-    cmake-find-program-shadowed \
-    cmake-image-policy \
-    cmake-support-library \
-    codegen-invocation \
-    codegen-size-bound-golden \
-    codegen-stamp-inputs \
-    codegen-tool-reconfigure \
-    codegen-version-refusal \
-    codegen-version-surface \
-    config-header-single-writer \
-    config-knob-census \
-    config-surface \
-    core-only-predicate \
-    cpp-ffi-error-mapping \
-    cpp-fmt \
-    cpp-freestanding-includes \
-    cpp-no-std-stdio \
-    cyclone-backend-sources \
-    cyclone-domain-not-pinned \
-    declared-qos-header \
-    default-gates-run-somewhere \
-    deploy-board-resolves \
-    derived-descriptor-fields \
-    doc-recipe-refs \
-    doc-refs \
-    emitter-just-spelling \
-    entity-inventory-knobs \
-    entity-slot-costs \
-    entry-locator-ssot \
-    entry-session-name \
-    example-fmt \
-    example-leaf-build-dirs \
-    example-leaf-target-dirs \
-    example-matrix \
-    example-platform-not-shadowed \
-    export-f-closure \
-    eyre-context-alias \
-    feature-contract \
-    feature-set-ssot \
-    ffi-struct-mirrors \
-    fixture-artifact-dir-inputs \
-    fixture-binary-names \
-    fixture-groups \
-    fixture-id-guard \
-    fixture-staleness-probes \
-    fixture-stamp-honesty \
-    fixtures-manifest \
-    flake-quarantine \
-    flavour-lanes \
-    format-macro-scope \
-    gate-cache-keys-agree \
-    gate-lists \
-    gate-selftests \
-    gate-visibility \
-    generated-leaf-regenerable \
-    generated-schema-coverage \
-    goal-cdr-stripped \
-    grep-q-error-conflation \
-    host-platform-vocabulary \
-    host-triple-literals \
-    image-panic-policy \
-    image-paths-apply-policy \
-    infra-queryable-counts \
-    interface-glob-configure-depends \
-    interlock-visibility \
-    issue-ids \
-    issue-index \
-    just-recipe-refs \
-    kconfig-knob-forwarding \
-    kconfig-overridden-values \
-    knob-delivery \
-    knob-fixpoint \
-    knob-resolved-once \
-    knob-single-reader \
-    lane-contracts \
-    lane-scope-consumers \
-    lane-skip-class \
-    lane-skip-protocol \
-    leaf-lockfiles \
-    ledger-doc-single-home \
-    literal-domain-id \
-    manifests-parse \
-    markdown-links \
-    message-bound-knobs \
-    mirror-header-precedence \
-    msg-dep-is-path \
-    named-lane-fails \
-    nested-workspace-excludes \
-    nextest-binary-filters \
-    no-absolute-model-paths \
-    no-allow-multiple-def \
-    no-board-init \
-    no-direct-kernel-alloc \
-    no-silent-sample-drop \
-    no-std-stdio \
-    no-tracked-file-find \
-    no-tracked-models \
-    no-tracked-workspace-roots \
-    no-vacuous-tests \
-    nuttx-integration-makefile \
-    nuttx-libc-struct-sizes \
-    nuttx-links-snapshot \
-    nuttx-shared-tree-headers \
-    opaque-storage-guards \
-    orphan-generated-stamp \
-    package-xml-comments \
-    package-xml-uses \
-    path-env-fingerprints \
-    peer-sweep-lanes \
-    platform-abi-mirror \
-    platform-provider-features \
-    pool-inventory \
-    posix-platform-purity \
-    preconditions-provisioned \
-    prelude-tiers \
-    prereq-roles \
-    profile-board-mirror \
-    provider-announcements \
-    provider-index \
-    ps-zombie-blind \
-    px4-archive-header-pairing \
-    python \
-    readiness-marker-literals \
-    reconfigure-on-change \
-    reconfigure-stale \
-    required-contexts-reportable \
-    required-features-reachable \
-    retired-platform-clock-symbols \
-    retired-submodule-refs \
-    rmw-abi-shape \
-    rmw-alloc-sites \
-    rmw-api-comparison \
-    rmw-api-parity \
-    rmw-descriptors \
-    rmw-force-link-anchor \
-    rmw-required-slots \
-    rmw-ret-sign \
-    rmw-slot-producers \
-    rmw-slot-table \
-    rmw-vtable-order \
-    roadmap-boxes \
-    roadmap-claims \
-    roadmap-status \
-    ros-env-spelling \
-    runner-doctor-sdk-resolution \
-    runner-sweep-eviction-order \
-    rust-stdio-on-zephyr \
-    rust-targets-covered \
-    scope-namespace \
-    sdk-guard-can-fire \
-    sdk-store-not-enumerated \
-    serdes-descriptors \
-    shared-cargo-dir-witness \
-    single-rust-staticlib \
-    site-config \
-    sizes-header-mirrors \
-    skip-marker-matching \
-    skippable-tests-tolerant \
-    source-manifest \
-    staleness-probe-exemptions \
-    std-census \
-    string-conventions \
-    submodule-pinned-locks \
-    submodule-pins \
-    subtree-guard \
-    sysdep-remedies \
-    test-domain-assignment \
-    test-scripts-have-callers \
-    tests-can-fail \
-    tier-has-ci-owner \
-    tier-priority-plan \
-    tier-spin-gap \
-    vendor-fetch-pinned \
-    version-lockstep \
-    wait-evidence-discarded \
-    weak-symbols \
-    workflow-indexed-apt \
-    workflow-repo-env \
-    workflow-runner-isolation \
-    workflow-setup-spelling \
-    workspace-build-output \
-    workspace-fmt \
-    workspace-order \
-    xrce-source-manifest \
-    zenoh-config-template \
-    zenoh-platform-macros \
-    zenohd-flag-invocations \
-    zenohd-resolution-parity \
-    zenohd-router-skips \
-    zenohd-spawn-sites \
-    zephyr-knob-agreement \
-    zpico-config-keys \
-    _gate-list-end
-    # `_check-skip-reset` is shared skip-ledger infrastructure at the ROOT
-    # (`run-gates-parallel.sh` calls it too), not a gate — and a module cannot
-    # depend on a root recipe, so it is called rather than depended on. It must
-    # still run FIRST: it truncates the ledger every gate below appends to.
-    @just _check-skip-reset
-    #!/usr/bin/env bash
-    set -e
-    # issue 0650 — the closing sentence is REPORTED, not asserted. Six gates in
-    # this lane skip on a missing optional tool (bindgen, ROS 2, colcon, the
-    # in-tree CLI), which they must: this tier is documented to run green on a
-    # pristine worktree. What they may not do is let "Fast checks passed!" stand
-    # for gates that never ran.
-    # shellcheck source=scripts/build/check-skip.sh
-    source scripts/build/check-skip.sh
-    nros_check_skip_report "Fast checks passed!"
+fast-serial:
+    @bash scripts/build/run-gates-parallel.sh --serial
 
 # Build tier — gates that COMPILE or need the workspace to RESOLVE (workspace +
 # embedded clippy, feature combos, riscv32 no_std, nros-tests source gates,
