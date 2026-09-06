@@ -1309,7 +1309,7 @@ fn get_vtable() -> Result<&'static NrosRmwVtable, TransportError> {
     match resolve_backend(None) {
         BackendResolution::Single(vtable) => Ok(vtable),
         BackendResolution::Ambiguous => {
-            nros_log::nros_error!(
+            nros_log::log_error!(
                 nros_log::get_logger("nros_rmw_cffi"),
                 "more than one RMW backend is registered and this open named \
                  none; select one (hosted: $NROS_RMW=<name>; embedded: the \
