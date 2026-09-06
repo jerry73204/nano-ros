@@ -37,7 +37,14 @@
         ::nros::Result r = ::nros::create_node(__nros_node_{{ n.index }}, "{{ n.name | c_str }}");
 {%- endif %}
         if (!r.ok()) return static_cast<int32_t>(r.raw());
-{{- n.qos }}
+{%- if n.qos %}
+        static const ::nros_cpp_qos_override_t __nros_qos_{{ n.index }}[] = {
+{%- for q in n.qos %}
+            { "{{ q.topic | c_str }}", {{ q.role }}, {{ q.policy }}, {{ q.value }} },
+{%- endfor %}
+        };
+        __nros_node_{{ n.index }}.set_qos_overrides(__nros_qos_{{ n.index }}, {{ n.qos | length }});
+{%- endif %}
 {%- if n.shape == "c" %}
         void* self = __nros_c_component_{{ n.pkg }}_create();
         int32_t crc = __nros_c_component_{{ n.pkg }}_configure(__nros_node_{{ n.index }}.ffi_handle(), __nros_node_{{ n.index }}.executor_handle(), self);

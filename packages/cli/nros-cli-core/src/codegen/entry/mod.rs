@@ -191,6 +191,92 @@ impl PlanNode {
     }
 }
 
+/// The per-node declarations a pack renders before construction, and the QoS
+/// overrides it renders after `create_node`.
+///
+/// phase-432 W2.3 — these were `emit_declare_remaps` / `emit_declare_params` /
+/// `emit_qos_overrides`, string writers shared between the two emitters and
+/// carried as pre-rendered `String` fields in both views. They are values now.
+/// `exec` is the pack's own executor EXPRESSION, which is a spelling and so
+/// belongs to the emitter, not to the lowering.
+#[derive(serde::Serialize)]
+pub(crate) struct DeclsView {
+    /// RAW node name — the pack quotes it.
+    pub name: String,
+    pub exec: &'static str,
+    pub remaps: Vec<RemapView>,
+    pub params: Vec<ParamView>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct RemapView {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct ParamView {
+    pub key: String,
+    pub value: String,
+}
+
+/// One QoS override, in codes.
+///
+/// Issue 0303 — the plan already carries CODES: the lowering (and its
+/// rejection of anything unusable) happened in
+/// `nros_orchestration_ir::qos_override`, so there is nothing to decode or
+/// silently skip at render time.
+///
+/// Unlike `DeclsView` this gets no shared partial, and the difference is real
+/// rather than an omission: C calls a free function on the node's ADDRESS
+/// (`nros_cpp_node_set_qos_overrides(&__nros_node_0, …)`) while C++ calls a
+/// method on the node, and the element type is spelled `nros_cpp_qos_override_t`
+/// in one and `::nros_cpp_qos_override_t` in the other. Same data, two
+/// language surfaces — which is exactly what a per-pack template is for.
+#[derive(serde::Serialize)]
+pub(crate) struct QosRowView {
+    pub topic: String,
+    pub role: u8,
+    pub policy: u8,
+    pub value: u32,
+}
+
+/// The declarations for one node, with the pack's executor expression.
+pub(crate) fn decls_view(n: &PlanNode, exec: &'static str) -> DeclsView {
+    DeclsView {
+        name: n.name.as_deref().unwrap_or(&n.exec).to_string(),
+        exec,
+        remaps: n
+            .remaps
+            .iter()
+            .map(|(from, to)| RemapView {
+                from: from.clone(),
+                to: to.clone(),
+            })
+            .collect(),
+        params: n
+            .params
+            .iter()
+            .map(|(key, value)| ParamView {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+    }
+}
+
+pub(crate) fn qos_views(n: &PlanNode) -> Vec<QosRowView> {
+    n.qos_overrides
+        .iter()
+        .map(|o| QosRowView {
+            topic: o.topic.clone(),
+            role: o.role,
+            policy: o.policy,
+            value: o.value,
+        })
+        .collect()
+}
+
 /// One tier, in neutral terms — the row BOTH entry packs render.
 ///
 /// Every field is a VALUE, and the strings are RAW: the pack quotes them
@@ -261,105 +347,75 @@ pub(crate) fn tier_views(
         .collect()
 }
 
-/// Phase 266 (W5b/W6) — emit the `NROS_BOOT_CONFIG` static blob (C/C++ shared helper).
+/// Phase 266 (W5b/W6) — the `NROS_BOOT_CONFIG` blob, as its template sees it.
 ///
-/// For a **single-node** plan the blob bakes the launch node name into
-/// `.node_name` with `NROS_BOOT_SET_NODE_NAME` set; a post-link tool (or the
-/// runner's inline call to `nros_boot_config_node_name`) can read it back.
-/// For a **multi-node** plan (or when the single node has no resolvable name)
-/// all fields are zero / unset — `nros_boot_config_node_name` returns NULL and
-/// the runner falls back to the unified `"node"` default.
+/// phase-432 W2.3 — this used to be `emit_boot_config_static`, a string writer
+/// both entry emitters called and both carried as a pre-rendered `String` in
+/// their view. It is now a fact pair rendered by ONE shared partial
+/// (`boot_config.c.jinja`), which is what "the IR carries no rendered text"
+/// means for this field.
+///
+/// For a **single-node** plan the blob bakes the launch node name, and its
+/// namespace when the node has one; a post-link tool (or the runner's inline
+/// call to `nros_boot_config_node_name`) reads them back. For a **multi-node**
+/// plan, or a single node with no resolvable name, both are `None` — the flags
+/// come out clear, `nros_boot_config_node_name` returns NULL, and the runner
+/// falls back to the unified `"node"` default.
+///
+/// issue 0794 — the producer used to set `NROS_BOOT_SET_NODE_NAME` and nothing
+/// else, while the blob defines four fields and the reader
+/// (`nros-node/src/executor/types.rs`) branches on all four. A launch file that
+/// declared a namespace produced an image that came up at `/`, silently: the
+/// field, the bit, the packer and the reader all existed and worked, and only
+/// the producer was missing.
+#[derive(serde::Serialize)]
+pub(crate) struct BootConfigView {
+    /// RAW. The pack quotes it.
+    pub node_name: Option<String>,
+    pub namespace: Option<String>,
+}
+
+/// Resolve the blob's two facts, refusing a name the C field cannot hold.
 ///
 /// # Errors
 ///
-/// Returns `Err` if the resolved node name exceeds 63 bytes (the
-/// `nros_baked_boot_config.node_name` C field is `char node_name[64]`, which
-/// must hold the string **and** a NUL terminator). The caller receives a clear
-/// diagnostic rather than a confusing C-compiler array-initialiser error.
-///
-/// Callers must have already emitted `#include <nros/boot_config.h>`.
-pub fn emit_boot_config_static(out: &mut String, plan: &Plan) -> Result<(), String> {
-    use std::fmt::Write as _;
-    // Escape a literal for embedding in a C string — backslash and quote.
-    fn escape_c(raw: &str) -> String {
-        raw.replace('\\', "\\\\").replace('"', "\\\"")
-    }
-
-    // issue 0794 — this used to set NROS_BOOT_SET_NODE_NAME and nothing else,
-    // while the blob defines four fields and the reader
-    // (`nros-node/src/executor/types.rs`) branches on all four. So a launch file
-    // that declared a namespace produced an image that came up at `/`, silently:
-    // the field, the bit, the packer and the reader all existed and worked, and
-    // only the producer was missing. RFC-0046 makes launch authoritative for node
-    // identity, and it was authoritative for the name alone.
-    //
-    // `rmw` (layout version 2, issue 1050 defect (3)) is emitted EMPTY with its
-    // bit clear, for the same reason as `domain_id`/`locator`: it is a property
-    // of the IMAGE, not of a node, and `Plan` carries no such field. A C/C++
-    // image gets its selector from the `NROS_ENTRY_RMW` compile definition the
-    // entry gate bakes — the second delivery path issue 0794 records above. It
-    // is spelled here rather than left to the designated-initializer zero fill
-    // so the field is visible in the generated code.
-    //
-    // `domain_id` and `locator` STAY hardcoded, and that is a scope statement
-    // rather than an oversight: neither exists anywhere in `Plan` — `domain_id`
-    // appears exactly once in this whole crate, as the literal below. Both are
-    // properties of the IMAGE rather than of a node, so wiring them means
-    // deciding where they come from first (see the issue).
-    let mut flags: Vec<&'static str> = Vec::new();
-    let mut node_name = String::new();
-    let mut namespace = String::new();
-    if plan.nodes.len() == 1 {
-        let n = &plan.nodes[0];
-        let raw = n.name.as_deref().unwrap_or(&n.exec);
-        // Guard: the C field is `char node_name[64]` — 63 usable bytes + NUL.
+/// Returns `Err` if the resolved node name or namespace exceeds 63 bytes: both
+/// C fields are `char [64]`, which must hold the string **and** a NUL. The
+/// caller gets a clear diagnostic instead of a confusing C-compiler
+/// array-initialiser error. This is a correctness check, so it stays in
+/// compiled Rust rather than moving into the template with the layout.
+pub(crate) fn boot_config_view(plan: &Plan) -> Result<BootConfigView, String> {
+    fn fits(what: &str, raw: &str, field: &str) -> Result<(), String> {
         if raw.len() > 63 {
             return Err(format!(
-                "node name '{}' is {} bytes; the .nros_boot_config node_name field holds at most 63 bytes + NUL",
-                raw,
+                "node {what} '{raw}' is {} bytes; the .nros_boot_config {field} field \
+                 holds at most 63 bytes + NUL",
                 raw.len(),
             ));
         }
-        node_name = escape_c(raw);
-        flags.push("NROS_BOOT_SET_NODE_NAME");
-
-        if let Some(ns) = n.namespace.as_deref() {
-            // `char namespace_[64]` — same 63-byte budget as the name.
-            if ns.len() > 63 {
-                return Err(format!(
-                    "node namespace '{}' is {} bytes; the .nros_boot_config namespace_ field holds at most 63 bytes + NUL",
-                    ns,
-                    ns.len(),
-                ));
-            }
-            namespace = escape_c(ns);
-            flags.push("NROS_BOOT_SET_NAMESPACE");
-        }
+        Ok(())
     }
-    let set_flags = if flags.is_empty() {
-        "0".to_string()
-    } else {
-        flags.join(" | ")
+
+    if plan.nodes.len() != 1 {
+        return Ok(BootConfigView {
+            node_name: None,
+            namespace: None,
+        });
+    }
+    let n = &plan.nodes[0];
+    let raw = n.name.as_deref().unwrap_or(&n.exec);
+    fits("name", raw, "node_name")?;
+    let namespace = match n.namespace.as_deref() {
+        Some(ns) => {
+            fits("namespace", ns, "namespace_")?;
+            Some(ns.to_string())
+        }
+        None => None,
     };
-    let _ = writeln!(
-        out,
-        "/* Phase 266 (RFC-0045) — baked boot config: post-link readable + session name. */\n\
-         static const struct nros_baked_boot_config NROS_BOOT_CONFIG\n\
-         #if defined(__GNUC__) || defined(__clang__)\n\
-             __attribute__((section(\".nros_boot_config\"), used))\n\
-         #endif\n\
-             = {{\n\
-             .magic      = NROS_BOOT_CONFIG_MAGIC,\n\
-             .version    = NROS_BOOT_CONFIG_VERSION,\n\
-             .set_flags  = {set_flags},\n\
-             .domain_id  = 0,\n\
-             .node_name  = \"{node_name}\",\n\
-             .locator    = \"\",\n\
-             .namespace_ = \"{namespace}\",\n\
-             .rmw        = \"\",\n\
-         }};",
-    );
-    Ok(())
+    Ok(BootConfigView {
+        node_name: Some(raw.to_string()),
+        namespace,
+    })
 }
 
 /// Sanitise a pkg name into a valid identifier (`-` → `_`).
@@ -983,6 +1039,26 @@ contracts: {}
         }
     }
 
+    /// The boot-config blob as a compiler would see it.
+    ///
+    /// phase-432 W2.3 — these tests assert on emitted TEXT, and the text now
+    /// comes from the shared partial rather than from a Rust string writer. So
+    /// the helper renders the partial: the assertions keep their meaning AND
+    /// gain coverage of the template, where before they covered only the
+    /// writer.
+    fn boot_config_text(plan: &Plan) -> Result<String, String> {
+        #[derive(serde::Serialize)]
+        struct Ctx {
+            boot_config: BootConfigView,
+        }
+        super::render::render(
+            "boot_config.c.jinja",
+            &Ctx {
+                boot_config: boot_config_view(plan)?,
+            },
+        )
+    }
+
     /// Phase 266 (W6) — a node name of exactly 63 bytes must succeed (fits in
     /// `char node_name[64]` with one byte left for the NUL terminator).
     #[test]
@@ -990,11 +1066,7 @@ contracts: {}
         let name = "a".repeat(63);
         assert_eq!(name.len(), 63);
         let plan = single_node_plan(&name);
-        let mut out = String::new();
-        assert!(
-            emit_boot_config_static(&mut out, &plan).is_ok(),
-            "63-byte name should be accepted"
-        );
+        let out = boot_config_text(&plan).expect("63-byte name should be accepted");
         assert!(
             out.contains(&name),
             "emitted output must contain the node name"
@@ -1008,9 +1080,7 @@ contracts: {}
         let name = "b".repeat(64);
         assert_eq!(name.len(), 64);
         let plan = single_node_plan(&name);
-        let mut out = String::new();
-        let err =
-            emit_boot_config_static(&mut out, &plan).expect_err("64-byte name must be rejected");
+        let err = boot_config_text(&plan).expect_err("64-byte name must be rejected");
         assert!(
             err.contains("64 bytes"),
             "error should mention the byte count; got: {err}"
@@ -1350,8 +1420,7 @@ contracts: {}
             }
         }
 
-        let mut with_ns = String::new();
-        emit_boot_config_static(&mut with_ns, &plan_with(Some("/robot1"))).unwrap();
+        let with_ns = boot_config_text(&plan_with(Some("/robot1"))).unwrap();
         assert!(
             with_ns.contains(".namespace_ = \"/robot1\""),
             "the namespace must be baked, not dropped:\n{with_ns}"
@@ -1365,8 +1434,7 @@ contracts: {}
         // The other direction: no namespace declared means the bit stays clear,
         // so the reader falls through to the next rung of RFC-0045's ladder
         // rather than reading an empty string as "configured to root".
-        let mut without = String::new();
-        emit_boot_config_static(&mut without, &plan_with(None)).unwrap();
+        let without = boot_config_text(&plan_with(None)).unwrap();
         assert!(
             !without.contains("NROS_BOOT_SET_NAMESPACE"),
             "an undeclared namespace must not set the bit:\n{without}"

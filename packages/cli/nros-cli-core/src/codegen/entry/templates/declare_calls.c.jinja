@@ -1,0 +1,35 @@
+{#-
+  The per-node remap and parameter declarations.
+
+  ONE partial, included by both entry packs, because the statements are
+  byte-identical C in both — only the executor expression differs, and that
+  rides in as `exec`. A C++ entry compiles these exact lines. Two copies would
+  be two authored spellings of one call sequence, which is the defect
+  phase-432 exists to remove; before this they were `emit_declare_remaps` and
+  `emit_declare_params`, `pub(super)` string writers in `emit_c.rs` that
+  `emit_cpp` called.
+
+  ORDER IS LOAD-BEARING and belongs to the caller, not here. Both of these run
+  BEFORE the component is constructed or configured: an rclcpp-shape
+  constructor registers entities immediately (issue 0255) and reads
+  `declare_parameter` initials immediately (issue 0745). Seeding params is
+  independent of whether the param-SERVICES surface is enabled — the old
+  emission sat inside the `param_services` gate and AFTER construction, so a
+  plan without param services silently dropped every launch param.
+
+  Indentation is eight spaces because both callers open a node block at four.
+  It is written here rather than passed in: a caller that needed a different
+  depth would be emitting these somewhere they do not belong.
+-#}
+{%- for r in decls.remaps %}
+        {
+            nros_cpp_ret_t rrc = nros_cpp_declare_remap({{ decls.exec }}, "{{ decls.name | c_str }}", "/", "{{ r.from | c_str }}", "{{ r.to | c_str }}");
+            if (rrc != NROS_CPP_RET_OK) return (int32_t)rrc;
+        }
+{%- endfor %}
+{%- for p in decls.params %}
+        {
+            nros_cpp_ret_t prc = nros_cpp_declare_param({{ decls.exec }}, "{{ p.key | c_str }}", "{{ p.value | c_str }}");
+            if (prc != NROS_CPP_RET_OK) return (int32_t)prc;
+        }
+{%- endfor -%}

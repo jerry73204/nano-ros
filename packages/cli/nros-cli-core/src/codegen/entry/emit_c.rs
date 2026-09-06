@@ -9,117 +9,15 @@
 //! `EntryNodeRuntime` interpreter via `nros_board_native_run`) was retired in
 //! phase-257 Stage-3.
 
-use std::fmt::Write;
-
-use super::{Plan, TierView, emit_boot_config_static, sanitize_pkg};
+use super::{
+    BootConfigView, DeclsView, Plan, QosRowView, TierView, boot_config_view, decls_view, qos_views,
+    sanitize_pkg,
+};
 
 /// Phase 257 (W0-A) — a `lang == "c"` node is a `NROS_C_COMPONENT` typed
 /// component the C Entry installs via its `__nros_c_component_<pkg>_*` seam.
 fn is_c_node(n: &super::PlanNode) -> bool {
     n.lang.as_deref() == Some("c")
-}
-
-/// Phase 305 W3 (issue 0255) — bake one `nros_cpp_declare_remap` call per
-/// launch `<remap>` pair, scoped to the node identity the entry creates the
-/// node with (name + `"/"` namespace, matching `nros_cpp_node_create` above).
-/// Must run BEFORE the component's configure registers entities. Shared by
-/// the C and C++ typed emitters (the non-drift rule).
-pub(super) fn emit_declare_remaps(
-    out: &mut String,
-    n: &super::PlanNode,
-    indent: &str,
-    exec_expr: &str,
-) {
-    let node_name = n.name.as_deref().unwrap_or(&n.exec);
-    let name_lit = node_name.replace('\\', "\\\\").replace('"', "\\\"");
-    for (from, to) in &n.remaps {
-        let f = from.replace('\\', "\\\\").replace('"', "\\\"");
-        let t = to.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(out, "{indent}{{");
-        let _ = writeln!(
-            out,
-            "{indent}    nros_cpp_ret_t rrc = nros_cpp_declare_remap({exec_expr}, \"{name_lit}\", \"/\", \"{f}\", \"{t}\");"
-        );
-        let _ = writeln!(
-            out,
-            "{indent}    if (rrc != NROS_CPP_RET_OK) return (int32_t)rrc;"
-        );
-        let _ = writeln!(out, "{indent}}}");
-    }
-}
-
-/// Issue 0745 — bake one `nros_cpp_declare_param` call per launch param,
-/// BEFORE the component's construction/configure: an rclcpp-shape ctor reads
-/// `declare_parameter` initials immediately (the 0255 remap rule, one row
-/// over). Seeding is initial VALUES and is independent of whether the
-/// param-SERVICES surface (`nros_cpp_register_parameter_services`) is
-/// enabled — the old emission sat inside the `plan.param_services` gate and
-/// AFTER construction, so a plan without param services silently dropped
-/// every launch param (measured on the ASI consumer: `ctrl_period` and
-/// `control_output` both fell back to compiled defaults). Shared by the C
-/// and C++ typed emitters (the non-drift rule).
-pub(super) fn emit_declare_params(
-    out: &mut String,
-    n: &super::PlanNode,
-    indent: &str,
-    exec_expr: &str,
-) {
-    for (k, v) in &n.params {
-        let k_esc = k.replace('\\', "\\\\").replace('"', "\\\"");
-        let v_esc = v.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(out, "{indent}{{");
-        let _ = writeln!(
-            out,
-            "{indent}    nros_cpp_ret_t prc = nros_cpp_declare_param({exec_expr}, \"{k_esc}\", \"{v_esc}\");"
-        );
-        let _ = writeln!(
-            out,
-            "{indent}    if (prc != NROS_CPP_RET_OK) return (int32_t)prc;"
-        );
-        let _ = writeln!(out, "{indent}}}");
-    }
-}
-
-/// Issue #52 — bake the node's QoS-override table + the
-/// `nros_cpp_node_set_qos_overrides` call. Must run BEFORE the component's
-/// configure registers entities, so `create_publisher`/`create_subscription`
-/// fold the matching overrides in.
-///
-/// C entries create nodes through the same `nros_cpp_*` FFI as C++ ones, so
-/// this is the C++ emitter's table with a function call instead of a method
-/// call. The `(role, policy, value)` lowering is shared
-/// (`nros_orchestration_ir::qos_override`, shared with the proc-macro) — two
-/// spellings of the same codes is exactly the drift this codebase keeps paying
-/// for.
-pub(super) fn emit_qos_overrides(out: &mut String, n: &super::PlanNode, i: usize, indent: &str) {
-    // Issue 0303 — the plan carries CODES; nothing to decode or skip here.
-    if n.qos_overrides.is_empty() {
-        return;
-    }
-    let _ = writeln!(
-        out,
-        "{indent}static const nros_cpp_qos_override_t __nros_qos_{i}[] = {{"
-    );
-    for o in &n.qos_overrides {
-        let (role, policy, value) = (o.role, o.policy, o.value);
-        let topic = o.topic.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(
-            out,
-            "{indent}    {{ \"{topic}\", {role}, {policy}, {value} }},"
-        );
-    }
-    let _ = writeln!(out, "{indent}}};");
-    let _ = writeln!(out, "{indent}{{");
-    let _ = writeln!(
-        out,
-        "{indent}    nros_cpp_ret_t qrc = nros_cpp_node_set_qos_overrides(&__nros_node_{i}, __nros_qos_{i}, {});",
-        n.qos_overrides.len()
-    );
-    let _ = writeln!(
-        out,
-        "{indent}    if (qrc != NROS_CPP_RET_OK) return (int32_t)qrc;"
-    );
-    let _ = writeln!(out, "{indent}}}");
 }
 
 /// Phase 257 (W0-A, RFC-0043) — emit the **typed** C Entry TU: route each launch
@@ -132,8 +30,9 @@ pub(super) fn emit_qos_overrides(out: &mut String, n: &super::PlanNode, i: usize
 /// Issue 1102 — every field is ALREADY CORRECT. `name_lit` is escaped,
 /// `decls` is the pre-rendered remap/param/QoS block for one node,
 /// `spec_rows` are formatted `nros_native_tier_spec_t` initialisers, and
-/// `boot_config` is the shared `emit_boot_config_static` output. The template
-/// lays them out; it computes nothing.
+/// and `boot_config` carries the blob's two facts for the SHARED
+/// `boot_config.c.jinja` partial. The template lays them out; it computes
+/// nothing.
 #[derive(serde::Serialize)]
 struct CEntryView {
     bringup: String,
@@ -150,7 +49,7 @@ struct CEntryView {
     /// The param-services / lifecycle block that closes the single setup fn,
     /// rendered from `c_service_trailer.c.jinja`.
     trailer: String,
-    boot_config: String,
+    boot_config: BootConfigView,
 }
 
 #[derive(serde::Serialize)]
@@ -179,40 +78,24 @@ struct CNodeView {
     /// RAW node name. The pack quotes it with the `c_str` filter; pre-escaping
     /// here would spell C into a stage that has no language (RFC-0091 §8b).
     name: String,
-    /// STILL pre-rendered, and deliberately so for now: the declaration
-    /// helpers (`emit_declare_remaps` / `_params` / `_qos_overrides`) are
-    /// `pub(super)` and shared with the UNCONVERTED `emit_cpp`. Structuring
-    /// them here alone would give the C++ emitter a second producer of the
-    /// same text — the duplication this whole design exists to remove. They
-    /// become `Vec<Decl>` when `emit_cpp` converts, tracked on issue 1102.
-    decls: String,
+    /// The remap + param calls, rendered by the SHARED
+    /// `declare_calls.c.jinja` — the same partial the C++ pack includes,
+    /// because the statements are byte-identical C in both.
+    decls: DeclsView,
+    /// The QoS overrides. NOT shared: C's call is a free function on the
+    /// node's address where C++'s is a method on the node.
+    qos: Vec<QosRowView>,
 }
 
-/// The remap / param / QoS declarations for one node, at the given indent.
-///
-/// Returned as pre-rendered text because its ELEMENTS are C statements built
-/// from escaped literals — assembling those is the half that must not move
-/// into a template.
-fn node_decls(n: &super::PlanNode, i: usize, indent: &str) -> String {
-    let mut d = String::new();
-    emit_declare_remaps(&mut d, n, indent, "executor");
-    emit_declare_params(&mut d, n, indent, "executor");
-    emit_qos_overrides(&mut d, n, i, indent);
-    // The template writes the surrounding lines, so an empty block must
-    // contribute nothing at all rather than a blank line.
-    if d.is_empty() {
-        d
-    } else {
-        format!("\n{}", d.trim_end_matches('\n'))
-    }
-}
-
-fn node_view(n: &super::PlanNode, i: usize, indent: &str) -> CNodeView {
+fn node_view(n: &super::PlanNode, i: usize) -> CNodeView {
     CNodeView {
         index: i,
         pkg: sanitize_pkg(&n.pkg),
         name: n.name.as_deref().unwrap_or(&n.exec).to_string(),
-        decls: node_decls(n, i, indent),
+        // The C entry creates every node on the executor handle it is passed,
+        // on both paths, so there is one expression rather than a parameter.
+        decls: decls_view(n, "executor"),
+        qos: qos_views(n),
     }
 }
 
@@ -282,8 +165,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
         .is_some_and(|t| t.has_group_split_node());
     let use_run_tiers = use_tiers && !has_group_split;
 
-    let mut boot_config = String::new();
-    emit_boot_config_static(&mut boot_config, plan)?;
+    let boot_config = boot_config_view(plan)?;
 
     let tiers_view = if use_run_tiers {
         let tiers = plan.resolved_tiers.as_ref().unwrap();
@@ -325,7 +207,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
                             .copied()
                             == Some(ti)
                     })
-                    .map(|(i, n)| node_view(n, i, "        "))
+                    .map(|(i, n)| node_view(n, i))
                     .collect(),
                 trailer: if ti == 0 {
                     tier0_trailer.clone()
@@ -373,7 +255,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
             plan.nodes
                 .iter()
                 .enumerate()
-                .map(|(i, n)| node_view(n, i, "        "))
+                .map(|(i, n)| node_view(n, i))
                 .collect()
         },
         trailer: if tiers_view.is_some() {
