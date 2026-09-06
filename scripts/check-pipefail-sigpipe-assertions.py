@@ -76,7 +76,9 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     "docker/can-demo/run.sh": (
         "if ! modinfo vcan >/dev/null 2>&1 && ! lsmod 2>/dev/null | grep -q '^vcan'; then",
     ),
-    "just/check.just": (
+    # Moved with the `just/check.just` -> `just/check/*.just` split. Re-pointed
+    # rather than deleted: the SITE is unchanged, only the file it lives in.
+    "just/check/lanes.just": (
         'if rustup target list --installed | grep -qx aarch64-unknown-none; then',
     ),
     "just/workspace.just": (
@@ -84,7 +86,11 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         'if rustc +{{NIGHTLY}} --print target-list 2>/dev/null | grep -q armv7a-nuttx-eabi; then',
     ),
     "justfile": (
-        'if [ -x "$bin" ] && "$bin" --version 2>/dev/null | grep -q "$want"; then',
+        # The `"$bin" --version | grep -q "$want"` sibling of the line below was
+        # DELETED upstream, so its entry went with it. An allowlist entry for a
+        # line that no longer exists silences nothing and reads as though it
+        # does -- which is the exact failure this gate's stale-entry check
+        # exists to surface.
         'if [ -x "$pinned_cf" ] && "$pinned_cf" --version 2>/dev/null | grep -q "$want_cf"; then',
     ),
     "packages/rmw/cyclonedds/nros-rmw-cyclonedds/tests/alloc_free_audit.sh": (

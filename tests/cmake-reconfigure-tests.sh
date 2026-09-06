@@ -784,7 +784,7 @@ $CHAIN_OUT"
     # with enough leaves exhausts NROS_RECONFIGURE_MAX_PASSES on a CLEAN build
     # dir and ships the previous answer with a warning.
     check
-    if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+    if grep -q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$CHAIN_OUT"; then
         fail "$_calls producer calls per configure exhausted the pass bound on a clean build dir:
 $CHAIN_OUT"
     else
@@ -813,7 +813,7 @@ $CHAIN_OUT"
         _j_log="$_j_log
   edit ($_which): delivered=$CHAIN_DELIVERED want=$_want reruns=$CHAIN_RERUNS"
         [ "$CHAIN_DELIVERED" = "$_want" ] || _j_ok=0
-        if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+        if grep -q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$CHAIN_OUT"; then
             _j_ok=0
             _j_log="$_j_log  <-- hit the bound"
         fi

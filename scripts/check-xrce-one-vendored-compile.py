@@ -79,8 +79,46 @@ CMAKE = XRCE / "nros-rmw-xrce/CMakeLists.txt"
 # The `rmw-xrce` recipe is the OTHER consumer of the cargo lane's OUT_DIR, so it
 # is under the same no-restatement rule. It hands the directory over whole and
 # derives nothing from it.
-JUST = REPO / "just/check.just"
 RECIPE = "rmw-xrce"
+
+
+def _recipe_file(name):
+    """The just file DEFINING `name:`, found rather than hardcoded.
+
+    This read `just/check.just` by path until 2026-09-07, when that file was
+    split into `just/check/*.just` and the gate started failing with
+    "just/check.just has no `rmw-xrce:` recipe" — a gate broken by a move it
+    had no way to notice. Hardcoding the NEW path would just reset the same
+    trap, so search instead: any `just/**.just` may define it, and the recipe
+    name is the thing this gate actually depends on.
+    """
+    import subprocess as _sp
+
+    # `git ls-files`, not a glob: `check-no-tracked-file-find` bans a filesystem
+    # walk for TRACKED files and is right to (7m36s -> 0.8s for the same 232
+    # paths). The first draft of this function used `glob(recursive=True)` and
+    # that gate caught it.
+    listed = _sp.run(
+        ["git", "-C", str(REPO), "ls-files", "--", "just/*.just", "just/**/*.just"],
+        capture_output=True, text=True, check=False,
+    )
+    pat = re.compile(rf"^{re.escape(name)}:", re.M)
+    hits = []
+    for rel in sorted(set(listed.stdout.split())):
+        f = REPO / rel
+        try:
+            if pat.search(f.read_text(encoding="utf-8")):
+                hits.append(f)
+        except OSError:
+            continue
+    if len(hits) == 1:
+        return hits[0]
+    # 0 hits: the recipe is gone, which the caller reports with its own message.
+    # 2+: a genuine ambiguity a gate must not guess through.
+    return hits[0] if hits else None
+
+
+JUST = _recipe_file(RECIPE)
 
 # The trees that arrive as git submodules — the ones this gate exists for. The
 # `backend` tree is ours and is legitimately compiled by both lanes (the CMake
@@ -181,7 +219,7 @@ def recipe_body(text: str, name: str) -> str:
     m = re.search(rf"^{re.escape(name)}:\s*$", text, re.M)
     if not m:
         raise GateError(
-            f"just/check.just has no `{name}:` recipe — this gate reads it to check that the "
+            f"no just file defines a `{name}:` recipe — this gate reads it to check that the "
             "recipe restates no cc-rs fact."
         )
     rest = text[m.end() :]
