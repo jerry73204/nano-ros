@@ -375,7 +375,7 @@ phase-435 implemented it — the `buildtool` role, the `[build_type.*]` axis,
 `ros_package` derivation (retiring issue 1128's placeholder), `[board.zephyr]`,
 and a gate that a non-family board alias names one board.
 
-## W7 — DESIGN: scope the arena-budget walk (issue 1001)
+## W7 — ANSWERED: the arena-budget walk cannot be scoped; move it to where images are (issue 1001)
 
 Found while doing W1, and it is the fast line's own promise at stake.
 
@@ -387,26 +387,122 @@ nor `zephyr-workspace/` nor `tmp/`.
 The cost is **I/O, not CPU**, which is why it went unnoticed: the same
 traversal is 0.6 s warm and over 60 s cold, and the whole gate is 3.4 s warm but
 did not finish in 600 s on a host whose page cache another build had evicted.
-Cold is exactly the case a contributor hits, because `check fast` is often the
-first thing in a session to touch these trees.
 
-**Two fixes were tried and are wrong; issue 1001 records both so they are not
-repeated.** Moving it to the build tier is refused by `check-gate-visibility`
-for a good reason (a gate no pull request runs rots — issue 0981), and it skips
-cleanly with no artifacts, which is that gate's own test for belonging on the
-fast line. Pruning non-`out` siblings under `build/<pkg>-<hash>/` looked
-provably free and silently dropped 159 of 410 findings, because the predicate
-also matches the top-level `build/` shared cargo group dirs from phase-340.
+Issue 1001 posed four questions. All four are answered below, and the answer to
+the first three is **no** — the walk cannot be scoped from inside the gate. What
+changes instead is where the gate lives.
 
-So this is **design work, not a patch**: scoping `roots` to discovered cargo
-target dirs without losing an image, and deciding whether a gate that reads
-untracked artifacts can honour a "buildless and source-free" claim at all —
-`check-lane-contracts` asserts that claim today and it is already false for this
-gate. Issue 1001 carries the four open questions.
+### Measured on this tree, 2026-09-06
 
-**Whoever takes it: capture `--verbose` before and after and diff.** The gate
-prints the same shape while examining a smaller set, so a smoke test cannot see
-a regression — that is how attempt 2 passed inspection.
+Post-`PRUNE` the walk is **240,754 directories**, reaching **1,417 profile dirs**
+and **2,415 generated configs**. The anchors sit unevenly:
+
+| tree | anchors | dirs walked |
+| --- | ---: | ---: |
+| `examples/` | 1,184 | 121,274 |
+| `build/` | 709 | 37,201 |
+| `target/` | 195 | 4,825 |
+| `zephyr-workspace/` | 192 | 58,684 |
+| `packages/` | 128 | 10,769 |
+| `tmp/` | 7 | 3,807 |
+
+### Q1 — is the root set derivable? Yes, and from the existing SSoT
+
+`nros_fixture_row_artifact_dir` (`scripts/build/fixtures-target-dir.sh`) already
+answers "where does this row build", and `fixtures-manifest.py west-leaves`
+answers it for the west leaves. Run over every manifest row, the distinct
+artifact roots collapse to **seven** shared group dirs
+(`build/cargo-fixtures/<platform>`) plus the per-leaf `build-<rmw>/target` dirs.
+No second hand-maintained list — this is the derivation CLAUDE.md already
+requires of anything that post-processes a fixture artifact (issue 1025).
+
+### Q2 — does enumerating cost what walking costs? The ceiling is 47 %, and the obvious discriminator loses images
+
+Splitting the walk by whether a directory sits inside a cargo target root
+(`CACHEDIR.TAG`): **113,764 inside, 126,990 outside**. So even a perfect
+fixed-depth glob *inside* target roots caps the saving at 47 % — and cold, half
+of minutes is still minutes.
+
+Worse, `CACHEDIR.TAG` is not a sound discriminator: **223 of the 2,415 anchors
+have no tagged target root above them** (cargo driven by Corrosion, CMake and
+west writes none). And the anchor's depth below its root is **4, 5 or 6** — not
+fixed — because `--target <triple>` may or may not be in the path. A glob over
+tagged roots is attempt 2's failure mode with a different predicate: silently
+smaller, same shape.
+
+### Attempt 2's entire measured win WAS the amputation
+
+Issue 1001 records "prune non-`out` siblings under `build/<pkg>-<hash>/`" as
+tried and wrong: it cut `examples/` by 21,230 dirs and dropped 159 of 410
+findings. The obvious repair is to require the `<pkg>-<hash>` shape so the
+predicate stops matching the top-level `build/` group dirs. Done that way, over
+the same tree, it saves **2 directories of 240,754 — 0.0 %**, with the profile
+set and the config set bit-identical.
+
+So the sibling prune never had a win to recover. `<pkg>-<hash>` dirs hold little
+but `out`, and `out` already stops the descent. **This closes the whole family:
+no pruning keyed on the anchor's own shape can pay.**
+
+### Q3 — should `tmp/` and `test-logs/` be pruned? Only as a stated narrowing
+
+`tmp/` holds **7 real anchors** today, so pruning it is not free. Cheap and
+small, but it must be recorded as a narrowing rather than sold as an
+optimisation.
+
+### Q4 — is a cold-cache cost acceptable on the pre-push line? The question is upstream of that
+
+The gate exits 78 and records a SKIP when nothing is built — and its own recipe
+says so: *"skips whenever nothing is built and therefore skips in most CI runs"*.
+It is a **developer-tree gate**. On the pull-request line it examines nothing;
+on a developer's tree it examines a hundred gigabytes. Its seat on the fast line
+buys visibility over an empty set and charges the one person who has images.
+
+That is also why `check-gate-visibility` refused the move to the build tier for
+the right reason with the wrong remedy. Its objection — *"if it passes with no
+build artifacts it does not belong in the build tier at all"* — is about the
+gate being **fail-open**, and leaving it on the fast line does not fix that; it
+only moves where the fail-open passes.
+
+### The design
+
+Three changes, together:
+
+1. **`roots` comes from the manifest, not from `ROOT`.** The artifact dirs of
+   the rows the lane built, via `nros_fixture_row_artifact_dir` +
+   `west-leaves`, plus `<repo>/target` as one named root. The walk stops being
+   a repository traversal.
+2. **The gate moves to the fixture/test tier**, where images are a
+   precondition rather than a coincidence — the lane that runs
+   `build-test-fixtures` for its coordinates.
+3. **"No images" becomes a FAILURE, not a skip.** In a lane that just built
+   fixtures, examining nothing means the build did not happen. This is the
+   `check-lane-contracts` lesson (a lane must build what its gates read) and
+   the vacuous-test lesson in one: the fail-open skip is the actual defect
+   behind the visibility objection.
+
+`check-gate-visibility` then needs an explicit baseline entry with a reason: the
+gate is unrunnable on a pull request **by construction**, because it reads cross
+ELFs no PR job builds. Rot is answered by (3) — a fixture lane that finds no
+images is now red, which is a stronger anti-rot property than a PR seat where
+the gate always skipped.
+
+Falling out of it: `check-lane-contracts` stops asserting something false about
+`check fast` (`"buildless and source-only"` is true again once this gate
+leaves), and `pre-push` loses its only cache-hostile step.
+
+### Acceptance for the implementation wave
+
+- `--verbose` captured on a fully built tree BEFORE and AFTER, diffed; the
+  examined-image set is identical or every difference is named and justified.
+  A smoke test cannot see this regression — that is how attempt 2 passed.
+- Cold-cache timing measured, not assumed: drop caches or use a fresh tree,
+  and report the before/after for `check fast` as a whole.
+- The 7 `tmp/` anchors and any anchor outside the derived root set are counted
+  and recorded as a deliberate narrowing, with the number.
+- `check-lane-contracts` reverts to asserting `check::fast` is buildless and
+  source-only, with no carve-out.
+
+Tracked in issue 1001, which carries the measurements.
 
 ## Acceptance for the phase
 
