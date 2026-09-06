@@ -5,6 +5,8 @@ pub use rosidl_lower::config;
 /// metadata, instead of stopping at a `#define` in a generated header.
 pub mod bounds;
 pub mod codegen_version;
+// RFC-0091 §6b / phase-432 W2.5b — a language's Rust surface area: its filters.
+pub mod filters;
 // RFC-0061 / phase-318 W1 — the tool answers "would I emit different bytes?"
 pub mod fingerprint;
 pub mod generator;

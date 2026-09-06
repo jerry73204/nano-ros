@@ -1297,6 +1297,7 @@ dependencies = [
  "criterion",
  "minijinja",
  "nros-core",
+ "nros-lang",
  "nros-serdes",
  "rosidl-lower",
  "rosidl-parser",

@@ -7,82 +7,15 @@
 //!
 //! Every backend AND the per-package scaffolding (Cargo/lib/build) render through
 //! this one `Environment` now — askama is fully removed (phase-335 W6). Type
-//! spelling that used to be pre-baked in the builders is composed here by the
-//! registered `*_type` / `c_type` / `cpp_*` filters (RFC-0068 step 2).
+//! spelling that used to be pre-baked in the builders is composed in the pack by
+//! filters (RFC-0068 step 2), and those filters are the LANGUAGE's contribution,
+//! not this module's: see [`crate::filters`] for the set, who owns each one, and
+//! the checks that keep the packs and the registry in agreement (RFC-0091 §6b /
+//! phase-432 W2.5b). This module owns the templates, the loader and the globals.
 
 use std::sync::LazyLock;
 
-use minijinja::{Environment, value::ViaDeserialize};
-
-/// The neutral facts a `CField` carries for the C-type pack filters (RFC-0068
-/// step 2). Deserialized from the field's serialized form; extra CField keys are
-/// ignored.
-#[derive(serde::Deserialize)]
-struct CTypeSpell {
-    field_type: rosidl_parser::FieldType,
-    is_configurable: bool,
-    is_heap: bool,
-    cap: usize,
-    current_package: String,
-}
-
-/// Neutral facts the Rust-type pack filters (`rust_type_rmw` / `rust_type_idiomatic`)
-/// compose the Rust type string from. `current_package` drives the self-ref
-/// (`crate::` vs `pkg::`) choice inside `rust_type_for_field`.
-#[derive(serde::Deserialize)]
-struct RustTypeSpell {
-    field_type: rosidl_parser::FieldType,
-    current_package: String,
-}
-
-impl RustTypeSpell {
-    fn pkg(&self) -> Option<&str> {
-        (!self.current_package.is_empty()).then_some(self.current_package.as_str())
-    }
-}
-
-/// Neutral facts the `cpp_type` / `cpp_array_suffix` pack filters compose the
-/// C++ header type from.
-#[derive(serde::Deserialize)]
-struct CppTypeSpell {
-    field_type: rosidl_parser::FieldType,
-    is_borrowed: bool,
-    is_heap: bool,
-    cap: Option<usize>,
-    current_package: String,
-}
-
-/// Neutral facts the `cpp_repr_c_type` / `cpp_view_repr_type` pack filters
-/// compose the C++ FFI Rust repr(C) type from.
-#[derive(serde::Deserialize)]
-struct CppReprSpell {
-    field_type: rosidl_parser::FieldType,
-    struct_name: String,
-    cap: Option<usize>,
-    current_package: String,
-    name: String,
-    is_string: bool,
-    is_sequence: bool,
-    is_heap: bool,
-    is_borrowed: bool,
-}
-
-impl CppReprSpell {
-    fn pkg(&self) -> Option<&str> {
-        (!self.current_package.is_empty()).then_some(self.current_package.as_str())
-    }
-}
-
-/// Neutral facts the `nros_type` pack filter composes the nros Rust type from.
-#[derive(serde::Deserialize)]
-struct NrosTypeSpell {
-    field_type: rosidl_parser::FieldType,
-    is_configurable: bool,
-    is_heap: bool,
-    cap: usize,
-    mode: crate::types::NrosCodegenMode,
-    current_package: String,
-}
+use minijinja::Environment;
 
 /// Every bundled pack template, keyed by the stable name a `render(name, …)`
 /// call and any `{% import %}` use. Adding a language = adding rows here plus its
@@ -219,80 +152,11 @@ static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
         "codegen_version",
         crate::codegen_version::NROS_CODEGEN_VERSION,
     );
-    // Custom filter parity with the askama path (`templates::filters::snake_case`).
-    env.add_filter("snake_case", |s: &str| crate::utils::to_snake_case(s));
-    // RFC-0068 step 2 — the C type spelling composed in the pack from a CField's
-    // neutral facts (was pre-baked as `CField.c_type` / `.array_suffix`).
-    env.add_filter("c_type", |v: ViaDeserialize<CTypeSpell>| {
-        let c = &v.0;
-        let cp = (!c.current_package.is_empty()).then_some(c.current_package.as_str());
-        crate::types::c_type_spelling(&c.field_type, c.is_configurable, c.is_heap, c.cap, cp)
-    });
-    env.add_filter("c_array_suffix", |v: ViaDeserialize<CTypeSpell>| {
-        let c = &v.0;
-        crate::types::c_array_suffix_spelling(&c.field_type, c.is_configurable, c.is_heap, c.cap)
-    });
-    // RFC-0068 step 2 — Rust type spelling in the pack (rmw layer = true,
-    // idiomatic layer = false), was pre-baked as `RmwField/IdiomaticField.rust_type`.
-    env.add_filter("rust_type_rmw", |v: ViaDeserialize<RustTypeSpell>| {
-        crate::types::rust_type_for_field(&v.0.field_type, true, v.0.pkg())
-    });
-    env.add_filter("rust_type_idiomatic", |v: ViaDeserialize<RustTypeSpell>| {
-        crate::types::rust_type_for_field(&v.0.field_type, false, v.0.pkg())
-    });
-    // RFC-0068 step 2 — C++ header type spelling in the pack, was pre-baked as
-    // `CppField.cpp_type` / `.array_suffix`.
-    env.add_filter("cpp_type", |v: ViaDeserialize<CppTypeSpell>| {
-        let c = &v.0;
-        let cp = (!c.current_package.is_empty()).then_some(c.current_package.as_str());
-        crate::types::cpp_type_spelling(&c.field_type, c.is_borrowed, c.is_heap, c.cap, cp)
-    });
-    env.add_filter("cpp_array_suffix", |v: ViaDeserialize<CppTypeSpell>| {
-        crate::types::cpp_array_suffix_spelling(&v.0.field_type, v.0.is_borrowed)
-    });
-    // RFC-0068 step 2 — C++ FFI repr(C) type spelling in the pack (was pre-baked
-    // as `CppFfiField.repr_c_type` / `.view_repr_type`).
-    env.add_filter("cpp_repr_c_type", |v: ViaDeserialize<CppReprSpell>| {
-        let c = &v.0;
-        crate::types::cpp_repr_c_type_spelling(
-            &c.field_type,
-            c.is_sequence,
-            c.is_heap,
-            c.is_string,
-            c.cap,
-            &c.struct_name,
-            &c.name,
-            c.pkg(),
-        )
-    });
-    env.add_filter("cpp_view_repr_type", |v: ViaDeserialize<CppReprSpell>| {
-        let c = &v.0;
-        crate::types::cpp_view_repr_type_spelling(
-            &c.field_type,
-            c.is_borrowed,
-            c.is_sequence,
-            c.is_heap,
-            c.is_string,
-            c.cap,
-            &c.struct_name,
-            &c.name,
-            c.pkg(),
-        )
-    });
-    // RFC-0068 step 2 — nros embedded Rust type spelling in the pack (storage +
-    // codegen-mode dependent), was pre-baked as `NrosField.rust_type`.
-    env.add_filter("nros_type", |v: ViaDeserialize<NrosTypeSpell>| {
-        let n = &v.0;
-        let cp = (!n.current_package.is_empty()).then_some(n.current_package.as_str());
-        crate::types::nros_type_spelling(
-            &n.field_type,
-            n.is_configurable,
-            n.is_heap,
-            n.cap,
-            n.mode,
-            cp,
-        )
-    });
+    // phase-432 W2.5b — the filters are not registered here any more. A
+    // language's Rust surface area is a FILTER SET (`crate::filters`), so the
+    // environment asks the registry rather than carrying ten `add_filter`
+    // calls that say nothing about which language owns which spelling.
+    crate::filters::register_all(&mut env);
 
     // W4.b — the override dir comes from `set_template_dir` (a CLI flag can call
     // it) or, with no cross-command plumbing, the `NROS_TEMPLATE_DIR` env var.
