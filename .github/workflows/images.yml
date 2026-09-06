@@ -18,7 +18,18 @@ on:
       - "ci/docker/ci-base/**"
       - "ci/docker/zephyr-ros/**"
       - ".github/workflows/images.yml"
+      # issue 1201 — the ci-base Dockerfile COPYs these two files, so they are
+      # image inputs as much as the Dockerfile is. They are in the CONTENT tag
+      # below for the same reason.
+      - "scripts/lib/rust-targets.sh"
+      - "config/rust-targets.txt"
   workflow_dispatch:
+    inputs:
+      image:
+        description: "Which image to rebuild (a dispatch used to rebuild BOTH; the zephyr one is 30 min)"
+        type: choice
+        default: ci-base
+        options: [ci-base, zephyr, both]
 
 jobs:
   changes:
@@ -34,13 +45,17 @@ jobs:
           filters: |
             ci_base:
               - 'ci/docker/ci-base/**'
+              - 'scripts/lib/rust-targets.sh'
+              - 'config/rust-targets.txt'
             zephyr:
               - 'ci/docker/zephyr-ros/**'
 
   ci-base:
     name: build + push ci-base image
     needs: changes
-    if: ${{ needs.changes.outputs.ci_base == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: >-
+      ${{ needs.changes.outputs.ci_base == 'true'
+          || (github.event_name == 'workflow_dispatch' && inputs.image != 'zephyr') }}
     runs-on: ubuntu-latest
     concurrency:
       group: images-ci-base
@@ -75,8 +90,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Derive the content tag
         id: ctag
+        # Over EVERY file the image bakes, not just the Dockerfile: a
+        # `rust-targets.txt` edit changes the published content with the
+        # Dockerfile byte-identical, and a tag that does not move for it is
+        # the "same tag, different toolchain" defect this tag exists to end.
         run: |
-          sha="$(sha256sum ci/docker/ci-base/Dockerfile | cut -c1-12)"
+          sha="$(cat ci/docker/ci-base/Dockerfile \
+                     scripts/lib/rust-targets.sh config/rust-targets.txt \
+                 | sha256sum | cut -c1-12)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "content tag: ${{ env.IMAGE }}:humble-$sha"
       - name: Log in to GHCR
@@ -87,10 +108,29 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+      # issue 1201 — the context is the REPO ROOT, not the Dockerfile's dir.
+      #
+      # `436035894` (2026-09-04) made the Dockerfile `COPY
+      # scripts/lib/rust-targets.sh` and `config/rust-targets.txt` — paths
+      # relative to the repository — while this step still handed buildx
+      # `context: ci/docker/ci-base`, inside which neither exists. Every
+      # ci-base build since failed in under a minute at "failed to calculate
+      # checksum of ref: not found", and nothing consumed the failure: the
+      # `humble` tag kept serving the 2026-08-29 content, so the image the
+      # `check` job pulls never gained the targets 436035894 baked, nor the
+      # `clang` that 0c73d061b added two days later for `check-api-parity`.
+      # A floating tag that stays put on a failed build is indistinguishable
+      # from one that was never asked to move.
+      #
+      # `.dockerignore` next to the Dockerfile (buildx reads
+      # `<Dockerfile>.dockerignore` first) keeps the root context to the
+      # files the Dockerfile names — a hosted checkout has no build output or
+      # initialised submodules, but the rule should not depend on that.
       - name: Build + push
         uses: docker/build-push-action@v6
         with:
-          context: ci/docker/ci-base
+          context: .
+          file: ci/docker/ci-base/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
@@ -101,7 +141,9 @@ jobs:
   zephyr:
     name: build + push zephyr-ci image
     needs: changes
-    if: ${{ needs.changes.outputs.zephyr == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: >-
+      ${{ needs.changes.outputs.zephyr == 'true'
+          || (github.event_name == 'workflow_dispatch' && inputs.image != 'ci-base') }}
     runs-on: ubuntu-latest
     concurrency:
       group: images-zephyr
