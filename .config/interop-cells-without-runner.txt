@@ -1,16 +1,26 @@
-# `Tier::Runtime` cells in `nros_tests::interop::CELLS` that NOTHING invokes.
+# `Tier::Runtime` cells in `nros_tests::interop::CELLS` that no recipe NAMES.
 #
 # phase-433 W4, issue 1127. `matrix_fixture_coverage.rs` G1 promised "a Runtime
 # cell nothing runs ... fails here" and checked that `tests/<test>.rs` EXISTS.
 # `check-interop-cell-runners` checks the other half: some `just` recipe or some
 # `.github/workflows/` file NAMES the test binary. Measured 2026-09-06, the
-# first time anything asked: 8 of 17 Runtime cells had a runner, and the 9 below
-# did not.
+# first time anything asked: 8 of 17 Runtime cells had one, and the 9 below did
+# not.
+#
+# "No runner" means no FOCUSED runner, and the distinction is worth stating
+# because the first draft of this header got it wrong. The root `just test-all`
+# sweep does reach these binaries -- the ROS-interop exclusion belongs to `just
+# native test` and `just test-integration`, not to it. A sweep still is not a
+# runner for a live-peer cell: it cannot be aimed at one cell, it brings up no
+# peer, and an unmet precondition inside it is a `skip!` that
+# `_rewrite-skipped-junit` renders `<skipped>`, which nobody can tell from a
+# pass. Issue 1127's Direction spells out the order -- one cell end to end by
+# hand, verdict recorded, THEN a lane over the ones that passed.
 #
 # Each of these declares a live ROS 2 peer, a direction, a build channel and a
 # coordinate, and is bound to that coordinate by `interop::assert_test_bound`.
-# The declaration is exact; nothing drives it. Issue 1127 owns closing that, and
-# phase-433 W5 is the lane work.
+# The declaration is exact; nothing is aimed at it. Issue 1127 owns closing
+# that, and phase-433 W5 is the lane work.
 #
 # FORMAT: `<cell-id>  # issue NNNN -- reason`, one per line, sorted. The cell id
 # is the key, so a RENAMED cell moves its line -- the gate reports the id as

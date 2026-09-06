@@ -25,19 +25,36 @@ binaries, of which 3 are named by a recipe --
 -- and 8 are named by no recipe and no workflow, covering 9 cells. Every one of
 those 9 declares a live peer, a direction and a build channel, and is bound to
 its coordinate by `interop::assert_test_bound`. The binding is exact and nothing
-drives it.
+is aimed at it.
 
-WHY A SWEEP IS NOT A RUNNER
+WHAT "NO RUNNER" DOES AND DOES NOT MEAN
 
-`just test-all` runs everything it does not exclude, so in the loosest reading 8
-of those binaries "run". The exclusion list is what refutes it: `test-all`
-excludes `group(=ros2-interop)` and `binary(xrce_ros2_interop)` -- which is
-EXACTLY the three that have named lanes. The lanes exist because a live-peer
-test needs a peer set up (a distro `rmw_zenoh_cpp`, an XRCE Agent, the ROS 2
-CLI) and the sweep sets none up. So being swept along is the opposite of having
-a runner: the three cells with a real lane are the three the sweep refuses to
-touch, and the other 8 ride in a run that gives them nothing to talk to. This
-gate counts only a runner that NAMES the binary.
+It does NOT mean the binaries never execute, and an earlier draft of this file
+said they did not. Measured 2026-09-06: the ROS-interop exclusion
+(`not (group(=ros2-interop) or binary(xrce_ros2_interop) or ...)`) belongs to
+`just native test` and `just test-integration`, NOT to the root sweep. Root
+`just test-all` runs `cargo nextest --workspace` and filters only by lane
+coordinate, absent toolchains and `ros_editions`, so the ten native interop
+binaries are in it -- including on `host-tests.yml`'s integration job, which
+runs `just ci tier1` on every push to main inside the
+`ghcr.io/newslabntu/nano-ros-ci:humble` container. (The one exception is
+`qos_zephyr_ros2_interop_e2e`: a zephyr coordinate, out of the tier-1 cover.)
+
+The predicate here is a FOCUSED runner, and that is a different thing from
+being swept along:
+
+  * A sweep cannot be aimed at ONE cell, which is what running a live-peer test
+    against a real ROS 2 node takes -- issue 1127's Direction is explicit that
+    the order is "one cell end to end, by hand, recorded" BEFORE any lane.
+  * A sweep brings up no peer. The named runners do (`test-ros2*` want the
+    distro's `rmw_zenoh_cpp`; `just xrce test-ros2` wants an Agent).
+  * An unmet precondition inside a sweep is `nros_tests::skip!`, which
+    `_rewrite-skipped-junit` turns into `<skipped>` -- so a green sweep is not
+    evidence that a cell met a peer. Whether these nine currently skip there is
+    NOT measured by this gate and is not claimed here.
+
+So the check is issue 1127's Direction item 4 exactly as written: "a Runtime
+cell's test binary is named by at least one recipe".
 
 WHY THE CELL LIST IS PARSED, NOT BUILT
 
@@ -75,15 +92,16 @@ Usage::
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INTEROP_RS = ROOT / "packages" / "testing" / "nros-tests" / "src" / "interop.rs"
-JUSTFILE = ROOT / "justfile"
-JUST_DIR = ROOT / "just"
-WORKFLOWS = ROOT / ".github" / "workflows"
 LEDGER = ROOT / ".config" / "interop-cells-without-runner.txt"
+
+# Where a runner can be written down. Pathspecs, not directories to walk.
+RUNNER_PATHSPECS = ("justfile", "just", ".github/workflows")
 
 CELLS_HEADER = "pub const CELLS: &[InteropCell] = &["
 
@@ -286,10 +304,11 @@ NOT_GROUP = re.compile(r"\bnot\s*\(")
 def _negated_spans(text: str) -> list[tuple[int, int]]:
     """[(start, end)] of every `not ( ... )` filterset group.
 
-    The sweeps spell their exclusions `-E 'not (group(=ros2-interop) or
-    binary(xrce_ros2_interop) or ...)'`. Reading that as an invocation would
-    credit a runner to every binary the sweeps REFUSE to run, which is the
-    inverse of the truth.
+    `just native test` and `just test-integration` spell their exclusions
+    `-E 'not (group(=ros2-interop) or binary(xrce_ros2_interop) or ...)'`.
+    Reading that as an invocation would credit a runner to every binary those
+    lanes REFUSE to run, which is the inverse of the truth. (Root `just
+    test-all` carries no such exclusion — see the module docstring.)
 
     Nested negation (`not (a or not (b))`) is treated as exclusion throughout.
     That is the safe direction: over-reporting a missing runner asks for a
@@ -343,17 +362,29 @@ def invocations_in(text: str) -> dict[str, int]:
 
 
 def runner_sources() -> list[Path]:
-    """The files that can name a runner: the justfiles and the workflows."""
-    out = [JUSTFILE] if JUSTFILE.is_file() else []
-    if JUST_DIR.is_dir():
-        # rglob, not glob: `just/check.just` was split into `just/check/*.just`
-        # topic files, and the next module to nest would otherwise go unread —
-        # silently, and in the direction that credits no runner to anything.
-        out += sorted(JUST_DIR.rglob("*.just"))
-    if WORKFLOWS.is_dir():
-        out += sorted(p for p in WORKFLOWS.iterdir()
-                      if p.suffix in (".yml", ".yaml"))
-    return out
+    """The files that can name a runner: the justfiles and the workflows.
+
+    `git ls-files`, not a walk -- both because that is the repo rule
+    (`check-no-tracked-file-find`: an index lookup, not a stat of every
+    directory) and because it handles nesting for free. `just/check.just` was
+    split into `just/check/*.just` topic files while this gate was in review,
+    and a flat glob would have stopped reading them silently.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", *RUNNER_PATHSPECS],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    paths = [
+        ROOT / p for p in out
+        if p == "justfile" or p.endswith((".just", ".yml", ".yaml"))
+    ]
+    if not any(p.name == "justfile" for p in paths):
+        raise SystemExit(
+            "check-interop-cell-runners: `git ls-files` returned no root "
+            "justfile -- refusing to report OK over a source list that cannot "
+            "contain a runner."
+        )
+    return sorted(p for p in paths if p.is_file())
 
 
 def runners() -> dict[str, list[str]]:
@@ -425,10 +456,10 @@ def evaluate(cells: list[dict], have: dict[str, list[str]],
         problems.append(
             f"  {c['id']} (interop.rs:{c['line']}) is Tier::Runtime and its test\n"
             f"      binary `{c['test']}` is named by no `just` recipe and no\n"
-            f"      workflow. Nothing runs it, so its peer, direction and\n"
-            f"      coordinate are a declaration with no measurement behind them.\n"
-            f"      Give it a lane, or add it to {LEDGER.name} with the issue\n"
-            f"      that owns the gap."
+            f"      workflow. Nothing can be aimed at it, so its peer, direction\n"
+            f"      and coordinate are a declaration with no measurement behind\n"
+            f"      them. Give it a focused runner, or add it to {LEDGER.name}\n"
+            f"      with the issue that owns the gap."
         )
     for cid in listed:
         if cid in unc_ids:
@@ -607,9 +638,11 @@ def main(argv: list[str]) -> int:
         print(
             "\nA `Tier::Runtime` cell in interop::CELLS declares a live peer, a\n"
             "direction and a coordinate. `matrix_fixture_coverage.rs` G1 checks\n"
-            "its test FILE exists; this checks something INVOKES it. Being swept\n"
-            "up by `just test-all` does not count -- the sweeps exclude exactly\n"
-            "the live-peer groups, so a cell needs a lane that sets its peer up."
+            "its test FILE exists; this checks something NAMES it. The root\n"
+            "`just test-all` sweep does reach these binaries, and does not count:\n"
+            "it cannot be aimed at one cell, it brings up no peer, and an unmet\n"
+            "precondition inside it becomes a <skipped> nobody can tell from a\n"
+            "pass. A live-peer cell needs a runner that sets its peer up."
         )
         return 1
 
