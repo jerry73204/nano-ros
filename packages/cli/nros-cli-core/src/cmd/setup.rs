@@ -265,6 +265,26 @@ pub fn run(args: Args) -> Result<()> {
         return run_check_tool(&index, args.tool.as_deref().unwrap());
     }
     if args.check {
+        // phase-422 W7 — a BOARD given here must still resolve, even though the
+        // walk below is class-wide and the board does not narrow it.
+        //
+        // Measured: `nros setup not-a-board --check` printed the same
+        // everything-is-fine report as `nros setup threadx-linux --check` and
+        // exited 0, because this arm returned before the board was ever looked
+        // up. So the one command a user runs to ASK whether their board is
+        // provisionable answered yes for a name that is not a board — and W7's
+        // whole subject is that `board=` values resolve. Without `--check` the
+        // same typo is a clear error listing the known boards; the doctor
+        // surface was the one that could not tell.
+        //
+        // The walk itself is deliberately NOT narrowed: `--check` alone probes
+        // `[system.*]`, `[rust.*]` and `[python.*]`, which is a different axis
+        // from a board's `[tool.*]`/`[source.*]` package set. Narrowing it is a
+        // redesign of the doctor, not a fix for the silent typo, so the report
+        // says what it covered instead of implying the board scoped it.
+        if let Some(notice) = check_board_argument(&index, args.board.as_deref())? {
+            eprintln!("{notice}");
+        }
         return run_check_all(&index);
     }
 
@@ -1209,6 +1229,26 @@ fn describe(action: &InstallAction, version: &str, host: &str) -> String {
             format!("UNAVAILABLE {version} (no prebuilt for {host}, no source)")
         }
     }
+}
+
+/// A `--check` that was GIVEN a board must still resolve it — phase-422 W7.
+///
+/// Returns the notice to print, or `None` when no board was named. Split out of
+/// `run` so the contract has a test at all — but be precise about what that
+/// buys: the DEFECT was dispatch order (the `--check` arm returned before the
+/// board was ever looked up), and a unit test on this function cannot see
+/// dispatch order. It binds the rule; the single call site above is what makes
+/// the rule reachable, and only running the binary proves that.
+fn check_board_argument(index: &SdkIndex, board: Option<&str>) -> Result<Option<String>> {
+    let Some(board) = board else {
+        return Ok(None);
+    };
+    resolve_packages(index, board)?;
+    Ok(Some(format!(
+        "nros setup: board '{board}' resolves. --check walks the \
+         [system.*]/[rust.*]/[python.*] classes, which the board does not \
+         narrow; use `nros setup {board}` to see its package set."
+    )))
 }
 
 /// Resolve a board to its SDK package set from the index `[board.*]` table — the
@@ -2463,6 +2503,41 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown board") && err.contains("native"));
+    }
+
+    #[test]
+    fn check_validates_a_board_argument_it_does_not_otherwise_use() {
+        // phase-422 W7. `--check` walks the `[system.*]`/`[rust.*]`/`[python.*]`
+        // classes and a board does not narrow that, so the board argument used
+        // to be dropped on the floor: `nros setup not-a-board --check` printed
+        // the same all-clear as `nros setup native --check` and exited 0. The
+        // one command a user runs to ASK whether a board is provisionable
+        // answered yes for a name that is not a board.
+        //
+        // This test binds the RULE, not the dispatch order that broke it —
+        // see the note on `check_board_argument`.
+        let idx = SdkIndex::parse(
+            "[tool.zenohd]\nversion=\"1\"\n[board.native]\npackages=[\"zenohd\"]\n",
+        )
+        .unwrap();
+
+        // No board named: nothing to validate, nothing to say.
+        assert!(check_board_argument(&idx, None).unwrap().is_none());
+
+        // A real board resolves, and the notice says what --check actually
+        // covered rather than implying the board scoped it.
+        let notice = check_board_argument(&idx, Some("native")).unwrap().unwrap();
+        assert!(notice.contains("native") && notice.contains("does not"));
+
+        // The regression itself: an unknown board must be an ERROR here, not a
+        // pass, and must still list what is known.
+        let err = check_board_argument(&idx, Some("not-a-board"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("unknown board") && err.contains("native"),
+            "{err}"
+        );
     }
 
     #[test]

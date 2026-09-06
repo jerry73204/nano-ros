@@ -386,11 +386,11 @@ command, the way `nros setup --system` already does.
 `role = workspace` key names it and prints the install command. Nothing is
 installed without an explicit `--sudo`.
 
-### W7 — one board vocabulary
+### W7 — one board vocabulary — DONE (additively; unification still open)
 
-`board=` in a `package.xml` export and `[board.*]` in the index are two
-namespaces that do not line up: of five boards declared across `examples/`,
-only `threadx-linux` is an index key. `nros setup --workspace` works around it
+`board=` in a `package.xml` export and `[board.*]` in the index were two
+namespaces that did not line up: of five boards declared across `examples/`,
+only `threadx-linux` was an index key. `nros setup --workspace` worked around it
 by validating before printing a command, which is honest but is a workaround.
 
 Same for `deploy=`: `threadx` is not a scope, it splits into `threadx_linux` /
@@ -409,6 +409,51 @@ dispatcher setup spelling.
 **Acceptance.** A gate asserts every `board=` in a package.xml export resolves
 to an index board (or to a documented alias), and every `deploy=` resolves to a
 scope.
+
+### What landed
+
+**The four missing index entries.** `mps2-an385-freertos`, `nuttx-qemu-arm`,
+`nuttx-qemu-riscv` and `riscv64-qemu` are `[board.*]` keys now, each marked
+`# = [board.<other-spelling>]` against the entry it duplicates. All five
+exported boards resolve in both namespaces, and `nros setup <board>` works for
+five of five instead of one.
+
+**`check-board-vocabulary`**, on the fast line, with three assertions:
+
+1. every `board=` resolves in at least one of the five namespaces (cmake board
+   file, index, board crate, fixture coordinate, scope);
+2. every `board=` is specifically an **index key** — the namespace
+   `nros setup <board>` looks up, exact-match with no fallback;
+3. the four `# =` mirrored pairs are byte-identical in `arch`, `platform` and
+   `packages`. The index tells readers to edit both; nothing asserted it, which
+   is the issue-0196 class (a gate credited with a rule wider than the one it
+   enforces).
+
+Assertion 2 is the one that tests what W7 created. Assertion 1 alone was
+satisfied by `cmake/board/*.cmake` for every value, before and after the index
+entries existed — measured A/B, identical OK line either way.
+
+`deploy=` resolves as a scope or splits into `<deploy>_*` scopes by board, which
+is how `threadx` is legal: it is a deploy FAMILY, and the `board=` beside it
+selects `threadx_linux` or `threadx_riscv64`. `check-board-alias-unique`
+(phase-435 W5) enforces the same distinction from the descriptor side.
+
+**A silent hole in the doctor surface, found by running the command.**
+`nros setup <board> --check` dropped the board argument: the arm returned before
+the board was ever looked up, so `nros setup not-a-board --check` printed the
+same all-clear as `nros setup threadx-linux --check` and exited 0. The one
+command a user runs to ASK whether a board is provisionable answered yes for a
+name that is not a board — while the same typo without `--check` was a clear
+error listing the known boards. The board is validated now, and the notice says
+what `--check` actually covered rather than implying the board narrowed it (it
+walks `[system.*]`/`[rust.*]`/`[python.*]`, a different axis from a board's
+package set; narrowing that is a doctor redesign, not this fix).
+
+**Still open:** true unification — picking one canonical spelling and renaming
+through 90+ package.xml files. The index namespace is what USERS type, the
+cmake namespace is what the BUILD uses, and the mirrored pairs are the cost of
+deferring: two entries that a gate now keeps identical rather than one entry
+with an alias key.
 
 ### W8 — refuse a wrong-role dependency — DONE (scoped to `infra`)
 

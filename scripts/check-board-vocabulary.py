@@ -7,10 +7,16 @@ a provisioning command. That only works if the values mean something.
 
 WHAT THE VALUES ACTUALLY MEAN, measured rather than assumed. `board=` is the
 CMAKE BOARD vocabulary: all five values across `examples/` resolve to a
-`cmake/board/nano-ros-board-<name>.cmake` file. They are NOT `[board.*]` index
-keys — only `threadx-linux` is one, so `nros setup <board>` would fail for four
-of five. That mismatch is real and is why `nros setup --workspace` validates
-before printing a command.
+`cmake/board/nano-ros-board-<name>.cmake` file.
+
+They used to resolve to NOTHING ELSE. When this gate was written only
+`threadx-linux` was also an index key, so `nros setup <board>` failed for four
+of five and `nros setup --workspace` had to validate before printing a command.
+W7's additive half closed that: `mps2-an385-freertos`, `nuttx-qemu-arm`,
+`nuttx-qemu-riscv` and `riscv64-qemu` are `[board.*]` entries now, each marked
+`# = [board.<other-spelling>]` against the entry it duplicates. All five values
+resolve in BOTH namespaces, which is what lets the second assertion below —
+`board=` must be an index key — be enforced rather than aspired to.
 
 Five namespaces exist for closely related concepts, overlapping partially:
 
@@ -96,8 +102,12 @@ def fixture_boards(root):
 def cmake_boards(root):
     """Boards defined by `cmake/board/nano-ros-board-<name>.cmake`.
 
-    This is what `board=` in a package.xml export actually names — all five
-    values in this repo resolve here, and only one of them is an index key.
+    This is what `board=` in a package.xml export actually names, and all five
+    values in this repo resolve here. They are ALSO index keys now (W7's
+    additive half); this namespace stays in the OR because it is the one the
+    BUILD uses, and a value that resolved only here would still be a real board
+    — just not a provisionable one, which the stricter check below reports
+    separately.
     """
     d = os.path.join(root, "cmake", "board")
     try:
