@@ -65,122 +65,35 @@ fn emit_qos_overrides(out: &mut String, i: usize, overrides: &[QoSOverrideSpec])
     );
 }
 
-/// Board key → C++ Board adapter path.
+/// The C++ board class an entry calls.
 ///
-/// Two adapters ship today (Phase 235): `LinuxBoard` (the host native board —
-/// Linux; the platform port beneath it is `posix`) and
-/// `ZephyrBoard` (embedded Zephyr — RFC-0032 §8a). Per the §8a decision
-/// there is ONE metadata-driven `ZephyrBoard` rather than per-board C++
-/// types: everything board-specific (the Zephyr `BOARD` id, DTS overlay,
-/// default RMW, `west` runner) is supplied by the Phase 215
-/// `nano_ros_use_board(<name>)` cmake import at build time, so the C++
-/// adapter has nothing left to specialize. The `nano_ros_entry` cmake fn
-/// derives the `"zephyr"` board key from `NROS_BOARD_RUNNER` (set by the
-/// Phase 215 import) when the Entry pkg's DEPLOY target is embedded.
-///
-/// An explicit C++ path-like key (`"::nros::board::…"`) passes through
-/// verbatim so callers can name a board adapter the emitter doesn't yet
-/// know.
-fn board_cpp_path(board: &str) -> &str {
-    match board {
-        "native" | "posix" => "::nros::board::LinuxBoard",
-        // Embedded Zephyr family — every Phase 215 Zephyr board (FVP,
-        // qemu-zephyr, …) compiles with `__ZEPHYR__` and shares the one
-        // metadata-driven `ZephyrBoard` adapter.
-        "zephyr" | "fvp-aemv8r-smp" | "armfvp" => "::nros::board::ZephyrBoard",
-        // Phase 238 — embedded NuttX (qemu-arm-virt etc.). Network is up at
-        // kernel boot; shares the EntryNodeRuntime via the `NuttxBoard`
-        // lifecycle adapter.
-        "nuttx" | "nuttx-qemu-arm" | "nuttx-qemu-riscv" => "::nros::board::NuttxBoard",
-        // Phase 240.6 / phase-263 C2b — embedded FreeRTOS (QEMU MPS2-AN385 + lwIP). The
-        // board's C `startup.c` spawns the app task + starts the scheduler, brings up the
-        // netif, and dispatches to the typed entry's `app_main`, so `FreertosBoard`'s
-        // `run_components` runs WITHOUT re-entering the kernel — same machinery as the
-        // ThreadX/NuttX adapters.
-        // phase-370 — `freertos-posix` is the same adapter: the FreeRTOS POSIX
-        // simulator's `main` is owned by the board too
-        // (`nros-board-freertos-posix/c/freertos_posix_entry.c` creates the app
-        // task and starts the scheduler), so the entry must emit `nros_app_main`
-        // and NOT an `int main`. It is a host process, but the nodes still run
-        // as FreeRTOS TASKS — a plain `int main` would run them on the process
-        // thread and exercise no kernel at all.
-        //
-        // Until it was listed, this key fell through to the `LinuxBoard`
-        // default below, which is a SILENT wrong answer rather than the
-        // configure error that comment assumes: the emitter produced the native
-        // `int main` + `nros_board_native_run_components_named` shape, and the
-        // build got as far as the link before `app_main` came up undefined.
-        // phase-372 W2 — the S32Z270 RTU (Cortex-R52) joins the family list;
-        // same C startup ownership of `main` as every FreeRTOS board.
-        // phase-385 W1 — QEMU MPS3-AN536 joins on the same terms.
-        "freertos"
-        | "mps2-an385-freertos"
-        | "freertos-posix"
-        | "s32z270-freertos"
-        | "s32z270"
-        | "mps3-an536-freertos"
-        | "an536" => "::nros::board::FreertosBoard",
-        // Phase 246 — Azure RTOS ThreadX family (threadx-linux host sim +
-        // bare-metal qemu-riscv64). The board's C `startup.c` enters the kernel
-        // and dispatches to the typed entry's `app_main` inside the app thread, so
-        // the `ThreadxBoard` adapter runs `run_components` WITHOUT re-entering the
-        // kernel — same `EntryNodeRuntime` machinery as Native/NuttX/Zephyr.
-        "threadx" | "threadx-linux" | "threadx-qemu-riscv64" | "qemu-riscv64-threadx" => {
-            "::nros::board::ThreadxBoard"
-        }
-        // An explicit, already-qualified C++ board path passes through.
-        b if b.starts_with("::nros::board::") => b,
-        // Unknown / future board keys fall back to LinuxBoard with the
-        // assumption the cmake-side configure will have already errored
-        // on the DEPLOY check (`nano_ros_entry` requires a BOARD for
-        // non-`native` DEPLOY). Keeping the default as LinuxBoard lets
-        // unit tests cover the unhappy path without teaching the emitter
-        // every embedded board prematurely.
-        _ => "::nros::board::LinuxBoard",
+/// phase-432 W2.2 — this is a RENDERING of the board family, not a second
+/// table. The nineteen board keys collapse onto five families in
+/// `nros_entry_lower::board_family`, which is the neutral fact; a `::nros::board::`
+/// path is C++'s spelling of it and belongs here, in the emitter, rather than
+/// in the lowering. RFC-0091 §8b found the first draft leaking exactly this
+/// string into the IR, where a pure-C or Zig pack could not use it.
+fn board_cpp_path(board: &str) -> &'static str {
+    match nros_entry_lower::board_family(board) {
+        nros_entry_lower::BoardFamily::Native => "::nros::board::LinuxBoard",
+        nros_entry_lower::BoardFamily::Zephyr => "::nros::board::ZephyrBoard",
+        nros_entry_lower::BoardFamily::Nuttx => "::nros::board::NuttxBoard",
+        nros_entry_lower::BoardFamily::Freertos => "::nros::board::FreertosBoard",
+        nros_entry_lower::BoardFamily::Threadx => "::nros::board::ThreadxBoard",
     }
 }
 
-/// phase-263 C2 (issue 0097) — does this board boot via the RTOS `startup.c`
-/// (`nros_app_main` + `NROS_APP_MAIN_REGISTER_VOID`) rather than a plain `int main`?
-/// Every non-native board does: the board's `startup.c` owns `main` (kernel enter →
-/// app thread) and dispatches to the entry's `app_main`, so the LAUNCH entry must NOT
-/// define `int main` (it would double-main / never run under the kernel). Native keeps
-/// the POSIX `int main`.
-/// The boot wrapper a generated entry gets, derived from the board.
+/// The boot wrapper a generated entry gets.
 ///
-/// Issue 1003 — ONE derivation, used by both the per-tier and the
-/// single-executor path.
-///
-/// The two used to spell the branch chain separately, and they spelled it
-/// DIFFERENTLY: the per-tier path tested `freertos || nuttx` where the
-/// single-executor path tested `board_is_embedded`. That reads like a drift
-/// bug and is not one — `use_run_tiers` already excludes every embedded board
-/// except those three, so ThreadX (the only board the two predicates disagree
-/// about) cannot reach the per-tier chain at all, and both produced the same
-/// wrapper for every board that reaches them.
-///
-/// It is still worth one derivation: establishing that equivalence takes a
-/// reachability argument about a condition seventy lines away, and that
-/// argument has to be redone by hand every time either chain is touched. A
-/// board added to `use_run_tiers` tomorrow would make the difference real.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum BootShape {
-    /// The kernel calls `main(void)` directly (Zephyr).
-    Kernel,
-    /// The board's `startup.c` owns `main` and dispatches to `nros_app_main`.
-    App,
-    /// A host process keeping the POSIX `int main(argc, argv)`.
-    Host,
-}
+/// phase-432 W2.2 — re-exported from `nros-entry-lower`, which is where the
+/// derivation lives now. It was computed here from a board-string match, and
+/// the proc-macro computed the same thing a third time; a crate the macro can
+/// afford is what lets both stop.
+pub(crate) use nros_entry_lower::BootShape;
 
+/// The boot shape for a board key.
 pub(crate) fn boot_shape(board: &str) -> BootShape {
-    if board_is_zephyr(board) {
-        BootShape::Kernel
-    } else if board_is_embedded(board) {
-        BootShape::App
-    } else {
-        BootShape::Host
-    }
+    nros_entry_lower::board_family(board).boot_shape()
 }
 
 /// Wrap `call` — the board call whose value the entry returns — in the board's
@@ -208,7 +121,7 @@ fn emit_boot_wrapper(out: &mut String, shape: BootShape, call: &str) {
 }
 
 pub(crate) fn board_is_embedded(board: &str) -> bool {
-    board_cpp_path(board) != "::nros::board::LinuxBoard"
+    nros_entry_lower::board_family(board).is_embedded()
 }
 
 /// phase-263 C2d — Zephyr is the exception among embedded boards: the Zephyr kernel
@@ -220,7 +133,7 @@ pub(crate) fn board_is_embedded(board: &str) -> bool {
 /// in via the compile-time `CONFIG_NROS_ZENOH_LOCATOR` Kconfig (read through the
 /// `NROS_ENTRY_LOCATOR` default in `<nros/main.hpp>`), not a baked `-D`.
 pub(crate) fn board_is_zephyr(board: &str) -> bool {
-    board_cpp_path(board) == "::nros::board::ZephyrBoard"
+    nros_entry_lower::board_family(board) == nros_entry_lower::BoardFamily::Zephyr
 }
 
 /// Phase 274.W3 — FreeRTOS embedded boards support `run_tiers` (one RTOS task per tier
@@ -230,7 +143,7 @@ pub(crate) fn board_is_zephyr(board: &str) -> bool {
 /// the Rust `run_tiers_entry`. The generated entry emits `nros_app_main` +
 /// `NROS_APP_MAIN_REGISTER_VOID`, calling `FreertosBoard::run_tiers` (RFC-0015 §5).
 pub(crate) fn board_is_freertos_embedded(board: &str) -> bool {
-    board_cpp_path(board) == "::nros::board::FreertosBoard"
+    nros_entry_lower::board_family(board) == nros_entry_lower::BoardFamily::Freertos
 }
 
 /// phase-281 W3 (nuttx) — NuttX embedded boards support `run_tiers` (one pthread
@@ -242,7 +155,7 @@ pub(crate) fn board_is_freertos_embedded(board: &str) -> bool {
 /// path calls `app_main`, like FreeRTOS — NOT Zephyr's `main(void)`), calling
 /// `NuttxBoard::run_tiers` (RFC-0015 §5).
 pub(crate) fn board_is_nuttx(board: &str) -> bool {
-    board_cpp_path(board) == "::nros::board::NuttxBoard"
+    nros_entry_lower::board_family(board) == nros_entry_lower::BoardFamily::Nuttx
 }
 
 /// Phase 240.2 (RFC-0043) — **typed** entry emitter. Routes each launch node to

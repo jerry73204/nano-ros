@@ -1,0 +1,9 @@
+[package]
+name = "nros-entry-lower"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Stage 2 of the ENTRY codegen pipeline (RFC-0091 §4): board identity, boot shape and the facts every language pack renders from. Dependency-light on purpose — the `nros::main!()` proc-macro must be able to afford it (issue 0083)."
+
+[dependencies]
+serde = { workspace = true }

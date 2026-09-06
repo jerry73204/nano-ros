@@ -806,6 +806,7 @@ dependencies = [
  "minijinja",
  "nros-board-common",
  "nros-cargo-profile",
+ "nros-entry-lower",
  "nros-lang",
  "nros-launch-parser",
  "nros-msg-to-idl",
@@ -837,6 +838,13 @@ dependencies = [
  "heapless",
  "log",
  "nros-serdes",
+]
+
+[[package]]
+name = "nros-entry-lower"
+version = "0.5.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
