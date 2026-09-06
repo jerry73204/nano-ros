@@ -331,6 +331,23 @@ no-direct-kernel-alloc:
 no-std-stdio:
     @python3 scripts/check-no-std-stdio.py
 
+# Its sibling on the other half of the same claim. `no-std-stdio` checks that a
+# `#![no_std]` crate does not reach for `std` stdio; this checks that the core
+# crates SAY `#![no_std]` in the first place, unconditionally.
+#
+# The conditional spelling -- `cfg_attr(not(feature = "std"), no_std)` -- is
+# what makes the first gate's target move: it compiles a different crate per
+# feature, and the configuration an embedded image uses is the one every
+# merge-gating lane skips, because those lanes build with `std`. `nros-log`
+# carried that form until 2026-09-06 while its `std` feature did nothing but
+# alias `alloc`, so the second configuration existed and bought nothing.
+#
+# Buildless, and NOT about the alloc axis: a core crate may still use `alloc`
+# behind its own feature. That axis is issue 1177.
+[group("ci")]
+core-crates-are-no-std:
+    @python3 scripts/check-core-crates-are-no-std.py
+
 # issue 0488 residue 4 follow-up — the NuttX integration Makefile is on a path no
 # lane executes (`CONFIG_NROS` is set by no shipped defconfig), so it rots.
 [private]
