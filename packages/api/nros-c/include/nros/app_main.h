@@ -58,22 +58,19 @@ int nros_app_main(int argc, char** argv);
  * definitions (NanoRosEntry.cmake board gate — e.g. `tcp/10.0.2.2:7447` for
  * QEMU slirp), so the `#ifndef` defaults below never fire there.
  *
- * Issue 0330 — the fallback is the EMPTY STRING, not a zenoh router
- * endpoint. This header is RMW-blind, so it must not restate a backend fact;
- * `""` is the established "absent — let the backend discover" value (same as
- * `<nros/main.hpp>`'s own `NROS_ENTRY_LOCATOR` fallback). It is consumed as a
- * VALUE (not a nullable pointer) by main.hpp's `run_components` /
- * `run_tiers` overloads and by the CLI entry codegen, so the macro must keep
- * expanding to a string literal. `""` travels through
- * `nros_support_init` / `nros_cpp_init` → the RFC-0045 resolver's empty
- * bottom rung → the linked backend, which substitutes its own default
- * (zenoh: `nros_rmw_zenoh::DEFAULT_LOCATOR`). */
-#ifndef NROS_ENTRY_LOCATOR
-#define NROS_ENTRY_LOCATOR ""
-#endif
-#ifndef NROS_ENTRY_DOMAIN_ID
-#define NROS_ENTRY_DOMAIN_ID 0
-#endif
+ * phase-432 (W3.1 prerequisite) — this used to define both macros HERE, as
+ * `""` and `0`, with no derivation, while `<nros/main.hpp>` derived them from
+ * Kconfig. Same two names, two answers: a TU that saw only this header dialled
+ * nothing on a board whose locator comes from `CONFIG_NROS_ZENOH_LOCATOR`.
+ * That is free today only because an embedded C entry is routed to the C++
+ * emitter; it stops being free the moment a pure C entry exists, and it would
+ * arrive as issue #174's silent no-connect rather than as an error.
+ *
+ * One ladder now, in a C header both entry languages include. Issue 0330's
+ * rule still holds and lives there: the bottom rung is the EMPTY STRING, not a
+ * router endpoint, and the macro must keep expanding to a string literal
+ * because callers pass it by VALUE rather than as a nullable pointer. */
+#include "nros/entry_config.h"
 
 /* ---- Platform-specific entry shims ---- */
 

@@ -260,6 +260,106 @@ def cmake_files():
     return files
 
 
+
+# --------------------------------------------------------------------------
+# The header-side half (phase-432, W3.1 prerequisite)
+# --------------------------------------------------------------------------
+#
+# The CMake half above makes the locator LITERAL have one producer. It says
+# nothing about the C-preprocessor ladder that turns Kconfig into
+# `NROS_ENTRY_LOCATOR` / `NROS_ENTRY_DOMAIN_ID` inside the headers, and that
+# had THREE spellings:
+#
+#   * `<nros/main.hpp>` derived both from Kconfig (zenoh locator, else a
+#     synthesised XRCE `host:port`, else `""`);
+#   * `<nros/app_main.h>` — the C sibling — defined both as `""` and `0` with
+#     no derivation at all, so a TU that saw only the C header dialled nothing
+#     on a board whose locator comes from `CONFIG_NROS_ZENOH_LOCATOR`;
+#   * a third `#ifndef` further down `main.hpp` for the locator-less NuttX
+#     overload, unreachable because the ladder above it had always already
+#     defined the macro — it promised `""` and delivered whatever the first
+#     ladder produced.
+#
+# Same failure mode as the CMake half and the same reason it needs a gate
+# rather than a convention: a wrong locator compiles, links and boots, and the
+# only symptom is a connection that never happens.
+#
+# The rule is ONE DEFINING HEADER, not "the values agree" — deciding what a
+# board should dial is a per-board question, and this file is not the place it
+# gets answered.
+
+HEADER_SSOT = "packages/api/nros-c/include/nros/entry_config.h"
+HEADER_MACROS = ("NROS_ENTRY_LOCATOR", "NROS_ENTRY_DOMAIN_ID")
+_DEFINE = re.compile(r"^\s*#\s*define\s+(NROS_ENTRY_LOCATOR|NROS_ENTRY_DOMAIN_ID)\b")
+
+
+def header_files():
+    """Every tracked-or-new C/C++ header and source under `packages/api/`.
+
+    `--others --exclude-standard` for the same reason as `cmake_files()`: a
+    second ladder added but not yet committed must red while its author is
+    looking at it. Generated headers are gitignored and so stay out.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "packages/api/"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    files = {}
+    for rel in sorted(set(out)):
+        if not rel.endswith((".h", ".hpp", ".c", ".cpp", ".cc")):
+            continue
+        path = os.path.join(ROOT, rel)
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                files[rel] = fh.read()
+    return files
+
+
+def analyze_headers(files):
+    """Definitions of the two entry macros outside the one defining header."""
+    problems = []
+    for rel, text in sorted(files.items()):
+        if rel == HEADER_SSOT:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            m = _DEFINE.match(line)
+            if m:
+                problems.append(
+                    f"{rel}:{n}: defines {m.group(1)} — a second ladder. "
+                    f"Include {HEADER_SSOT} instead."
+                )
+    return problems
+
+
+def header_selftest():
+    """The predicate must catch a planted second ladder and allow a mention.
+
+    Without this the check could pass by examining nothing, which is the shape
+    it exists to prevent one layer up.
+    """
+    planted = {
+        HEADER_SSOT: "#define NROS_ENTRY_LOCATOR \"\"\n",
+        "packages/api/x/other.h": "#define NROS_ENTRY_LOCATOR \"tcp/1.2.3.4:1\"\n",
+    }
+    if len(analyze_headers(planted)) != 1:
+        print("SELFTEST FAIL: a planted second ladder was not caught.", file=sys.stderr)
+        sys.exit(1)
+    allowed = {
+        HEADER_SSOT: "#define NROS_ENTRY_LOCATOR \"\"\n",
+        # A mention, a doc comment and an `#ifdef` are all fine: the rule is
+        # about who DEFINES the macro, not who reads it.
+        "packages/api/x/reader.h": (
+            "/* NROS_ENTRY_LOCATOR is derived in entry_config.h */\n"
+            "#ifdef NROS_ENTRY_LOCATOR\n"
+            "static const char* l = NROS_ENTRY_LOCATOR;\n"
+            "#endif\n"
+        ),
+    }
+    if analyze_headers(allowed):
+        print("SELFTEST FAIL: a mention was reported as a definition.", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     selftest()
 
@@ -294,7 +394,42 @@ def main():
             print(f"  {p}", file=sys.stderr)
         return 1
 
-    print(f"check-entry-locator-ssot: OK (one producer: {SSOT})")
+    header_selftest()
+    headers = header_files()
+    if HEADER_SSOT not in headers:
+        print(
+            f"FAIL: the header-side SSoT {HEADER_SSOT} does not exist.",
+            file=sys.stderr,
+        )
+        return 1
+    missing = [m for m in HEADER_MACROS if f"#define {m}" not in headers[HEADER_SSOT]]
+    if missing:
+        print(
+            f"FAIL: {HEADER_SSOT} does not define {', '.join(missing)} — "
+            "it is the SSoT and must be the thing that derives them.",
+            file=sys.stderr,
+        )
+        return 1
+
+    header_problems = analyze_headers(headers)
+    if header_problems:
+        print(
+            "FAIL: the entry connect macros must have exactly ONE defining header.",
+            file=sys.stderr,
+        )
+        print(
+            "  A second ladder drifts silently — the image compiles, links and\n"
+            "  boots, and simply dials the wrong address or none at all (#174).\n",
+            file=sys.stderr,
+        )
+        for p in header_problems:
+            print(f"  {p}", file=sys.stderr)
+        return 1
+
+    print(
+        f"check-entry-locator-ssot: OK (one cmake producer: {SSOT}; "
+        f"one header producer: {HEADER_SSOT}, {len(headers)} header(s) scanned)"
+    )
     return 0
 
 
