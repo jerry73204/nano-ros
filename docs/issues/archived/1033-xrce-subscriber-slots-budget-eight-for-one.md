@@ -368,3 +368,151 @@ changed is that a Zephyr image can now claim that saving at all.
   `nros_cc_flags::strict_decls` (`cargo check -p nros-rmw-xrce-cffi`, both new
   strings verified present in `libnros_rmw_xrce_c_inline.a`); the Zephyr image
   was not rebuilt on this host.
+## The derivation was retired out from under these leaves (2026-09-06)
+
+The section above closes this issue and says, in its own last line, "the Zephyr
+image was not rebuilt on this host". Rebuilding it is how the following was
+found, and it is the whole reason this survived: every claim above is about a
+saving that, on `main`, no longer builds. Measured,
+not inferred: `west build -p always` on `examples/zephyr/cpp/listener` with
+`prj-xrce.conf` fails at CONFIGURE.
+
+```
+CMake Error at cmake/NanoRosNodeRegister.cmake:1129 (message):
+  nano_ros_node_register(listener): ENTITIES was retired (phase-412).
+Call Stack (most recent call first):
+  cmake/NanoRosVerbs.cmake:471 (nano_ros_node_register)
+  CMakeLists.txt:45 (nros_components_register_node)
+```
+
+phase-412 (`3016c16a9`, 2026-09-05 21:59Z) retired `ENTITIES` and moved the
+declaration to a `<bringup>/launch/<stem>.contract.yaml` sidecar. It migrated
+the six `examples/workspaces/cpp` packages. It did **not** migrate the six
+`examples/zephyr/cpp` leaves this issue had taught to declare 41 hours earlier
+(`0768e0c59`), and those six are the only remaining `ENTITIES` callers in the
+tree.
+
+**The blast radius is not six files.** The error is raised before the RMW
+matters, so it takes all 19 `examples/fixtures.toml` rows over
+`examples/zephyr/cpp/` — zenoh, xrce and cyclonedds alike. Confirmed by
+building `cpp/talker` against `prj-zenoh.conf` and getting the same error.
+
+**And nothing said so**, because those leaves are configured only by
+`build-test-fixtures`, which needs the Zephyr SDK and west and therefore runs on
+no `pull_request` lane. The retirement's `FATAL_ERROR` is the right mechanism
+reporting to nobody — the shape of issues 1025 and 1070.
+
+### The replacement has no shape that fits a standalone application
+
+`nros_derive_entity_inventory_knobs` has two callers. Only
+`NanoRosEntry.cmake:1028` supplies `MODEL`, and it sits inside
+`_nros_entry_invoke_codegen`, reachable only from the `LAUNCH`/`MODEL` arm of
+`nano_ros_entry()`. These leaves are standalone Zephyr applications: no
+`nano_ros_entry`, no launch file, no bringup, no `system.toml`, so no contract
+sidecar and no SystemModel.
+
+The deferred standalone composer this issue added (`d11a14f5f`) still exists at
+`NanoRosNodeRegister.cmake:144`, and still runs — it just cannot produce
+anything any more, because it passes no `MODEL` and `nano_ros_node_register` no
+longer emits an `entities` metadata key. Every component reads `Absent`, and the
+refusal it returns said, in as many words:
+
+> Add `ENTITIES ...` to each `nano_ros_node_register()` above -- `ENTITIES NONE`
+> for a component that really creates none.
+
+**The one remedy the diagnostic named was the one thing the caller could not
+do.** A message that outlives the mechanism it describes aims the next reader at
+a wall, and this one did it for every standalone image in the tree. Fixed here.
+
+### Measured, on the listener that motivated this issue
+
+`sizeof(xrce_session_state_t)` from each image's own DWARF
+(`gdb -batch -ex "ptype /o xrce_session_state_t" zephyr.elf`), all three built
+`west build -p always -b native_sim/native/64` on one host, one tree:
+
+| state | request | outcome |
+| --- | ---: | --- |
+| `main` as it stands | — | **configure `FATAL_ERROR`** |
+| `ENTITIES` deleted, nothing else | **309,696** | builds; dies at boot |
+| this change | **54,928** | boots clean |
+
+The middle row is the naive way to complete phase-412's sweep, and it is worth
+stating because it looks like a fix. It is the pre-issue-1033 number exactly,
+and the image says so itself:
+
+```
+nros: HEAP EXHAUSTED: request 309696 bytes, arena 66048 bytes, caller 0x42c11e
+```
+
+Against the same run of the image built here, which prints no such line.
+
+Across the leaves rebuilt to check the multipliers:
+
+| leaf | subscriber / server / client slots | `sizeof` |
+| --- | --- | ---: |
+| `cpp/talker` | 0 / 0 / 0 | **21,632** |
+| `cpp/listener` | 1 / 0 / 0 | **54,928** |
+| `cpp/action-client` | 1 / 0 / 3 | **58,048** |
+
+All three boot with no heap message. 54,928 is also the number
+`nros-rmw-xrce-cffi/build.rs` has claimed in a comment since `28d916c66` while
+the tree delivered 59,088 — the service-client cap was never stated, so the
+comment described an end state nothing reached. It does now.
+
+### Divergence from this issue's own preference, and why
+
+This issue chose option (2), DERIVE, over option (1), "state the caps per
+example", calling the latter "twenty hand-picked numbers". This change states
+them. Not because the reasoning changed — because the mechanism (2) depended on
+was retired, and phase-412 left nothing in its place for an image that runs from
+no launch file. phase-412's own `FATAL_ERROR` says what such an image gets:
+
+> A system with no contract yet keeps its configured `NROS_EXECUTOR_MAX_CBS`,
+> exactly as it did before phase-403.
+
+So the numbers are stated in each leaf's `prj-xrce.conf`, and they are not
+hand-invented: each is the leaf's own retired `ENTITIES` line put through the
+same multipliers the derivation uses — `ACTION_SERVER_QUERYABLES` (3) for the
+action server, `ACTION_CLIENT_SUBSCRIPTIONS` (1) plus the three service clients
+`RawActionClientSpec` documents for the action client. Every conf carries the
+declaration it came from and the arithmetic.
+
+This is a HOLDING POSITION, not the campaign's answer. The campaign's answer is
+a declaration path for an image with no launch file, and that is a change to the
+contract/SystemModel seam rather than something to bolt on at a call site —
+the same conclusion this issue reached about the composition gap, one mechanism
+later.
+
+### The class, and the gate
+
+`check-retired-cmake-keywords` (fast line): a keyword any cmake verb retires
+must appear in no caller. The retired set is DISCOVERED from the
+`message(FATAL_ERROR "<fn>(...): <KEYWORD> was retired|removed ...")` guards
+under `cmake/`, so the next retirement arms the gate by itself, and a guard
+whose wording moves makes the gate BLIND rather than silently permissive — that
+case fails. It finds `ENTITIES` (`nano_ros_node_register`) and `HOST`
+(`nano_ros_entry`) today; run against the tree before this change it names all
+six leaves and their line numbers.
+
+Sweep command:
+
+```
+python3 scripts/check-retired-cmake-keywords.py
+```
+
+### A lead, measured but not fixed here
+
+`floor1` in `entity_inventory.rs` (issue 1015 — "a derived pool that sizes a C
+array has a floor of ONE") is applied at the PRODUCER, so
+`NROS_DERIVED_MAX_SUBSCRIBERS` and `NROS_DERIVED_MAX_QUERYABLES` are never zero.
+Issue 1015's evidence is entirely about zenoh: `zpico.c`'s
+`queryable_entry_t queryables[ZPICO_MAX_QUERYABLES]` at zero transmitted nothing
+for 15 seconds on the reference island. The XRCE consumer reads the same two
+values, and this issue measured the opposite there — 0 is legal, honoured, and
+boots. So an XRCE image that DERIVES (rather than states, as these leaves now
+do) pays 33,296 bytes for a subscriber ring and 4,384 for a server slot it
+declared none of: the floor belongs to the zenoh pool, not to the fact. Latent
+for these six leaves while they state their caps; live for any XRCE image that
+derives. Not fixed here because moving the floor to the consumers is a change to
+both the Zephyr ladder and `leaf_entity_env.rs`, and it wants its own
+measurement.

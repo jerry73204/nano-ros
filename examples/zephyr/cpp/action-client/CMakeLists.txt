@@ -35,8 +35,9 @@ nros_components_register_node(fibonacci_action_client_lib
     EXECUTABLE fibonacci_action_client
     SHAPE configure
     TYPED
-    # issue 1033 — what this image CREATES, read off its own source.
-    # The XRCE subscriber cap derives from this; absence means "nobody
-    # said" and the image keeps the 8-slot default.
-    ENTITIES
-             action_client:example_interfaces/action/Fibonacci:/fibonacci)
+    # phase-412 -- `ENTITIES` is retired. A standalone Zephyr application has
+    # no launch file, so it has no contract sidecar to state itself in; what
+    # this image creates is stated as the XRCE session caps in prj-xrce.conf,
+    # which is what phase-412's own guidance leaves such an image ("a system
+    # with no contract yet keeps its configured" knobs). See issue 1033.
+)
