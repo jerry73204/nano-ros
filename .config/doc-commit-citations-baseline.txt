@@ -1,0 +1,76 @@
+# Commit citations in LIVE documents that this repository cannot resolve.
+#
+# A RATCHET, not an allowlist: this file may only SHRINK. The gate
+# (`scripts/check-doc-commit-citations.py`) fails when a new dangling citation
+# appears AND when a line here stops offending — so the debt cannot grow and
+# cannot go stale.
+#
+# NOT every entry is a defect, and this is the part to read before "fixing"
+# one. Two classes live here and only the second is debt:
+#
+#   FOREIGN   The sentence is CORRECT and the commit is in another repository —
+#             an upstream project, a submodule, another checkout. Nothing in
+#             this clone will ever resolve it. Rewriting the hash would replace
+#             a true sentence with a wrong one.
+#
+#   DEAD      The commit was in THIS repository and is gone, almost always
+#             because the branch it named was rebased. This is real debt: the
+#             citation points at nothing and the claim it supports can no
+#             longer be checked. Fix by citing something a rebase cannot
+#             invalidate — a PR number, an issue number, or a description of
+#             the commit — and delete the line.
+#
+# Archived documents are NOT scanned, so nothing here comes from `archived/`.
+# 178 of the 186 dangling occurrences in the tree are there, and an archived
+# record's citations were true when it was written.
+
+# ---- FOREIGN ----------------------------------------------------------------
+
+# zenoh core, cited by RFC-0082 (`docs/design/0082-a-demonstrable-can-stack.md`).
+# The document says so itself — "That commit is not on ..." — and pins the
+# container build to it. Upstream history, not ours.
+2687c5135
+e5db0ce8a
+
+# `ros2` distrobox tree states, cited by issues 1127 and 1137 to date the box a
+# measurement was taken in. A box is a separate checkout on a separate tree
+# (CLAUDE.md's "box in play => every job in the box, on its OWN tree"), so these
+# are correct references to a thing this repo does not contain.
+d1d88f660
+ea9fbfae9
+45e6ced2d
+
+# phase-311, the rmw-edition matrix. `db91f2bad` is a divergent `heads/main`
+# written by a parallel agent inside a submodule; `0612574f4` is the pointer the
+# superproject records for it. Both are submodule history — forward-only pins
+# are a human decision (CLAUDE.md), and the paragraph exists to describe the
+# divergence, so neither hash can or should be rewritten here.
+db91f2bad
+0612574f4
+
+# ---- DEAD -------------------------------------------------------------------
+
+# `docs/issues/README.md`, the curated index. Three "Recently resolved" entries
+# name the commit that closed an issue, and those commits are gone. The issue
+# numbers beside them (#0952, #0750, #569/#570) are the durable identifier and
+# are already in the text, so these can be dropped rather than re-resolved.
+3084f7bd9
+22e511442
+d97c9c606
+
+# `docs/roadmap/phase-359-drop-std-campaign.md`, the four-row table of std
+# symbols and the commit that removed each. The symbol names and issue numbers
+# in the same rows survive; the hashes did not.
+bc6c8dfc6
+10d142a80
+826c4ca91
+adb4c592e
+
+# `docs/roadmap/phase-428-api-porting-principle-sweep.md`. ALREADY FIXED on
+# PR #629's branch, which replaces all three with descriptions of the commits
+# — remove these three lines when that PR lands. They are listed rather than
+# fixed here because this gate is a separate change and must not carry an
+# unrelated document edit.
+fe807a999
+839f69b5c
+9c492403d
