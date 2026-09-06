@@ -45,7 +45,7 @@
   },
   "c:lifecycle_change_state_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_com_interface_t": {
@@ -64,7 +64,7 @@
   },
   "c:lifecycle_get_available_states_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_get_default_state_machine_options": {
@@ -78,7 +78,7 @@
   },
   "c:lifecycle_get_state_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc exports the three service callbacks so the user can wire them into its executor. Ours are internal to `nros-node/src/lifecycle_services.rs` and bound by `nros_executor_register_lifecycle_services`; a user who could call them by hand could only re-implement the registration. See `c:lifecycle_init_get_state_server`."
   },
   "c:lifecycle_get_transition_by_id": {
@@ -102,7 +102,7 @@
   },
   "c:lifecycle_get_zero_initialized_state_machine": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rcl ships a zero-initializer per heap-built lifecycle object. We have one such object and one zero-initializer, `nros_lifecycle_get_zero_initialized`; see `c:lifecycle_state_t` for why the other two do not exist as types."
   },
   "c:lifecycle_get_zero_initialized_transition": {
@@ -116,7 +116,7 @@
   },
   "c:lifecycle_init_change_state_server": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_init_default_state_machine": {
@@ -126,17 +126,17 @@
   },
   "c:lifecycle_init_get_available_states_server": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_init_get_state_server": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc makes the user init each lifecycle server separately and hand it a context struct. `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. We also register five servers where rclc offers three, adding `~/get_available_transitions` and `~/get_transition_graph` so `ros2 lifecycle list` works against an embedded node."
   },
   "c:lifecycle_node_fini": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc's teardown for the wrapper struct, taking an allocator. We have one handle and one teardown, `nros_lifecycle_fini`; see `c:lifecycle_state_machine_fini`."
   },
   "c:lifecycle_node_t": {
@@ -241,7 +241,7 @@
   },
   "c:make_node_a_lifecycle_node": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "provides": [
       "nros_lifecycle_init",
       "nros_executor_register_lifecycle_services"
@@ -307,12 +307,12 @@
   },
   "cpp:LifecycleNode::get_available_states": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp returns `std::vector<State>` / `std::vector<Transition>` -- a heap container of heap-labelled objects, which is `no-shared-ptr` and no-allocator twice over. The information is not lost: we serve it on `~/get_available_states`, `~/get_available_transitions` and `~/get_transition_graph`, which is what `ros2 lifecycle list` reads. What a user loses is the IN-PROCESS enumeration -- a node cannot ask itself what it may do next without a round trip. Consistent across all three of our languages: neither Rust's `LifecyclePollingNode` nor the C API has an accessor either."
   },
   "cpp:LifecycleNode::get_available_transitions": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:LifecycleNode::get_available_states`."
   },
   "cpp:LifecycleNode::get_clock": {
@@ -382,12 +382,12 @@
   },
   "cpp:LifecycleNode::make_shared": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see the node stage's `cpp:Node::make_shared`. No allocator; `no-shared-ptr` in signature_rules.py."
   },
   "cpp:LifecycleNode::make_unique": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:LifecycleNode::make_shared`."
   },
   "cpp:LifecycleNode::now": {

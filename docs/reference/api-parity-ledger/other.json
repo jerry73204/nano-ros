@@ -107,7 +107,7 @@
     "why": "rcl's zero-init idiom under our naming, applied to the caller-owned `nros_wake_state_t` slot a polling entity's wake callback is registered with. Naming: see `c:publisher_get_zero_initialized` in the pubsub stage (ours is method-style `nros_<thing>_get_zero_initialized` at all 15 sites, rcl's is `rcl_get_zero_initialized_<thing>`); the slot itself: see `c:service_set_wake_callback`."
   },
   "cpp:ContentFilterOptions": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "content-filtered topics are a DDS feature: the subscriber ships an SQL-ish expression the WRITER evaluates. Only one of our backends is DDS, and the filter would have to be a no-op on zenoh and XRCE -- a QoS-shaped promise two of three transports cannot keep. Same reasoning `rmw-api-parity.py` already records for `rmw_*_content_filter`."
   },
@@ -178,12 +178,12 @@
     "why": "see `cpp:TickCtx`."
   },
   "cpp:TopicStatisticsState": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "the on/off knob for rclcpp's per-subscription topic statistics, which measure message age and inter-arrival period and PUBLISH them as `statistics_msgs/MetricsMessage`. A user loses built-in latency/period telemetry. The project's answer is RFC-0052's on-target contract monitor instead (`nros::monitor`: a bounded table of specs checked in the executor, violations drained by the app) -- an image cannot afford a second publisher per subscription nor a rolling sample window per topic."
   },
   "cpp:TypeAdapter": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclcpp's type adaptation: publish a user's own struct on a topic whose wire type is a generated message, with a `TypeAdapter` specialisation converting between them. A user loses that and converts into the generated type by hand before publishing. Two things stop it being merely undone: the conversion needs somewhere to put the converted message and there is no allocator, and the machinery is template metaprogramming over `std::string`/`std::vector` members that the freestanding, `-fno-exceptions` C++ profile (RFC-0018) does not compile. Neither our C nor our Rust has an equivalent either."
   },
@@ -648,17 +648,17 @@
     "why": "the one-call collapse of those three. See `rust:IntegrityStatus`."
   },
   "rust:IntoPrimitiveOptions": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "rclrs's fluent per-create-site options: `node.create_publisher(\"topic\".keep_last(10).reliable())` builds a `PrimitiveOptions` out of a `&str` and folds it into the entity's QoS. A user loses that spelling AT THE CREATE SITE. QoS and entity options are COMPILE-time here (RFC-0036/0045) -- an entity is declared with a `QoSProfile` const, not with an options value assembled per call -- so there is nothing for the builder to produce. The policy vocabulary itself is not lost: `QoSProfile` carries `keep_last`/`keep_all`/`reliable`/`best_effort`/`volatile`/`transient_local` under exactly these names, plus `deadline_ms`/`lifespan_ms`/`liveliness_kind`/`liveliness_lease_ms`/`avoid_ros_namespace_conventions` as fields. See `rust:QoSProfile`."
   },
   "rust:IntoPrimitiveOptions::avoid_ros_namespace_conventions": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::best_effort": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
@@ -668,27 +668,27 @@
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::keep_all": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::keep_last": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::reliable": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::transient_local": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },
   "rust:IntoPrimitiveOptions::volatile": {
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "verdict": "declined",
     "why": "see `rust:IntoPrimitiveOptions`."
   },

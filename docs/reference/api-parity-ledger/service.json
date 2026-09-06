@@ -272,7 +272,7 @@
   },
   "c:take_request": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "RE-VERDICTED 2026-09-03 (phase-379 W6 decision 1), rename -> declined. The inconsistency this row recorded is gone: C said TAKE for a service request and TRY_RECV for a subscription, C++ said `try_recv_request` for both. All three languages now say `take_request`, and the subscription side says `take`. What is left against `rcl_take_request` is rcl's free-function spelling versus our module-prefixed `nros_service_take_request{,_raw}` -- `c:get_zero_initialized_publisher`'s precedent, which argues for keeping ours. See `c:take`."
   },
   "c:take_request_with_info": {
@@ -281,7 +281,7 @@
   },
   "c:take_response": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "provides": [
       "nros_client_take_response",
       "nros_client_take_response_raw"
@@ -323,17 +323,17 @@
   },
   "cpp:Client::async_cancel_all_goals": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "an rclcpp_action client method the correlator folds onto `Client`; see the action stage."
   },
   "cpp:Client::async_get_result": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Client::async_cancel_all_goals`."
   },
   "cpp:Client::async_send_goal": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:Client::async_cancel_all_goals`."
   },
   "cpp:Client::async_send_request": {
@@ -512,12 +512,12 @@
   },
   "cpp:LifecycleNode::create_client": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see the lifecycle stage; a lifecycle node creates entities the same way an ordinary one does here."
   },
   "cpp:LifecycleNode::create_service": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "see `cpp:LifecycleNode::create_client`."
   },
   "cpp:LifecycleNode::get_node_services_interface": {
@@ -782,17 +782,17 @@
   },
   "rust:Client::call_then": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport."
   },
   "rust:Client::call_then_async": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport."
   },
   "rust:Client::notify_on_service_ready": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "needs a future and a runtime to await it. RFC-0021 makes every blocking helper take the executor and drive it (`promise.wait(&mut executor, timeout)`), which is what makes a timeout reliable on a single-threaded transport. The event form is `ClientTrait::poll_server_discovery`."
   },
   "rust:Client::service_is_ready": {
@@ -967,7 +967,7 @@
   },
   "rust:IntoPrimitiveOptions::services_qos": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs's builder shorthand for applying the services QoS preset to any entity options. Ours is a named constructor on `QoSProfile`; the trait needs a blanket impl that buys nothing with one caller shape."
   },
   "rust:IntoWorkerServiceCallback": {
@@ -977,7 +977,7 @@
   },
   "rust:Node::create_async_service": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. needs a future and a runtime to await it; RFC-0021 makes every blocking helper take the executor and drive it."
   },
   "rust:Node::create_client": {
@@ -1074,7 +1074,7 @@
   },
   "rust:Service::set_async_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclrs's conversion traits normalise a plain, async or worker closure. Ours binds a NAMED callback at declaration (RFC-0043) -- one shape, nothing to convert. See the pubsub stage's identical rows. needs a future and a runtime to await it; RFC-0021 makes every blocking helper take the executor and drive it."
   },
   "rust:Service::set_callback": {
