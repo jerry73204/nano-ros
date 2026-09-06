@@ -92,6 +92,11 @@
     "verdict": "gap",
     "why": "see `c:log_levels_add_logger_setting` -- same missing accessor, C++ side. A ported node can raise or lower a logger in rclcpp and cannot here."
   },
+  "cpp:Node::get_logger": {
+    "verdict": "divergence",
+    "disposition": "adopt-bounded",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::Node::get_logger()` returns `rclcpp::Logger` BY VALUE — a real object carrying the node's fully-qualified name, which is what makes `RCLCPP_INFO(this->get_logger(), ...)` print under the node's own name. Ours (`packages/api/nros-cpp/include/nros/node.hpp:259`) returns `const void*` from `nros_cpp_node_get_logger`. Two things follow, and the second corrects this campaign's own record.\n\n(1) The TYPE is opaque by construction: RFC-0054 makes the C header the ABI SSoT, and a logger handle crossing that boundary is a pointer. A ported file that only ever passes the result to a logging macro is unaffected; one that names `rclcpp::Logger` explicitly, or calls `.get_name()` / `get_child()` on it, gets a compile error. That is the bound, and it is why this is `adopt-bounded`.\n\n(2) phase-428 W5's CORRECTION section already established that BOTH the C++ and the Rust paths fall back to a sentinel/`DEFAULT_LOGGER`, so the asymmetry argument in RFC-0089 §\"get_logger follows ROS 2\" does not hold. This row does NOT reopen that; it records only what the two return types are, which is the question the gate asks. The per-node logger identity is tracked where W5 left it."
+  },
   "cpp:Node::get_node_logging_interface": {
     "verdict": "declined",
     "disposition": "absent",

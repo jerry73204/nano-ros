@@ -279,6 +279,22 @@ _TYPE_NOISE = [
     # the same concept spelled by two libraries. Without this, every handle
     # parameter reads as a type mismatch.
     (re.compile(r"\b(nros|rclc|rcl|rmw|rosidl)_"), ""),
+    # `bool` is a macro for `_Bool` in C before C23, and the two extractions
+    # disagree about which spelling to print for the SAME type. Left
+    # unnormalised it made 10 of the 11 C `ret_differs` rows spurious.
+    (re.compile(r"\b_Bool\b"), "bool"),
+    # Two upstream typedefs for `int64_t`, spelled out because a difference
+    # that is only a SPELLING is not a divergence and must not become a ledger
+    # row asserting one. Both resolve in two hops:
+    #   rcl/time.h:46,48   rcl_{time_point,duration}_value_t
+    #                        -> rcutils_{time_point,duration}_value_t
+    #   rcutils/time.h:48,50 rcutils_{time_point,duration}_value_t -> int64_t
+    # The `rcl_` prefix is already stripped by the rule above, so match the
+    # stripped spelling. This IS an authored alias table -- the drift class
+    # phase-428 catalogues -- and it names these two aliases only because they
+    # are the only ones the measured `ret_differs` set contains. A third alias
+    # appearing surfaces as a new gate row, not as silence.
+    (re.compile(r"\b(time_point|duration)_value_t\b"), "int64_t"),
     (re.compile(r"\s*&\s*"), "&"),
     (re.compile(r"\s*\*\s*"), "*"),
     (re.compile(r"\s+"), " "),
@@ -320,19 +336,26 @@ def arity_set(item):
     return out or {0}
 
 
-def _ret_of(recs):
-    """The single return type of a record set, or None when it is not one.
+def _ret_of(item):
+    """The single return type of a FLATTENED item, or None when it is not one.
 
     Overloads that disagree with each other are not a divergence FROM UPSTREAM
     and must not be reported as one, so a set with more than one distinct
     return type answers None rather than picking a representative.
+
+    phase-428 W6 remainder: the first version of this read `item["ret"]`, which
+    `flatten` never writes -- it stores the return type per OVERLOAD, one level
+    down. So `_ret_of` answered None for every row in every language and the
+    `ret_differs` note it feeds could not fire once. The note was described as
+    landed on the strength of the code having been written; measuring it found
+    0 rows out of 323 `same` rows across the three lanes. Same shape as this
+    phase's own CORRECTION section, one file over.
     """
     seen = set()
-    for r in recs if isinstance(recs, (list, tuple)) else [recs]:
-        if isinstance(r, dict):
-            v = r.get("ret")
-            if v:
-                seen.add(str(v).strip())
+    for o in (item or {}).get("overloads", []):
+        v = o.get("ret")
+        if v:
+            seen.add(canon_type(v))
     return next(iter(seen)) if len(seen) == 1 else None
 
 
@@ -377,13 +400,15 @@ def compare(ours, theirs, lang):
                         # looked further. Both classes RFC-0089 was written
                         # about were outside the gate by construction.
                         #
-                        # Reported as a NOTE, not yet a verdict. The tree has
-                        # 135 cpp rows in this bucket and none of them carries
-                        # a ledger row, because the ledger's contract is one
-                        # row per NON-correspondence -- so failing here today
-                        # would fail on all of them at once, which this file's
-                        # own neighbour calls "how a gate gets switched off".
-                        # Sizing it first is the point.
+                        # phase-428 W6 remainder -- now a VERDICT, gated in
+                        # `api-parity.py`'s `gate_rows` as bucket `same:ret`.
+                        # It was held back as a note because 135 cpp `same`
+                        # rows carried no ledger row and failing on all of them
+                        # at once is how a gate gets switched off. Measuring it
+                        # after fixing `_ret_of` (see above -- it had never
+                        # fired) gave 33 marked rows across the three lanes,
+                        # 20 of them unledgered on the native surface. Twenty
+                        # rows is affordable, so they were authored.
                         ret_o, ret_t = _ret_of(o), _ret_of(t)
                         if ret_o is not None and ret_t is not None and ret_o != ret_t:
                             bucket, detail = "same", {
