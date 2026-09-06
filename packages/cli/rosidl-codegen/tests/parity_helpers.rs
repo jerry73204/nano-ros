@@ -255,11 +255,173 @@ pub fn ros_msg_path(package: &str, message: &str) -> Option<std::path::PathBuf> 
 /// `ros_discovery_is_not_silently_broken` below: whenever ROS IS installed,
 /// that test FAILS if discovery returns `None`. So "no ROS" stays quiet and
 /// "discovery regressed" does not.
+///
+/// Issue 1160 — be precise about what this line buys, because it is less than
+/// it reads as. libtest CAPTURES the output of a PASSING test, and
+/// `check-cli-tests` runs `cargo test … --quiet`, so on the one lane that
+/// actually executes these suites nobody ever sees it. The marker is for a
+/// human running the suite with `--nocapture`; it is NOT the safety net. The
+/// safety net is that every condition which is not literally "this host has no
+/// ROS 2 install" now FAILS instead of returning — see [`ros_input`] and
+/// `comparison_test`'s parse arm.
 pub fn note_no_ros(test: &str) {
     eprintln!(
         "[NO-ROS] {test}: no ROS 2 install found (set ROS_DISTRO or install one under /opt/ros) \
          — this test did not run. See issue 0693."
     );
+}
+
+/// Print the line for the OTHER absent-input state: ROS 2 IS installed, and the
+/// package that supplies this input is not.
+///
+/// Issue 1160 — before this existed both states printed `[NO-ROS]`, so a host
+/// carrying a perfectly good ROS install that merely lacks `sensor_msgs` was
+/// told to go install ROS. Two states, one message, and the message was false
+/// in one of them.
+pub fn note_no_package(test: &str, package: &str, path: &std::path::Path) {
+    eprintln!(
+        "[NO-PKG] {test}: ROS 2 is installed but `{package}` is not — {} is absent, \
+         so this test did not run. See issues 0693, 1160.",
+        path.display()
+    );
+}
+
+/// Resolve one ROS input file, or explain — accurately — why this host cannot
+/// supply it.
+///
+/// Issue 1160. Every caller used to spell this as TWO guards with the SAME exit
+/// and the SAME message, one of which was a lie:
+///
+/// ```ignore
+/// let Some(p) = ros_file("geometry_msgs", "msg", "Pose.msg") else {
+///     note_no_ros("parity_test");
+///     return Ok(());          // no ROS at all — true
+/// };
+/// if !p.exists() {
+///     note_no_ros("parity_test: Pose.msg not found");
+///     return Ok(());          // ROS IS installed; "no ROS 2 install found" is false
+/// }
+/// ```
+///
+/// One helper, one verdict, one accurate line. It hands back a real value
+/// (`Option<PathBuf>`), which is the spelling `check-test-precondition-guards`
+/// blesses: with `let Some(x) = f() else { … }` the caller gets something it
+/// needs rather than a bool it can drop with a bare `return`.
+///
+/// It PANICS in exactly one case, and that case is what the 1135 family is
+/// about: the package directory IS installed and the file named inside it is
+/// not. That is not an absent environment, it is a wrong expectation in this
+/// test, and answering PASS for it claims coverage nobody measured.
+pub fn ros_input(test: &str, package: &str, kind: &str, file: &str) -> Option<std::path::PathBuf> {
+    ros_input_under(ros_share_root(), test, package, kind, Some(file))
+}
+
+/// Resolve one ROS input DIRECTORY (`<share>/<package>/<kind>`), or explain why
+/// this host cannot supply it. Companion to [`ros_input`] for the tests that
+/// walk a whole package rather than naming one file.
+pub fn ros_input_dir(test: &str, package: &str, kind: &str) -> Option<std::path::PathBuf> {
+    ros_input_under(ros_share_root(), test, package, kind, None)
+}
+
+/// The whole decision, as a function of the share root — so it can be tested
+/// against a synthesized tree instead of against whatever ROS this host happens
+/// to carry.
+///
+/// A guard whose three outcomes are only reachable on three different machines
+/// is a guard nobody has ever seen fail. `guard_decides_by_state` below runs all
+/// three here, on any host.
+fn ros_input_under(
+    share: Option<std::path::PathBuf>,
+    test: &str,
+    package: &str,
+    kind: &str,
+    file: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    let Some(share) = share else {
+        note_no_ros(test);
+        return None;
+    };
+    let dir = share.join(package).join(kind);
+    if !dir.is_dir() {
+        note_no_package(test, package, &dir);
+        return None;
+    }
+    let Some(file) = file else {
+        return Some(dir);
+    };
+    let path = dir.join(file);
+    assert!(
+        path.is_file(),
+        "{package}/{kind} is installed but {} is not in it — the input this test \
+         names does not exist where ROS says it should. Reporting PASS here would \
+         claim coverage nobody measured (issues 1135, 1160).",
+        path.display()
+    );
+    Some(path)
+}
+
+#[cfg(test)]
+mod input_guard_tests {
+    use super::*;
+
+    /// Issue 1160 — the three states this guard exists to tell apart, all three
+    /// exercised on any host, with no ROS install involved.
+    ///
+    /// The middle one is the whole point: an installed package whose named file
+    /// is absent must FAIL. Before this, both absent-input states returned and
+    /// the test reported PASS, and the one that fires on a host WITH ROS printed
+    /// `[NO-ROS]` while doing it.
+    #[test]
+    fn guard_decides_by_state() {
+        let tmp = std::env::temp_dir().join(format!("nros-1160-{}", std::process::id()));
+        let msg_dir = tmp.join("std_msgs").join("msg");
+        std::fs::create_dir_all(&msg_dir).unwrap();
+        std::fs::write(msg_dir.join("Bool.msg"), "bool data\n").unwrap();
+
+        // 1. no ROS at all -> None, and the caller returns quietly.
+        assert!(ros_input_under(None, "t", "std_msgs", "msg", Some("Bool.msg")).is_none());
+
+        // 2. ROS present, package absent -> None. Not an error: this host simply
+        //    does not carry `sensor_msgs`.
+        assert!(
+            ros_input_under(
+                Some(tmp.clone()),
+                "t",
+                "sensor_msgs",
+                "msg",
+                Some("Image.msg")
+            )
+            .is_none()
+        );
+
+        // 3. package installed, named file absent -> PANIC. The environment is
+        //    fine and the expectation is wrong; a green here is issue 1135's lie.
+        let missing = std::panic::catch_unwind(|| {
+            ros_input_under(
+                Some(tmp.clone()),
+                "t",
+                "std_msgs",
+                "msg",
+                Some("NotAThing.msg"),
+            )
+        });
+        assert!(
+            missing.is_err(),
+            "an installed package missing the named input must FAIL, not return"
+        );
+
+        // 4. everything present -> the path the caller needs.
+        let found = ros_input_under(Some(tmp.clone()), "t", "std_msgs", "msg", Some("Bool.msg"));
+        assert_eq!(found, Some(msg_dir.join("Bool.msg")));
+
+        // 5. the directory form, for the walk tests.
+        assert_eq!(
+            ros_input_under(Some(tmp.clone()), "t", "std_msgs", "msg", None),
+            Some(msg_dir.clone())
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
 
 #[cfg(test)]

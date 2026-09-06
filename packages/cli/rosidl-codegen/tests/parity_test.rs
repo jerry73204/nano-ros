@@ -3,29 +3,24 @@ use rosidl_codegen::{
     GeneratorError, generate_action_package, generate_message_package, generate_service_package,
 };
 use rosidl_parser::{parse_action, parse_message, parse_service};
-use std::{
-    collections::HashSet,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, fs, path::Path};
 use walkdir::WalkDir;
 
 mod parity_helpers;
-use parity_helpers::{note_no_ros, ros_share_root};
+use parity_helpers::{ros_input, ros_input_dir};
 
-/// Issue 0693 — `<share>/<pkg>/<kind>` for the INSTALLED distro.
-///
-/// Every path in this file was a `/opt/ros/jazzy/...` literal while the project
-/// installs humble, so all nine tests took their "Skipping" arm and the suite
-/// reported PASS over work it never did.
-fn ros_dir(package: &str, kind: &str) -> Option<PathBuf> {
-    Some(ros_share_root()?.join(package).join(kind))
-}
-
-/// `<share>/<pkg>/<kind>/<file>` for the installed distro.
-fn ros_file(package: &str, kind: &str, file: &str) -> Option<PathBuf> {
-    Some(ros_dir(package, kind)?.join(file))
-}
+// Issue 0693 — resolve the INSTALLED distro instead of naming one. Every path
+// in this file was a `/opt/ros/jazzy/...` literal while the project installs
+// humble, so all nine tests took their "Skipping" arm and the suite reported
+// PASS over work it never did.
+//
+// Issue 1160 — the local `ros_dir`/`ros_file` pair that used to sit here handed
+// back a path that MIGHT NOT EXIST, so every test opened with two guards, both
+// exiting PASS and both printing `[NO-ROS]` — the second of them on hosts that
+// have ROS. `ros_input`/`ros_input_dir` in `parity_helpers` own that verdict
+// now: `None` means "this host cannot supply the input", the message says which
+// of the two reasons it is, and an installed package missing the named file is
+// an assertion failure rather than a green.
 
 /// Helper to read a .msg file and parse it
 fn read_and_parse_message(path: &Path) -> Result<rosidl_parser::Message, String> {
@@ -51,15 +46,9 @@ fn read_and_parse_action(path: &Path) -> Result<rosidl_parser::Action, String> {
 #[test]
 fn test_std_msgs_primitives() -> Result<(), GeneratorError> {
     // Test basic std_msgs types
-    let Some(ros_share) = ros_dir("std_msgs", "msg") else {
-        note_no_ros("parity_test");
+    let Some(ros_share) = ros_input_dir("parity_test", "std_msgs", "msg") else {
         return Ok(());
     };
-
-    if !ros_share.exists() {
-        note_no_ros("parity_test: ROS share dir absent");
-        return Ok(());
-    }
 
     let test_messages = vec!["Bool.msg", "Int32.msg", "Float64.msg", "String.msg"];
 
@@ -83,15 +72,9 @@ fn test_std_msgs_primitives() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_std_msgs_header() -> Result<(), GeneratorError> {
-    let Some(header_path) = ros_file("std_msgs", "msg", "Header.msg") else {
-        note_no_ros("parity_test");
+    let Some(header_path) = ros_input("parity_test", "std_msgs", "msg", "Header.msg") else {
         return Ok(());
     };
-
-    if !header_path.exists() {
-        note_no_ros("parity_test: Header.msg not found");
-        return Ok(());
-    }
 
     let msg = read_and_parse_message(&header_path).map_err(GeneratorError::InvalidMessage)?;
 
@@ -106,15 +89,9 @@ fn test_std_msgs_header() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_geometry_msgs_point() -> Result<(), GeneratorError> {
-    let Some(point_path) = ros_file("geometry_msgs", "msg", "Point.msg") else {
-        note_no_ros("parity_test");
+    let Some(point_path) = ros_input("parity_test", "geometry_msgs", "msg", "Point.msg") else {
         return Ok(());
     };
-
-    if !point_path.exists() {
-        note_no_ros("parity_test: Point.msg not found");
-        return Ok(());
-    }
 
     let msg = read_and_parse_message(&point_path).map_err(GeneratorError::InvalidMessage)?;
 
@@ -131,15 +108,9 @@ fn test_geometry_msgs_point() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_geometry_msgs_pose() -> Result<(), GeneratorError> {
-    let Some(pose_path) = ros_file("geometry_msgs", "msg", "Pose.msg") else {
-        note_no_ros("parity_test");
+    let Some(pose_path) = ros_input("parity_test", "geometry_msgs", "msg", "Pose.msg") else {
         return Ok(());
     };
-
-    if !pose_path.exists() {
-        note_no_ros("parity_test: Pose.msg not found");
-        return Ok(());
-    }
 
     let msg = read_and_parse_message(&pose_path).map_err(GeneratorError::InvalidMessage)?;
 
@@ -157,15 +128,10 @@ fn test_geometry_msgs_pose() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_example_interfaces_service() -> Result<(), GeneratorError> {
-    let Some(srv_path) = ros_file("example_interfaces", "srv", "AddTwoInts.srv") else {
-        note_no_ros("parity_test");
+    let Some(srv_path) = ros_input("parity_test", "example_interfaces", "srv", "AddTwoInts.srv")
+    else {
         return Ok(());
     };
-
-    if !srv_path.exists() {
-        note_no_ros("parity_test: AddTwoInts.srv not found");
-        return Ok(());
-    }
 
     let srv = read_and_parse_service(&srv_path).map_err(GeneratorError::InvalidMessage)?;
 
@@ -182,15 +148,14 @@ fn test_example_interfaces_service() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_example_interfaces_action() -> Result<(), GeneratorError> {
-    let Some(action_path) = ros_file("example_interfaces", "action", "Fibonacci.action") else {
-        note_no_ros("parity_test");
+    let Some(action_path) = ros_input(
+        "parity_test",
+        "example_interfaces",
+        "action",
+        "Fibonacci.action",
+    ) else {
         return Ok(());
     };
-
-    if !action_path.exists() {
-        note_no_ros("parity_test: Fibonacci.action not found");
-        return Ok(());
-    }
 
     let action = read_and_parse_action(&action_path).map_err(GeneratorError::InvalidMessage)?;
 
@@ -208,15 +173,9 @@ fn test_example_interfaces_action() -> Result<(), GeneratorError> {
 
 #[test]
 fn test_parse_all_std_msgs() {
-    let Some(ros_share) = ros_dir("std_msgs", "msg") else {
-        note_no_ros("parity_test");
+    let Some(ros_share) = ros_input_dir("parity_test", "std_msgs", "msg") else {
         return;
     };
-
-    if !ros_share.exists() {
-        note_no_ros("parity_test: ROS share dir absent");
-        return;
-    }
 
     let mut count = 0;
     let mut failures = Vec::new();
@@ -265,15 +224,9 @@ fn test_parse_all_std_msgs() {
 
 #[test]
 fn test_parse_all_geometry_msgs() {
-    let Some(ros_share) = ros_dir("geometry_msgs", "msg") else {
-        note_no_ros("parity_test");
+    let Some(ros_share) = ros_input_dir("parity_test", "geometry_msgs", "msg") else {
         return;
     };
-
-    if !ros_share.exists() {
-        note_no_ros("parity_test: geometry_msgs not found");
-        return;
-    }
 
     let mut count = 0;
     let mut failures = Vec::new();
@@ -322,15 +275,9 @@ fn test_parse_all_geometry_msgs() {
 
 #[test]
 fn test_parse_all_sensor_msgs() {
-    let Some(ros_share) = ros_dir("sensor_msgs", "msg") else {
-        note_no_ros("parity_test");
+    let Some(ros_share) = ros_input_dir("parity_test", "sensor_msgs", "msg") else {
         return;
     };
-
-    if !ros_share.exists() {
-        note_no_ros("parity_test: sensor_msgs not found");
-        return;
-    }
 
     let mut count = 0;
     let mut failures = Vec::new();

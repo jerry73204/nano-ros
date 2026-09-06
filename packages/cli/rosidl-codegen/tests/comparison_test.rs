@@ -4,7 +4,7 @@ use rosidl_parser::parse_message;
 use std::{collections::HashSet, fs, path::PathBuf};
 
 mod parity_helpers;
-use parity_helpers::{normalize_code, note_no_ros, print_diff, ros_msg_path};
+use parity_helpers::{normalize_code, print_diff, ros_input};
 
 /// Helper to load reference output from fixtures
 fn load_reference_output(package: &str, message: &str, layer: &str) -> Result<String, String> {
@@ -17,36 +17,54 @@ fn load_reference_output(package: &str, message: &str, layer: &str) -> Result<St
     fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
 }
 
-/// Helper to read and parse a ROS message file
+/// Read and parse one ROS message file.
+///
 /// Issue 0693 — resolve the INSTALLED distro instead of naming one. This read
 /// `/opt/ros/jazzy/...` as a literal while the project installs humble, so
 /// every caller took its "skipping" arm and the suite reported green over work
 /// it never did.
+///
+/// Issue 1160 — this used to return `Result<_, String>` and fold THREE states
+/// into the one `Err` arm every caller answered with `note_no_ros` + `Ok(())`:
+///
+///   1. this host has no ROS 2 install,
+///   2. the file is there and unreadable,
+///   3. **our parser rejected it**.
+///
+/// (3) is the subject of this crate. A `parse_message` failure on
+/// `std_msgs/Bool.msg` is the loudest signal `rosidl-parser` can produce, and it
+/// arrived as `[NO-ROS] comparison_test (Failed to parse …)` on a PASSING test
+/// whose output libtest then captured — the exact `staticlib_duplicate_symbols`
+/// lie from issue 1135, one directory over. Only (1) is an absent environment,
+/// and only (1) may end in a green.
 fn read_and_parse_ros_message(
+    test: &str,
     package: &str,
     message: &str,
-) -> Result<rosidl_parser::Message, String> {
-    let path =
-        ros_msg_path(package, message).ok_or_else(|| "no ROS 2 install found".to_string())?;
-    let content = fs::read_to_string(&path).map_err(|e| {
-        format!(
-            "Failed to read {}: {} (is ROS installed?)",
-            path.display(),
-            e
+) -> Option<rosidl_parser::Message> {
+    let path = ros_input(test, package, "msg", &format!("{message}.msg"))?;
+    let content = fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "{} exists and could not be read: {e} — the environment supplied the \
+             input, so this is not a skip",
+            path.display()
         )
-    })?;
-    parse_message(&content).map_err(|e| format!("Failed to parse {}: {:?}", path.display(), e))
+    });
+    Some(parse_message(&content).unwrap_or_else(|e| {
+        panic!(
+            "our parser rejected {}: {e:?} — `rosidl-parser` is the code under test \
+             here, not the environment; answering PASS for this is issue 1135's lie \
+             (see issue 1160)",
+            path.display()
+        )
+    }))
 }
 
 #[test]
 fn test_compare_std_msgs_bool() -> Result<(), GeneratorError> {
     // Parse the ROS message
-    let msg = match read_and_parse_ros_message("std_msgs", "Bool") {
-        Ok(m) => m,
-        Err(e) => {
-            note_no_ros(&format!("comparison_test ({e})"));
-            return Ok(());
-        }
+    let Some(msg) = read_and_parse_ros_message("comparison_test", "std_msgs", "Bool") else {
+        return Ok(());
     };
 
     // Generate with our codegen
@@ -98,12 +116,8 @@ fn test_compare_std_msgs_bool() -> Result<(), GeneratorError> {
 #[test]
 fn test_compare_std_msgs_string() -> Result<(), GeneratorError> {
     // Parse the ROS message
-    let msg = match read_and_parse_ros_message("std_msgs", "String") {
-        Ok(m) => m,
-        Err(e) => {
-            note_no_ros(&format!("comparison_test ({e})"));
-            return Ok(());
-        }
+    let Some(msg) = read_and_parse_ros_message("comparison_test", "std_msgs", "String") else {
+        return Ok(());
     };
 
     // Generate with our codegen
@@ -150,12 +164,8 @@ fn test_compare_std_msgs_string() -> Result<(), GeneratorError> {
 #[test]
 fn test_compare_geometry_msgs_point() -> Result<(), GeneratorError> {
     // Parse the ROS message
-    let msg = match read_and_parse_ros_message("geometry_msgs", "Point") {
-        Ok(m) => m,
-        Err(e) => {
-            note_no_ros(&format!("comparison_test ({e})"));
-            return Ok(());
-        }
+    let Some(msg) = read_and_parse_ros_message("comparison_test", "geometry_msgs", "Point") else {
+        return Ok(());
     };
 
     // Generate with our codegen

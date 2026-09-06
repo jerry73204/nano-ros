@@ -56,6 +56,22 @@ branch (`require_native_env`, `maybe_skip`) or reported "check failed" with the
 real reason `eprintln!`ed into a stream the runner discards
 (`require_freertos`, `require_threadx_riscv64`, `require_esp32_networked`).
 
+## Scope: the whole tree, and that is measured, not asserted
+
+Issue 1160 asked whether this gate should be widened from
+`packages/testing/nros-tests/tests/` to `packages/**/tests/`. It should not,
+because it was never narrow: `tracked_test_files()` globs `*/tests/*.rs` across
+the repository and reads 292 files in 26 directories. 1135 SWEPT one directory;
+the gate it left behind reads all of them, and it is green with no allowlist at
+the wide scope — which was the property the widening question was really about.
+
+That is a fact about a glob, and a glob is one edit away from being narrower.
+`assert_scope_is_the_whole_tree()` below therefore fails the gate if the scan
+ever stops reaching test files outside `packages/testing/`. "OK (0 test files)"
+and "OK (169 test files, all of them nros-tests)" are both what a gate that has
+quietly stopped covering anything would print, and neither is distinguishable
+from a real green without a floor.
+
 ## What is deliberately NOT covered
 
 * **Library probes in `packages/testing/nros-tests/src/`** — `require_zenohd()`,
@@ -154,6 +170,30 @@ def tracked_test_files() -> list[Path]:
         cwd=root,
     ).stdout.split()
     return [root / f for f in out]
+
+
+def assert_scope_is_the_whole_tree(files: list[Path]) -> list[str]:
+    """Issue 1160 — a coverage FLOOR, because a green says nothing about reach.
+
+    The 1135 sweep covered one directory and the gate covers the tree; a reader
+    (and the issue that filed this) could not tell which from the output. Refuse
+    to report OK over a scan that has stopped seeing the rest of the repo.
+    """
+    outside = [f for f in files if "packages/testing/" not in f.as_posix()]
+    if not files:
+        return [
+            "the scan found NO test files at all — the glob in `tracked_test_files` "
+            "no longer matches anything, and an empty scan reports OK"
+        ]
+    if not outside:
+        return [
+            f"the scan found {len(files)} test files and every one of them is under "
+            "`packages/testing/` — this gate covers `*/tests/*.rs` across the whole "
+            "repo on purpose (issue 1160: 37 sites of the 1135 shape live in "
+            "`packages/cli/` and `packages/rmw/`). A scan that reaches only "
+            "nros-tests has narrowed, and a narrowed gate still prints OK"
+        ]
+    return []
 
 
 def scan(paths) -> list[str]:
@@ -261,7 +301,7 @@ def main() -> int:
         return self_test(quiet=False)
 
     files = tracked_test_files()
-    violations = scan(files)
+    violations = assert_scope_is_the_whole_tree(files) + scan(files)
     if violations:
         print("check-test-precondition-guards: FAIL\n")
         for v in violations:
@@ -276,7 +316,12 @@ def main() -> int:
             "A guard returning a real value (`Option<PathBuf>`, `TestResult<T>`) is fine."
         )
         return 1
-    print(f"check-test-precondition-guards: OK ({len(files)} test files)")
+    dirs = {f.parent.as_posix() for f in files}
+    outside = len([f for f in files if "packages/testing/" not in f.as_posix()])
+    print(
+        f"check-test-precondition-guards: OK ({len(files)} test files in "
+        f"{len(dirs)} dirs; {outside} outside packages/testing/)"
+    )
     return 0
 
 
