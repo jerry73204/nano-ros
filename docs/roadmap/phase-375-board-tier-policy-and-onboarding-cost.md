@@ -161,10 +161,15 @@ descriptor and no announcement.
 - [ ] Every board is a directory with `package.xml` announcing
       `<nano_ros_provides kind="board" name="…"/>` beside an `nros-board.toml`.
       A crate only where the board needs bring-up code.
-- [ ] Replace the `packages/boards/*/nros-board.toml` glob with `provider_scan`
-      over `[workspace] package_paths` (RFC-0087 D6). Depth-independent, so
-      bundle boards resolve; root-driven, so an out-of-tree board package is
-      found by the same code path.
+- [ ] Boards are discovered by `provider_scan` like every other provider;
+      `nros-board.toml` is read for a package that announced itself as a board.
+      This collapses two walks into one. The out-of-tree ROOTS already work
+      (`extra_board_roots()` reads a PATH-style `NROS_EXTRA_BOARD_PATH`, and
+      `load_with_packages` absorbs a board declared inside the consumer's own
+      workspace package) — what does not is that `BoardCatalog::load_root` stops
+      at one level, so a bundle board cannot own a descriptor and is patched in
+      by `attach_bundle_aliases` reading `board.cmake`. W7 deletes that file, so
+      this is a prerequisite, not a tidy-up.
 - [ ] `check-provider-announcements` loses `if not os.path.exists(pkg_xml):
       continue`. Ratchet against today's one offender,
       `nros-board-mps3-an536-freertos` — the newest board in the tree, which
