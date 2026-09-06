@@ -8,34 +8,31 @@ hand-curated `EXTRA_CONF_FILE` / `DTC_OVERLAY_FILE` / hardcoded board
 id list / hand-rolled FVP launch flags on the consumer side. FVP
 AEMv8-R is the driving case; the shape is generic across boards.
 
-**Status (2026-09-06, second update).** 215.K LANDED — 6 of its 7 boxes done and
-the seventh (K.7) filed as issue 1134 rather than fixed, because fixing it needs
-the licence-gated model. The phase's one remaining acceptance bullet is that same
-issue seen from the other side.
+**Status (2026-09-07). COMPLETE — every box ticked, both acceptance bullets
+verified on the real model.**
 
-**The nano-ros feature is DONE** — a board crate is
-importable in one line by any Zephyr consumer, and 27 of the 30 boxes that are
-this repo's to tick are ticked. The ASI-specific half moved OUT (see 215.H),
-which is what this status used to be measuring against.
+* A board crate is importable in one line by any Zephyr consumer. The proof is
+  `fixtures/board_import_fvp/CMakeLists.txt`: six lines, of which one is
+  `nano_ros_use_board(fvp-aemv8r-smp)`.
+* `just zephyr build-fvp-board-import` links `zephyr.elf` through that call and
+  the generated projection; `just zephyr run-fvp-board-import` prints
+  `nros: smoke ok` on `FVP_BaseR_AEMv8R`.
+* The model is fetched, not hunted: `nros setup --tool arm-fvp` (215.K.8).
+* The ASI-specific half moved OUT to the ASI repo (215.H).
 
-**Both remaining acceptance bullets were VERIFIED 2026-09-06** — see
-Acceptance. What follows is the note from before that run.
+**Three earlier status paragraphs were removed on 2026-09-07 rather than added
+to.** They said, in order, that two acceptance bullets remained; then that K.7
+was filed rather than fixed; then that both bullets were verified after all.
+Each was true when written and false by the time the next one landed under it,
+so a reader met the stalest claim first — and the file's own convention is that
+history belongs in the WORK ITEMS, which carry it, not in a status header that
+has to be read top-down. What each of them recorded survives below:
 
-~~Two acceptance bullets remain, and neither is code~~ (a third was withdrawn
-2026-09-06 — the 215.E fixture in CI, because FVP is on no tier the breadth
-ladder visits; see the bullet for what still holds):
-
-* (VERIFIED, see Acceptance) a Zephyr app calling `nano_ros_use_board(<n>)` and *nothing else* of
-  board-specific shape — `examples/workspaces/realtime-cpp/src/fvp_entry` and
-  the `board_import_fvp` fixture both do; whether an entry layering its OWN
-  config over the board's counts as "nothing else" is a judgement the phase
-  owner should make rather than a gate;
-* the run path launching `FVP_BaseR_AEMv8R` end to end — the simulator is no
-  longer the obstacle (K.8: `nros setup --tool arm-fvp` fetches it, verified
-  running here). What remains is a Zephyr SDK + west tree to build an image
-  with.
-  Restated by 215.K.4: the thing to verify is stock `west build -t run` with
-  `ARMFVP_BIN_PATH` exported by `activate.sh`, not `west fvp run`;
+* K.7 was filed as issue 1134 AND fixed — see 215.K.7.
+* The "needs the licence-gated model" blocker is gone; the model was never
+  licence-gated, which is 215.K.8's finding.
+* The withdrawn third bullet (the 215.E fixture in CI) stays withdrawn: FVP is
+  on no tier the breadth ladder visits.
 
 **RFC-0064 revision 5 (2026-09-06) SUPERSEDES the mechanism, not the goal.** The
 one-line import stands and does not move; what changes is what sits behind it. A
@@ -58,13 +55,15 @@ are deleted by **215.K**; 215.B, 215.E, 215.G and 215.J survive unchanged, which
 is why the goal does not move. The general half is
 [phase-375](phase-375-board-tier-policy-and-onboarding-cost.md) W6–W9.
 
-**Priority note.** The `P1` below rests on "unblocks ASI's actuation consumption
-story". ASI has consumed it since its phase 2.C and its FVP lane is green across
-five variants, so that justification is spent; what is left is worth doing on
-its own terms, not because a downstream is waiting.
+**Priority note.** The `P1` below rested on "unblocks ASI's actuation
+consumption story", and that justification was spent long before the phase
+finished: ASI has consumed the import surface since its phase 2.C, with its FVP
+lane green across five variants. The remaining work got done on its own terms.
+Kept because it records WHY the phase was P1, which the `Priority` line below
+otherwise asserts without evidence.
 
-Driven by ASI's Phase 190 follow-up — ASI today hand-glues every layer Phase 215
-collapses.
+Opened from ASI's Phase 190 follow-up, when ASI hand-glued every layer this
+phase collapses. It no longer does.
 
 **Priority.** P1 — unblocks ASI's actuation consumption story + every
 future external Zephyr consumer of a nano-ros board crate.
