@@ -177,3 +177,61 @@ names). The order that works:
    stops the problem recurring.
 
 Phase 433 owns this work.
+
+## Item 5 LANDED 2026-09-06 — a verdict is recorded, or it never happened
+
+`.config/interop-verdicts.toml` + `scripts/check-interop-verdicts.py`
+(`just check interop-verdict-ledger`, fast lane; `just interop-verdicts` for
+the report). Design, and the four shapes rejected, in
+[phase-433 W5.a](../roadmap/phase-433-rmw-live-verification.md).
+
+The shape: **absence of an entry means NEVER RUN.** A cell that has met a peer
+has a dated entry naming the cases, the verdict, the command and what was
+observed; every other cell is unproven by default, so nothing here can be
+satisfied by a cell that never runs and a newly added cell needs no line.
+Seeded with W1's two real verdicts — `native-graph-rust-zenoh-r2n` PASS,
+`native-graph-rust-cyclone-r2n` FAIL (issue 1137). **2 of 17.**
+
+Three properties this had to have, and how:
+
+* **Not satisfiable by absence.** The default is "never", not "fine". A
+  `fail` verdict must name an OPEN issue, so a finding cannot be parked.
+* **Not red for a legitimate skip.** The gate checks the ledger's INTEGRITY,
+  never a host's capability, so it is green on a laptop with no ROS. Age is
+  reported in days, not expired: an expiry over cells only a ROS-carrying lane
+  can refresh would go red for everyone and stay red.
+* **Not a merge-queue serialiser (0883/0884).** The file holds only POSITIVE
+  claims, written at most once per cell — 17 edits ever, not one per pull
+  request. There is no shared generated line for a PR to touch.
+
+The load-bearing rule, and the reason a junit-derived skip streak cannot work:
+**a binding test is not evidence.** Ten of the eleven live-peer binaries carry
+`cases_bound_to_interop_cells` — body is `interop::assert_test_bound(...)` and
+nothing else — which passes on any host, with no peer, forever. So "did this
+binary produce a non-skip result" is TRUE for all of them on a machine with no
+ROS at all, and a mechanism reading that as coverage would be this very bug
+wearing the fix's clothes. The gate refuses an entry citing one, and
+`--record`/`--after-run` exclude them when reading a junit. (Measured across
+the eleven: exactly one such test in ten of them, none in `graph_interop`,
+whose binding call sits inside the real cases.)
+
+Where a human sees it: the gate's own OK line on every push
+(`2/17 … 15 NEVER RUN`), `just interop-verdicts`, and one line at the tail of
+every sweep via `_test-summary` — which distinguishes the two runs that used
+to print the same thing:
+
+```
+Real failures: 0 / 0 total failures
+Live-peer interop: 2/17 cells have ever produced a verdict. This run reached
+1 of their binaries — 0 produced a result, 1 skipped wholesale.
+```
+
+versus, when the case actually ran, the same header followed by `1 produced a
+result, 0 skipped wholesale` and the cell named for recording.
+
+**Still open in this issue:** item 2 (run the other 15 and record them) and
+item 3 (a lane over the ones that pass) — phase-433 W2/W5. The ledger is where
+W2's verdicts land, instead of a prose table nothing can check. This mechanism
+cannot tell that a hand-written entry is TRUE, only that it is well-formed and
+cites real non-binding cases; and it cannot know when a recorded verdict goes
+stale, which is what the scheduled lane is for.

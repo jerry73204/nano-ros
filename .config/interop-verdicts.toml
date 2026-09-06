@@ -1,0 +1,51 @@
+# What a LIVE ROS 2 peer has actually answered — issue 1127, phase-433 W5.
+#
+# One `[[verdict]]` per `Tier::Runtime` cell in `nros_tests::interop::CELLS`
+# that has produced a real result. **A cell with no entry has NEVER produced a
+# verdict**, and that is the default rather than an omission: a `skip!` becomes
+# `<skipped>` in the junit, every consumer counts it as not-a-failure, and the
+# lane is green — so absence of an entry is the only honest starting point.
+# Nothing here can be satisfied by a cell that never runs.
+#
+# Gate: `just check interop-verdict-ledger`. Report: `just interop-verdicts`.
+#
+# RECORD ONE FROM A RUN, do not type it:
+#
+#     python3 scripts/check-interop-verdicts.py --record <cell-id> \
+#         --junit target/nextest/default/junit.xml --where 'ros2 distrobox'
+#
+# It refuses a junit in which every case of that cell's binary SKIPPED, which
+# is the whole point. A `fail` verdict must name an OPEN issue — a failing cell
+# is a finding, not a blocker (issue 1127 Direction item 2).
+#
+# `tests` may not cite a BINDING test. Every live-peer binary carries one
+# (`cases_bound_to_interop_cells` and its siblings): body is
+# `interop::assert_test_bound(...)` and nothing else, so it passes on any host
+# with no peer, forever. Citing one would put the defect being fixed inside the
+# fix. The gate rejects it.
+#
+# FIELDS: cell, date, verdict (pass|fail), tests, run, where, evidence;
+# `issue` when the verdict is fail, `note` when something needs saying.
+#
+# This file holds only POSITIVE claims and is written at most once per cell, so
+# it is not the committed generated file that serialised the merge queue in
+# issues 0883/0884 — there is no shared line for a pull request to touch.
+
+[[verdict]]
+cell = "native-graph-rust-cyclone-r2n"
+date = "2026-09-06"
+verdict = "fail"
+tests = ["cyclone_enumerates_a_stock_ros2_node"]
+run = "cargo nextest run -p nros-tests --test graph_interop"
+where = "ros2 distrobox (Humble), nano-ros-box tree — phase-433 W1"
+evidence = "FAIL [37.468s] (2/2) graph_interop cyclone_enumerates_a_stock_ros2_node. get_node_names returns one entry (the probe itself) while a stock talker is on the domain; get_topic_names_and_types errors Transport(Unsupported); nine of twelve slots answer Unsupported. The peer was ruled out first per issues 0859-0862."
+issue = "1137"
+
+[[verdict]]
+cell = "native-graph-rust-zenoh-r2n"
+date = "2026-09-06"
+verdict = "pass"
+tests = ["nano_ros_enumerates_a_stock_ros2_node"]
+run = "cargo nextest run -p nros-tests --test graph_interop"
+where = "ros2 distrobox (Humble), nano-ros-box tree — phase-433 W1"
+evidence = "PASS [18.762s] (1/2) graph_interop nano_ros_enumerates_a_stock_ros2_node. First live run since the cell was written; the twelve graph slots phase-381 shipped and issue 0903 repaired work against a stock rmw_zenoh_cpp peer."

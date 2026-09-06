@@ -336,6 +336,117 @@ W1–W3's work decays the moment someone adds a cell.
 *Acceptance:* the gate exists, is on a lane, and fails when a cell's test is
 unreferenced.
 
+### W5.a — the durable half: a verdict is RECORDED, or it never happened
+
+Issue 1127's Direction item 5, and the only one of the five that stops the class
+recurring. W1–W4 make a cell *runnable and aimable*; none of them makes the
+difference between "ran and passed" and "skipped on every host since the day it
+was written" visible to anybody.
+
+**What is being closed.** A `skip!` is not a verdict, and after
+`_rewrite-skipped-junit` it is a `<skipped>` that every consumer counts as
+not-a-failure. So a Runtime interop cell that has never met a peer looks
+exactly like one that passes, on every lane, forever. Five gates surround such
+a cell (`matrix_fixture_coverage.rs` G1–G5) plus W4's runner gate, and all six
+are statements about DECLARATIONS. That is issue 0445's absorbing-verdict class
+one level up: there a STALE fixture replaces the runtime's answer with a
+message explaining itself; here a green tick does the same job. W1 measured the
+cost — `graph_interop` had been "green" since it was written, and the first
+time it was aimed at a live peer, zenoh passed and Cyclone failed nine of
+twelve slots (issue 1137). The cell's own comment had predicted it.
+
+**The mechanism.** `.config/interop-verdicts.toml` records, per cell, that a
+real run produced a real result: the date, the case names, pass or fail, the
+command, where it ran, and the observed output. **Absence of an entry means
+NEVER RUN, and that is the default** — a new cell needs no ledger line and
+starts life honestly unproven, which is the property a mechanism for this must
+have. `scripts/check-interop-verdicts.py` is three things over that one file:
+
+* `--check` — the gate (`just check interop-verdict-ledger`, fast lane).
+  Integrity only, so it is green on a laptop with no ROS: every entry names a
+  real `Tier::Runtime` cell in `interop::CELLS`, carries every required field,
+  names test functions that still EXIST in that cell's declared test binary,
+  and — the load-bearing rule — **names at least one case that is not a
+  binding-only test.** `cases_bound_to_interop_cells` and its siblings call
+  `interop::assert_test_bound` and nothing else; they pass on any host, with no
+  peer, forever. Letting one of those count as evidence would re-create the
+  exact defect inside the mechanism built to catch it. A `fail` verdict must
+  name an OPEN issue (1137 does).
+* `--report` — `just interop-verdicts`. Every Runtime cell, one line each:
+  `PASS`/`FAIL` with its date and age, or `NEVER` with the focused runner W4's
+  gate proved exists. This is the human-facing half.
+* `--record CELL --junit F` — writes an entry FROM a run. It refuses when every
+  case of that cell's binary in that junit skipped: *"no verdict — that is the
+  absence this ledger exists to make visible."* So the honest path is
+  mechanical, and hand-authoring an entry is a visibly different act.
+
+And one line at the tail of every sweep (`_test-summary`, so every `test`,
+`test-all` and tier): `--after-run` reports how many cells have ever produced a
+verdict, how many live-peer binaries this run reached, and how many of them
+skipped wholesale. It stays silent when the run contained no interop binary,
+and it NAMES a cell whose binary produced a result the ledger has not recorded
+— which is the ratchet tightening itself.
+
+**Seeded with the two verdicts that exist.** W1's run is in the ledger:
+`native-graph-rust-zenoh-r2n` PASS, `native-graph-rust-cyclone-r2n` FAIL
+(issue 1137). 2 of 17. W2 fills in the rest by running the cells; the ledger
+is where its "record a verdict per cell" lands, instead of a prose table in
+this document that nothing can check.
+
+**What was rejected, and why.**
+
+* **A generated per-cell last-verdict file, updated by CI.** This is the
+  0883/0884 shape exactly: a committed generated file that many PRs touch
+  serialises the merge queue, and a merge driver cannot fix it because GitHub
+  rebases queue entries server-side. The ledger dodges it by holding only
+  POSITIVE claims, written by a human at most once per cell — 17 edits, ever,
+  not one per push.
+* **Extending `check-skip-budget` (issue 0584).** It is the right neighbour and
+  the wrong shape. Its two assertions are deliberately DERIVED from a single
+  run, with no declaration file, so it cannot express "has never happened on
+  any host" — a property of all history everywhere. 0584 itself named the gap
+  it could not close: *"a `capability` skip on a machine that HAS the
+  capability … is a bug that is currently invisible."* Closing that needs to
+  know what the host has, which the junit does not say.
+* **Deriving the streak from junit alone.** Attractive — CI already produces
+  the XML — and unsound at the granularity that matters. Junit gives (binary,
+  case), and **every one of the eleven live-peer binaries also carries a
+  binding test that passes with no peer**, so "did this binary produce a
+  non-skip result" is TRUE for all eleven on a host with no ROS. A mechanism
+  that reads that as coverage is the bug wearing the fix's clothes. Per-CELL
+  attribution needs someone to say which case exercises which cell, and that
+  is what an entry is. (`--record` and `--after-run` do consume junit, with
+  the binding-only cases excluded by the rule above.)
+* **A count ratchet ("no more than N unverified cells").** One integer in a
+  shared file, edited by every PR that adds a cell — 0883/0884 again, for one
+  line of value. Absence-means-never already makes a new cell unproven without
+  anyone editing anything.
+* **A gate that fails while a cell is unverified.** Uniformly red on every
+  contributor's host, since most have no ROS; a lane with no signal capacity
+  teaches people to ignore it (CLAUDE.md). Visibility is the lever here, not
+  refusal.
+* **A hard expiry on a verified entry**, the way `.config/flake-quarantine.toml`
+  expires a quarantine. Right there, wrong here: quarantine holds a handful of
+  deliberate suppressions, this holds up to 17 cells that only a ROS-carrying
+  lane can refresh, so expiry would go red for everyone and stay red. The age
+  is REPORTED instead, in days, beside every entry.
+
+**What this does not do.** It cannot verify that a hand-written entry is true —
+only that it is well-formed, names a real cell, and cites cases that exist and
+are not binding-only. It cannot see an entry DELETED either — that is a
+coverage regression only review catches, and a ratchet over the count would be
+the shared committed line this design exists to avoid. Nor does it know when a
+recorded verdict goes stale: a
+cell verified today can break tomorrow, and only W5's scheduled lane will say
+so. The ledger's job is to stop *absence* reading as *success*; keeping a
+verdict fresh is what a lane is for.
+
+*Acceptance:* the ledger and gate exist, the gate is on the fast lane and fails
+on a stale entry, on a binding-only case cited as evidence and on an
+unattributed `fail`; the report distinguishes a recorded verdict from a cell
+that has never produced one; `--record` refuses a junit in which the cell's
+binary only skipped.
+
 ### W5 — a lane, over the cells that passed
 
 Box-resident, scheduled (not on the PR path — it needs ROS, a router and a

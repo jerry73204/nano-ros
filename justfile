@@ -781,6 +781,23 @@ fixture-staleness:
     echo "Rebuild it (\`just build-test-fixtures\`); if the count keeps climbing,"
     echo "suspect the probe before trusting the verdict (issue 0445)."
 
+# issue 1127 / phase-433 W5 — which live-peer cells have EVER produced a verdict.
+# `just fixture-staleness` above answers "which coordinate is not running"; this
+# answers the same question one level up, over history rather than over one run:
+# a `Tier::Runtime` cell in `interop::CELLS` whose subject is a live ROS 2 peer
+# either has a dated result in `.config/interop-verdicts.toml` or has NEVER met
+# one — and a green sweep cannot tell you which, because `skip!` renders as
+# `<skipped>` and every consumer counts that as not-a-failure.
+#
+# Record one from a run (it refuses a junit in which the cell's binary only
+# skipped, which is the whole point):
+#
+#   python3 scripts/check-interop-verdicts.py --record <cell> \
+#       --junit target/nextest/default/junit.xml --where 'ros2 distrobox'
+[group("test")]
+interop-verdicts:
+    @python3 scripts/check-interop-verdicts.py --report
+
 # Regenerate the committed cbindgen headers (issue 0452). THE single writer:
 # `nros_generated.h`, `nros_cpp_ffi.h` and `zpico.h` are committed, and build
 # scripts only compare against them and warn. Run this after changing any
@@ -1374,6 +1391,13 @@ _test-summary junit="target/nextest/default/junit.xml":
             | sort | uniq -c | sort -rn | sed 's/^/  /'
     fi
     echo "Real failures: $real / $total total failures"
+    # issue 1127 — one line, and only when the run actually reached a live-peer
+    # binary. "Real failures: 0" is also what a sweep prints when every interop
+    # cell skipped, and a cell that has skipped since the day it was written is
+    # indistinguishable from a passing one. This says which it was, names any
+    # cell that produced a result nobody has recorded, and stays silent for a
+    # run with no interop binary in it. Never fails a lane.
+    python3 scripts/check-interop-verdicts.py --after-run "$junit" || true
 
 # Print the slowest nextest tests from junit.xml.
 [private]
