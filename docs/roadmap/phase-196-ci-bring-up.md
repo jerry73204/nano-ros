@@ -30,9 +30,13 @@ the live set is `gate.yml`, `queue.yml`, `nightly.yml`, `post-submit.yml`,
 consolidation as the zephyr matrix inside `nightly.yml`, on its own `0 5` cron —
 but every zephyr job in the last EIGHT consecutive scheduled runs is `skipped`,
 so the lane reports neither green nor red. Filed as
-[issue 1029](../issues/1029-zephyr-nightly-never-produces-a-verdict.md).
-This criterion cannot be met or refuted until that is fixed, and it should be
-tracked THERE rather than holding a phase open whose own work is finished.
+[issue 1029](../issues/archived/1029-zephyr-nightly-never-produces-a-verdict.md),
+now RESOLVED: the cron gate was open all along and the `needs: changes` edge —
+whose own `lane` dependency is skipped on the 05:00 cron — was skipping the
+jobs. The three zephyr jobs no longer carry that edge.
+This criterion cannot be met or refuted until the first 05:00 run of the fixed
+workflow reports, and it should be tracked THERE rather than holding a phase
+open whose own work is finished.
 
 > **Post-Phase-218**: The CLI-skew install path discussed below
 > (`scripts/install-nros.sh` → `~/.nros/bin/nros`) was retired by
