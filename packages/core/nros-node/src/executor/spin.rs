@@ -1539,6 +1539,11 @@ pub struct Executor<'s> {
     /// source that won it. See `WakeSourceId`.
     pub(crate) last_park_bound_us: u64,
     pub(crate) last_park_source: WakeSourceId,
+    /// phase-436 W2 — the park bound after rounding UP to what the platform's
+    /// wake primitive can express. Kept beside the request rather than
+    /// replacing it: reporting both is what makes the rounding auditable
+    /// instead of silent (issue 1194).
+    pub(crate) last_park_achieved_us: u64,
     /// Wakes that were already past their nominal deadline, and wakes total.
     ///
     /// The maximum alone cannot distinguish one bad wake from a loop that is
@@ -1735,6 +1740,7 @@ impl<'s> Executor<'s> {
             spin_nominal_declared_us: 0,
             last_park_bound_us: 0,
             last_park_source: WakeSourceId::CallerBudget,
+            last_park_achieved_us: 0,
             late_wakes: 0,
             total_wakes: 0,
             report_violations: true,
@@ -2429,6 +2435,74 @@ impl<'s> Executor<'s> {
     /// phase-436 — the bound the last park used, and which source won it.
     pub fn last_park(&self) -> (u64, WakeSourceId) {
         (self.last_park_bound_us, self.last_park_source)
+    }
+
+    /// phase-436 W2 — the park the platform was actually asked for, after
+    /// rounding the request up to an expressible value.
+    ///
+    /// Differs from `last_park().0` exactly when the request did not land on
+    /// the platform's grid. Both are reported because a cadence that cannot be
+    /// waited in must not be presented as if it were met.
+    pub fn last_park_achieved_us(&self) -> u64 {
+        self.last_park_achieved_us
+    }
+
+    /// phase-436 W3 (issue 1194) — the granularity the release-jitter
+    /// measurement was actually made at, in microseconds.
+    ///
+    /// The jitter statistic is reported in microseconds, but the mechanism
+    /// that PACES the loop decides how fine it can honestly be, and there are
+    /// two mechanisms:
+    ///
+    /// * **No declared cadence** — the loop is paced by the blocking wait
+    ///   itself, so it cannot come round more precisely than one park granule.
+    ///   Reporting µs there is precision the wait cannot deliver.
+    /// * **A declared cadence** (`set_spin_nominal_us`) — the caller paces
+    ///   itself, as nros-cpp's tiers do with `platform_sleep_us` between
+    ///   spins. That sleep is finer than the wait, so the measurement really
+    ///   is good to a microsecond and coarsening it would understate it.
+    ///
+    /// Reported rather than applied: this does not change what the monitor
+    /// judges, because silently coarsening a bound could mask real lateness.
+    /// It says what the number is worth.
+    pub fn release_jitter_granularity_us(&self) -> u64 {
+        if self.spin_nominal_declared_us != 0 {
+            1
+        } else {
+            self.park_granularity_us()
+        }
+    }
+
+    /// The finest park this build can actually express, in microseconds.    /// The finest park this build can actually express, in microseconds.
+    ///
+    /// Every `nros_platform_wake_*` port today takes `uint32_t timeout_ms`, so
+    /// the floor is one millisecond on every target — microseconds cannot
+    /// reach the primitive at all. A port that grows a finer slot lowers this,
+    /// and nothing above needs to change: callers ask in microseconds and are
+    /// told what was achieved.
+    pub fn park_granularity_us(&self) -> u64 {
+        // 1 ms — the granularity of `nros_platform_wake_wait_ms`.
+        1_000
+    }
+
+    /// Round a requested park UP to the platform's grid.
+    ///
+    /// Up, not nearest and not down. `as_millis()` truncated, which is how a
+    /// 500 us request became a 0 ms park — the non-blocking path, i.e. a
+    /// 100 % CPU spin with no warning (issue 1193) — and how 1500 us became a
+    /// 1 ms wait that is 33 % short of what was asked.
+    ///
+    /// Zero is preserved exactly: a zero timeout claims no cadence, and
+    /// promoting it to a granule would throttle every deliberate poll.
+    pub(crate) fn round_park_up_us(&self, requested_us: u64) -> u64 {
+        if requested_us == 0 {
+            return 0;
+        }
+        let g = self.park_granularity_us();
+        if g <= 1 {
+            return requested_us;
+        }
+        requested_us.div_ceil(g).saturating_mul(g)
     }
 
     /// Microseconds until the soonest live timer is due, or `None` when no
@@ -6521,7 +6595,13 @@ impl<'s> Executor<'s> {
     }
 
     pub fn spin_once(&mut self, timeout: core::time::Duration) -> SpinOnceResult {
-        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        // phase-436 W2 (issue 1193) — the budget is carried in MICROSECONDS.
+        // This was `as_millis()`, which truncates: `from_micros(500)` became
+        // `0`, and a zero timeout selects the non-blocking path — so a
+        // sub-millisecond `spin()` was a 100 % CPU loop with no warning. The
+        // conversion to whatever the platform primitive accepts happens once,
+        // at the park, and rounds UP.
+        let timeout_us = timeout.as_micros().min(u64::MAX as u128) as u64;
 
         // phase-425 W3b — bring the `/clock` subscription in line with
         // `use_sim_time`. One bool comparison in the settled case; the work only
@@ -6563,9 +6643,9 @@ impl<'s> Executor<'s> {
         // Default backend impl returns `None`, so this is a no-op
         // unless the active backend opts in.
         #[allow(unused_variables)]
-        let timeout_ms = match self.session.next_deadline_ms() {
-            Some(next) => timeout_ms.min(next.min(i32::MAX as u32) as i32),
-            None => timeout_ms,
+        let timeout_us = match self.session.next_deadline_ms() {
+            Some(next) => timeout_us.min((next as u64).saturating_mul(1000)),
+            None => timeout_us,
         };
 
         // phase-436 W1 (issue 1192) — and by the next TIMER deadline, which is
@@ -6576,11 +6656,15 @@ impl<'s> Executor<'s> {
         //
         // Attribution is recorded here rather than derived later: this is the
         // only point where the losing candidates are still in hand.
-        let (park_bound_us, park_source) =
-            self.next_wake_bound_attributed_us((timeout_ms.max(0) as u64).saturating_mul(1000));
+        let (park_bound_us, park_source) = self.next_wake_bound_attributed_us(timeout_us);
         self.last_park_bound_us = park_bound_us;
         self.last_park_source = park_source;
-        let timeout_ms = (park_bound_us / 1000).min(i32::MAX as u64) as i32;
+        // phase-436 W2 (issue 1193) — round UP to what the primitive can
+        // express. The old `as_millis()` truncated, so a sub-millisecond
+        // request became a zero park: the non-blocking path, a busy loop.
+        let park_achieved_us = self.round_park_up_us(park_bound_us);
+        self.last_park_achieved_us = park_achieved_us;
+        let timeout_ms = (park_achieved_us / 1000).min(i32::MAX as u64) as i32;
 
         // Wall-clock-accurate timer accumulation. Measure real time
         // since the previous `spin_once` exited (or, on the first call,

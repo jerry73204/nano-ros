@@ -1925,6 +1925,117 @@ fn test_arena_alignment() {
 // phase-436 W1 (issue 1192) — the park is bounded by the next TIMER deadline.
 // ===========================================================================
 
+// ===========================================================================
+// phase-436 W3 (issue 1194) — the jitter measurement states the granularity
+// it was actually made at, instead of implying microsecond precision the
+// pacing mechanism cannot deliver.
+// ===========================================================================
+
+/// A loop with no declared cadence is paced BY the blocking wait, so its
+/// jitter can only be as fine as the wait — one platform granule.
+#[test]
+fn jitter_granularity_is_the_park_granule_when_the_wait_paces_the_loop() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(10));
+
+    assert_eq!(
+        executor.release_jitter_granularity_us(),
+        executor.park_granularity_us(),
+        "with no declared cadence the wait is the pacing mechanism, so it is \
+         also the floor on the measurement"
+    );
+}
+
+/// A loop that DECLARES its cadence paces itself — nros-cpp's tiers sleep
+/// `platform_sleep_us` between spins, which is finer than the blocking wait.
+/// Reporting a millisecond floor there would understate a real measurement.
+#[test]
+fn a_declared_cadence_means_the_loop_paces_itself_at_microseconds() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(5_000);
+    executor.spin_once(core::time::Duration::from_millis(10));
+
+    assert_eq!(
+        executor.release_jitter_granularity_us(),
+        1,
+        "a declared cadence is paced by the caller's own sleep, not by the wait"
+    );
+}
+
+// ===========================================================================
+// phase-436 W2 (issue 1193) — the park rounds UP to what the platform can
+// actually achieve, and never truncates to a busy loop.
+// ===========================================================================
+
+/// A zero timeout means "poll, no cadence claimed". Rounding up must not
+/// promote it into a 1 ms sleep — that would turn every `Future::wait` busy
+/// drain into a throttled one.
+#[test]
+fn a_zero_park_stays_zero() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::ZERO);
+    assert_eq!(executor.last_park_achieved_us(), 0);
+}
+
+/// The defect: `as_millis()` truncates, so 500 us became 0 ms, which selects
+/// the non-blocking path and turns `spin()` into a 100 % CPU loop. A park
+/// shorter than the platform can express must round UP to what it can.
+#[test]
+fn a_sub_granularity_park_rounds_up_instead_of_collapsing_to_a_spin() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(500));
+
+    let achieved = executor.last_park_achieved_us();
+    assert_eq!(
+        achieved,
+        executor.park_granularity_us(),
+        "500 us must round up to one granule, not down to a busy loop; got {achieved} us"
+    );
+    assert!(achieved > 0, "a non-zero request must never park for zero");
+}
+
+/// Rounding is UP, not nearest and not down: 1500 us on a 1 ms-granular port
+/// waits 2 ms. Truncating it to 1 ms is a 33 % short wait no caller asked for.
+#[test]
+fn a_park_rounds_up_never_down() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(1_500));
+
+    let achieved = executor.last_park_achieved_us();
+    let g = executor.park_granularity_us();
+    assert_eq!(
+        achieved,
+        2 * g,
+        "1500 us must round up to two granules, got {achieved} us"
+    );
+}
+
+/// A request that already lands on the grid is left alone — rounding must not
+/// add a granule to a cadence that was already expressible.
+#[test]
+fn an_exact_multiple_is_not_inflated() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(5));
+    assert_eq!(executor.last_park_achieved_us(), 5_000);
+}
+
+/// The rounding must be VISIBLE. A monitor that reports jitter in µs against a
+/// cadence the port cannot wait in is reporting precision it does not have
+/// (issue 1194) — so the executor states what it actually achieved.
+#[test]
+fn the_achieved_park_is_reported_separately_from_the_request() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_micros(1_500));
+
+    let (requested_us, _) = executor.last_park();
+    assert_eq!(requested_us, 1_500, "the request is reported as asked");
+    assert_ne!(
+        executor.last_park_achieved_us(),
+        requested_us,
+        "and the achieved value differs, which is the whole point of reporting both"
+    );
+}
+
 /// Issue 0515's audit must keep seeing the TIER's declared cadence, not the
 /// park bound. Capping the park by the timer deadline (issue 1192) makes the
 /// two differ, and if the audit follows the cap it compares the timer period
