@@ -110,7 +110,24 @@ to remove.
 
 - **W2.2 — `nros-entry-lower`, structured `LoweredEntry`.** All computation,
   inside the proc-macro's dependency budget (`nros-pkg-index`,
-  `nros-launch-parser`, `nros-orchestration-ir`). If this crate grows a heavy
+  `nros-launch-parser`, `nros-orchestration-ir`).
+
+  **Shape, settled by reading both callers rather than guessing.** The shared
+  thing is NOT `Plan`: the proc-macro has no `Plan`, and `Plan` is the CLI's
+  own projection of the input. What both already converge on is
+  `SystemModel` plus `nros_orchestration_ir::{ResolvedTierTable,
+  resolve_tiers}` — the macro imports exactly those today. So
+  `nros-entry-lower` takes the SystemModel-derived facts, not `Plan`, and the
+  CLI builds its input from `Plan` while the macro builds it from its own
+  read. Designing this around `Plan` would have forced `Plan` out of
+  `nros-cli-core` (it is used across `cmd/`, `builder/`, `codegen/`) for no
+  gain, and would have handed the macro a type it has no way to construct.
+
+  Encouraging for the budget: `NodeOverride` and `TierDef` already LIVE in
+  `nros-orchestration-ir`; `cargo_metadata_schema` only re-exports them. The
+  one dependency `Plan`'s module has that the budget excludes is `eyre`, and
+  a leaf crate should carry a plain error type instead — `nros-lang` (W2.1)
+  is the precedent. If this crate grows a heavy
   dependency the proc-macro cannot adopt it and the duplication returns, so the
   budget is a constraint, not a preference.
   Carries **no rendered text** and **no language-specific spelling**: no C
