@@ -1,6 +1,6 @@
 use super::common::{
     GeneratorError, PayloadLang, SchemaCaps, build_action_envelope_schemas, build_c_fields,
-    build_nros_fields, build_nros_schema_for_struct, build_rmw_fields, determine_field_kind,
+    build_idiomatic_fields, build_nros_fields, build_nros_schema_for_struct, build_rmw_fields,
     ensure_supported_storage_for_payload,
 };
 use crate::{
@@ -8,11 +8,11 @@ use crate::{
     templates::{
         ActionCHeaderTemplate, ActionCSourceTemplate, ActionIdiomaticTemplate, ActionNrosTemplate,
         ActionRmwTemplate, BuildRsTemplate, CConstant, CargoNrosTomlTemplate, CargoTomlTemplate,
-        IdiomaticField, LibNrosRsTemplate, LibRsTemplate, MessageConstant,
+        LibNrosRsTemplate, LibRsTemplate, MessageConstant,
     },
     types::{
-        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, escape_keyword,
-        nros_type_for_constant, rust_type_for_constant, to_c_package_name,
+        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, nros_type_for_constant,
+        rust_type_for_constant, to_c_package_name,
     },
     utils::{extract_dependencies, needs_big_array, to_snake_case},
 };
@@ -84,22 +84,8 @@ pub fn generate_action_package(
     let message_to_rmw_fields =
         |member: &str, msg: &Message| build_rmw_fields(package_name, member, msg);
 
-    let message_to_idiomatic_fields = |msg: &Message| {
-        msg.fields
-            .iter()
-            .map(|f| IdiomaticField {
-                name: escape_keyword(&f.name),
-                field_type: f.field_type.clone(),
-                current_package: package_name.to_string(),
-                default_value: f
-                    .default_value
-                    .as_ref()
-                    .map(constant_value_to_rust)
-                    .unwrap_or_default(),
-                kind: determine_field_kind(&f.field_type),
-            })
-            .collect()
-    };
+    let message_to_idiomatic_fields =
+        |member: &str, msg: &Message| build_idiomatic_fields(package_name, member, msg);
 
     let message_to_constants = |msg: &Message, _rmw_layer: bool| {
         msg.constants
@@ -131,11 +117,11 @@ pub fn generate_action_package(
     let action_idiomatic_template = ActionIdiomaticTemplate {
         package_name,
         action_name,
-        goal_fields: message_to_idiomatic_fields(&action.spec.goal),
+        goal_fields: message_to_idiomatic_fields(&goal_member, &action.spec.goal),
         goal_constants: message_to_constants(&action.spec.goal, false),
-        result_fields: message_to_idiomatic_fields(&action.spec.result),
+        result_fields: message_to_idiomatic_fields(&result_member, &action.spec.result),
         result_constants: message_to_constants(&action.spec.result, false),
-        feedback_fields: message_to_idiomatic_fields(&action.spec.feedback),
+        feedback_fields: message_to_idiomatic_fields(&feedback_member, &action.spec.feedback),
         feedback_constants: message_to_constants(&action.spec.feedback, false),
     };
     let action_idiomatic = crate::render::render("action_idiomatic.rs", &action_idiomatic_template)

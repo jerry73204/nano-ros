@@ -1,6 +1,6 @@
 use super::common::{
-    GeneratorError, SchemaCaps, build_c_fields, build_nros_fields, build_nros_message_schema,
-    build_rmw_fields, determine_field_kind,
+    GeneratorError, SchemaCaps, build_c_fields, build_idiomatic_fields, build_nros_fields,
+    build_nros_message_schema, build_rmw_fields,
 };
 use crate::{
     config::CapacityResolver,
@@ -11,8 +11,8 @@ use crate::{
         RmwField,
     },
     types::{
-        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, escape_keyword,
-        nros_type_for_constant, rust_type_for_constant, to_c_package_name,
+        NrosCodegenMode, c_type_for_constant, constant_value_to_rust, nros_type_for_constant,
+        rust_type_for_constant, to_c_package_name,
     },
     utils::{extract_dependencies, needs_big_array, to_snake_case},
 };
@@ -96,22 +96,10 @@ pub fn generate_message_package(
     let message_rmw = crate::render::render("message_rmw.rs", &message_rmw_template)
         .map_err(|e| GeneratorError::RenderError(e.to_string()))?;
 
-    // Generate idiomatic layer message
-    let idiomatic_fields: Vec<IdiomaticField> = message
-        .fields
-        .iter()
-        .map(|f| IdiomaticField {
-            name: escape_keyword(&f.name),
-            field_type: f.field_type.clone(),
-            current_package: package_name.to_string(),
-            default_value: f
-                .default_value
-                .as_ref()
-                .map(constant_value_to_rust)
-                .unwrap_or_default(),
-            kind: determine_field_kind(&f.field_type),
-        })
-        .collect();
+    // Generate idiomatic layer message — projected from the lowered IR
+    // (phase-432 W2.5a); this used to map over `message.fields` directly.
+    let idiomatic_fields: Vec<IdiomaticField> =
+        build_idiomatic_fields(package_name, message_name, message);
 
     let idiomatic_constants: Vec<MessageConstant> = message
         .constants
