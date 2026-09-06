@@ -31,10 +31,34 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # NOT cancel-in-progress. Cancelling a queue job makes the batch fail with no
-  # verdict, and GitHub then ejects PRs that were never actually tested.
-  group: queue-${{ github.ref }}
-  cancel-in-progress: false
+  # A CONSTANT group, and cancel-in-progress. Both halves are the fix for a
+  # backlog that grew without bound: 30 -> 40 -> 59 queued runs in one morning.
+  #
+  # It used to key on `${{ github.ref }}`, which on `merge_group` is the
+  # EPHEMERAL per-entry ref (`refs/heads/gh-readonly-queue/main/pr-N-<sha>`).
+  # Every entry therefore got its own group, the block deduped nothing, and each
+  # merge queued another run behind the ONE self-hosted runner. `queue.yml` has
+  # never completed a run.
+  #
+  # The comment this replaces said cancelling "makes the batch fail with no
+  # verdict, and GitHub then ejects PRs that were never actually tested". That
+  # is true of a REQUIRED check and this is not one: the sole required context
+  # is the `CI` aggregator, and neither job here is it. Measured — `queue.yml`
+  # has failed or never started for its entire history while pull requests
+  # merged normally throughout, eight of them in the 90 minutes before this
+  # change. A cancelled run here ejects nothing.
+  #
+  # So the trade is: today essentially NO entry gets an L3 verdict, because the
+  # newest waits behind 59 older ones. With a constant group the NEWEST
+  # speculative head always gets one, and older entries — which the newer head
+  # already contains — are superseded rather than queued. Strictly more signal.
+  #
+  # IF THIS LANE EVER BECOMES REQUIRED, REVISIT THIS IN THE SAME EDIT. The old
+  # comment's reasoning becomes correct again the moment `l3` is a required
+  # context, and a cancelled required check is the frozen-repo failure this
+  # workflow's own header warns about.
+  group: queue-l3
+  cancel-in-progress: true
 
 permissions:
   contents: read
