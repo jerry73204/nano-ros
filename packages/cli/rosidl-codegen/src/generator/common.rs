@@ -331,24 +331,35 @@ fn element_type_of(ft: &FieldType) -> Option<&FieldType> {
     }
 }
 
-/// Get the CDR primitive method name for a primitive type
-pub(super) fn primitive_to_cdr_method(prim: &rosidl_parser::PrimitiveType) -> String {
-    use rosidl_parser::PrimitiveType;
-    match prim {
-        PrimitiveType::Bool => "bool".to_string(),
-        PrimitiveType::Byte => "u8".to_string(),
-        PrimitiveType::Char => "u8".to_string(),
-        PrimitiveType::Int8 => "i8".to_string(),
-        PrimitiveType::UInt8 => "u8".to_string(),
-        PrimitiveType::Int16 => "i16".to_string(),
-        PrimitiveType::UInt16 => "u16".to_string(),
-        PrimitiveType::Int32 => "i32".to_string(),
-        PrimitiveType::UInt32 => "u32".to_string(),
-        PrimitiveType::Int64 => "i64".to_string(),
-        PrimitiveType::UInt64 => "u64".to_string(),
-        PrimitiveType::Float32 => "f32".to_string(),
-        PrimitiveType::Float64 => "f64".to_string(),
+/// The Rust CDR method suffix for a lowered scalar op — the nros pack's
+/// `reader.read_<x>()` / `writer.write_<x>()` (phase-432 W2.5a).
+///
+/// A per-language SPELLING of a neutral fact, which is the shape W2.5b names as
+/// a language's whole Rust surface area. It replaces `primitive_to_cdr_method`
+/// at the nros builder, and the two agree by construction: `CdrOp` is exactly
+/// as coarse as this mapping — `Byte`, `Char` and `UInt8` all lower to
+/// `CdrOp::U8` and all three spelled `"u8"`.
+///
+/// `String` and `Nested` are not scalars and reach this only through a caller
+/// that ignored `scalar_op` / `element_is_primitive`; they map to the empty
+/// string, which renders as no method rather than a wrong one.
+pub(super) fn cdr_op_rust_method(op: rosidl_lower::CdrOp) -> String {
+    use rosidl_lower::CdrOp;
+    match op {
+        CdrOp::Bool => "bool",
+        CdrOp::U8 => "u8",
+        CdrOp::I8 => "i8",
+        CdrOp::U16 => "u16",
+        CdrOp::I16 => "i16",
+        CdrOp::U32 => "u32",
+        CdrOp::I32 => "i32",
+        CdrOp::U64 => "u64",
+        CdrOp::I64 => "i64",
+        CdrOp::F32 => "f32",
+        CdrOp::F64 => "f64",
+        CdrOp::String | CdrOp::Nested => "",
     }
+    .to_string()
 }
 
 /// Storage-mode policy for a service/action payload struct.
@@ -497,131 +508,72 @@ pub(super) fn ensure_element_caps_apply(
     })
 }
 
+/// Build one nros field from the lowered IR (phase-432 W2.5a).
+///
+/// Every fact below was re-derived here from `rosidl_parser` before this wave:
+/// the element-cap fold, the two configurable shapes, the storage mode flags,
+/// the five shape predicates, the array length, the element classification and
+/// both CDR method names. All of them are now READ off `LoweredField`, so the
+/// nros surface and the C surface cannot answer the same question differently.
+///
+/// What is left is the two things a language owes: the identifier SPELLING
+/// (`escape_keyword`) and the CDR method NAMES (`cdr_op_rust_method`), which is
+/// a `CdrOp` -> Rust suffix mapping and belongs with the other per-language
+/// spellings (W2.5b).
 pub(super) fn field_to_nros_field_with_mode(
-    field: &rosidl_parser::Field,
+    field: &rosidl_lower::LoweredField,
     package_name: &str,
     message_name: &str,
-    resolver: &CapacityResolver,
     mode: NrosCodegenMode,
-    // phase-335 W1.c — when the caller already lowered this field, its resolved
-    // storage is read from the IR instead of resolving a second time. `None`
-    // keeps the resolver path (callers not yet migrated). Only consulted for a
-    // configurable (unbounded string / sequence) field; ignored otherwise.
-    pre_storage: Option<FieldStorage>,
 ) -> Result<NrosField, GeneratorError> {
-    let name = escape_keyword(&field.name);
-
-    // phase-403 W7 — fold any configured ELEMENT bound into the shape first, so
-    // the container spells `heapless::Vec<heapless::String<32>, N>` and the
-    // element's `String::try_from` is what ENFORCES the bound the derived
-    // number claims. Every branch below reads this, not `field.field_type`.
-    let capped =
-        resolver.element_capped(package_name, message_name, &field.name, &field.field_type);
+    // phase-403 W7 — the container spells `heapless::Vec<heapless::String<32>, N>`
+    // so the element's `String::try_from` ENFORCES the bound the derived number
+    // claims. The fold is `LoweredField::storage_type`; it used to be an
+    // `element_capped` call this builder made for itself.
+    let capped = field.storage_type();
     let field_type: &FieldType = capped.as_ref();
 
-    // Resolve per-field capacity for the two configurable shapes: an unbounded
-    // string and an unbounded sequence. Everything else keeps default rendering.
-    let cap_kind = match field_type {
-        FieldType::String | FieldType::WString => Some(CapFieldKind::String),
-        FieldType::Sequence { .. } => Some(CapFieldKind::Sequence),
-        _ => None,
-    };
-    let mut is_heap = false;
-    let mut is_borrowed = false;
     let mut borrowed_rust_type = String::new();
     let mut borrowed_read_expr = String::new();
-    // phase-335 step 2 — resolve storage for the FLAGS + the capacity the
-    // `nros_type` pack filter needs; the type STRING is composed in the pack.
-    let is_configurable = cap_kind.is_some();
-    let mut cap: usize = 0;
-    if let Some(kind) = cap_kind {
-        let storage = pre_storage
-            .unwrap_or_else(|| resolver.resolve(package_name, message_name, &field.name, kind));
-        cap = storage.cap;
-        match storage.mode {
-            StorageMode::Inline => {}
-            StorageMode::Heap => {
-                is_heap = true;
-            }
-            // RFC-0033 `borrowed` (Phase 229.6, issue 0007): the owned `{Msg}`
-            // struct keeps a default-capacity owned container for the publish
-            // path; the additionally-emitted `{Msg}View<'a>` borrows this field
-            // zero-copy (see `borrowed_rust_type` / `borrowed_read_expr`).
-            StorageMode::View => {
-                is_borrowed = true;
-                let (bt, expr) = nros_borrowed_view_for_field(
-                    field_type,
-                    package_name,
-                    message_name,
-                    &field.name,
-                )?;
-                borrowed_rust_type = bt;
-                borrowed_read_expr = expr;
-            }
-        }
+    // RFC-0033 `borrowed` (Phase 229.6, issue 0007): the owned `{Msg}` struct
+    // keeps a default-capacity owned container for the publish path; the
+    // additionally-emitted `{Msg}View<'a>` borrows this field zero-copy.
+    if field.is_borrowed() {
+        let (bt, expr) =
+            nros_borrowed_view_for_field(field_type, package_name, message_name, &field.name)?;
+        borrowed_rust_type = bt;
+        borrowed_read_expr = expr;
     }
 
-    // Determine field properties
-    let (is_primitive, primitive_method) = match field_type {
-        FieldType::Primitive(prim) => (true, primitive_to_cdr_method(prim)),
-        _ => (false, String::new()),
-    };
-
-    let is_string = matches!(
-        field_type,
-        FieldType::String
-            | FieldType::BoundedString(_)
-            | FieldType::WString
-            | FieldType::BoundedWString(_)
-    );
-
-    let (is_array, array_size) = match field_type {
-        FieldType::Array { size, .. } => (true, *size),
-        _ => (false, 0),
-    };
-
-    let is_sequence = matches!(
-        field_type,
-        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. }
-    );
-
-    let is_nested = matches!(field_type, FieldType::NamespacedType { .. });
-
-    // Element type info for arrays and sequences
-    let (is_primitive_element, is_string_element, element_primitive_method) = match field_type {
-        FieldType::Array { element_type, .. }
-        | FieldType::Sequence { element_type }
-        | FieldType::BoundedSequence { element_type, .. } => match element_type.as_ref() {
-            FieldType::Primitive(prim) => (true, false, primitive_to_cdr_method(prim)),
-            FieldType::String
-            | FieldType::BoundedString(_)
-            | FieldType::WString
-            | FieldType::BoundedWString(_) => (false, true, String::new()),
-            _ => (false, false, String::new()),
-        },
-        _ => (false, false, String::new()),
-    };
+    let array_size = field.array_len();
 
     Ok(NrosField {
-        name,
+        name: escape_keyword(&field.name),
         field_type: field_type.clone(),
-        is_configurable,
-        cap,
+        is_configurable: field.configurable,
+        cap: field.configured_cap(),
         mode,
         current_package: package_name.to_string(),
-        primitive_method,
-        element_primitive_method,
+        primitive_method: field
+            .scalar_op()
+            .map(cdr_op_rust_method)
+            .unwrap_or_default(),
+        element_primitive_method: field
+            .element_op()
+            .filter(|_| field.element_is_primitive())
+            .map(cdr_op_rust_method)
+            .unwrap_or_default(),
         array_size,
-        is_primitive,
-        is_string,
-        is_array,
-        is_sequence,
-        is_nested,
-        is_primitive_element,
-        is_string_element,
+        is_primitive: field.is_primitive(),
+        is_string: field.is_string(),
+        is_array: field.is_array(),
+        is_sequence: field.is_sequence(),
+        is_nested: field.is_nested(),
+        is_primitive_element: field.element_is_primitive(),
+        is_string_element: field.element_is_string(),
         is_large_array: array_size > 32,
-        is_heap,
-        is_borrowed,
+        is_heap: field.is_heap(),
+        is_borrowed: field.is_borrowed(),
         borrowed_rust_type,
         borrowed_read_expr,
     })
@@ -722,8 +674,10 @@ pub(super) fn build_idiomatic_fields(
         .collect()
 }
 
-/// Build every nros field of `msg`, sourcing each field's storage from the
-/// lowered IR once (phase-335 W1.c) — no field builder resolves capacity.
+/// Build every nros field of `msg` from the lowered IR (phase-432 W2.5a).
+///
+/// phase-335 W1.c already sourced the STORAGE decision here; the whole field is
+/// sourced here now, so nothing downstream re-reads `rosidl_parser`.
 pub(super) fn build_nros_fields(
     package: &str,
     message: &str,
@@ -731,12 +685,11 @@ pub(super) fn build_nros_fields(
     resolver: &CapacityResolver,
     mode: NrosCodegenMode,
 ) -> Result<Vec<NrosField>, GeneratorError> {
-    let store = lowered_storages(package, message, &msg.fields, resolver);
+    let lowered = rosidl_lower::lower_fields(package, message, &msg.fields, resolver);
     ensure_element_caps_apply(package, message, &msg.fields, resolver)?;
-    msg.fields
+    lowered
         .iter()
-        .zip(store.iter())
-        .map(|(f, s)| field_to_nros_field_with_mode(f, package, message, resolver, mode, Some(*s)))
+        .map(|f| field_to_nros_field_with_mode(f, package, message, mode))
         .collect()
 }
 
