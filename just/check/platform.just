@@ -274,6 +274,21 @@ knob-fixpoint:
 c-array-pool-floors:
     @python3 scripts/check-c-array-pool-floors.py
 
+# issue 1167 — the guard 1015 added must come AFTER the knob's default. The C
+# preprocessor reads an UNDEFINED identifier in `#if` as 0, so a `#if KNOB < 1`
+# placed above the knob's `#ifndef`/`#define` does not protect the array: it
+# refuses every build that does not pass a `-D` for that knob.
+#
+# Nine of the ten guards were safe because the defaults block sits above them.
+# The tenth, `ZPICO_MAX_SESSIONS`, is the one guarded knob with no Kconfig row
+# and no cmake bridge, so the in-file default was the ONLY definition the TU
+# would get and it came ~100 lines too late. Both facts are correct alone and
+# wrong together, which is why reading the diff does not catch it — and no
+# merge-gating event builds Zephyr, so it reached `main`.
+[private]
+c-knob-guard-order:
+    @python3 scripts/check-c-knob-guard-order.py
+
 # A knob is resolved EXACTLY ONCE. phase-412 hit this three times: a knob
 # gained a derivable resolution and kept its old plain one, the second call
 # won, and what it passed was the raw Kconfig value — which for a derivable

@@ -265,6 +265,14 @@ typedef struct {
 #ifndef ZPICO_MAX_PENDING_REPLIES
 #define ZPICO_MAX_PENDING_REPLIES 4
 #endif
+// Size of the session pool. Unlike its neighbours this knob has NO Kconfig row
+// and no cmake bridge (`nros-zpico-build/src/runner.rs` says so), so on Zephyr
+// the C lane never receives a -D for it and this default is the ONLY definition
+// the TU gets. It therefore has to sit ABOVE the `< 1` guard block — see
+// issue 1167.
+#ifndef ZPICO_MAX_SESSIONS
+#define ZPICO_MAX_SESSIONS 1 // single-session targets keep TODAY's footprint
+#endif
 // `stored_queries` / `stored_query_valid` / `last_reply_seq` are per-session —
 // they live in `struct zpico_session` (defined below). The index of the slot
 // allocated by the most recent `query_handler` invocation is read by
@@ -481,9 +489,10 @@ typedef void (*zpico_waker_fn)(int32_t session_index, int32_t slot);
 #define ZPICO_TX_BATCH_FLUSH_MS 50
 #endif
 
-#ifndef ZPICO_MAX_SESSIONS
-#define ZPICO_MAX_SESSIONS 1 // single-session targets keep TODAY's footprint
-#endif
+// ZPICO_MAX_SESSIONS's default moved UP beside the other extents (issue 1167):
+// the `#if ZPICO_MAX_SESSIONS < 1` guard below the defaults block evaluates an
+// undefined macro as 0, so a default defined down HERE fired the #error on
+// every build that does not pass -DZPICO_MAX_SESSIONS.
 
 struct zpico_session {
     // Session handle + config + lifecycle (per handle — issue 0347's
