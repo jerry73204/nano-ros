@@ -179,8 +179,28 @@ build-fvp-ws-entry:
     if [ ! -x "$make_bin" ]; then
         make_bin="$(command -v make)"
     fi
+    # The SDK prefixes are resolved BEFORE `cd "$workspace"`: `nros sdk-path`
+    # locates `nros-sdk-index.toml` relative to the CWD, and a Zephyr
+    # workspace has none. Resolving after the cd printed two `failed to read
+    # SDK index` errors and silently fell back to whatever `make`/`ninja`
+    # the host had — a fallback that works until it does not.
+    # Issue 1134's shape, one layer out: Zephyr's `cmake/emu/armfvp.cmake` runs
+    # `find_program(ARMFVP ... PATHS ENV ARMFVP_BIN_PATH)` at CONFIGURE and
+    # CACHES the result. A build dir configured before the model existed bakes
+    # `ARMFVP-NOTFOUND`, and `west build -t run` then reuses that cache — so
+    # exporting the path at run time is too late and the run dies with
+    # `/bin/sh: 1: ARMFVP-NOTFOUND: not found`. Measured here 2026-09-06.
+    #
+    # So the BUILD exports it as well. Best-effort: a contributor with no model
+    # must still be able to build the image, which is most of what these
+    # recipes are for.
+    if _fvp_bin="$(bash "$nros_root/scripts/zephyr/resolve-fvp-bin.sh" 2>/dev/null)"; then
+        export ARMFVP_BIN_PATH="$_fvp_bin"
+    fi
+    _sdk_make="$(nros sdk-path make)"
+    _sdk_ninja="$(nros sdk-path ninja)"
     cd "$workspace"
-    export PATH="$(nros sdk-path make)/bin:$(nros sdk-path ninja)/bin:$PATH"
+    export PATH="$_sdk_make/bin:$_sdk_ninja/bin:$PATH"
     export ZEPHYR_SDK_INSTALL_DIR="$sdk"
     export NROS_REPO_DIR="$nros_root"
     # phase-298 W3 — bake the fast-sim flag into the configure-time
@@ -235,12 +255,31 @@ run-fvp-ws-entry:
         nros_lane_skip "Zephyr/FVP-ws-entry run skip: build-fvp-ws-entry/zephyr/zephyr.elf missing — run \`just zephyr build-fvp-ws-entry\` first"
     fi
     nros_root="$(pwd)"
+    # The SDK prefixes are resolved BEFORE `cd "$workspace"`: `nros sdk-path`
+    # locates `nros-sdk-index.toml` relative to the CWD, and a Zephyr
+    # workspace has none. Resolving after the cd printed two `failed to read
+    # SDK index` errors and silently fell back to whatever `make`/`ninja`
+    # the host had — a fallback that works until it does not.
+    # Issue 1134's shape, one layer out: Zephyr's `cmake/emu/armfvp.cmake` runs
+    # `find_program(ARMFVP ... PATHS ENV ARMFVP_BIN_PATH)` at CONFIGURE and
+    # CACHES the result. A build dir configured before the model existed bakes
+    # `ARMFVP-NOTFOUND`, and `west build -t run` then reuses that cache — so
+    # exporting the path at run time is too late and the run dies with
+    # `/bin/sh: 1: ARMFVP-NOTFOUND: not found`. Measured here 2026-09-06.
+    #
+    # So the BUILD exports it as well. Best-effort: a contributor with no model
+    # must still be able to build the image, which is most of what these
+    # recipes are for.
+    if _fvp_bin="$(bash "$nros_root/scripts/zephyr/resolve-fvp-bin.sh" 2>/dev/null)"; then
+        export ARMFVP_BIN_PATH="$_fvp_bin"
+    fi
+    _sdk_make="$(nros sdk-path make)"
+    _sdk_ninja="$(nros sdk-path ninja)"
     cd "$workspace"
-    export PATH="$(nros sdk-path make)/bin:$(nros sdk-path ninja)/bin:$PATH"
+    export PATH="$_sdk_make/bin:$_sdk_ninja/bin:$PATH"
     export ZEPHYR_SDK_INSTALL_DIR="$nros_root/scripts/zephyr/sdk/zephyr-sdk-0.16.8"
     export NROS_REPO_DIR="$nros_root"
     export ARMFVP_EXTRA_FLAGS="-C cache_state_modelled=0"
-    export ARMFVP_BIN_PATH="$_fvp_bin"
     west build -d build-fvp-ws-entry -t run
 
 # phase-298 W3.3 (issue 0232) — the maintainer pre-release gate: build the
@@ -298,8 +337,28 @@ build-fvp-board-import:
         make_bin="$(command -v make)"
     fi
     src="$nros_root/packages/testing/nros-tests/fixtures/board_import_fvp"
+    # The SDK prefixes are resolved BEFORE `cd "$workspace"`: `nros sdk-path`
+    # locates `nros-sdk-index.toml` relative to the CWD, and a Zephyr
+    # workspace has none. Resolving after the cd printed two `failed to read
+    # SDK index` errors and silently fell back to whatever `make`/`ninja`
+    # the host had — a fallback that works until it does not.
+    # Issue 1134's shape, one layer out: Zephyr's `cmake/emu/armfvp.cmake` runs
+    # `find_program(ARMFVP ... PATHS ENV ARMFVP_BIN_PATH)` at CONFIGURE and
+    # CACHES the result. A build dir configured before the model existed bakes
+    # `ARMFVP-NOTFOUND`, and `west build -t run` then reuses that cache — so
+    # exporting the path at run time is too late and the run dies with
+    # `/bin/sh: 1: ARMFVP-NOTFOUND: not found`. Measured here 2026-09-06.
+    #
+    # So the BUILD exports it as well. Best-effort: a contributor with no model
+    # must still be able to build the image, which is most of what these
+    # recipes are for.
+    if _fvp_bin="$(bash "$nros_root/scripts/zephyr/resolve-fvp-bin.sh" 2>/dev/null)"; then
+        export ARMFVP_BIN_PATH="$_fvp_bin"
+    fi
+    _sdk_make="$(nros sdk-path make)"
+    _sdk_ninja="$(nros sdk-path ninja)"
     cd "$workspace"
-    export PATH="$(nros sdk-path make)/bin:$(nros sdk-path ninja)/bin:$PATH"
+    export PATH="$_sdk_make/bin:$_sdk_ninja/bin:$PATH"
     export ZEPHYR_SDK_INSTALL_DIR="$sdk"
     # Phase 215.B — the fixture's CMakeLists includes
     # `$ENV{NROS_REPO_DIR}/zephyr/cmake/nano_ros_use_board.cmake` BEFORE
@@ -351,10 +410,29 @@ run-fvp-board-import:
         nros_lane_skip "Zephyr/FVP board-import run skip: build-fvp-board-import/zephyr/zephyr.elf missing — run \`just zephyr build-fvp-board-import\` first"
     fi
     nros_root="$(pwd)"
+    # The SDK prefixes are resolved BEFORE `cd "$workspace"`: `nros sdk-path`
+    # locates `nros-sdk-index.toml` relative to the CWD, and a Zephyr
+    # workspace has none. Resolving after the cd printed two `failed to read
+    # SDK index` errors and silently fell back to whatever `make`/`ninja`
+    # the host had — a fallback that works until it does not.
+    # Issue 1134's shape, one layer out: Zephyr's `cmake/emu/armfvp.cmake` runs
+    # `find_program(ARMFVP ... PATHS ENV ARMFVP_BIN_PATH)` at CONFIGURE and
+    # CACHES the result. A build dir configured before the model existed bakes
+    # `ARMFVP-NOTFOUND`, and `west build -t run` then reuses that cache — so
+    # exporting the path at run time is too late and the run dies with
+    # `/bin/sh: 1: ARMFVP-NOTFOUND: not found`. Measured here 2026-09-06.
+    #
+    # So the BUILD exports it as well. Best-effort: a contributor with no model
+    # must still be able to build the image, which is most of what these
+    # recipes are for.
+    if _fvp_bin="$(bash "$nros_root/scripts/zephyr/resolve-fvp-bin.sh" 2>/dev/null)"; then
+        export ARMFVP_BIN_PATH="$_fvp_bin"
+    fi
+    _sdk_make="$(nros sdk-path make)"
+    _sdk_ninja="$(nros sdk-path ninja)"
     cd "$workspace"
-    export PATH="$(nros sdk-path make)/bin:$(nros sdk-path ninja)/bin:$PATH"
+    export PATH="$_sdk_make/bin:$_sdk_ninja/bin:$PATH"
     export ZEPHYR_SDK_INSTALL_DIR="$nros_root/scripts/zephyr/sdk/zephyr-sdk-0.16.8"
-    export ARMFVP_BIN_PATH="$_fvp_bin"
     west build -d build-fvp-board-import -t run
 
 # phase-337 W7.b — the S32Z270-DC RTU0 board left the tree with the other
