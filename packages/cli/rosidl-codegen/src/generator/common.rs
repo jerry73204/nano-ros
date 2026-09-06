@@ -1,14 +1,14 @@
 use crate::{
-    config::{CapacityResolver, FieldKind as CapFieldKind, FieldStorage, StorageMode},
+    config::{CapacityResolver, FieldKind as CapFieldKind, StorageMode},
     templates::{
         CField, CppFfiField, CppField, FieldKind, IdiomaticField, NrosField, RmwField,
         SequenceStructDef,
     },
     types::{
         C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
-        NrosCodegenMode, c_cdr_read_method, c_cdr_read_method_for_op, c_cdr_write_method,
-        c_cdr_write_method_for_op, c_type_for_field_heap, constant_value_to_rust,
-        cpp_type_for_field_heap, escape_keyword, repr_c_type_for_field, to_c_package_name,
+        NrosCodegenMode, c_cdr_read_method_for_op, c_cdr_write_method_for_op,
+        c_type_for_field_heap, constant_value_to_rust, cpp_type_for_field_heap, escape_keyword,
+        repr_c_type_for_field, to_c_package_name,
     },
     utils::to_snake_case,
 };
@@ -560,24 +560,6 @@ pub(super) fn field_to_nros_field_with_mode(
     })
 }
 
-/// Convert a Message field to NrosField (crate mode).
-/// Per-field storage decisions for `msg`, read from the lowered IR (phase-335
-/// W1.c). A generator computes this once and hands each builder the matching
-/// entry (`Some(store[i])`) so no builder resolves capacity a second time.
-/// `lower_fields` calls the same `CapacityResolver` with the same keys, so the
-/// result is byte-identical to an inline `resolver.resolve`.
-pub(super) fn lowered_storages(
-    package: &str,
-    message: &str,
-    fields: &[rosidl_parser::Field],
-    resolver: &CapacityResolver,
-) -> Vec<FieldStorage> {
-    rosidl_lower::lower_fields(package, message, fields, resolver)
-        .iter()
-        .map(|lf| lf.storage.as_field_storage())
-        .collect()
-}
-
 /// The lowered IR for a surface that mirrors ROS's OWN runtime types — the
 /// `rmw` and idiomatic Rust packs (phase-432 W2.5a).
 ///
@@ -936,44 +918,41 @@ fn cpp_borrow_kind(
 /// (rejected for heap strings / sequences of strings / nested messages, and for
 /// `borrowed`). Shared by the C++ header + FFI builders so both agree.
 pub(super) fn resolve_cap_override(
-    name: &str,
-    field_type: &FieldType,
+    field: &rosidl_lower::LoweredField,
     current_package: Option<&str>,
     message_name: &str,
-    resolver: &CapacityResolver,
-    // phase-335 W1.c — storage from the IR when the caller already lowered it.
-    pre_storage: Option<FieldStorage>,
 ) -> Result<CppStorage, GeneratorError> {
-    let kind = match field_type {
-        FieldType::String | FieldType::WString => CapFieldKind::String,
-        FieldType::Sequence { .. } => CapFieldKind::Sequence,
-        _ => return Ok(CppStorage::Owned(None)),
-    };
+    // Only the two configurable shapes carry a resolved capacity; everything
+    // else keeps default rendering. This used to be a `match` on the parsed
+    // type here — the same one the C and nros builders each wrote.
+    if !field.configurable {
+        return Ok(CppStorage::Owned(None));
+    }
+    let capped = field.storage_type();
+    let field_type: &FieldType = capped.as_ref();
     let package = current_package.unwrap_or("");
     let unsupported = |mode: &'static str| GeneratorError::UnsupportedStorageMode {
         package: package.to_string(),
         message: message_name.to_string(),
-        field: name.to_string(),
+        field: field.name.clone(),
         mode,
     };
-    let storage =
-        pre_storage.unwrap_or_else(|| resolver.resolve(package, message_name, name, kind));
-    match storage.mode {
-        StorageMode::Inline => Ok(CppStorage::Owned(Some(storage.cap))),
-        StorageMode::Heap => {
-            // Heap is only bridgeable for primitive sequences (see
-            // cpp_type_for_field_heap); reject heap strings / non-primitive seqs.
-            if cpp_type_for_field_heap(field_type, current_package).is_some() {
-                Ok(CppStorage::Heap)
-            } else {
-                Err(unsupported("heap"))
-            }
-        }
-        StorageMode::View => Ok(CppStorage::Borrowed(
-            cpp_borrow_kind(field_type, package, message_name, name)?,
-            Some(storage.cap),
-        )),
+    if field.is_heap() {
+        // Heap is only bridgeable for primitive sequences (see
+        // cpp_type_for_field_heap); reject heap strings / non-primitive seqs.
+        return if cpp_type_for_field_heap(field_type, current_package).is_some() {
+            Ok(CppStorage::Heap)
+        } else {
+            Err(unsupported("heap"))
+        };
     }
+    if field.is_borrowed() {
+        return Ok(CppStorage::Borrowed(
+            cpp_borrow_kind(field_type, package, message_name, &field.name)?,
+            Some(field.configured_cap()),
+        ));
+    }
+    Ok(CppStorage::Owned(Some(field.configured_cap())))
 }
 
 /// Build a CppField for C++ header generation.
@@ -981,12 +960,13 @@ pub(super) fn resolve_cap_override(
 /// `storage` is the resolved per-field storage (RFC-0033): an owned
 /// fixed-capacity container or an `nros::HeapSequence<T>` heap sequence.
 pub(super) fn build_cpp_field(
-    name: &str,
-    field_type: &FieldType,
+    field: &rosidl_lower::LoweredField,
     current_package: Option<&str>,
     storage: CppStorage,
 ) -> CppField {
-    let escaped_name = escape_keyword(name);
+    let escaped_name = escape_keyword(&field.name);
+    let capped = field.storage_type();
+    let field_type: &FieldType = capped.as_ref();
     // phase-335 step 2 — CppField carries the NEUTRAL facts; the `cpp_type` /
     // `cpp_array_suffix` pack filters compose the C++ type string. The borrowed
     // VIEW type (`nros::StringView` / `Span<T>` / `LeSpan<T>`) stays computed here
@@ -1025,18 +1005,21 @@ pub(super) fn build_cpp_field(
 
 /// Build a CppFfiField and optional SequenceStructDef for Rust FFI glue generation
 pub(super) fn build_cpp_ffi_field(
-    name: &str,
-    field_type: &FieldType,
+    field: &rosidl_lower::LoweredField,
     struct_name: &str,
     current_package: Option<&str>,
     storage: CppStorage,
 ) -> (CppFfiField, Option<SequenceStructDef>) {
+    let name = field.name.as_str();
     let escaped_name = escape_keyword(name);
+    let capped = field.storage_type();
+    let field_type: &FieldType = capped.as_ref();
     let is_heap = matches!(storage, CppStorage::Heap);
+    // The `{Msg}Repr` field's declared capacity: `None` means "no resolved
+    // capacity" (a non-configurable shape, or a heap field that has none).
     let cap_override = match storage {
-        CppStorage::Owned(cap) => cap,
+        CppStorage::Owned(cap) | CppStorage::Borrowed(_, cap) => cap,
         CppStorage::Heap => None,
-        CppStorage::Borrowed(_, cap) => cap,
     };
     // RFC-0033 borrowed (Phase 235): the `{Msg}ViewRepr` FFI struct stores this
     // field as `nros_cpp_borrow_t { *const u8, usize }`, filled from the
@@ -1046,71 +1029,51 @@ pub(super) fn build_cpp_ffi_field(
         _ => (false, String::new(), false),
     };
 
-    // Determine type characteristics
-    let (is_primitive, primitive_type) = match field_type {
-        FieldType::Primitive(prim) => (true, Some(prim)),
-        _ => (false, None),
-    };
+    let element_type = element_type_of(field_type);
+    let array_size = field.array_len();
 
-    let is_string = matches!(
-        field_type,
-        FieldType::String
-            | FieldType::BoundedString(_)
-            | FieldType::WString
-            | FieldType::BoundedWString(_)
-    );
-
-    let is_array = matches!(field_type, FieldType::Array { .. });
-    let is_sequence = matches!(
-        field_type,
-        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. }
-    );
-    let is_nested = matches!(field_type, FieldType::NamespacedType { .. });
-
-    // Array/sequence size info. Unbounded sequences use the resolved capacity.
-    let (array_size, sequence_capacity) = match field_type {
-        FieldType::Array { size, .. } => (*size, 0),
-        FieldType::Sequence { .. } => (0, cap_override.unwrap_or(CPP_DEFAULT_SEQUENCE_CAPACITY)),
-        FieldType::BoundedSequence { max_size, .. } => (0, *max_size),
-        _ => (0, 0),
-    };
-
-    // Element type info
-    let (is_primitive_element, is_string_element, element_type) = match field_type {
-        FieldType::Array { element_type, .. }
-        | FieldType::Sequence { element_type }
-        | FieldType::BoundedSequence { element_type, .. } => {
-            let is_prim = matches!(element_type.as_ref(), FieldType::Primitive(_));
-            let is_str = matches!(
-                element_type.as_ref(),
-                FieldType::String
-                    | FieldType::BoundedString(_)
-                    | FieldType::WString
-                    | FieldType::BoundedWString(_)
-            );
-            (is_prim, is_str, Some(element_type.as_ref()))
+    // A sequence's FFI capacity is its storage's — `LoweredStorage::Bounded`
+    // covers `T[<=N]` and a config-capped `T[]` alike; a heap sequence has no
+    // fixed capacity, so the repr keeps the default. Same derivation as the C
+    // surface's, off the same fact, which is the point (they disagreed only by
+    // luck before: two hand-written matches over one type tree).
+    let sequence_capacity = if field.is_sequence() {
+        match field.storage {
+            rosidl_lower::LoweredStorage::Bounded { cap }
+            | rosidl_lower::LoweredStorage::Borrowed { cap } => cap,
+            rosidl_lower::LoweredStorage::Heap => CPP_DEFAULT_SEQUENCE_CAPACITY,
+            rosidl_lower::LoweredStorage::Inline | rosidl_lower::LoweredStorage::Fixed { .. } => 0,
         }
-        _ => (false, false, None),
+    } else {
+        0
     };
+
+    let (is_primitive, is_string, is_array, is_sequence, is_nested) = (
+        field.is_primitive(),
+        field.is_string(),
+        field.is_array(),
+        field.is_sequence(),
+        field.is_nested(),
+    );
+    let (is_primitive_element, is_string_element) =
+        (field.element_is_primitive(), field.element_is_string());
 
     // CDR methods for primitives
-    let (cdr_write_method, cdr_read_method) = if let Some(prim) = primitive_type {
-        (
-            c_cdr_write_method(prim).to_string(),
-            c_cdr_read_method(prim).to_string(),
-        )
-    } else {
-        (String::new(), String::new())
+    let (cdr_write_method, cdr_read_method) = match field.scalar_op() {
+        Some(op) => (
+            c_cdr_write_method_for_op(op).to_string(),
+            c_cdr_read_method_for_op(op).to_string(),
+        ),
+        None => (String::new(), String::new()),
     };
 
     let (element_cdr_write_method, element_cdr_read_method) =
-        if let Some(FieldType::Primitive(prim)) = element_type {
-            (
-                c_cdr_write_method(prim).to_string(),
-                c_cdr_read_method(prim).to_string(),
-            )
-        } else {
-            (String::new(), String::new())
+        match field.element_op().filter(|_| is_primitive_element) {
+            Some(op) => (
+                c_cdr_write_method_for_op(op).to_string(),
+                c_cdr_read_method_for_op(op).to_string(),
+            ),
+            None => (String::new(), String::new()),
         };
 
     // Nested function names
@@ -1254,7 +1217,7 @@ pub(super) fn build_cpp_ffi_field(
         _ => 0,
     };
 
-    let field = CppFfiField {
+    let ffi_field = CppFfiField {
         name: escaped_name,
         field_type: field_type.clone(),
         struct_name: struct_name.to_string(),
@@ -1285,7 +1248,7 @@ pub(super) fn build_cpp_ffi_field(
         borrowed_le,
     };
 
-    (field, seq_struct)
+    (ffi_field, seq_struct)
 }
 
 // ============================================================================

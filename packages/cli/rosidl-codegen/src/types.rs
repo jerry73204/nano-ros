@@ -1393,46 +1393,6 @@ pub fn c_cdr_read_method_for_op(op: rosidl_lower::CdrOp) -> &'static str {
     }
 }
 
-/// Get the CDR write method name for a C primitive type
-pub fn c_cdr_write_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
-    use rosidl_parser::PrimitiveType;
-    match prim {
-        PrimitiveType::Bool => "write_bool",
-        PrimitiveType::Byte => "write_u8",
-        PrimitiveType::Char => "write_u8",
-        PrimitiveType::Int8 => "write_i8",
-        PrimitiveType::Int16 => "write_i16",
-        PrimitiveType::Int32 => "write_i32",
-        PrimitiveType::Int64 => "write_i64",
-        PrimitiveType::UInt8 => "write_u8",
-        PrimitiveType::UInt16 => "write_u16",
-        PrimitiveType::UInt32 => "write_u32",
-        PrimitiveType::UInt64 => "write_u64",
-        PrimitiveType::Float32 => "write_f32",
-        PrimitiveType::Float64 => "write_f64",
-    }
-}
-
-/// Get the CDR read method name for a C primitive type
-pub fn c_cdr_read_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
-    use rosidl_parser::PrimitiveType;
-    match prim {
-        PrimitiveType::Bool => "read_bool",
-        PrimitiveType::Byte => "read_u8",
-        PrimitiveType::Char => "read_u8",
-        PrimitiveType::Int8 => "read_i8",
-        PrimitiveType::Int16 => "read_i16",
-        PrimitiveType::Int32 => "read_i32",
-        PrimitiveType::Int64 => "read_i64",
-        PrimitiveType::UInt8 => "read_u8",
-        PrimitiveType::UInt16 => "read_u16",
-        PrimitiveType::UInt32 => "read_u32",
-        PrimitiveType::UInt64 => "read_u64",
-        PrimitiveType::Float32 => "read_f32",
-        PrimitiveType::Float64 => "read_f64",
-    }
-}
-
 // ============================================================================
 // C++ Type Mapping (for nros-cpp)
 // ============================================================================
