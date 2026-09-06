@@ -407,6 +407,31 @@ missing one because it forecloses the fix. Three issues, ~140 rows, no code.
   as a divergence and has no rule against recording a real divergence under a
   false cause. Closing W-C3 means adding one.
 
+### The `gap` rows are the queue, and they are counted (2026-09-06)
+
+Phase-379 re-measured the ledger: **158 `gap` rows**, C++ 82, C 41, Rust 35.
+By shard: `param` 32, `graph` 30, `pubsub` 22, `lifecycle` 15, `log` 13,
+`timer` 11, `service` 10, `qos` 8, `action` 6, `node` 6, `exec` 2, one each in
+`boot`, `types`, `other`. That is this phase's work queue for stages 2–5, and
+the shard distribution is the order argument: parameters and graph are a third
+of it between them.
+
+**The precedent for how one closes.** `node_get_fully_qualified_name` shipped
+for all three languages in PR #567. What made it worth more than the row: the
+tree already had three hand-rolled copies of the join, and collapsing them onto
+one implementation found that they disagreed — `Node::fully_qualified_name`
+returned `my_ns/my_node` for a namespace with no leading slash, which is not
+fully qualified. A `gap` row is a prompt to look, and the defect is often
+underneath rather than in the missing name.
+
+Two decisions from it that generalise. First, the C form takes a caller buffer
+plus an `out_len` rather than rcl's `const char *`, because rcl can return a
+pointer only by STORING the joined string and caching it here costs
+`MAX_NAME_LEN + MAX_NAMESPACE_LEN` per node to hold what two fields already
+hold. Second, it returns `NROS_RET_FULL` and not `NROS_RET_BUFFER_TOO_SMALL` —
+that constant lives on the RMW ABI and `nros_ret_t` has never defined it. The
+doc comment that claimed otherwise is now issue 1126.
+
 ## Migration track — what moves, and in what order
 
 Inherited from phase-379 W7, which owns steps 1–3 and is in flight. This phase
@@ -451,6 +476,7 @@ owner.
 | 0793 | stage 2 (W2.a) | one parameter store in C; the unfiled C++ twin filed and fixed with it |
 | 0829 | stage 5 | `SYSTEM_DEFAULT` stops disagreeing with itself; folds into the named-profile transcription |
 | 0589 | stage 4 (W4.d) | the façade re-exports `nros_log`, so it is the easy path rather than `std::println!` |
+| 1126 | correction | `nros_publisher_publish_raw`'s doc stops promising `NROS_RET_BUFFER_TOO_SMALL`, a code `nros_ret_t` does not define — decide correct-the-doc vs add-the-code |
 
 ## What this phase does NOT promise
 

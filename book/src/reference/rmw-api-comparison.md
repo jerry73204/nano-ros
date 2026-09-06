@@ -98,6 +98,32 @@ Read a row for what we did, a column for where it lives. Only
 **not implemented** should shrink over time; **not supported** is the one
 line that is a decision rather than a state, so it is expected to stay.
 
+## Vocabulary — why we say *session* where upstream says *context*
+
+An `rmw_context_t` is two things in one struct: the **options** the
+process was initialised with (`rmw_init_options_t` — domain id, enclave,
+security, discovery) and an opaque **`impl`** the backend allocates to
+hold its running state. Upstream can fuse them because both are
+per-process, heap-allocated at `rmw_init` and freed at `rmw_shutdown`.
+
+Ours are not one thing. The options half is a **build-time POD** —
+that is the recorded reason `rmw_init_options_{init,copy,fini}` are
+declined, since "copy" is `=` and "fini" is nothing — and it lives on
+`nros::Context`. The running half is a **`Session`**, one per backend,
+created and destroyed through vtable slots, and an image may hold
+several at once: the bridge entries run a zenoh ingress and a Cyclone or
+XRCE egress in one process. There is no per-process singleton to name.
+
+So the rename is unavailable in both directions. `Context` is already
+taken by the half that is *not* the backend state, and calling the
+backend state `context` would promise a one-per-process object that a
+bridge image visibly does not have. The word `session` is also the one
+the transports themselves use (a zenoh session, an XRCE-DDS session),
+which is what a reader of `create_session` is actually looking at.
+
+Read `rmw_context_t` on this page as *our `Context` plus one or more
+`Session`s*, and the `rmw_init`/`rmw_shutdown` rows follow from that.
+
 ## Every contract symbol
 
 <style>
