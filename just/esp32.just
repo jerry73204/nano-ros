@@ -263,6 +263,13 @@ build-fixtures: build-qemu build-logging-smoke
     for _peer in native-rust-talker native-rust-listener; do
         bash scripts/build/fixtures-build.sh linux rust --id "$_peer"
     done
+    # ...and the Int32 sink `test_esp32_workspace_entry_e2e` subscribes with.
+    # The entry publishes Int32 and its own in-process listener sees nothing (no
+    # same-session zenoh loopback), so this native binary IS the test's only
+    # observable endpoint. zenoh: the esp32 images speak zenoh, and the row
+    # carries `no_default_features` + `features = ["rmw-zenoh"]`, which is why it
+    # lands in a variant group dir rather than beside the peers above.
+    bash scripts/build/fixtures-build.sh linux rust --id int32-sink-zenoh
     # esp-idf build-stage fixtures (issue 0041): build the idf.py ELF the
     # cli_bringup_esp_idf test consumes, so it doesn't run idf.py at test time.
     # Self-gates on idf.py/IDF env; non-fatal (a failed build leaves no stamp,

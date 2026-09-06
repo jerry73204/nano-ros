@@ -1413,6 +1413,7 @@ features = ["rmw-cyclonedds"]
 # std_msgs/String chatter, so the Int32 side-topic observer role moved here).
 # Consumed by the service/action/param/safety/realtime e2e tests.
 [[fixture]]
+id = "int32-sink-zenoh"
 platform = "linux"
 lang = "rust"
 rmw = "zenoh"
@@ -1452,6 +1453,7 @@ features = ["rmw-cyclonedds"]
 # switch, because this fixture was hardcoded to zenoh. A test fixture must not
 # pin the RMW any more than an example does.
 [[fixture]]
+id = "int32-sink-xrce"
 platform = "linux"
 lang = "rust"
 rmw = "xrce"
@@ -1466,6 +1468,7 @@ features = ["rmw-xrce"]
 # demo has. The examples follow the ROS demos (std_msgs/String); test-only
 # payload shapes belong in a test bin.
 [[fixture]]
+id = "int32-sink-cyclonedds"
 platform = "linux"
 lang = "rust"
 rmw = "cyclonedds"

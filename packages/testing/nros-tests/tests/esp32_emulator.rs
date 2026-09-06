@@ -525,10 +525,16 @@ fn test_esp32_workspace_entry_e2e() {
     // which subscribes Int32 natively, so the example can drop its branching.
     // Readiness is unchanged ("Waiting for"); the per-message marker is not —
     // the sink prints "Received:", the example printed "I heard:".
-    let native_listener = match build_int32_sink() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("int32-sink fixture not prebuilt ({e})"),
-    };
+    // Issue 1112 — `.expect`, not `skip!`. An absent in-lane fixture is a HARD
+    // FAILURE (issue 0584): a gated run has already asserted this lane's
+    // fixtures are built, so "not prebuilt" here means the LANE is wrong, and a
+    // skip reports that as coverage. This site was the laundering the
+    // skip-budget check kept naming ("Something is still laundering the
+    // resolver's Err into a [SKIPPED]") — its own two sibling tests twenty
+    // lines up already `.expect()` their native peers.
+    let native_listener = build_int32_sink()
+        .expect("Failed to build int32-sink")
+        .to_path_buf();
     let mut listener_cmd = Command::new(native_listener);
     listener_cmd
         .env(
