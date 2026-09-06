@@ -80,14 +80,16 @@ target_sources(app PRIVATE src/main.cpp)
 
 | Source | Effect |
 | --- | --- |
-| `BOARD` | Set to `NROS_BOARD_ZEPHYR_ID` (from the board crate's `board.cmake`) if the user did not pass `-DBOARD=...` on the command line. |
+| `BOARD` | Set to `NROS_BOARD_ZEPHYR_ID` (from the board's descriptor) if the user did not pass `-DBOARD=...` on the command line. |
 | `EXTRA_CONF_FILE` | The board crate's `prj.conf` and any per-board Kconfig fragments (e.g. an HWv2 snippet) are appended. Any consumer-supplied `EXTRA_CONF_FILE` is preserved and layered AFTER the board's. |
 | `DTC_OVERLAY_FILE` | The board crate's per-board DTS overlay is appended. Consumer overlays are preserved and layered after. |
-| `NANO_ROS_RMW` | Defaulted to `NROS_BOARD_DEFAULT_RMW` (from `board.cmake`) when the consumer did not pass `-DNANO_ROS_RMW=...`. |
-| `NROS_BOARD_RUNNER` | Cached for `west fvp run` (or another runner extension command) to pick up the right simulator binary / target-launcher. |
+| `NANO_ROS_RMW` | Defaulted to `NROS_BOARD_DEFAULT_RMW` (from the board's descriptor) when the consumer did not pass `-DNANO_ROS_RMW=...`. |
+| `NROS_BOARD_RUNNER` | Cached so a launcher can pick up the right simulator binary / target-launcher. |
 | `NROS_BOARD_RUST_SUPPORT_MODULE` | Appended to `ZEPHYR_EXTRA_MODULES` when the board carries a Rust support module. (Not yet in the `board.cmake` ↔ `Cargo.toml` drift-audit field list — drift here is unaudited.) |
 
-The values themselves come from a single source of truth -- the board crate's `board.cmake` -- which a drift audit (`nros board info --check-drift`) keeps in sync with the crate's `Cargo.toml` metadata.
+The values come from ONE authored file, the board's `nros-board.toml`. cmake cannot read TOML, so `nano_ros_use_board()` runs `nros board cmake-vars` to write a mechanical projection of the descriptor into the build directory and includes that. The projection is a build artifact: never committed, regenerated every configure, and editing it edits nothing that survives.
+
+This replaced a second AUTHORED file per board (`board.cmake`, 14 `NROS_BOARD_*` variables) plus a `[package.metadata.nros.board]` mirror in `Cargo.toml`. Two faces of the same facts need a drift audit; that audit examined zero boards for two independent reasons and reported OK for as long as it existed. One authored file has nothing to drift against.
 
 ## Per-app overrides
 
@@ -109,22 +111,29 @@ project(my_app LANGUAGES CXX)
 
 ## Running
 
-For boards whose runner is an FVP (the AEMv8-R archetype):
+The board's `[board.zephyr] runner` reaches cmake as `NROS_BOARD_RUNNER`, and
+Zephyr's own emulator target does the rest:
 
 ```sh
 west build -d build
-west fvp run -d build
-```
-
-`west fvp run` consults `NROS_BOARD_RUNNER` and the FVP resolver to locate the simulator binary, applies the board's launch arguments, wires UART to stdout, and exits cleanly on Ctrl-C.
-
-For any other runner the Zephyr-native command works unchanged:
-
-```sh
 west build -d build -t run
 ```
 
-There is no need for a hand-written `build.sh` or `run_fvp.sh` shell wrapper.
+For an FVP board the model is licence-gated, so its path is not something
+nano-ros can resolve for you. Point `ARMFVP_BIN_PATH` at the directory holding
+`FVP_BaseR_AEMv8R` (`scripts/zephyr/resolve-fvp-bin.sh` will find it from
+`ARM_FVP_DIR` if you set that instead):
+
+```sh
+export ARMFVP_BIN_PATH="$(bash scripts/zephyr/resolve-fvp-bin.sh)"
+west build -d build -t run
+```
+
+> There used to be a `west fvp run` verb here. It read `NROS_BOARD_RUNNER` from
+> `CMakeCache.txt`, ran that same resolver, exported `ARMFVP_BIN_PATH`, and then
+> exec'd `west build -t run` — so it was env wiring in front of the stock verb,
+> and env wiring belongs in your environment. It was retired in RFC-0064
+> revision 5.
 
 ## Inspecting the manifest
 
@@ -136,13 +145,12 @@ nros board info fvp-aemv8r-smp
 
 This prints the resolved Zephyr board id, the `prj.conf` + Kconfig fragment list, the DTS overlay, the default RMW, and the runner hint -- everything the call would set.
 
-To audit that the `board.cmake` mirror matches the canonical `Cargo.toml` metadata:
+`nros board info` also prints the exact `cmake_vars` text the build will
+include, so "what does cmake actually see for this board?" is answerable without
+configuring anything.
 
-```sh
-nros board info fvp-aemv8r-smp --check-drift
-```
-
-This exits 0 when the two agree and emits a field-by-field diff (with a non-zero exit code) when they don't. The drift audit is the same one CI runs for every `packages/boards/nros-board-*` shipping a `board.cmake`.
+There is no drift audit any more, and nothing to audit: the descriptor is the
+only file a human writes.
 
 ## Anti-patterns
 
@@ -151,7 +159,7 @@ Things that LOOK reasonable but the one-call pattern obviates:
 - **Don't hand-list the board's `prj.conf` in `EXTRA_CONF_FILE`.** It is already there; doing it again either duplicates or fights the layering order.
 - **Don't hardcode `BOARD=<id>` in a `build.sh`.** The call sets it; hardcoding it short-circuits the `nros board info` inspection and the drift audit.
 - **Don't carry your own copy of `boards/<id>.conf` or `boards/<id>.overlay` mirroring the board crate's.** Vendor a delta only -- the base ships in the crate.
-- **Don't reimplement the FVP runner as a shell script.** `west fvp run` covers `FVP_BaseR_AEMv8R` and the other supported simulators with the right CLI flags, the same way `west build` covers compilation.
+- **Don't reimplement the FVP launch in a `build.sh`.** Export `ARMFVP_BIN_PATH` and use `west build -t run`; Zephyr's own `armfvp` runner covers `FVP_BaseR_AEMv8R` and the other supported simulators with the right CLI flags, the same way `west build` covers compilation.
 - **Don't `include()` files from `deps/nano-ros/cmake/` directly.** The public surface is `nano_ros_use_board()`; anything else is internal and may move.
 
 ## Migrating an existing hand-glued consumer

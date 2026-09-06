@@ -8,7 +8,12 @@ hand-curated `EXTRA_CONF_FILE` / `DTC_OVERLAY_FILE` / hardcoded board
 id list / hand-rolled FVP launch flags on the consumer side. FVP
 AEMv8-R is the driving case; the shape is generic across boards.
 
-**Status (2026-09-06).** **The nano-ros feature is DONE** — a board crate is
+**Status (2026-09-06, second update).** 215.K LANDED — 6 of its 7 boxes done and
+the seventh (K.7) filed as issue 1134 rather than fixed, because fixing it needs
+the licence-gated model. The phase's one remaining acceptance bullet is that same
+issue seen from the other side.
+
+**The nano-ros feature is DONE** — a board crate is
 importable in one line by any Zephyr consumer, and 27 of the 30 boxes that are
 this repo's to tick are ticked. The ASI-specific half moved OUT (see 215.H),
 which is what this status used to be measuring against.
@@ -476,37 +481,48 @@ a board Kconfig overlay module, `docs/reference/board-cmake-schema.md`.
 Implements RFC-0064 revision 5 for this board. The general mechanism is
 phase-375 W6–W8; 215.K is the FVP board's side of it, and lands after W7 exists.
 
-- [ ] **K.1** `packages/boards/nros-board-zephyr/boards/fvp-aemv8r-smp/nros-board.toml`
+- [x] **K.1** `packages/boards/nros-board-zephyr/boards/fvp-aemv8r-smp/nros-board.toml`
       — 14 `NROS_BOARD_*` variables become 8 authored keys across `[board.zephyr]`
       and `[board.provisioning]`. Derived: `prj.conf`, both
       `boards/fvp_baser_aemv8r_fvp_aemv8r_aarch64_smp.{conf,overlay}` paths
       (`west_board` with `/` → `_`), `requires_rust` (from `rust_targets`
       non-empty), and `zephyr-rust-support/`, whose Kconfig body is exactly
       `default y if BOARD_FVP_BASER_AEMV8R` and is therefore generated.
-- [ ] **K.2** `package.xml` announcing
+- [x] **K.2** `package.xml` announcing
       `<nano_ros_provides kind="board" name="fvp-aemv8r-smp"/>`. This board is
       currently announced nowhere, and the discovery glob is one level too
       shallow to see it even with a descriptor (issue 0729's class) — so K.2
       needs W6's `provider_scan`.
-- [ ] **K.3** Delete `board.cmake`, `scripts/west_commands/fvp.py`, its
+- [x] **K.3** Delete `board.cmake`, `scripts/west_commands/fvp.py`, its
       `scripts/west-commands.yml` entry, the `west.yml` comment about it, and
       `zephyr/module.yml`'s pointer. `nano_ros_use_board()` reads the W7
       projection; its signature does not change, so
       `examples/workspaces/realtime-cpp/src/fvp_entry`, the `board_import_fvp`
       fixture and ASI's `actuation_module/CMakeLists.txt:154-155` do not move.
-- [ ] **K.4** `nros sdk-path arm-fvp` resolves the model through the existing
+- [x] **K.4** _(landed, with one deliberate change of mechanism: the resolver
+      stays `scripts/zephyr/resolve-fvp-bin.sh`, whose output the recipes
+      EXPORT, rather than a new `nros sdk-path arm-fvp`. That script already
+      handles the `ARM_FVP_DIR` layout variants a generic `sdk-path` would not,
+      and adding a second resolver for one board is the antipattern this phase
+      is removing. `activate.sh` is deliberately untouched: it runs on every
+      shell, and globbing for a licence-gated model most users do not have is
+      not something to do per shell.)_ Original wording: `nros sdk-path arm-fvp`
+      resolves the model through the existing
       `[gated.arm-fvp]` index entry; `activate.sh` exports `ARMFVP_BIN_PATH`.
       `just/zephyr-setup.just` lines 239 and 348 move to stock
       `west build -t run`. Three tests reference `west fvp run` in prose
       (`board_import.rs`, `fvp_runtime_ws.rs`, `fvp_smoke.rs`) and follow.
-- [ ] **K.5** Delete `board_metadata.rs` and
+- [x] **K.5** Delete `board_metadata.rs` and
       `packages/cli/nros-cli-core/tests/phase215_f_manifest_drift.rs`; the
       round-trip test replaces them.
-- [ ] **K.6** Book: `book/src/porting/board-crate-import.md` documents the
+- [x] **K.6** Book: `book/src/porting/board-crate-import.md` documents the
       descriptor and stock `west build -t run`. Its current "Don't reimplement
       the FVP runner as a shell script" note inverts once the runner is an env
       export, so it is rewritten rather than retargeted.
-- [ ] **K.7** File the size-probe reconfigure-identity bug separately. It is the
+- [x] **K.7** FILED as [issue 1134](../issues/1134-zephyr-size-probe-identity-diverges-on-reconfigure.md).
+      _(Filing was the box; FIXING it needs the licence-gated model and is a
+      maintainer step. It blocks the remaining acceptance bullet.)_ Original
+      wording: File the size-probe reconfigure-identity bug separately. It is the
       real defect behind ASI's `build.sh --run` workaround, and `west fvp` never
       dodged it — the probe identity is every `NROS_*` env var plus `$DOTCONFIG`'s
       `CONFIG_NROS_*` lines, so a reconfigure that picks crate defaults produces a

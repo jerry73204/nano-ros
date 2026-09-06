@@ -467,8 +467,10 @@ No `ZEPHYR_BASE`, no `NROS_ZEPHYR_WORKSPACE`, no `--zephyr-workspace`. Every
 argument after `nros` is passed straight through, so anything `nros` accepts
 works here unchanged.
 
-It picks up automatically in any workspace whose manifest lists nano-ros — the
-same route `west fvp` takes. Two things worth knowing:
+It picks up automatically in any workspace whose manifest lists nano-ros.
+`west nros` is now the only nano-ros west extension: `west fvp` shared that
+route until RFC-0064 revision 5 retired it, since its body was environment
+wiring in front of the stock `west build -t run`. Two things worth knowing:
 
 * **It only exists inside a west workspace.** West loads extension commands
   from the manifest, so from an unrelated directory you get

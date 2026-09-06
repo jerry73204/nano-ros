@@ -1773,11 +1773,17 @@ The Zephyr row's `resolver = "scripts/lib/priority_plan.py:resolve_zephyr_plan"`
 is a file path and a Python symbol living in a board descriptor. It moves with
 the block.
 
+**The move has a prerequisite this audit did not see.** Only `config/bare-metal`
+and `config/generic` HAVE an `nros-platform.toml`; the other five platforms
+carry a `package.xml` and nothing else. "Move it to the platform descriptor"
+assumes a descriptor to move it into, and for five of seven platforms there is
+none. Creating them is its own wave, and it is where the move belongs.
+
 **Derive, override permitted:**
 
 | Field | Rule | Exceptions today |
 | --- | --- | --- |
-| `entry_kind` (12) | hosted platform → `hosted-main`; zephyr → `zephyr-staticlib`; else `board-run` | none |
+| ~~`entry_kind` (12)~~ | **WRONG — corrected 2026-09-06.** The rule was stated as "hosted platform → `hosted-main`; zephyr → `zephyr-staticlib`; else `board-run`, no exceptions". Measured while implementing: `freertos-posix` and `mps2-an385-freertos` are BOTH `platform = "freertos"` and their values are `hosted-main` and `board-run`. Whether a port is hosted is a fact no field carries, so the derivation needs a NEW field — not a simplification. It stays authored. | — |
 | `local_aliases` (10) | default `[platform_feature]` | 2 real (esp32, threadx-riscv64) |
 | `[board.entry] crate_name` (7) | `snake_case(board_crate)` | none — 7 of 7 |
 | `[board.entry] signature` (7) | default `#[unsafe(no_mangle)] extern "C" fn main() -> !` | 3 real (esp-hal, cortex-m-rt, plain `fn main`) |
@@ -1814,7 +1820,10 @@ likely to get wrong, and the one they get the least help with.
   reader is a test asserting that the field is used.
 * `[board.entry] comment` (4) — a Rust `//` comment stored as an escaped
   multi-line TOML string. Presentation, not a board fact.
-* `crate_path`, `board_features` — present in the struct, authored by nobody.
+* ~~`crate_path`, `board_features`~~ — **WRONG — corrected 2026-09-06.** Authored
+  by no in-tree descriptor, which is what the audit measured, but
+  `builder/entry.rs` reads both. They are an out-of-tree extension point with no
+  in-tree user, not fields to delete.
 
 **Keep but reclassify:** `target_contains` (2) is not a board property; it is a
 disambiguator so two `[[board]]` rows in one file can be told apart by target
