@@ -1028,6 +1028,12 @@ function(_nros_entry_invoke_codegen)
     nros_derive_entity_inventory_knobs(CLI "${_nros_bin}" MODEL "${_NRX_MODEL}")
     nros_reconfigure_on_change("${_entity_knobs_path}" "${_entity_knobs_before}"
         LABEL "this image's entity inventory")
+    # issue 1084 -- the same model, for the COMPILER rather than the pools. Each
+    # `nano_ros_node_register()` claimed an include dir and scheduled a deferred
+    # render; the render needs a model, and this call is the only point in a
+    # configure that knows which one. The deferred calls run at the end of the
+    # top-level directory, i.e. after this.
+    _nros_declared_qos_record_model("${_NRX_MODEL}")
     # issue 1033 — tell the deferred non-entry composer to stand down. An entry
     # composes HERE, after its own registrations, which is the earliest correct
     # point; the deferred one exists only for images that never call this verb.

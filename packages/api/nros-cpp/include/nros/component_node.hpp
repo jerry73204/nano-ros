@@ -87,7 +87,7 @@ inline void operator delete[](void*, void*) noexcept {}
 #endif
 
 #include "nros/component.hpp"    // bind_subscription / bind_timer (the no-alloc trampolines)
-#include "nros/declared_qos.hpp" // phase-403 step 2 — the DECLARED @depth= table + its assertion
+#include "nros/declared_qos.hpp" // phase-403 step 2 — the DECLARED depth table + its assertion
 #include "nros/node.hpp"
 #include "nros/parameter.hpp" // ParameterServer backing the value-returning facade (242.7)
 #include "nros/publisher.hpp"
@@ -189,7 +189,7 @@ inline void report_component_failure(const char* node_name, const char* what, in
 }
 
 /// phase-403 step 2 — the code `set_error` records when a subscription's QoS
-/// depth disagrees with the `@depth=` its component declared.
+/// depth disagrees with the depth its system's contract declared.
 ///
 /// Named after the phase rather than borrowed from `nros_cpp_ret_t`: this is
 /// not a backend failure, it is the image contradicting its own manifest, and a
@@ -208,17 +208,17 @@ inline void report_declared_depth_mismatch(const char* node_name, const char* to
                                            int passed) {
     // Same reasoning as `report_component_failure` above: through the sink so
     // a freestanding image can be given one.
-    NROS_ERROR("ComponentNode \"%s\": topic \"%s\" DECLARED @depth=%d but the QoS "
+    NROS_ERROR("ComponentNode \"%s\": topic \"%s\" DECLARED depth %d but the QoS "
                "passed states %d. Depth multiplies the executor arena, so they must agree.",
                (node_name != nullptr) ? node_name : "?", (topic != nullptr) ? topic : "?", declared,
                passed);
 #if defined(NROS_CPP_STD) || (__STDC_HOSTED__ + 0)
     ::std::fprintf(stderr,
-                   "[nros] FATAL: ComponentNode \"%s\": topic \"%s\" was DECLARED @depth=%d in "
-                   "nano_ros_node_register(... ENTITIES ...) but the QoS passed to "
+                   "[nros] FATAL: ComponentNode \"%s\": topic \"%s\" was DECLARED depth %d in "
+                   "the contract sidecar (<stem>.contract.yaml) but the QoS passed to "
                    "create_subscription states depth %d. Depth multiplies the executor arena "
                    "(cost is (depth+1)*bound per subscription), so the two must agree. Fix the "
-                   "ENTITIES row or the call site.\n",
+                   "contract row or the call site.\n",
                    (node_name != nullptr) ? node_name : "?", (topic != nullptr) ? topic : "?",
                    declared, passed);
 #else
@@ -397,8 +397,8 @@ class ComponentNode {
         // pair. Same division of labour the compile-time path makes between its
         // assertion message and its template arguments.
         detail::report_declared_depth_mismatch(node_.get_name(), topic, declared, qos.depth());
-        set_error("create_subscription: QoS depth disagrees with the declared @depth= for this "
-                  "topic (nano_ros_node_register ENTITIES). Depth multiplies the arena, so the "
+        set_error("create_subscription: QoS depth disagrees with the depth declared for this "
+                  "topic in the contract sidecar. Depth multiplies the arena, so the "
                   "declaration and the code must state one number, not two.",
                   detail::DECLARED_DEPTH_MISMATCH);
         return false;
@@ -752,7 +752,7 @@ template <class T> struct strip_ref<T&> {
 ///
 /// `DECLARED_DEPTH_UNDECLARED` returns the default profile untouched. That is
 /// the back-compatibility hinge: every call site that existed before this step,
-/// in an image with no `@depth=` anywhere, gets the same depth-10 profile it
+/// in an image with no declared depth anywhere, gets the same depth-10 profile it
 /// always got, from a `constexpr` branch the optimiser folds away.
 constexpr ::nros::QoS qos_from_declared_depth(int declared) {
     return (declared == ::nros::DECLARED_DEPTH_UNDECLARED) ? ::nros::QoS::default_profile()
@@ -774,15 +774,16 @@ constexpr ::nros::QoS qos_from_declared_depth(int declared) {
 ///
 /// # phase-403 step 2 — the depth is DECLARED, and the two must agree
 ///
-/// The image's `nano_ros_node_register(... ENTITIES sub:<type>:<topic>@depth=N)`
-/// is the source of truth for SIZING, because the arena is compiled before this
-/// TU exists. Both authoring modes are legal:
+/// The system's contract sidecar (`<bringup>/launch/<stem>.contract.yaml`,
+/// `contracts.sub_endpoints.<endpoint>.qos.depth`) is the source of truth for
+/// SIZING, because the arena is compiled before this TU exists. Both authoring
+/// modes are legal:
 ///
 ///   * **the code states the QoS** — `NROS_SUBSCRIBE(M, m, "/t", nros::QoS(1))`
-///     and `...@depth=1`. If the two numbers differ, this macro fails the BUILD
-///     with a `static_assert` naming the topic and both depths.
+///     and `qos: { depth: 1 }`. If the two numbers differ, this macro fails the
+///     BUILD with a `static_assert` naming the topic and both depths.
 ///   * **the contract states the QoS** — `NROS_SUBSCRIBE(M, m, "/t")` with
-///     `...@depth=1`, and the declared depth fills in. Omitting the QoS is
+///     `qos: { depth: 1 }`, and the declared depth fills in. Omitting the QoS is
 ///     already the natural spelling, so this mode needs no new surface.
 ///
 /// With NEITHER a declaration nor a QoS the profile is `QoS::default_profile()`
@@ -834,8 +835,8 @@ constexpr ::nros::QoS qos_from_declared_depth(int declared) {
 /// three frames of macro expansion away from the line at fault.
 #define _NROS_SUB_TOO_FEW(...)                                                                     \
     static_assert(false, "NROS_SUBSCRIBE takes (Msg, method, topic) or "                           \
-                         "(Msg, method, topic, qos) -- with the QoS omitted, the @depth= "         \
-                         "declared in nano_ros_node_register(... ENTITIES ...) supplies it.")
+                         "(Msg, method, topic, qos) -- with the QoS omitted, the depth "           \
+                         "declared in the contract sidecar supplies it.")
 
 /// A subscription whose TOPIC is not a compile-time constant.
 ///

@@ -210,6 +210,7 @@ pub fn run(args: EntityInventoryArgs) -> Result<()> {
             .wrap_err_with(|| format!("read model `{}`", model_path.display()))?;
         let model: ros_launch_manifest_model::SystemModel = serde_yaml_ng::from_str(&raw)
             .wrap_err_with(|| format!("parse model `{}`", model_path.display()))?;
+        reject_zero_depths(&model).wrap_err_with(|| format!("model `{}`", model_path.display()))?;
         // `from_model` returning None means NO WIRING DESCRIBED. Not an error
         // and not a zero: nobody authored a contract for this image, so the
         // declaration is the only source there is and it stands alone.
@@ -261,6 +262,37 @@ pub fn run(args: EntityInventoryArgs) -> Result<()> {
             bail!("entity inventory REFUSED to derive:\n  {reason}");
         }
         eprintln!("nros: entity inventory not derived -- {reason}");
+    }
+    Ok(())
+}
+
+/// A contract may not state `depth: 0` (issue 1084).
+///
+/// The `ENTITIES` grammar refused `@depth=0` outright -- `KEEP_LAST(0)` holds
+/// no sample, so a zero is a typo for "I did not want to say", and the two
+/// license opposite actions: a stated depth SIZES the arena and asserts at
+/// every call site, an absent one makes a size consumer REFUSE. When the
+/// contract replaced `ENTITIES` as the producer that rule did not travel with
+/// it: `qos: { depth: 0 }` parsed, reached [`EntityDecl::depth`] as `Some(0)`
+/// and would have rendered a table row that fails the build at every
+/// `NROS_SUBSCRIBE` on that topic, naming a number no author meant.
+///
+/// Refused here, at the one place a model enters this verb, rather than in
+/// `from_model` -- which returns `Option` to say "no wiring described" and has
+/// no channel for "what you wrote is wrong".
+fn reject_zero_depths(model: &ros_launch_manifest_model::SystemModel) -> Result<()> {
+    for (ep, contract) in &model.contracts.sub_endpoints {
+        let Some(qos) = contract.qos.as_ref() else {
+            continue;
+        };
+        if qos.depth == Some(0) {
+            bail!(
+                "contract subscriber endpoint `{ep}` states `qos: {{ depth: 0 }}`. A QoS depth \
+                 of 0 states nothing -- KEEP_LAST(0) holds no sample. Omit `depth:` to say \
+                 \"not declared\", which is a different claim and the one that makes a size \
+                 consumer REFUSE rather than guess."
+            );
+        }
     }
     Ok(())
 }
@@ -469,6 +501,62 @@ mod tests {
         let err = narrow_to_component(&inv, "talker").unwrap_err().to_string();
         assert!(err.contains("2 components"), "{err}");
         assert!(err.contains("<pkg>::talker"), "names the fix: {err}");
+    }
+
+    /// issue 1084 -- a contract may not spell "not declared" as `depth: 0`.
+    ///
+    /// The same rule `@depth=0` has always had, applied at the producer that
+    /// replaced `ENTITIES`. A zero would otherwise render a table row and fail
+    /// the build at every call site on that topic, naming a number nobody
+    /// meant; and it must not be silently DROPPED either, because a dropped
+    /// declaration is one the author believes they made.
+    #[test]
+    fn a_contract_depth_of_zero_is_rejected_rather_than_rendered_or_dropped() {
+        let model: ros_launch_manifest_model::SystemModel = serde_yaml_ng::from_str(
+            r#"
+meta: { version: 1 }
+structure:
+  topics:
+    /chatter:
+      type: std_msgs/msg/Int32
+      sub: [/listener/chatter]
+contracts:
+  sub_endpoints:
+    /listener/chatter:
+      qos: { depth: 0 }
+"#,
+        )
+        .expect("model fixture parses");
+        let err = reject_zero_depths(&model).unwrap_err().to_string();
+        assert!(
+            err.contains("/listener/chatter"),
+            "names the endpoint: {err}"
+        );
+        assert!(err.contains("states nothing"), "{err}");
+        assert!(err.contains("REFUSE"), "names what absence buys: {err}");
+    }
+
+    /// ...and a contract that states a real depth, or none at all, passes.
+    #[test]
+    fn a_contract_without_a_zero_depth_is_accepted() {
+        let model: ros_launch_manifest_model::SystemModel = serde_yaml_ng::from_str(
+            r#"
+meta: { version: 1 }
+structure:
+  topics:
+    /chatter:
+      type: std_msgs/msg/Int32
+      sub: [/listener/chatter, /other/chatter]
+contracts:
+  sub_endpoints:
+    /listener/chatter:
+      qos: { depth: 1 }
+    /other/chatter:
+      max_age_ms: 100.0
+"#,
+        )
+        .expect("model fixture parses");
+        reject_zero_depths(&model).expect("a stated depth and a silent endpoint are both legal");
     }
 
     /// The committed C++ compile fixture is exactly what this emitter renders.
