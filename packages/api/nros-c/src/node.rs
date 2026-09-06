@@ -1508,19 +1508,25 @@ mod accessor_tests {
         ] {
             let node = unbound_node("talker", ns);
             let mut buf = [0u8; 64];
+            let mut out_len = usize::MAX;
             assert_eq!(
                 unsafe {
                     nros_node_get_fully_qualified_name(
                         &node,
                         buf.as_mut_ptr() as *mut c_char,
                         buf.len(),
-                        core::ptr::null_mut(),
+                        &mut out_len,
                     )
                 },
                 NROS_RET_OK,
                 "namespace {ns:?}"
             );
             assert_eq!(read_out(&buf), expected, "namespace {ns:?}");
+            // issue 1169 fixed the arity; `out_len` is the parameter the two
+            // definitions had DISAGREED about, so it is the one worth asserting
+            // rather than passing. It reports the FQN's length without the
+            // terminator.
+            assert_eq!(out_len, expected.len(), "out_len for namespace {ns:?}");
         }
     }
 
@@ -1531,27 +1537,30 @@ mod accessor_tests {
         let node = unbound_node("talker", "/sensing");
         // "/sensing/talker" is 15 bytes + NUL.
         let mut exact = [0u8; 16];
+        let mut out_len = usize::MAX;
         assert_eq!(
             unsafe {
                 nros_node_get_fully_qualified_name(
                     &node,
                     exact.as_mut_ptr() as *mut c_char,
                     exact.len(),
-                    core::ptr::null_mut(),
+                    &mut out_len,
                 )
             },
             NROS_RET_OK
         );
         assert_eq!(read_out(&exact), "/sensing/talker");
+        assert_eq!(out_len, 15);
 
         let mut short = [0xAAu8; 15];
+        let mut short_len = usize::MAX;
         assert_eq!(
             unsafe {
                 nros_node_get_fully_qualified_name(
                     &node,
                     short.as_mut_ptr() as *mut c_char,
                     short.len(),
-                    core::ptr::null_mut(),
+                    &mut short_len,
                 )
             },
             NROS_RET_FULL
@@ -1560,6 +1569,33 @@ mod accessor_tests {
             short.iter().all(|&b| b == 0xAA),
             "a refused write must leave the caller's buffer untouched"
         );
+        // The FULL path still reports the size, which is the whole point of
+        // `out_len`: a caller that gets NROS_RET_FULL learns how big a buffer to
+        // bring back. Returning FULL and leaving `out_len` untouched would make
+        // the error unactionable, and nothing else asserts this.
+        assert_eq!(
+            short_len, 15,
+            "NROS_RET_FULL must still report the length the caller needs"
+        );
+
+        // `out_len` is documented optional and the implementation branches on
+        // NULL. Issue 1169's fix passes NULL at every site, which makes it
+        // compile; keeping one such call here keeps that branch covered now
+        // that the other two carry a real out-parameter.
+        let mut ok_buf = [0u8; 64];
+        assert_eq!(
+            unsafe {
+                nros_node_get_fully_qualified_name(
+                    &node,
+                    ok_buf.as_mut_ptr() as *mut c_char,
+                    ok_buf.len(),
+                    core::ptr::null_mut(),
+                )
+            },
+            NROS_RET_OK,
+            "a NULL out_len is legal and must not be written through"
+        );
+        assert_eq!(read_out(&ok_buf), "/sensing/talker");
     }
 
     /// `only_expand` applies ROS 2 name expansion and nothing else, which is
