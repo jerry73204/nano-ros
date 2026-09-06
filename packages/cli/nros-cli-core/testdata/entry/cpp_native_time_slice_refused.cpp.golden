@@ -1,0 +1,1 @@
+EMITTER REFUSED: tier 'high': time_slice_us is not yet supported on the C/C++ codegen path (#0266) — declare it only on a Rust `nros::main!` ThreadX entry, or file the C consumer

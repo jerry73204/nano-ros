@@ -32,6 +32,12 @@ use super::{Plan, PlanNode};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Lang {
     Cpp,
+    /// `emit_typed_probe` — the same TU with the recording tail. Its own
+    /// variant because the probe is a SECOND entry point into `emit_cpp`
+    /// whose tail nothing else reaches: it returns before the boot config and
+    /// the board wrapper, so a corpus without it leaves the early-return
+    /// unguarded.
+    CppProbe,
     C,
     Rust,
 }
@@ -39,7 +45,7 @@ enum Lang {
 impl Lang {
     fn ext(self) -> &'static str {
         match self {
-            Lang::Cpp => "cpp",
+            Lang::Cpp | Lang::CppProbe => "cpp",
             Lang::C => "c",
             Lang::Rust => "rs",
         }
@@ -136,6 +142,84 @@ fn c_tiered_plan(board: &str) -> Plan {
         ],
     });
     p
+}
+
+/// A `lang == "c"` node inside a C++ entry.
+///
+/// `emit_cpp` validates `class_name` for EVERY node, C ones included, before
+/// it looks at `lang` — so a C node in a C++ plan still carries one even
+/// though nothing emits it. Recording that is the point: the requirement is
+/// load-bearing and reads like an oversight.
+fn cpp_c_node(pkg: &str, exec: &str) -> PlanNode {
+    let mut n = typed_node(pkg, exec);
+    n.lang = Some("c".into());
+    n
+}
+
+/// A `lang == "rust"` node: installed through `__nros_component_<pkg>_install`
+/// on the shared executor, with no entry-created `::nros::Node`.
+fn cpp_rust_node(pkg: &str, exec: &str) -> PlanNode {
+    let mut n = typed_node(pkg, exec);
+    n.lang = Some("rust".into());
+    n
+}
+
+/// An rclcpp-shape node (RFC-0044): the component OWNS its node, so the entry
+/// gives it an aligned arena slot and placement-news it.
+fn cpp_rclcpp_node(pkg: &str, exec: &str) -> PlanNode {
+    let mut n = typed_node(pkg, exec);
+    n.shape = Some("rclcpp".into());
+    n
+}
+
+/// A two-tier C++ plan — the `run_tiers` path.
+///
+/// Tier members are matched BY NODE NAME against each node's name-or-exec, so
+/// the member strings must equal the execs.
+fn cpp_tiered_plan(board: &str) -> Plan {
+    let mut ctrl = typed_node("ctrl_pkg", "ctrl");
+    ctrl.callback_groups = vec!["ctrl_grp".into()];
+    ctrl.sched_context = Some(0);
+    let mut telem = typed_node("telem_pkg", "telem");
+    telem.callback_groups = vec!["telem_grp".into()];
+    telem.sched_context = Some(1);
+    let mut p = plan(board, vec![ctrl, telem]);
+    p.resolved_tiers = Some(nros_orchestration_ir::ResolvedTierTable {
+        tiers: vec![
+            tier_spec("high", 80, 10_000, vec![("ctrl", "ctrl_grp")]),
+            tier_spec("low", 10, 100_000, vec![("telem", "telem_grp")]),
+        ],
+    });
+    p
+}
+
+/// One resolved tier. Shared by the C++ tiered plans below; the C ones keep
+/// their own closure because they set a different subset.
+fn tier_spec(
+    name: &str,
+    priority: i64,
+    period: u64,
+    members: Vec<(&str, &str)>,
+) -> nros_orchestration_ir::ResolvedTier {
+    nros_orchestration_ir::ResolvedTier {
+        name: name.into(),
+        priority,
+        stack_bytes: None,
+        spin_period_us: Some(period),
+        preempt_threshold: None,
+        time_slice_us: None,
+        sched_class: None,
+        class: None,
+        period_us: None,
+        budget_us: None,
+        deadline_us: None,
+        deadline_policy: None,
+        core: None,
+        members: members
+            .into_iter()
+            .map(|(n, g)| (n.to_string(), g.to_string()))
+            .collect(),
+    }
 }
 
 /// The matrix. One row per (board family x entry shape) that reaches a
@@ -241,12 +325,146 @@ fn cases() -> Vec<(&'static str, Plan, Lang)> {
         plan("native", vec![rich, node("listener_pkg", "listener", None)]),
         Lang::Rust,
     ));
+
+    // ------------------------------------------------------------------
+    // The C++ rows above are one or two bare `configure`-shape nodes on the
+    // single-executor path. That is a small fraction of `emit_cpp`: it reaches
+    // neither `run_tiers`, nor the sched-context wiring, nor three of the four
+    // node shapes, nor the service trailer, nor the probe tail. The rows below
+    // are the rest of the emitter, added BEFORE it moves onto a template —
+    // a harness written afterwards can only confirm whatever the new code
+    // happens to do.
+    // ------------------------------------------------------------------
+
+    // Per-node rendering: name + namespace override, params (one carrying a
+    // quote AND a backslash, because quoting is the half that must stay in
+    // Rust), a remap, and a QoS override — beside a node that keeps its own
+    // identity, so both arms of every per-node branch appear in one golden.
+    let mut cpp_rich = typed_node("talker_pkg", "talker");
+    cpp_rich.name = Some("renamed_talker".into());
+    cpp_rich.namespace = Some("/demo".into());
+    cpp_rich.params = vec![
+        ("rate_hz".into(), "10".into()),
+        ("greeting".into(), "he said \"hi\" \\ bye".into()),
+    ];
+    cpp_rich.remaps = vec![("chatter".into(), "/demo/chatter".into())];
+    cpp_rich.qos_overrides = vec![super::QoSOverrideSpec {
+        topic: "/demo/chatter".into(),
+        role: 1,
+        policy: 2,
+        value: 5,
+    }];
+    out.push((
+        "cpp_native_rich",
+        plan(
+            "native",
+            vec![cpp_rich, typed_node("listener_pkg", "listener")],
+        ),
+        Lang::Cpp,
+    ));
+
+    // All four node shapes in one TU, with each dedup loop given a repeat:
+    // the same C package twice, the same Rust package twice, and two nodes
+    // sharing one C++ header. The forward-declaration and include loops dedup
+    // by PACKAGE and by HEADER while storage is per NODE, so a repeat must
+    // emit one `extern` / one `#include` and still get its own slot.
+    let mut dup_header = typed_node("talker_pkg", "talker2");
+    dup_header.class_header = Some("talker_pkg/talker.hpp".into());
+    out.push((
+        "cpp_native_shapes",
+        plan(
+            "native",
+            vec![
+                typed_node("talker_pkg", "talker"),
+                dup_header,
+                cpp_c_node("c_pkg", "c_one"),
+                cpp_c_node("c_pkg", "c_two"),
+                cpp_rust_node("rust_pkg", "rust_one"),
+                cpp_rust_node("rust_pkg", "rust_two"),
+                cpp_rclcpp_node("rclcpp_pkg", "rcl_one"),
+            ],
+        ),
+        Lang::Cpp,
+    ));
+
+    // param-services + lifecycle close a setup function with a block no other
+    // C++ row emits, on BOTH paths — and on the tiered path only tier 0 gets
+    // it, because they are process facts rather than per-tier ones.
+    let mut cpp_svc = plan("native", vec![typed_node("talker_pkg", "talker")]);
+    cpp_svc.param_services = true;
+    cpp_svc.lifecycle = Some("active".into());
+    out.push(("cpp_native_services", cpp_svc, Lang::Cpp));
+
+    let mut cpp_tier_svc = cpp_tiered_plan("native");
+    cpp_tier_svc.param_services = true;
+    cpp_tier_svc.lifecycle = Some("configure".into());
+    out.push(("cpp_native_tiers_services", cpp_tier_svc, Lang::Cpp));
+
+    // `run_tiers` is reached on native and on the three embedded boards that
+    // declare it. ThreadX is deliberately absent here and present below: it
+    // has no `run_tiers`, so a tiered ThreadX plan takes the single-executor
+    // sched-context path instead, and that divergence is the thing worth
+    // pinning.
+    out.push(("cpp_native_tiers", cpp_tiered_plan("native"), Lang::Cpp));
+    out.push(("cpp_zephyr_tiers", cpp_tiered_plan("zephyr"), Lang::Cpp));
+    out.push(("cpp_nuttx_tiers", cpp_tiered_plan("nuttx"), Lang::Cpp));
+    out.push(("cpp_freertos_tiers", cpp_tiered_plan("freertos"), Lang::Cpp));
+
+    // ThreadX: tiers declared, `run_tiers` unavailable — the sched-context
+    // wiring (`create_sched_context_from_policy`, `bind_node_name_sched`,
+    // `bind_group_sched`) that no other row emits.
+    out.push(("cpp_threadx_tiers", cpp_tiered_plan("threadx"), Lang::Cpp));
+
+    // RFC-0047 sub-node split: one node with callback groups on two tiers.
+    // `run_tiers` cannot express it (its per-tier setups construct whole
+    // nodes), so the plan falls back to the sched-context path ON NATIVE —
+    // the one row where a native tiered plan does NOT take `run_tiers`.
+    let mut split = cpp_tiered_plan("native");
+    split.nodes[0].group_tiers = BTreeMap::from([
+        ("ctrl_grp".to_string(), "high".to_string()),
+        ("telem_grp".to_string(), "low".to_string()),
+    ]);
+    if let Some(t) = split.resolved_tiers.as_mut() {
+        t.tiers[1].members.push(("ctrl".into(), "telem_grp".into()));
+    }
+    out.push(("cpp_native_group_split", split, Lang::Cpp));
+
+    // The metadata probe: the same setup body with the recording tail, which
+    // returns BEFORE the boot config and the board wrapper.
+    out.push((
+        "cpp_native_probe",
+        plan("native", vec![typed_node("talker_pkg", "talker")]),
+        Lang::CppProbe,
+    ));
+
+    // #0266 — `time_slice_us` has no C++ tier-ABI field, so the emitter
+    // REFUSES rather than dropping a declared value. The harness records a
+    // refusal as its golden, so this row pins the refusal itself.
+    let mut ts = cpp_tiered_plan("native");
+    if let Some(t) = ts.resolved_tiers.as_mut() {
+        t.tiers[0].time_slice_us = Some(2_000);
+    }
+    out.push(("cpp_native_time_slice_refused", ts, Lang::Cpp));
+
     out
 }
 
 fn render(p: &Plan, lang: Lang) -> Result<String, String> {
     match lang {
         Lang::Cpp => super::emit_cpp::emit_typed(p),
+        // A fixed, absolute-looking `out_path`: the probe bakes it into the TU
+        // as a literal, so a real temp path would make the golden depend on
+        // the machine that ran the test.
+        Lang::CppProbe => super::emit_cpp::emit_typed_probe(
+            p,
+            &super::emit_cpp::ProbeExport {
+                package: "demo_bringup".into(),
+                component: "talker".into(),
+                executable: "talker".into(),
+                language: "cpp".into(),
+                out_path: "/build/nros/metadata/talker.json".into(),
+            },
+        ),
         Lang::C => super::emit_c::emit_typed(p),
         Lang::Rust => Ok(super::emit_rust::emit(p)),
     }
