@@ -34,10 +34,20 @@ nros-serdes = { path = "../../core/nros-serdes", default-features = false }
 # runtime it was built against rather than a second copy of it.
 nros-core = { path = "../../core/nros-core", default-features = false }
 minijinja.workspace = true
+# phase-432 W2.5b (RFC-0091 §6b) — the filter registry is keyed by `Language`,
+# so a variant added to the one enumeration has a compile-time home here. That
+# crate is `serde`-and-nothing-else by design (see its module docs), so this
+# costs the codegen graph nothing.
+nros-lang.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# phase-432 W2.5b — `machinery::tokenize` is minijinja's OWN lexer. The filter
+# closure check must tell a `|` that is a filter call from a `|item|` closure in
+# the Rust the packs EMIT; a regex cannot, the lexer can. Dev-only, so the
+# shipped binary never carries the unstable API.
+minijinja = { workspace = true, features = ["unstable_machinery"] }
 tempfile = "3.0"
 criterion = "0.7"
 walkdir = "2.0"
