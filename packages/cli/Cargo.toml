@@ -10,6 +10,9 @@ members = [
     # phase-432 W2.1 (RFC-0091 §3) — the language enumeration, declared once.
     # serde-only on purpose: the proc-macro must be able to afford it.
     "nros-lang",
+    # phase-432 W2.2 (RFC-0091 §4) — entry Stage 2. Same budget rule as
+    # nros-lang: the proc-macro must be able to depend on it.
+    "nros-entry-lower",
     "nros-pkg-index",
     "nros-launch-parser",
     "nros-cli-core",
@@ -45,6 +48,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 minijinja = "2.5"
 nros-lang = { path = "nros-lang" }
+nros-entry-lower = { path = "nros-entry-lower" }
 toml = "0.8"
 
 # PyO3 for Python bindings
