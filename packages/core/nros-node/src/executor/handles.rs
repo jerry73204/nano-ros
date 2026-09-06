@@ -53,6 +53,10 @@ struct WaitBudget {
     deadline_us: u64,
     /// Iterations left, meaningful when `clock` is `None`.
     remaining: u64,
+    /// The TOTAL the caller allowed, in µs. Kept for the no-clock build: it
+    /// cannot measure elapsed time, but it still knows that a single spin must
+    /// never exceed the whole budget (phase-436 W4).
+    timeout_us: u64,
 }
 
 impl WaitBudget {
@@ -63,6 +67,38 @@ impl WaitBudget {
             clock,
             deadline_us: clock.map(|c| c().saturating_add(timeout_us)).unwrap_or(0),
             remaining: max_iterations,
+            timeout_us,
+        }
+    }
+
+    /// phase-436 W4 (issue 1195) — how long the next poll may spin without
+    /// overshooting the caller's deadline.
+    ///
+    /// These loops used a FIXED `DEFAULT_SPIN_INTERVAL_MS` and consulted the
+    /// budget only afterwards, so the last iteration always overshot: with
+    /// `max_spins` flooring at 1, `wait(1ms)` ran a full `spin_once(10ms)`.
+    /// The deadline was already in hand — it was simply checked one spin too
+    /// late.
+    ///
+    /// With no clock the build has no deadline to measure against, so the
+    /// caller's interval stands; that is the same honest fallback `tick`
+    /// makes.
+    fn next_spin_interval(&self, default: core::time::Duration) -> core::time::Duration {
+        let Some(clock) = self.clock else {
+            // No clock: elapsed is unknowable, but the TOTAL budget is not, and
+            // one spin may never exceed it.
+            let whole = core::time::Duration::from_micros(self.timeout_us);
+            return if whole < default { whole } else { default };
+        };
+        let now = clock();
+        if now >= self.deadline_us {
+            return core::time::Duration::ZERO;
+        }
+        let remaining = core::time::Duration::from_micros(self.deadline_us - now);
+        if remaining < default {
+            remaining
+        } else {
+            default
         }
     }
 
@@ -830,7 +866,7 @@ impl<const TX_BUF: usize> EmbeddedRawPublisher<TX_BUF> {
             match self.try_loan(len) {
                 Ok(loan) => return Ok(loan),
                 Err(LoanError::WouldBlock) => {
-                    executor.spin_once(spin_interval);
+                    executor.spin_once(budget.next_spin_interval(spin_interval));
                     if !budget.tick() {
                         return Err(LoanError::WouldBlock);
                     }
@@ -1319,7 +1355,7 @@ impl<M: RosMessage, const RX_BUF: usize> Subscription<M, RX_BUF> {
         let max_spins = (timeout_ms / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if let Some(msg) = self.take()? {
                 return Ok(Some(msg));
             }
@@ -1629,7 +1665,7 @@ impl<const RX_BUF: usize> RawSubscription<RX_BUF> {
         let max_spins = (timeout_ms / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if self.has_data() {
                 return self.try_borrow();
             }
@@ -2201,7 +2237,7 @@ impl<Svc: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
         // feeds the set runs on the executor's read path, so each `spin_once`
         // is what lets a freshly declared token land in the set.
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if matches!(self.handle.service_is_ready(), Ok(true)) {
                 return Ok(true);
             }
@@ -2317,7 +2353,7 @@ impl<T> Promise<'_, T> {
         let mut budget = WaitBudget::new(max_spins, timeout);
         // Always spin at least once so a zero-timeout still polls.
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if let Some(result) = self.take()? {
                 return Ok(result);
             }
@@ -2839,7 +2875,7 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
         let mut budget = WaitBudget::new(max_spins, timeout);
         // phase-428 W13 — spin, then ask again; see `wait_for_service`.
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if matches!(self.core.send_goal_client.service_is_ready(), Ok(true)) {
                 return Ok(true);
             }
@@ -2966,7 +3002,7 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
         let max_spins = (timeout_ms / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if let Some(item) = self.client.try_recv_feedback()? {
                 return Ok(Some(item));
             }
@@ -3060,7 +3096,7 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
         let max_spins = (timeout_ms / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
         loop {
-            executor.spin_once(spin_interval);
+            executor.spin_once(budget.next_spin_interval(spin_interval));
             if let Some((id, feedback)) = self.client.try_recv_feedback()?
                 && id.uuid == self.goal_id.uuid
             {
@@ -3169,5 +3205,47 @@ mod parse_response_tests {
         assert!(parse_goal_accepted(&frame).unwrap());
         let frame0 = [0x00, 0x01, 0x00, 0x00, 0x00];
         assert!(!parse_goal_accepted(&frame0).unwrap());
+    }
+}
+
+// ===========================================================================
+// phase-436 W4 (issue 1195) — the poll interval never overshoots the caller's
+// deadline.
+// ===========================================================================
+#[cfg(test)]
+mod wait_budget_tests {
+    use super::{DEFAULT_SPIN_INTERVAL_MS, WaitBudget};
+    use core::time::Duration;
+
+    const DEFAULT: Duration = Duration::from_millis(DEFAULT_SPIN_INTERVAL_MS);
+
+    /// A timeout shorter than one poll interval must not be rounded up to one.
+    /// `max_spins` floors at 1, so `wait(1ms)` ran a full `spin_once(10ms)` —
+    /// the caller's deadline exceeded tenfold before the budget was consulted.
+    #[test]
+    fn a_budget_shorter_than_the_interval_shortens_the_spin() {
+        let budget = WaitBudget::new(1, Duration::from_millis(1));
+        let interval = budget.next_spin_interval(DEFAULT);
+        assert!(
+            interval <= Duration::from_millis(1),
+            "a 1 ms budget must not spin for {interval:?}"
+        );
+    }
+
+    /// A budget longer than the interval keeps the interval: this is a cap on
+    /// the last iteration, not a change to the polling cadence.
+    #[test]
+    fn a_longer_budget_keeps_the_default_interval() {
+        let budget = WaitBudget::new(10, Duration::from_millis(100));
+        assert_eq!(budget.next_spin_interval(DEFAULT), DEFAULT);
+    }
+
+    /// An exhausted budget asks for no wait at all rather than one more
+    /// interval — the caller is about to give up, and sleeping first would be
+    /// pure overshoot.
+    #[test]
+    fn an_exhausted_budget_asks_for_a_zero_spin() {
+        let budget = WaitBudget::new(1, Duration::ZERO);
+        assert_eq!(budget.next_spin_interval(DEFAULT), Duration::ZERO);
     }
 }
