@@ -376,6 +376,32 @@ fn run_entry(args: EntryArgs) -> Result<()> {
             entry_codegen::Lang::C if !entry_codegen::emit_cpp::board_is_embedded(&plan.board) => {
                 entry_codegen::emit_c::emit_typed(&plan).map_err(|e| eyre!("{e}"))?
             }
+            // phase-432 W3.1 — SAY that the routing fired.
+            //
+            // The phase doc asked for a configure-time FATAL_ERROR on ThreadX,
+            // on the grounds that "a ThreadX C entry silently becomes a `.cpp`
+            // with no diagnostic, which is worse than a refusal". Half of that
+            // is right and half is not: the silence was the defect, but the
+            // routing WORKS — the C++ board runner drives the entry and reaches
+            // each C node through its `extern "C"` seam — so refusing would
+            // break something that ships. ThreadX is not special here either;
+            // every embedded board routes the same way.
+            //
+            // So: a line on stderr, not a refusal. The author of a `--lang c`
+            // entry learns their TU is C++ and why, and nothing that worked
+            // stops working.
+            entry_codegen::Lang::C => {
+                eprintln!(
+                    "nros codegen entry: board `{}` has no C-ABI `run_components`, so this \
+                     `--lang c` entry is rendered by the C++ pack (a `.cpp` TU that drives \
+                     the C++ board runner and calls each C node through its `extern \"C\"` \
+                     seam). phase-432 W3.1 is the item that would give this board a C \
+                     runner; `nros codegen entry-pack --lang c --board {}` reports the \
+                     routing.",
+                    plan.board, plan.board,
+                );
+                entry_codegen::emit_cpp::emit_typed(&plan).map_err(|e| eyre!("{e}"))?
+            }
             // C++ entries, and embedded C entries (routed here for the C++ board runner).
             _ => entry_codegen::emit_cpp::emit_typed(&plan).map_err(|e| eyre!("{e}"))?,
         }
