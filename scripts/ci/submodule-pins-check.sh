@@ -63,6 +63,17 @@
 
 set -uo pipefail
 
+# This script's own selftest builds throwaway repositories
+# (`nros_submodule_pins_mutation_selftest`, below), so an inherited
+# repository-local git environment (GIT_DIR and friends) would silently
+# redirect that `git init` into the CALLER's repository instead of the
+# fixture — the exact hazard issue 0986 is about. Cleared here because every
+# git invocation below (selftest and main body alike) names its target
+# explicitly.
+# shellcheck source=scripts/lib/git-hook-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/git-hook-env.sh"
+nros_clear_inherited_git_env
+
 baseline="${1:-${NROS_SUBMODULE_PIN_BASELINE:-origin/main}}"
 exceptions_file="${NROS_SUBMODULE_PIN_EXCEPTIONS:-docs/reference/submodule-pin-exceptions.txt}"
 allowed=0
