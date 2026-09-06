@@ -245,6 +245,25 @@ class Node {
         return nros_cpp_node_get_namespace(&handle_);
     }
 
+    /// This node's fully-qualified name — `rclcpp::Node::get_fully_qualified_name`.
+    ///
+    /// Writes `<namespace>/<name>` into `buf`, null-terminated. The root
+    /// namespace collapses, so a node named `talker` at `/` is `/talker` and
+    /// never `//talker`.
+    ///
+    /// A buffer rather than rclcpp's returned string: rclcpp hands back a
+    /// `const std::string &` it already stores, and there is no allocator here
+    /// to build one with. `nros::get_fully_qualified_name` (std_compat.hpp) is
+    /// the `std::string` spelling where `NROS_CPP_STD` is on.
+    ///
+    /// @param out_len Receives the length written, excluding the terminator —
+    ///        or, when the buffer is too small, the length that WOULD be
+    ///        written, so a caller can size a second attempt. May be nullptr.
+    Result get_fully_qualified_name(char* buf, size_t buf_len, size_t* out_len = nullptr) const {
+        if (!initialized_) return Result(ErrorCode::NotInitialized);
+        return Result(nros_cpp_node_get_fully_qualified_name(&handle_, buf, buf_len, out_len));
+    }
+
     /// RFC-0088 D4 — the serialization format this node's backend speaks
     /// (`"cdr"`, `"uorb"`), as its cross-image identity string.
     ///

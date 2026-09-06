@@ -17,6 +17,35 @@ pub const MAX_RESOLVED_NAME_LEN: usize = 128;
 /// Owned storage for a resolved (fully-qualified) entity name.
 pub type ResolvedName = heapless::String<MAX_RESOLVED_NAME_LEN>;
 
+/// A node's fully-qualified name, joined from its two halves.
+///
+/// `/robot` + `talker` -> `/robot/talker`; the root namespace collapses, so
+/// `/` + `talker` is `/talker` and never `//talker`. The namespace may be given
+/// with or without a leading `/`, and empty means root — the same input rules
+/// [`expand_name`] already accepts, because this IS `expand_name`'s private-name
+/// branch under the name people look for.
+///
+/// # Why a named function for one call
+///
+/// The join is three lines and the tree already contained THREE of them —
+/// `Node::fully_qualified_name`, the inline build in
+/// `Executor::register_parameter_services`, and this branch — which is the
+/// "one shared helper, never a second spelling" rule pointing at itself. It is
+/// also not discoverable: nothing says that `expand_name("~", …)` is how you
+/// ask for a node's own name, so the fourth caller writes a fourth copy and
+/// gets the root case wrong. `//talker` is the failure this exists to stop.
+///
+/// The counterpart in ROS 2 is `rcl_node_get_fully_qualified_name` /
+/// `rclcpp::Node::get_fully_qualified_name`, but both answer only for the
+/// CALLER'S OWN node. Neither project has this one — the join for a node you
+/// DISCOVERED — because their graph APIs hand back two parallel arrays and
+/// leave correlating them to you. Ours delivers both halves in one visitor
+/// call, so the join is the only step left.
+#[allow(clippy::result_unit_err)] // as `expand_name`, which this is — no_std, no Error type
+pub fn fully_qualified_name(node_name: &str, namespace: &str) -> Result<ResolvedName, ()> {
+    expand_name("~", node_name, namespace)
+}
+
 /// Expand a source-level ROS name to its fully-qualified form (ROS 2 name
 /// expansion rules):
 ///

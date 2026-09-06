@@ -249,6 +249,11 @@ pub use node::__private_node_state_into_raw;
 // not `std`.
 #[cfg(feature = "alloc")]
 pub use node_metadata::SourceMetadataExport;
+/// phase-381 follow-up — the node-FQN join, at the crate root because that is
+/// where a user looks after `Executor::get_node_names` hands them the two
+/// halves. `nros_node::names` also has `expand_name` / `resolve_name`, which
+/// stay behind `node_metadata` — they are the entity-name seam, not this.
+pub use node_metadata::fully_qualified_name;
 pub use node_metadata::{
     CallbackEffectKind, CallbackEffectMetadata, EntityKind, EntityMetadata, MetadataRecorder,
     MetadataString, NodeMetadata, NodeMetadataError, ParameterDefault, SourceLocationMetadata,

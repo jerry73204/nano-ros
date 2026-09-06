@@ -1928,6 +1928,53 @@ pub unsafe extern "C" fn nros_cpp_node_get_namespace(
     unsafe { (*node).namespace.as_ptr() as *const c_char }
 }
 
+/// This node's fully-qualified name — `rclcpp::Node::get_fully_qualified_name`.
+///
+/// Writes `<namespace>/<name>` into `buf`, null-terminated, collapsing the root
+/// namespace. `out_len` receives the length written, or on `NROS_CPP_RET_FULL`
+/// the length that WOULD be written; it may be NULL.
+///
+/// The join itself is `nros_node::names::fully_qualified_name`, the one
+/// implementation this and the C API and the Rust `Node` all reach.
+///
+/// # Safety
+/// `node` must be valid; `buf` must be writable for `buf_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_node_get_fully_qualified_name(
+    node: *const nros_cpp_node_t,
+    buf: *mut c_char,
+    buf_len: usize,
+    out_len: *mut usize,
+) -> nros_cpp_ret_t {
+    if node.is_null() || buf.is_null() || buf_len == 0 {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    }
+    let node = unsafe { &*node };
+    let (Ok(name), Ok(ns)) = (unsafe {
+        (
+            core::ffi::CStr::from_ptr(node.name.as_ptr() as *const c_char).to_str(),
+            core::ffi::CStr::from_ptr(node.namespace.as_ptr() as *const c_char).to_str(),
+        )
+    }) else {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    };
+    let Ok(fqn) = nros_node::names::fully_qualified_name(name, ns) else {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    };
+    let bytes = fqn.as_bytes();
+    if !out_len.is_null() {
+        unsafe { *out_len = bytes.len() };
+    }
+    if bytes.len() + 1 > buf_len {
+        return NROS_CPP_RET_FULL;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, bytes.len());
+        *(buf as *mut u8).add(bytes.len()) = 0;
+    }
+    NROS_CPP_RET_OK
+}
+
 /// RFC-0088 D4 / phase-421 W2 — the serialization format the backend behind
 /// THIS node speaks, as its cross-image identity string (`"cdr"`, `"uorb"`).
 ///

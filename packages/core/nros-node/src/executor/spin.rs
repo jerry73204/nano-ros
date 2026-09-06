@@ -7223,22 +7223,17 @@ impl<'s> Executor<'s> {
             PARAM_SERVICE_BUFFER_SIZE,
         >;
 
-        // Build the node FQN from namespace + node_name, following ROS 2 convention.
-        // Default namespace "/" → "/{node_name}"; otherwise "/{namespace}/{node_name}".
-        let mut node_fqn = heapless::String::<256>::new();
+        // The node FQN, from the one implementation. This was the third
+        // hand-rolled copy of the same join (`crate::names::fully_qualified_name`
+        // is the first, `Node::fully_qualified_name` was the second) — and the
+        // three did not agree: this one absolutised a bare namespace, that one
+        // did not. A join with three spellings has no answer to "what does the
+        // tree do with `my_ns`".
+        let node_fqn = crate::names::fully_qualified_name(&self.node_name, &self.namespace)
+            .map_err(|()| NodeError::NameTooLong)?;
+        // The service names below still take the two halves separately.
         let ns: &str = &self.namespace;
         let nn: &str = &self.node_name;
-        if ns.is_empty() || ns == "/" {
-            node_fqn.push_str("/").map_err(|_| NodeError::NameTooLong)?;
-            node_fqn.push_str(nn).map_err(|_| NodeError::NameTooLong)?;
-        } else {
-            node_fqn.push_str("/").map_err(|_| NodeError::NameTooLong)?;
-            node_fqn
-                .push_str(ns.trim_matches('/'))
-                .map_err(|_| NodeError::NameTooLong)?;
-            node_fqn.push_str("/").map_err(|_| NodeError::NameTooLong)?;
-            node_fqn.push_str(nn).map_err(|_| NodeError::NameTooLong)?;
-        }
 
         /// Build a service name like `{node_fqn}/{suffix}` and create the server handle.
         fn create_param_srv<Svc: RosService>(

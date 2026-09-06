@@ -5351,6 +5351,78 @@ NROS_PUBLIC const char *nros_node_get_name(const struct nros_node_t *node);
 NROS_PUBLIC const char *nros_node_get_namespace(const struct nros_node_t *node);
 
 /**
+ * Join a node name and namespace into a fully-qualified name.
+ *
+ * `/robot` + `talker` -> `/robot/talker`. The root namespace collapses, so
+ * `/` + `talker` is `/talker` and never `//talker`, and a namespace given
+ * without a leading `/` is absolutised.
+ *
+ * # Why this exists, and why it takes two strings rather than a handle
+ *
+ * `nros_executor_get_node_names` hands a visitor the name and namespace of a
+ * DISCOVERED node as two borrowed strings; this is the step that makes them
+ * one. ROS 2 has no counterpart: `rcl_get_node_names` returns two parallel
+ * arrays and leaves the correlation and the join to the caller, and
+ * `rcl_node_get_fully_qualified_name` answers only for the caller's OWN node
+ * (that one is [`nros_node_get_fully_qualified_name`]). rclcpp is the only
+ * upstream layer that joins for you, and it is not available in C.
+ *
+ * # Parameters
+ * * `node_name` - the bare node name, null-terminated
+ * * `node_namespace` - the namespace, null-terminated; `""` and `"/"` are root
+ * * `buf` - destination for the null-terminated result
+ * * `buf_len` - capacity of `buf`, INCLUDING the terminator
+ * * `out_len` - receives the length written, excluding the terminator.
+ *   On `NROS_RET_FULL` it receives the length that WOULD be written, so a
+ *   caller can size a second attempt.
+ *
+ * # Returns
+ * * `NROS_RET_OK`
+ * * `NROS_RET_INVALID_ARGUMENT` — a NULL pointer, a non-UTF-8 input, or a
+ *   name so long the join cannot be represented
+ * * `NROS_RET_FULL` — `buf_len` is too small; `out_len` says what is needed.
+ *   `FULL` and not `BUFFER_TOO_SMALL` because `nros_ret_t` has no such code:
+ *   that one exists on the RMW ABI (`nros_rmw_ret_t`) and is CITED by a doc
+ *   comment on `nros_publisher_publish_raw` that returns
+ *   `NROS_RET_PUBLISH_FAILED` instead. Naming a constant the header does not
+ *   define would make that two wrong references rather than one.
+ *
+ * # Safety
+ * * `node_name` and `node_namespace` must be valid null-terminated strings
+ * * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
+ */
+NROS_PUBLIC
+nros_ret_t nros_get_fully_qualified_name(const char *node_name,
+                                         const char *node_namespace,
+                                         char *buf,
+                                         size_t buf_len,
+                                         size_t *out_len);
+
+/**
+ * This node's fully-qualified name — `rcl_node_get_fully_qualified_name`.
+ *
+ * A buffer rather than upstream's `const char *`, and the difference is not
+ * cosmetic: rcl can hand back a pointer because it STORES the joined string,
+ * and storing it here would cost up to `MAX_NAME_LEN + MAX_NAMESPACE_LEN`
+ * bytes per node on a target that counts them, to cache something two strings
+ * already hold. Same shape as [`nros_get_fully_qualified_name`], which is the
+ * other half of this pair.
+ *
+ * # Returns
+ * As [`nros_get_fully_qualified_name`], plus `NROS_RET_NOT_INIT` when the node
+ * is not initialised.
+ *
+ * # Safety
+ * * `node` must be a valid pointer to an initialised node
+ * * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
+ */
+NROS_PUBLIC
+nros_ret_t nros_node_get_fully_qualified_name(const struct nros_node_t *node,
+                                              char *buf,
+                                              size_t buf_len,
+                                              size_t *out_len);
+
+/**
  * RFC-0088 D4 / phase-421 W2 — the serialization format the backend behind
  * THIS node speaks, as its cross-image identity string (`"cdr"`, `"uorb"`).
  *
