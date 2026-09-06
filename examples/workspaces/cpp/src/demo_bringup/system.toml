@@ -145,6 +145,30 @@ board = "threadx-linux"
 board = "native_sim/native/64"
 conf = ["prj-zenoh.conf"]
 
+# phase-206 W2, final item — the RTOS image that LINKS Cyclone and carries a
+# bringup config. `[image.zephyr]` above is zenoh, and the bringup ships
+# `rmw/cyclonedds.xml` and no `zenoh.conf`, so that image bakes NOTHING; this
+# one bakes the XML. The pair is the same negative control the native images
+# carry, one platform over.
+#
+# It exists because W2's other RTOS row could not close the acceptance: its app
+# is a 212.H.1 stub that never creates a node, so `--gc-sections` dropped the
+# backend and the bytes reached the OBJECT but not the IMAGE. This entry links
+# `talker_pkg` + `listener_pkg`, so the backend is referenced and survives.
+[image.zephyr_cyclonedds]
+board = "native_sim/native/64"
+rmw = "cyclonedds"
+conf = ["prj-cyclonedds.conf"]
+# RFC-0085 D4 — a Zephyr image NAMES its hand-written entry package. This one
+# has its OWN (`zephyr_cyclonedds_entry`, the derived spelling) rather than
+# sharing `zephyr_entry` with `[image.zephyr]`, because the image is resolved
+# ENTRY PACKAGE -> IMAGE by `nros image-facts --for-entry`: sharing makes that
+# lookup ambiguous, and a first-match scan picks the wrong one. Measured, not
+# assumed — sharing built with this image's cyclone overlay while `image-facts`
+# still answered `demo_bringup:zephyr` (rmw=zenoh), and
+# `nros_check_image_agreement` refused it.
+entry = "zephyr_cyclonedds_entry"
+
 # SITE config for this board (RFC-0072 §5): where THIS checkout keeps the
 # SDK roots it builds against. Keyed by BOARD, not by a deploy or image
 # name, because that is what the fact is about (issue 0951).

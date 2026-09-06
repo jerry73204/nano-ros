@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>zephyr_cyclonedds_entry</name>
+  <version>0.1.0</version>
+  <description>phase-206 W2 — Zephyr (native_sim) C++ Entry on CycloneDDS, the RTOS image that carries the bringup’s own RMW config.</description>
+  <maintainer email="dev@example.com">Developer</maintainer>
+  <license>Apache-2.0</license>
+  <exec_depend>demo_bringup</exec_depend>
+  <exec_depend>talker_pkg</exec_depend>
+  <exec_depend>listener_pkg</exec_depend>
+  <export>
+    <build_type>nros_cmake</build_type>
+  </export>
+</package>

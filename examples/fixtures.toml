@@ -4862,6 +4862,53 @@ west_id = "zephyr/native_sim/native/64/workspace-entry-cpp"
 west_zenoh_locator = "tcp/127.0.0.1:7630"
 skip_probe = true
 
+# phase-206 W2, FINAL ITEM — the RTOS image that links Cyclone AND carries a
+# bringup config.
+#
+# W2 shipped two proofs and one hole. The hosted proof
+# (`workspace-cpp-native-cyclonedds`) has the SSoT's exact bytes in a linked
+# ELF. The RTOS proof (`west_bringup_zephyr_cyclone_user_config`) is
+# COMPILE-stage only: its app is a 212.H.1 stub that never creates a node, so
+# `--gc-sections` drops the backend and the bytes reach `session.cpp.obj` but
+# not `zephyr.elf` (`strings | grep -c ddsi_` = 0).
+#
+# This row closes it. Same workspace and bringup as `workspace-zephyr-cpp`
+# above, which links `talker_pkg` + `listener_pkg` -- real nodes, so the
+# backend is referenced and survives the link. It reaches the bake through
+# `nano_ros_add_executable(... BRINGUP ...)`, i.e. the ENTRY path, which is the
+# half of W2 that no RTOS row exercised before.
+#
+# The zenoh row above doubles as the negative control on this platform: the
+# bringup ships `rmw/cyclonedds.xml` and no `zenoh.conf`, so it bakes nothing.
+[[workspace_fixture]]
+id = "workspace-zephyr-cpp-cyclonedds"
+platform = "zephyr"
+lang = "cpp"
+rmw = "cyclonedds"
+dir = "examples/workspaces/cpp"
+bringup = "src/demo_bringup"
+image = "zephyr_cyclonedds"
+board = "native_sim/native/64"
+conf_files = ["prj.conf", "prj-cyclonedds.conf"]
+west_build_name = "build-ws-cpp-entry-cyclonedds"
+west_id = "zephyr/native_sim/native/64/workspace-entry-cpp-cyclonedds"
+# The row AUTHORS its isolation value, as every west leaf does. Not decoration:
+# `zephyr-fixture-leaves.sh` takes the "row authored it" branch only when one of
+# `west_zenoh_locator` / `west_xrce_agent_port` / `west_cyclone_domain` is set;
+# otherwise it falls through to `variant_offset_for_role`, which does not know
+# the role `entry` and exits 2. The zenoh row beside this one supplies a
+# locator, and cyclone's isolation axis is the DOMAIN.
+#
+# 33 is the allocator's answer, not a free number. `alloc::domain_of` is
+# `1 + platform.index()*21 + slot*3 + lang.port_index()`; for
+# (ZephyrNativeSim=1, EntryPubsub slot=3, cpp=2) that is 1+21+9+2 = 33. Both
+# inferred inputs are cross-checked against the shell's own formulas: its
+# cyclone leaves compute `22 + variant*3 + lang` (i.e. 1 + 1*21 + ...), fixing
+# Zephyr's index at 1; and the rust entry's locator 7430 is 7400+30, fixing the
+# Entry slot at 3.
+west_cyclone_domain = 33
+skip_probe = true
+
 # phase-263 C2c-zephyr — the MIXED WORKSPACE entry (C talker + C++ listener
 # + Rust heartbeat). Same native_sim/NSOS west path as the cpp entry; the
 # Zephyr application dir is examples/workspaces/mixed/src/zephyr_entry. The
