@@ -394,12 +394,23 @@ settled work.
   embedded C there — so the blindness is latent, not live. It becomes live the
   moment the routing branch is deleted, which is exactly what W3.1 proposes.
 
-- **W3.1b — the surface decision, written down.** RFC-0091 §6 — a pack is a
-  (language x SURFACE), not a language: Rust has FOUR packs and the `cpp` pack
-  emits Rust. So the first question for a new language is which surfaces it
-  needs (idiomatic / embedded-idiomatic / FFI / bridge / packaging), not "write
-  a pack". Zig would want idiomatic and FFI and no cargo scaffold. Stating this
-  is most of what a newcomer is owed, and it costs a table.
+- **W3.1b — the surface decision, written down. DONE.** RFC-0091 §6 now
+  carries "The surface decision table": five MESSAGE surfaces (idiomatic,
+  embedded-idiomatic, FFI/ABI, bridge glue, packaging) with what each emits,
+  when a language needs it, and — the column that was missing from the prose —
+  **what each one drags in**. An FFI surface is not just a template; it
+  inherits the memory-agreement gate (§5). A bridge surface is two spellings of
+  one type that must move together. A packaging surface has the least in common
+  between languages of any of them.
+
+  Writing it out produced one thing the prose did not have: **entry surfaces
+  are a SECOND AXIS, not a sixth row.** A language may take an entry surface
+  with no message surface (it consumes another language's messages), or the
+  reverse. The two entry surfaces are the entry TU and the component seam, and
+  separating them changes the sizing answer: Zig could ship with the component
+  seam alone — a Zig component installed by a C or C++ entry — which is a much
+  smaller first version than "add Zig". §8 step 0 now points at the table
+  rather than restating it.
 
 - **W3.2 — a pack manifest.** `packs/entry/<lang>/pack.toml`: which template
   renders which output, the file extension, and whether the TU is C-family (so
