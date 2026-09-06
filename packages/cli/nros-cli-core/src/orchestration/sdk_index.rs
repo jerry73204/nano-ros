@@ -42,6 +42,22 @@ pub struct SdkIndex {
     /// `nros setup <board>`.
     #[serde(default)]
     pub board: BTreeMap<String, BoardEntry>,
+    /// `<build_type>` → the host tools that BUILDER shells out to
+    /// (RFC-0062 amendment 4, phase-435 W2).
+    ///
+    /// Consulted only where `Resolution::SelfBuildtool` cannot answer. That rung
+    /// rests on "if that builder is building it, the buildtool is present",
+    /// which phase-431 makes false for the nano-ros build types: once `nros`
+    /// ships prebuilt, a user holds the builder and may have neither `cargo` nor
+    /// `cmake` — and `nros_cargo`/`nros_cmake` are 375 of 406 packages.
+    ///
+    /// A build type with no row declares no host tool, which is not an error:
+    /// `ament_cmake` is served by an ambient ROS, and `ament_cargo` by this
+    /// repo's own colcon extension. Amendment 3 rejected inventing index rows
+    /// for those as fiction — no apt package provides them — and this field does
+    /// not reopen it: every name here is a real `[prereq.*]` key.
+    #[serde(default)]
+    pub build_type: BTreeMap<String, BuildTypeEntry>,
     /// Named source groupings not tied to a single board/rmw (Phase 197.2) —
     /// e.g. `[reference.px4]`. Consumed by `tools/setup.sh --with-reference`,
     /// NOT by `nros setup`.
@@ -154,6 +170,22 @@ pub enum PrereqRole {
     /// A third-party source tree this repo builds (submodule or fetched
     /// source). ROS 2 would express these as `*_vendor` packages.
     Vendor,
+    /// A tool the BUILDER shells out to — `cargo`, `cmake`, `clang`. Comes from
+    /// HOW you build, not from what your code needs, so a `package.xml` does not
+    /// name it: `<build_type>` already does (RFC-0062 amendment 4).
+    ///
+    /// Distinct from `Package` because the answer to "is it missing?" differs.
+    /// A content dep is missing if the host lacks it; a buildtool is usually
+    /// supplied by the builder itself — `Resolution::SelfBuildtool` — and is
+    /// only a host requirement where the builder does NOT provide it. That gap
+    /// is what phase-431 opened: before it, holding `nros` implied having cargo,
+    /// because you built the CLI from source.
+    ///
+    /// Amendment 3's own table already grouped 16 keys as build tooling; the
+    /// vocabulary simply never gained the value, so they were filed `Package`
+    /// and `nros setup --workspace` reported `cargo` as something a workspace
+    /// "names", which no `package.xml` does.
+    Buildtool,
     /// Not yet classified. The DEFAULT so the field can land before all 46
     /// entries carry one; `check-prereq-roles` is what forbids it staying.
     #[default]
@@ -211,6 +243,21 @@ pub struct PrereqDep {
     pub source: Option<String>,
     #[serde(default)]
     pub check: Option<CheckProbe>,
+    /// The ROS package name, when this key IS one — phase-435 W3.
+    ///
+    /// The OS name is DERIVED from it rather than spelled: every ROS name this
+    /// tree composes by hand follows bloom's rule, `ros-<distro>-<pkg _ -> ->`,
+    /// with no exceptions in nine samples. The row states the ROS name once and
+    /// the per-manager patterns live in one place, `ros_os_package`.
+    ///
+    /// Supersedes the `{ros_distro}` placeholder (issue 1128), which made the
+    /// author spell the whole literal — expressible for one manager only, and
+    /// repeating the derivable prefix in every row.
+    ///
+    /// An explicit `apt = [...]` still WINS, so a distro rename or a package
+    /// split stays expressible without a migration.
+    #[serde(default)]
+    pub ros_package: Option<String>,
 }
 
 impl PrereqDep {
@@ -249,17 +296,23 @@ impl PrereqDep {
     /// `docker/ros-editions/Dockerfile` each build `ros-${DISTRO}-…` by hand.
     /// Two spellings of one package that agree only when the distro is humble.
     ///
-    /// `{ros_distro}` is the whole vocabulary, deliberately. It reuses the
-    /// `{prefix}` idiom `[tool.*.source]` install lines already use, so this is
-    /// one more placeholder rather than a template language — and
-    /// `check-prereq-placeholders` refuses any other, which is what keeps it
-    /// from becoming one.
+    /// phase-435 W3 replaced that with DERIVATION: a row states the ROS name in
+    /// `ros_package` and the OS name follows from bloom's rule. The interim was
+    /// a `{ros_distro}` placeholder (issue 1128), which still made the author
+    /// spell the literal — so it could express apt alone, and repeated the
+    /// derivable prefix per row. A literal list still wins where one is given.
     #[must_use]
     pub fn packages_for(&self, manager: &str, ctx: &PrereqContext) -> Vec<String> {
-        self.packages_declared(manager)
-            .iter()
-            .map(|p| ctx.expand(p))
-            .collect()
+        let declared = self.packages_declared(manager);
+        if !declared.is_empty() {
+            // An explicit list WINS over the derivation — the escape hatch for
+            // a distro rename or a split (phase-435 W3).
+            return declared.to_vec();
+        }
+        match &self.ros_package {
+            Some(rp) => ctx.ros_os_package(manager, rp).into_iter().collect(),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -293,10 +346,24 @@ impl PrereqContext {
         Self { ros_distro }
     }
 
-    /// Substitute the placeholders this context knows.
+    /// The OS package name for a ROS package under `manager` — phase-435 W3.
+    ///
+    /// bloom's convention: a ROS package `rmw_zenoh_cpp` is packaged as
+    /// `ros-<distro>-rmw-zenoh-cpp`, underscores becoming dashes. Verified
+    /// against every ROS name this tree composes by hand — nine, no exceptions.
+    ///
+    /// `None` where ROS is not packaged that way, which is a real answer the
+    /// index already prints as "unmapped" rather than a gap to paper over. The
+    /// AUR's `ros2-<distro>-*` convention is deliberately NOT here: RFC-0062
+    /// amendment 4 records it as unverified, and a pattern nobody checked is
+    /// how a user gets told to install a package that does not exist.
     #[must_use]
-    pub fn expand(&self, s: &str) -> String {
-        s.replace("{ros_distro}", &self.ros_distro)
+    pub fn ros_os_package(&self, manager: &str, ros_package: &str) -> Option<String> {
+        let stem = ros_package.replace('_', "-");
+        match manager {
+            "apt" => Some(format!("ros-{}-{stem}", self.ros_distro)),
+            _ => None,
+        }
     }
 }
 
@@ -325,6 +392,9 @@ impl From<&SystemDep> for PrereqDep {
             provides: Vec::new(),
             source: None,
             check: d.check.clone(),
+            // A lowered `[system.*]` entry names no ROS package: the alias
+            // predates the field and nothing in that table is one.
+            ros_package: None,
         }
     }
 }
@@ -692,6 +762,17 @@ pub struct ToolPackage {
     /// fails on (phase-431 W2) and `nros build` refuses (W1).
     #[serde(default)]
     pub front: Vec<String>,
+}
+
+/// `[build_type.<name>]` — the host tools a builder needs present.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildTypeEntry {
+    /// `[prereq.*]` keys, which `SdkIndex::validate` checks exist.
+    #[serde(default)]
+    pub packages: Vec<String>,
+    #[serde(default)]
+    pub why: Option<String>,
 }
 
 /// One "does it actually run?" probe for a `[tool.*]` dist (issue 0929).
@@ -1080,6 +1161,20 @@ impl SdkIndex {
                     bail!(
                         "rmw '{rmw}' references undefined package '{pkg}' \
                          (not a [tool]/[source]/[gated] entry)"
+                    );
+                }
+            }
+        }
+        // phase-435 W2 — a build type may only name keys that exist. The whole
+        // point of the axis is that these are REAL prereqs, not the invented
+        // rows amendment 3 rejected.
+        let prereq_keys = self.prereqs();
+        for (bt, entry) in &self.build_type {
+            for pkg in &entry.packages {
+                if !prereq_keys.contains_key(pkg) {
+                    bail!(
+                        "build_type '{bt}' names '{pkg}', which is not a \
+                         [prereq.*] key"
                     );
                 }
             }
@@ -1551,16 +1646,16 @@ check = { cmd = "west" }
         );
     }
 
-    /// Issue 1128 — `{ros_distro}` expands, and the default is humble.
+    /// phase-435 W3 — a ROS package name DERIVES, and the default is humble.
     ///
     /// The context is CONSTRUCTED here rather than read from the environment,
-    /// which is the point of it being a struct: the expansion is a pure
+    /// which is the point of it being a struct: the derivation is a pure
     /// function of its inputs, so this test needs no `set_var` — a
     /// process-global that leaks between parallel tests (issue 1101).
     #[test]
-    fn a_prereq_package_name_expands_the_ros_distro() {
+    fn a_ros_package_derives_its_os_name() {
         let dep = PrereqDep {
-            apt: vec!["ros-{ros_distro}-rmw-zenoh-cpp".to_string()],
+            ros_package: Some("rmw_zenoh_cpp".to_string()),
             ..PrereqDep::default()
         };
         let jazzy = PrereqContext {
@@ -1568,21 +1663,35 @@ check = { cmd = "west" }
         };
         assert_eq!(dep.packages_for("apt", &jazzy), ["ros-jazzy-rmw-zenoh-cpp"]);
 
-        // The DECLARED form is what the gates read, and it is untouched.
+        // Underscores become dashes; the ROS name keeps them.
         assert_eq!(
-            dep.packages_declared("apt"),
-            ["ros-{ros_distro}-rmw-zenoh-cpp"]
+            jazzy.ros_os_package("apt", "example_interfaces").as_deref(),
+            Some("ros-jazzy-example-interfaces")
         );
 
-        // A name with no placeholder is returned unchanged — the other 45 keys.
+        // Not packaged that way elsewhere. `None` is the honest answer, and the
+        // AUR pattern stays out until someone verifies it (RFC-0062 A4).
+        for mgr in ["pacman", "dnf", "brew"] {
+            assert!(dep.packages_for(mgr, &jazzy).is_empty(), "{mgr}");
+        }
+
+        // An explicit list WINS — the escape hatch for a rename or a split.
+        let pinned = PrereqDep {
+            ros_package: Some("rmw_zenoh_cpp".to_string()),
+            apt: vec!["ros-humble-rmw-zenoh-cpp-legacy".to_string()],
+            ..PrereqDep::default()
+        };
+        assert_eq!(
+            pinned.packages_for("apt", &jazzy),
+            ["ros-humble-rmw-zenoh-cpp-legacy"]
+        );
+
+        // A key with neither derives nothing, rather than an empty name.
         let plain = PrereqDep {
             apt: vec!["doxygen".to_string()],
             ..PrereqDep::default()
         };
         assert_eq!(plain.packages_for("apt", &jazzy), ["doxygen"]);
-
-        // An unmapped manager is still empty, placeholder or not.
-        assert!(dep.packages_for("pacman", &jazzy).is_empty());
     }
 
     /// The default is humble, and a blank `$ROS_DISTRO` is not a distro.
@@ -1592,7 +1701,10 @@ check = { cmd = "west" }
         let ctx = PrereqContext {
             ros_distro: PrereqContext::DEFAULT_ROS_DISTRO.to_string(),
         };
-        assert_eq!(ctx.expand("ros-{ros_distro}-x"), "ros-humble-x");
+        assert_eq!(
+            ctx.ros_os_package("apt", "rmw_zenoh_cpp").as_deref(),
+            Some("ros-humble-rmw-zenoh-cpp")
+        );
     }
 
     /// The real index's parametric row resolves, so this is not a test about a
@@ -1609,9 +1721,13 @@ check = { cmd = "west" }
             .cloned()
             .expect("[prereq.ros-rmw-zenoh-cpp]");
         assert_eq!(
-            dep.packages_declared("apt"),
-            ["ros-{ros_distro}-rmw-zenoh-cpp"],
-            "the index row stopped being parametric — issue 1128"
+            dep.ros_package.as_deref(),
+            Some("rmw_zenoh_cpp"),
+            "the shipped row stopped naming its ROS package — phase-435 W3"
+        );
+        assert!(
+            dep.packages_declared("apt").is_empty(),
+            "a literal apt name beside `ros_package` would override the derivation"
         );
         let iron = PrereqContext {
             ros_distro: "iron".to_string(),

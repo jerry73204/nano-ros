@@ -1769,6 +1769,7 @@ fn run_system(
                 crate::orchestration::sdk_index::PrereqRole::Workspace => "workspace",
                 crate::orchestration::sdk_index::PrereqRole::Infra => "infra",
                 crate::orchestration::sdk_index::PrereqRole::Vendor => "vendor",
+                crate::orchestration::sdk_index::PrereqRole::Buildtool => "buildtool",
                 // Unclassified must not silently vanish under a filter: it is
                 // what `check-prereq-roles` exists to catch, so surface it.
                 crate::orchestration::sdk_index::PrereqRole::Unclassified => "unclassified",
@@ -2858,9 +2859,44 @@ fn run_workspace_scan(
     );
 
     println!("BUILDERS (from <build_type>) — each implies a toolchain that must exist:");
+    // phase-435 W2 — the build_type AXIS. `buildtool_for_build_type` answers
+    // "which `<buildtool_depend>` is a tautology here" (`SelfBuildtool`); this
+    // answers the different question "and what does that builder shell out to
+    // that the host must therefore have". They disagree exactly where phase-431
+    // matters: `nros_cargo`'s buildtool is `nros`, which a user can now hold
+    // prebuilt while having no cargo at all.
+    let mut host_tools: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (bt, n) in &builders {
         let tool = pr::buildtool_for_build_type(bt).unwrap_or("(no buildtool implied)");
-        println!("  {bt:<16} x{n:<4} buildtool: {tool}");
+        let needs = index
+            .build_type
+            .get(bt)
+            .map(|e| e.packages.clone())
+            .unwrap_or_default();
+        if needs.is_empty() {
+            println!("  {bt:<16} x{n:<4} buildtool: {tool}");
+        } else {
+            println!(
+                "  {bt:<16} x{n:<4} buildtool: {tool}   host tools: {}",
+                needs.join(", ")
+            );
+            for k in needs {
+                host_tools.entry(k).or_default().push(bt.clone());
+            }
+        }
+    }
+
+    if !host_tools.is_empty() {
+        println!("\nHOST TOOLS the builders need (from <build_type>, not from a <depend>):");
+        for (key, bts) in &host_tools {
+            let probe = prereqs.get(key).and_then(|d| d.check.as_ref());
+            let state = match run_probe(probe) {
+                ProbeResult::Present => "present",
+                ProbeResult::Missing => "MISSING",
+                ProbeResult::Unknown => "unprobed",
+            };
+            println!("  {key:<28} {state:<9} ({})", bts.join(", "));
+        }
     }
 
     // The scope vocabulary comes from `scripts/build/scope.sh`, the same table
@@ -2956,12 +2992,19 @@ fn run_workspace_scan(
 
     // Content dependencies, split by whether this tool can act on them.
     let mut package_role: Vec<(&String, &usize)> = Vec::new();
+    let mut buildtool_role: Vec<(&String, &usize)> = Vec::new();
     let mut wrong_role: Vec<(&String, &str)> = Vec::new();
     let mut not_prereq = 0usize;
     for (name, n) in &deps {
         match prereqs.get(name) {
             Some(dep) => match dep.role {
                 PrereqRole::Package | PrereqRole::Unclassified => package_role.push((name, n)),
+                // A buildtool named by a `<depend>` is not WRONG the way an
+                // emulator is — rosdep wants `<buildtool_depend>cmake</>` and
+                // ROS packages carry it. It is simply not a content dependency,
+                // so it is reported on its own line rather than as an error
+                // (RFC-0062 amendment 4, W1).
+                PrereqRole::Buildtool => buildtool_role.push((name, n)),
                 PrereqRole::Workspace => wrong_role.push((name, "workspace")),
                 PrereqRole::Infra => wrong_role.push((name, "infra")),
                 PrereqRole::Vendor => wrong_role.push((name, "vendor")),
@@ -2982,6 +3025,21 @@ fn run_workspace_scan(
             ProbeResult::Unknown => "unprobed",
         };
         println!("  {name:<28} x{n:<4} {state}");
+    }
+
+    if !buildtool_role.is_empty() {
+        println!("\nBUILD TOOLS this workspace names (role = buildtool):");
+        println!("These come from HOW it is built, not from what its content needs —");
+        println!("`<build_type>` already implies them (RFC-0062 amendment 4).");
+        for (name, n) in &buildtool_role {
+            let probe = prereqs.get(*name).and_then(|d| d.check.as_ref());
+            let state = match run_probe(probe) {
+                ProbeResult::Present => "present",
+                ProbeResult::Missing => "MISSING",
+                ProbeResult::Unknown => "unprobed",
+            };
+            println!("  {name:<28} x{n:<4} {state}");
+        }
     }
 
     if !wrong_role.is_empty() {

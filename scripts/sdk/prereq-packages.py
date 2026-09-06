@@ -41,25 +41,35 @@ def load(path=INDEX):
         return toml.load(fh)
 
 
-# Issue 1128 — the ONE placeholder a `[prereq.*]` package name may carry.
+# phase-435 W3 — the `{ros_distro}` placeholder is GONE, and with it this file's
+# copy of the expansion. A ROS package name is now DERIVED from
+# `ros_package` by the CLI (`PrereqContext::ros_os_package`), so a row carries
+# the ROS name and no literal to substitute.
 #
-# `ros-{ros_distro}-rmw-zenoh-cpp` expands against $ROS_DISTRO. Kept to exactly
-# one name, and `check-prereq-placeholders` refuses any other, because this is a
-# second implementation of the CLI's `PrereqContext::expand` and the two can
-# only stay honest while the vocabulary is small enough to hold in one line.
+# This helper keeps reading the index directly, for the reason it always has:
+# a job needing two package names should not have to build the CLI first
+# (phase-413 W3). It therefore applies the same derivation — the one thing that
+# must stay in step, and the reason the RFC keeps the rule to a single line.
 DEFAULT_ROS_DISTRO = "humble"
 
 
 def prereq_context(env=None):
-    """The values placeholders expand to, read once from the environment."""
+    """The values a derivation needs, read once from the environment."""
     env = os.environ if env is None else env
     distro = (env.get("ROS_DISTRO") or "").strip()
     return {"ros_distro": distro or DEFAULT_ROS_DISTRO}
 
 
-def expand(name, ctx):
-    """Substitute the placeholders `ctx` knows. Mirrors `PrereqContext::expand`."""
-    return name.replace("{ros_distro}", ctx["ros_distro"])
+def ros_os_package(manager, ros_package, ctx):
+    """bloom's rule, mirroring `PrereqContext::ros_os_package`.
+
+    apt only. The AUR's `ros2-<distro>-*` convention is unverified (RFC-0062
+    amendment 4), and a pattern nobody checked would tell a user to install a
+    package that does not exist.
+    """
+    if manager != "apt":
+        return None
+    return "ros-%s-%s" % (ctx["ros_distro"], ros_package.replace("_", "-"))
 
 
 def packages_for(index, manager, keys, ctx=None):
@@ -78,11 +88,13 @@ def packages_for(index, manager, keys, ctx=None):
             missing.append(k)
             continue
         pkgs = entry.get(manager) or []
+        if not pkgs and entry.get("ros_package"):
+            derived = ros_os_package(manager, entry["ros_package"], ctx)
+            pkgs = [derived] if derived else []
         if not pkgs:
             unmapped.append(k)
             continue
         for p in pkgs:
-            p = expand(p, ctx)
             if p not in seen:
                 seen.add(p)
                 out.append(p)
@@ -107,7 +119,7 @@ def self_test():
             "doxygen": {"apt": ["doxygen"], "dnf": ["doxygen"]},
             "graphviz": {"apt": ["graphviz"]},
             "dup": {"apt": ["doxygen"]},
-            "ros-rmw-zenoh-cpp": {"apt": ["ros-{ros_distro}-rmw-zenoh-cpp"]},
+            "ros-rmw-zenoh-cpp": {"ros_package": "rmw_zenoh_cpp"},
         }
     }
     failures = 0
@@ -123,24 +135,33 @@ def self_test():
         print("  FAIL: duplicate package not deduped")
         failures += 1
 
-    # Issue 1128 — the placeholder expands, and the default is humble.
+    # phase-435 W3 — the ROS name DERIVES, and the default is humble.
     #
-    # A dict is passed rather than `os.environ` being poked: the expansion is a
+    # A dict is passed rather than `os.environ` being poked: the derivation is a
     # pure function of its context, so its test needs no environment mutation
     # (the process-global hazard issue 1101 records).
     jazzy = prereq_context({"ROS_DISTRO": "jazzy"})
     if packages_for(index, "apt", ["ros-rmw-zenoh-cpp"], jazzy) != [
         "ros-jazzy-rmw-zenoh-cpp"
     ]:
-        print("  FAIL: {ros_distro} did not expand")
+        print("  FAIL: ros_package did not derive")
+        failures += 1
+    # Not packaged that way elsewhere — "unmapped" is the honest answer, and it
+    # must still be an ERROR rather than a silent empty string.
+    try:
+        packages_for(index, "pacman", ["ros-rmw-zenoh-cpp"], jazzy)
+    except SystemExit:
+        pass
+    else:
+        print("  FAIL: a manager with no ROS convention did not report unmapped")
         failures += 1
     for env, why in (({}, "unset"), ({"ROS_DISTRO": "   "}, "blank")):
         if prereq_context(env)["ros_distro"] != DEFAULT_ROS_DISTRO:
             print(f"  FAIL: {why} $ROS_DISTRO did not default to humble")
             failures += 1
-    # A name with no placeholder is returned unchanged — the other 45 keys.
+    # A literal list still wins — the escape hatch, and the other 45 keys.
     if packages_for(index, "apt", ["doxygen"], jazzy) != ["doxygen"]:
-        print("  FAIL: a plain name was rewritten")
+        print("  FAIL: a literal name was rewritten")
         failures += 1
 
     for keys, why in ((["nope"], "unknown key"), (["graphviz"], "unmapped manager")):
