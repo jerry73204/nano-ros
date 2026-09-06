@@ -158,10 +158,21 @@ RFC-0064 R5 D1/D2/D5. The measurement is in R5: four routes, and our own
 `fixtures.toml` and a `.conf` copied into each example leaf, with no package, no
 descriptor and no announcement.
 
-- [ ] Every board is a directory with `package.xml` announcing
+- [x] Every board is a directory with `package.xml` announcing
       `<nano_ros_provides kind="board" name="…"/>` beside an `nros-board.toml`.
-      A crate only where the board needs bring-up code.
-- [ ] Boards are discovered by `provider_scan` like every other provider;
+      A crate only where the board needs bring-up code. _(landed.
+      `BoardCatalog::require_announcement` REFUSES rather than warns, and it
+      runs in the catalog as well as the gate because the gate sees only the
+      nano-ros tree — a consumer's own boards and `$NROS_EXTRA_BOARD_PATH` are
+      exactly what it structurally cannot reach.)_
+- [x] Boards share `provider_scan`'s walk RULES — `is_pruned_dir`,
+      `is_ignored_dir`, `IGNORE_MARKERS`, reached by `pub` rather than copied —
+      and `BoardCatalog::collect_board_dirs` recurses instead of stopping one
+      level down, so a bundle board can own a descriptor. _(landed. NOT yet one
+      literal walk: the descriptor scan still runs separately. That is the
+      remaining half and it is cheap once `board.cmake` is gone.)_ Original
+      wording: boards are discovered by `provider_scan` like every other
+      provider;
       `nros-board.toml` is read for a package that announced itself as a board.
       This collapses two walks into one. The out-of-tree ROOTS already work
       (`extra_board_roots()` reads a PATH-style `NROS_EXTRA_BOARD_PATH`, and
@@ -170,10 +181,13 @@ descriptor and no announcement.
       at one level, so a bundle board cannot own a descriptor and is patched in
       by `attach_bundle_aliases` reading `board.cmake`. W7 deletes that file, so
       this is a prerequisite, not a tidy-up.
-- [ ] `check-provider-announcements` loses `if not os.path.exists(pkg_xml):
+- [x] `check-provider-announcements` loses `if not os.path.exists(pkg_xml):
       continue`. Ratchet against today's one offender,
       `nros-board-mps3-an536-freertos` — the newest board in the tree, which
-      skipped the step because the step was optional.
+      skipped the step because the step was optional. _(landed: its
+      `package.xml` is written, the gate now globs bundle depth too, and the
+      gate gained the negative control it never had — mutation-tested by
+      restoring the `continue`, which the control catches.)_
 - [ ] `qemu-cortex-a53` and the Zephyr `mps2_an385` flavour become real board
       packages; their fixture rows name a board instead of a Zephyr id, and the
       per-board `.conf` moves out of the example leaf so consumers share it.

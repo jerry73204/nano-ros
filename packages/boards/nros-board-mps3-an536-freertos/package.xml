@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nros_board_mps3_an536_freertos</name>
+  <version>0.0.0</version>
+  <description>
+    FreeRTOS board support for nano-ros on the ARM MPS3-AN536 (Cortex-R52).
+
+    phase-348 W2: this file exists so the provider is DISCOVERABLE — the
+    `nano_ros_provides` export below is what a source-time scan reads. What it
+    lowers to is declared in the sibling `nros-board.toml` descriptor, which is
+    read only when this provider is the one selected.
+
+    Added by phase-375 W6 (RFC-0064 R5 D5), late. This board landed in
+    phase-385 with a descriptor and no announcement, and nothing said so,
+    because `check-provider-announcements.py` skipped any descriptor whose
+    package.xml was absent — the migration ratchet outliving the migration. It
+    was the newest board in the tree and the only one still unannounced.
+  </description>
+  <maintainer email="dev@example.com">Developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <export>
+    <build_type>nros_cargo</build_type>
+    <!--
+      Provision, NOT consumption: this package IS a board, rather than
+      selecting one. Must equal the descriptor's declared names, canonical
+      first — `check-provider-announcements.py` compares them, because two
+      spellings of one fact drift.
+    -->
+    <nano_ros_provides kind="board" name="mps3-an536-freertos"/>
+    <nano_ros_provides kind="board" name="an536"/>
+    <nano_ros_provides kind="board" name="AN536"/>
+  </export>
+</package>

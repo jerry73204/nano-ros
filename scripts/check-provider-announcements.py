@@ -75,8 +75,12 @@ FAMILIES = {
     # belong to the ARM variant and which three to the RISC-V one. Deriving
     # per-entry names needs a boundary the tag has no way to carry. The board
     # reader also lives in `nros-cli-core`, not here.
+    # phase-375 W6 / RFC-0064 R5 D2: TWO globs, because a bundle board lives one
+    # level deeper (`nros-board-zephyr/boards/<bundle>/`). The Rust-side walk
+    # became recursive; this gate does not walk, so it states both depths and
+    # `check-board-glob-depth` holds them equal to what the walk finds.
     "board": (
-        "packages/boards/*/nros-board.toml",
+        ["packages/boards/*/nros-board.toml", "packages/boards/*/boards/*/nros-board.toml"],
         lambda d: [n for b in d.get("board", []) for n in b.get("names", [])],
     ),
     # phase-349 W1. Platform descriptors live under `config/`, not
@@ -140,29 +144,129 @@ def restated_names(data):
     return out
 
 
-def main():
+def scan(root):
+    """(problems, checked, announced) for the tree at `root`.
+
+    Split out of `main` so the negative control below can run the real rule
+    against a fixture tree instead of asserting about it in prose. The gate had
+    no control at all, which is how the "not migrated yet" skip below survived
+    its own migration.
+    """
+    return _scan_impl(root)
+
+
+def self_test(quiet=False):
+    """The rule must FIRE on a descriptor with no package.xml.
+
+    Runs on the NORMAL path, not behind a flag: a control nobody runs decays
+    into a comment. Same shape as `scripts/check-board-tiers.py`.
+    """
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for kind, (pattern, _) in FAMILIES.items():
+            pat = pattern if isinstance(pattern, str) else pattern[0]
+            # Materialise one minimal descriptor per family so no family trips
+            # the "refusing to pass on an empty set" arm.
+            rel = pat.replace("*", "x")
+            dest = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            body = 'names = ["x"]\n' if kind == "platform" else ""
+            if kind == "board":
+                body = '[[board]]\nnames = ["x"]\n'
+            elif kind == "rmw":
+                body = "[rmw]\n"
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            if kind != "board":
+                # Every family EXCEPT the one under test gets its announcement,
+                # so the assertion below names exactly one offender.
+                names = ["x"] if kind == "platform" else []
+                tags = "".join(
+                    f'<nano_ros_provides kind="{kind}" name="{n}"/>' for n in names
+                )
+                with open(
+                    os.path.join(os.path.dirname(dest), "package.xml"),
+                    "w",
+                    encoding="utf-8",
+                ) as fh:
+                    fh.write(f"<package><export>{tags}</export></package>")
+
+        problems, _, _ = scan(tmp)
+        offenders = [p for p in problems if "no sibling package.xml" in p]
+        assert len(offenders) == 1, (
+            "the rule must name the descriptor with no package.xml, and only "
+            f"it; got {problems}"
+        )
+
+        # And the intended escape: announcing it silences the rule.
+        board_pat = FAMILIES["board"][0]
+        board_pat = board_pat if isinstance(board_pat, str) else board_pat[0]
+        board_dir = os.path.dirname(os.path.join(tmp, board_pat.replace("*", "x")))
+        with open(os.path.join(board_dir, "package.xml"), "w", encoding="utf-8") as fh:
+            fh.write(
+                '<package><export><nano_ros_provides kind="board" name="x"/>'
+                "</export></package>"
+            )
+        problems, _, _ = scan(tmp)
+        offenders = [p for p in problems if "no sibling package.xml" in p]
+        assert not offenders, f"an announced descriptor must not be reported; got {problems}"
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    if not quiet:
+        print("check-provider-announcements self-test: OK")
+    return 0
+
+
+def _scan_impl(root):
     problems = []
     checked = 0
     announced = 0
 
     for kind, (pattern, extract) in sorted(FAMILIES.items()):
-        paths = sorted(glob.glob(os.path.join(ROOT, pattern)))
+        # A family may state several globs (boards do: a bundle board sits one
+        # level deeper). `dict.fromkeys` rather than `set`, so a path matched by
+        # two globs is reported once and the order stays deterministic.
+        patterns = [pattern] if isinstance(pattern, str) else list(pattern)
+        paths = sorted(
+            dict.fromkeys(
+                m for pat in patterns for m in glob.glob(os.path.join(root, pat))
+            )
+        )
         if not paths:
             # A family whose descriptors all vanished would otherwise make this
             # gate quietly vacuous for that family.
             problems.append(
-                f"family {kind!r}: no descriptor matched {pattern!r} — refusing to "
+                f"family {kind!r}: no descriptor matched {patterns!r} — refusing to "
                 f"pass on an empty set"
             )
             continue
 
         for desc_path in paths:
-            desc_rel = os.path.relpath(desc_path, ROOT)
+            desc_rel = os.path.relpath(desc_path, root)
             pkg_xml = os.path.join(os.path.dirname(desc_path), "package.xml")
             if not os.path.exists(pkg_xml):
-                continue  # not migrated yet; not discoverable, still builds
+                # RFC-0064 R5 D5 / phase-375 W6. This used to `continue`, with
+                # the comment "not migrated yet; not discoverable, still
+                # builds". The migration finished; the skip did not, and it
+                # outlived its reason by long enough that phase-385 landed
+                # `nros-board-mps3-an536-freertos` -- the NEWEST board in the
+                # tree -- with a descriptor and no announcement, and no gate
+                # said so. An optional step is a step the next person omits.
+                problems.append(
+                    f"{desc_rel}: descriptor with no sibling package.xml. A "
+                    f"provider announces what it IS in package.xml and what it "
+                    f"LOWERS TO in the descriptor; with only the second half it "
+                    f"is invisible to `provider_scan` and to every consumer "
+                    f"that reaches providers through it.\n"
+                    f"    Add {os.path.relpath(pkg_xml, root)} with "
+                    f'<nano_ros_provides kind="{kind}" .../> matching the '
+                    f"descriptor's names, canonical first."
+                )
+                continue
             checked += 1
-            rel = os.path.relpath(pkg_xml, ROOT)
+            rel = os.path.relpath(pkg_xml, root)
 
             with open(desc_path, "rb") as fh:
                 try:
@@ -202,6 +306,16 @@ def main():
                     f"discovery and resolution must claim the same names, "
                     f"canonical first"
                 )
+
+    return problems, checked, announced
+
+
+def main():
+    rc = self_test(quiet=True)
+    if rc:
+        return rc
+
+    problems, checked, announced = scan(ROOT)
 
     if problems:
         sys.stderr.write("check-provider-announcements: FAILED\n")
