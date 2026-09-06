@@ -1344,6 +1344,55 @@ pub fn c_type_for_constant(field_type: &FieldType) -> String {
     }
 }
 
+/// The C CDR writer for a lowered scalar op — `nros_cdr_<x>` in the C pack
+/// (phase-432 W2.5a).
+///
+/// A per-language SPELLING of a neutral fact, the C twin of
+/// `cdr_op_rust_method`. It replaces `c_cdr_write_method` at the C field
+/// builder, and the two agree by construction: `CdrOp` is exactly as coarse as
+/// this mapping — `Byte`, `Char` and `UInt8` all lower to `CdrOp::U8` and all
+/// three spelled `"write_u8"`.
+///
+/// `String` and `Nested` are not scalars and reach this only through a caller
+/// that ignored `scalar_op` / `element_is_primitive`; they map to the empty
+/// string, which renders as no method rather than a wrong one.
+pub fn c_cdr_write_method_for_op(op: rosidl_lower::CdrOp) -> &'static str {
+    use rosidl_lower::CdrOp;
+    match op {
+        CdrOp::Bool => "write_bool",
+        CdrOp::U8 => "write_u8",
+        CdrOp::I8 => "write_i8",
+        CdrOp::U16 => "write_u16",
+        CdrOp::I16 => "write_i16",
+        CdrOp::U32 => "write_u32",
+        CdrOp::I32 => "write_i32",
+        CdrOp::U64 => "write_u64",
+        CdrOp::I64 => "write_i64",
+        CdrOp::F32 => "write_f32",
+        CdrOp::F64 => "write_f64",
+        CdrOp::String | CdrOp::Nested => "",
+    }
+}
+
+/// The C CDR reader for a lowered scalar op — see [`c_cdr_write_method_for_op`].
+pub fn c_cdr_read_method_for_op(op: rosidl_lower::CdrOp) -> &'static str {
+    use rosidl_lower::CdrOp;
+    match op {
+        CdrOp::Bool => "read_bool",
+        CdrOp::U8 => "read_u8",
+        CdrOp::I8 => "read_i8",
+        CdrOp::U16 => "read_u16",
+        CdrOp::I16 => "read_i16",
+        CdrOp::U32 => "read_u32",
+        CdrOp::I32 => "read_i32",
+        CdrOp::U64 => "read_u64",
+        CdrOp::I64 => "read_i64",
+        CdrOp::F32 => "read_f32",
+        CdrOp::F64 => "read_f64",
+        CdrOp::String | CdrOp::Nested => "",
+    }
+}
+
 /// Get the CDR write method name for a C primitive type
 pub fn c_cdr_write_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
     use rosidl_parser::PrimitiveType;

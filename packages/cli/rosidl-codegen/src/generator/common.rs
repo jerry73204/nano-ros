@@ -6,9 +6,9 @@ use crate::{
     },
     types::{
         C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
-        NrosCodegenMode, c_cdr_read_method, c_cdr_write_method, c_type_for_field_heap,
-        constant_value_to_rust, cpp_type_for_field_heap, escape_keyword, repr_c_type_for_field,
-        to_c_package_name,
+        NrosCodegenMode, c_cdr_read_method, c_cdr_read_method_for_op, c_cdr_write_method,
+        c_cdr_write_method_for_op, c_type_for_field_heap, constant_value_to_rust,
+        cpp_type_for_field_heap, escape_keyword, repr_c_type_for_field, to_c_package_name,
     },
     utils::to_snake_case,
 };
@@ -440,41 +440,22 @@ pub(super) enum PayloadLang {
     C,
 }
 
-/// Convert a Message field to NrosField with explicit codegen mode.
+/// Build every C field of `msg` from the lowered IR (phase-432 W2.5a).
 ///
-/// `resolver` supplies the per-field capacity for **unbounded** sequence/string
-/// fields (RFC-0033). Bounded fields, arrays, primitives, and nested types are
-/// unaffected. A non-`owned` storage mode is rejected in Phase 229 (`heap` and
-/// `borrowed` land in 229.5 / 229.6).
-/// Build every C field of `msg`, sourcing each field's storage from the lowered
-/// IR once (phase-335 W1.c) — no field builder resolves capacity.
+/// phase-335 W1.c already sourced the STORAGE decision here; the whole field is
+/// sourced here now, so nothing downstream re-reads `rosidl_parser`.
 pub(super) fn build_c_fields(
     current_package: Option<&str>,
     message: &str,
     msg: &rosidl_parser::Message,
     resolver: &CapacityResolver,
 ) -> Result<Vec<CField>, GeneratorError> {
-    let store = lowered_storages(
-        current_package.unwrap_or(""),
-        message,
-        &msg.fields,
-        resolver,
-    );
     let package = current_package.unwrap_or("");
+    let lowered = rosidl_lower::lower_fields(package, message, &msg.fields, resolver);
     ensure_element_caps_apply(package, message, &msg.fields, resolver)?;
-    msg.fields
+    lowered
         .iter()
-        .zip(store.iter())
-        .map(|(f, s)| {
-            build_c_field(
-                &f.name,
-                &f.field_type,
-                current_package,
-                message,
-                resolver,
-                Some(*s),
-            )
-        })
+        .map(|f| build_c_field(f, current_package, message))
         .collect()
 }
 
@@ -693,158 +674,91 @@ pub(super) fn build_nros_fields(
         .collect()
 }
 
-/// Build a CField from a field type.
+/// Build one C field from the lowered IR (phase-432 W2.5a).
 ///
-/// `resolver` supplies the per-field capacity for **unbounded** sequence/string
-/// fields (RFC-0033). A non-`owned` storage mode is rejected in Phase 229.
+/// The C twin of `field_to_nros_field_with_mode`, and the reason both had to
+/// move: they answered the same fifteen questions about one field, each with
+/// its own `match` on `rosidl_parser`'s type tree, and nothing checked that the
+/// two agreed. Now both read `LoweredField` and only the SPELLINGS differ —
+/// `c_cdr_*_method_for_op` here where the nros builder has
+/// `cdr_op_rust_method`, which is exactly the difference that should remain.
 pub(super) fn build_c_field(
-    name: &str,
-    field_type: &FieldType,
+    field: &rosidl_lower::LoweredField,
     current_package: Option<&str>,
     message_name: &str,
-    resolver: &CapacityResolver,
-    // phase-335 W1.c — storage from the IR when the caller already lowered it.
-    pre_storage: Option<FieldStorage>,
 ) -> Result<CField, GeneratorError> {
-    let escaped_name = escape_keyword(name);
+    let name = field.name.as_str();
 
-    // phase-403 W7 — fold any configured ELEMENT bound into the shape before
-    // anything reads it, so every branch below sees the `string<=N[]` the `.msg`
-    // could have spelled. `char name[16][32]` and its `sizeof`-bounded
-    // `nros_cdr_read_string` then fall out of the existing bounded-element arms.
-    let capped = resolver.element_capped(
-        current_package.unwrap_or(""),
-        message_name,
-        name,
-        field_type,
-    );
+    // phase-403 W7 — every branch below sees the `string<=N[]` the `.msg` could
+    // have spelled, so `char name[16][32]` and its `sizeof`-bounded
+    // `nros_cdr_read_string` fall out of the existing bounded-element arms. The
+    // fold is `LoweredField::storage_type`; it used to be an `element_capped`
+    // call this builder made for itself.
+    let capped = field.storage_type();
     let field_type: &FieldType = capped.as_ref();
 
-    // Resolve per-field capacity for the two configurable shapes.
-    let cap_kind = match field_type {
-        FieldType::String | FieldType::WString => Some(CapFieldKind::String),
-        FieldType::Sequence { .. } => Some(CapFieldKind::Sequence),
-        _ => None,
-    };
     let unsupported = |mode: &'static str| GeneratorError::UnsupportedStorageMode {
         package: current_package.unwrap_or("").to_string(),
         message: message_name.to_string(),
         field: name.to_string(),
         mode,
     };
-    // (c_type, array_suffix, is_heap, resolved owned sequence capacity).
-    let mut is_heap = false;
-    let mut is_borrowed = false;
+
     let mut borrowed_c_type = String::new();
     let mut borrowed_read_fn = String::new();
-    let mut owned_seq_cap: Option<usize> = None;
-    // phase-335 step 2 — resolve storage for the FLAGS + the capacity the
-    // `c_type` / `c_array_suffix` pack filters need; the type STRING is composed
-    // in the pack from `field_type` + these facts, not pre-baked here.
-    let is_configurable = cap_kind.is_some();
-    let mut cap: usize = 0;
-    if let Some(kind) = cap_kind {
-        let package = current_package.unwrap_or("");
-        let storage =
-            pre_storage.unwrap_or_else(|| resolver.resolve(package, message_name, name, kind));
-        cap = storage.cap;
-        match storage.mode {
-            StorageMode::Inline => {
-                if matches!(field_type, FieldType::Sequence { .. }) {
-                    owned_seq_cap = Some(storage.cap);
-                }
-            }
-            StorageMode::Heap => {
-                // Heap is only bridgeable for shapes `c_type_for_field_heap`
-                // supports — validate here (the filter assumes it holds), reject
-                // otherwise, preserving the pre-step-2 error behaviour.
-                if c_type_for_field_heap(field_type, current_package).is_none() {
-                    return Err(unsupported("heap"));
-                }
-                is_heap = true;
-            }
-            // RFC-0033 `borrowed` (Phase 235, issue 0021): the owned `{Msg}`
-            // struct keeps its resolved-capacity container for the publish path;
-            // the emitted `{Msg}_View` borrows this field zero-copy (see
-            // `borrowed_c_type` / `borrowed_read_fn`).
-            StorageMode::View => {
-                is_borrowed = true;
-                let (bt, bfn) = c_borrowed_view_for_field(field_type, package, message_name, name)?;
-                borrowed_c_type = bt;
-                borrowed_read_fn = bfn;
-                if matches!(field_type, FieldType::Sequence { .. }) {
-                    owned_seq_cap = Some(storage.cap);
-                }
-            }
+    if field.is_heap() {
+        // Heap is only bridgeable for shapes `c_type_for_field_heap` supports —
+        // validate here (the filter assumes it holds), reject otherwise.
+        if c_type_for_field_heap(field_type, current_package).is_none() {
+            return Err(unsupported("heap"));
         }
     }
+    // RFC-0033 `borrowed` (Phase 235, issue 0021): the owned `{Msg}` struct
+    // keeps its resolved-capacity container for the publish path; the emitted
+    // `{Msg}_View` borrows this field zero-copy.
+    if field.is_borrowed() {
+        let (bt, bfn) = c_borrowed_view_for_field(
+            field_type,
+            current_package.unwrap_or(""),
+            message_name,
+            name,
+        )?;
+        borrowed_c_type = bt;
+        borrowed_read_fn = bfn;
+    }
 
-    // Determine type characteristics
-    let (is_primitive, primitive_type) = match field_type {
-        FieldType::Primitive(prim) => (true, Some(prim)),
-        _ => (false, None),
-    };
+    let element_type = element_type_of(field_type);
+    let array_size = field.array_len();
 
-    let is_string = matches!(
-        field_type,
-        FieldType::String
-            | FieldType::BoundedString(_)
-            | FieldType::WString
-            | FieldType::BoundedWString(_)
-    );
-
-    let is_array = matches!(field_type, FieldType::Array { .. });
-    let is_sequence = matches!(
-        field_type,
-        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. }
-    );
-    let is_nested = matches!(field_type, FieldType::NamespacedType { .. });
-
-    // Get array/sequence info. Owned unbounded sequences use the resolved
-    // capacity; heap sequences are unbounded (capacity unused → 0).
-    let (array_size, sequence_capacity) = match field_type {
-        FieldType::Array { size, .. } => (*size, 0),
-        FieldType::Sequence { .. } => (0, owned_seq_cap.unwrap_or(C_DEFAULT_SEQUENCE_CAPACITY)),
-        FieldType::BoundedSequence { max_size, .. } => (0, *max_size),
-        _ => (0, 0),
-    };
-
-    // Get element info for arrays/sequences
-    let (is_primitive_element, is_string_element, element_type) = match field_type {
-        FieldType::Array { element_type, .. }
-        | FieldType::Sequence { element_type }
-        | FieldType::BoundedSequence { element_type, .. } => {
-            let is_prim = matches!(element_type.as_ref(), FieldType::Primitive(_));
-            let is_str = matches!(
-                element_type.as_ref(),
-                FieldType::String
-                    | FieldType::BoundedString(_)
-                    | FieldType::WString
-                    | FieldType::BoundedWString(_)
-            );
-            (is_prim, is_str, Some(element_type.as_ref()))
+    // A sequence's C capacity is its storage's. `LoweredStorage::Bounded`
+    // covers both `T[<=N]` (the `.msg`'s N) and a config-capped `T[]`; a heap
+    // sequence has no fixed capacity, so the emitted struct keeps the default.
+    let sequence_capacity = if field.is_sequence() {
+        match field.storage {
+            rosidl_lower::LoweredStorage::Bounded { cap }
+            | rosidl_lower::LoweredStorage::Borrowed { cap } => cap,
+            rosidl_lower::LoweredStorage::Heap => C_DEFAULT_SEQUENCE_CAPACITY,
+            rosidl_lower::LoweredStorage::Inline | rosidl_lower::LoweredStorage::Fixed { .. } => 0,
         }
-        _ => (false, false, None),
+    } else {
+        0
     };
 
-    // Get CDR methods
-    let (cdr_write_method, cdr_read_method) = if let Some(prim) = primitive_type {
-        (
-            c_cdr_write_method(prim).to_string(),
-            c_cdr_read_method(prim).to_string(),
-        )
-    } else {
-        (String::new(), String::new())
+    let (cdr_write_method, cdr_read_method) = match field.scalar_op() {
+        Some(op) => (
+            c_cdr_write_method_for_op(op).to_string(),
+            c_cdr_read_method_for_op(op).to_string(),
+        ),
+        None => (String::new(), String::new()),
     };
 
     let (element_cdr_write_method, element_cdr_read_method) =
-        if let Some(FieldType::Primitive(prim)) = element_type {
-            (
-                c_cdr_write_method(prim).to_string(),
-                c_cdr_read_method(prim).to_string(),
-            )
-        } else {
-            (String::new(), String::new())
+        match field.element_op().filter(|_| field.element_is_primitive()) {
+            Some(op) => (
+                c_cdr_write_method_for_op(op).to_string(),
+                c_cdr_read_method_for_op(op).to_string(),
+            ),
+            None => (String::new(), String::new()),
         };
 
     // Get nested struct names (use current_package for intra-package references)
@@ -864,10 +778,10 @@ pub(super) fn build_c_field(
         };
 
     Ok(CField {
-        name: escaped_name,
+        name: escape_keyword(name),
         field_type: field_type.clone(),
-        is_configurable,
-        cap,
+        is_configurable: field.configurable,
+        cap: field.configured_cap(),
         current_package: current_package.unwrap_or("").to_string(),
         cdr_write_method,
         cdr_read_method,
@@ -877,15 +791,15 @@ pub(super) fn build_c_field(
         sequence_capacity,
         nested_struct_name,
         element_struct_name,
-        is_primitive,
-        is_string,
-        is_array,
-        is_sequence,
-        is_nested,
-        is_primitive_element,
-        is_string_element,
-        is_heap,
-        is_borrowed,
+        is_primitive: field.is_primitive(),
+        is_string: field.is_string(),
+        is_array: field.is_array(),
+        is_sequence: field.is_sequence(),
+        is_nested: field.is_nested(),
+        is_primitive_element: field.element_is_primitive(),
+        is_string_element: field.element_is_string(),
+        is_heap: field.is_heap(),
+        is_borrowed: field.is_borrowed(),
         borrowed_c_type,
         borrowed_read_fn,
     })
