@@ -148,15 +148,25 @@ are prefixed with the enum name (`prefix_with_name = true`) to avoid C++ name co
     caller-supplied backing, and on FreeRTOS that backing is a named `.bss` static
     (`nros_node::executor::backing::EXECUTOR_BACKING`, phase-392 W6) — not the task stack.
   - `APP_TASK_STACK` was deleted in phase-76. The live knob is `app_stack_bytes`
-    (`nros_board_common::freertos_config::DEFAULT_APP_STACK_BYTES`, **393216** = 384 KiB),
-    overridable with `NROS_FREERTOS_APP_STACK_KB`. No file in the tree sets that override.
-    The C/C++ carrier's own mirror in `cmake/templates/freertos_app_config.c.in` is 524288.
+    (`nros_board_common::freertos_config::DEFAULT_APP_STACK_BYTES`, **131072** = 128 KiB
+    since issue 1146; it was 393216), overridable with `NROS_FREERTOS_APP_STACK_KB`.
+    No file in the tree sets that override. The C/C++ carrier's own mirror in
+    `cmake/templates/freertos_app_config.c.in` is still 524288, and that file says why.
   - No example pins `NROS_EXECUTOR_ARENA_SIZE=8192`; that was pre-phase-271 prose.
 
-  What is still true is the SYMPTOM: the app task's frame is dominated by the zenoh-pico
-  session open and the `Executor` value `open_in` builds and returns by value, so an
-  undersized app task dies as "Invalid mbox" rather than as a stack fault. Size it by
-  measuring, not by copying a number out of a document.
+  **And the SYMPTOM this entry is named for is not the one you will see** (issue 1146,
+  measured). "Invalid mbox" is a possible landing, not the landing: an `action-server`
+  built at 32 KiB — 4 KiB under its measured 36 160-byte peak — died with
+  `*** MALLOC FAILED ***`, because heap_4 hands out the task stack and the overflow
+  lands in the next block's header before `configCHECK_FOR_STACK_OVERFLOW 2` gets a
+  context switch to check the pattern. Read `*** MALLOC FAILED ***`, "Invalid mbox" and
+  `*** STACK OVERFLOW: ***` as three faces of the same fault.
+
+  **Do not size it by argument. Read the boot line.** Every FreeRTOS Rust image now
+  prints `nros: <task> stack peak <used> of <total> bytes (<free> free)` at the end of
+  its register pass (`report_stack_peak`, `nros-board-freertos/src/entry.rs`), which is
+  the deepest point bring-up reaches. In-tree peaks are 22–36 KiB — the whole table is
+  on `freertos_config::app_stack_bytes`.
 - Deterministic `rand()` starts from seed 1 → duplicate Zenoh session IDs across QEMU instances;
   `srand()` with an IP-based unique seed in `nros_freertos_init_network()`.
 - Manual-polling action server: `create_action_server()` is not arena-registered, so `spin_once()`

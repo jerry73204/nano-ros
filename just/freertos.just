@@ -559,22 +559,22 @@ _run-qemu example binary:
     wait $PID
 
 # Run FreeRTOS talker on QEMU
-talker: (_run-qemu "talker" "qemu-freertos-talker")
+talker: (_run-qemu "talker" "talker")
 
 # Run FreeRTOS listener on QEMU
-listener: (_run-qemu "listener" "qemu-freertos-listener")
+listener: (_run-qemu "listener" "listener")
 
 # Run FreeRTOS service server on QEMU
-service-server: (_run-qemu "service-server" "qemu-freertos-service-server")
+service-server: (_run-qemu "service-server" "service-server")
 
 # Run FreeRTOS service client on QEMU
-service-client: (_run-qemu "service-client" "qemu-freertos-service-client")
+service-client: (_run-qemu "service-client" "service-client")
 
 # Run FreeRTOS action server on QEMU
-action-server: (_run-qemu "action-server" "qemu-freertos-action-server")
+action-server: (_run-qemu "action-server" "action-server")
 
 # Run FreeRTOS action client on QEMU
-action-client: (_run-qemu "action-client" "qemu-freertos-action-client")
+action-client: (_run-qemu "action-client" "action-client")
 
 # Start zenohd router for FreeRTOS QEMU examples (allocator rust-pubsub port 7800)
 zenohd:

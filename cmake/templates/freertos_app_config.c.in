@@ -14,10 +14,30 @@
  * phase-337 W5.d folded the board `build.rs`'s hand-written mirror onto
  * `BaseConfig` + `FreertosScheduling`; this template is the ONE remaining
  * hand-maintained copy, and it is deliberately not identical — the carrier
- * varies `.locator` / `.domain_id` / the IP last octet per image, and its
- * `.app_stack_bytes` is 512 KiB where the Rust default is 384 KiB. Retiring it
+ * varies `.locator` / `.domain_id` / the IP last octet per image. Retiring it
  * means teaching the carrier to read the board's emitted TU; until then, keep
  * it in sync when the board defaults change.
+ *
+ * `.app_stack_bytes` stays at 512 KiB while the Rust default moved to 128 KiB
+ * (issue 1146), and the reason is that HALF of what this file serves could not
+ * be measured. `uxTaskGetStackHighWaterMark` on the app task of the six C role
+ * examples, each run to a live zenoh session on qemu mps2-an385:
+ *
+ *   c/talker 5 416 · c/listener 6 976 · c/service-server 8 304
+ *   c/service-client 8 616 · c/action-server 18 176 · c/action-client 16 312
+ *
+ * — worst 18 176 bytes, 3.5 % of what is reserved, and SHALLOWER than the Rust
+ * path (36 152) because this carrier keeps the executor and every node struct
+ * in `.bss`. So the C half plainly does not need 512 KiB. The C++ half of the
+ * same carrier could not be built at all: every embedded C++ FreeRTOS target
+ * dies in `<string>` -> `requires_hosted.h` under `-ffreestanding` with the
+ * pinned arm-none-eabi-gcc 13.2-nros4 (issue 1187, the 0112/0332 class re-run
+ * by a GCC that turned "header present" into an `#error`), so its frame is
+ * unobserved. One number serves both languages here, so it moves when both are
+ * measured — not on an argument from the half that runs. Re-run the C half
+ * with `bash scripts/build/fixtures-build.sh freertos c zenoh` plus a monitor
+ * task calling `uxTaskGetStackHighWaterMark(<app task handle>)`; the C++ half
+ * needs 1187 fixed first.
  *
  * `.zenoh.locator` is cosmetic on the typed C/C++ path: the connect locator the
  * runtime actually dials is baked into the generated entry TU

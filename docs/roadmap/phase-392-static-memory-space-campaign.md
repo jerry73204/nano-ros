@@ -129,7 +129,10 @@ The third thing this section used to claim — a task stack that no longer carri
 a term proportional to the subscription graph — is **not** what W6 bought,
 because the stack never carried it: the same phase-271 change that made the
 arena a borrowed slice took it out of the frame. The FreeRTOS app-task stack is
-a separate, still-underived number, now issue 1146.
+a separate number, and issue 1146 has now DERIVED it: 14 images built and run,
+worst app-task peak 36 152 bytes on the Rust path, so the 384 KiB default became
+128 KiB and every image prints its own peak at boot. It moved for its own
+reasons, not for the arena's.
 
 ### 2. Component buffers — 1:1 with per-field storage mode
 
@@ -356,10 +359,19 @@ Delivered against the plan above:
   byte-identical to the old formula so no image moves).
 
 Still owed by this wave: the STATIC half — `NROS_ARENA_REQUIRED` emitted by
-entry codegen and checked by `nm` — and a CI lane. Note the correction issue
-0900 records: the arena is **inline on the task stack**, not in `.bss`, so
-`mem-report` cannot see it and a linker-symbol check will not either. Sizing it
-needs a stack probe, which this wave's `nm` plan did not anticipate.
+entry codegen and checked by `nm` — and a CI lane.
+
+~~Note the correction issue 0900 records: the arena is **inline on the task
+stack**, not in `.bss`, so `mem-report` cannot see it and a linker-symbol check
+will not either. Sizing it needs a stack probe, which this wave's `nm` plan did
+not anticipate.~~ **That paragraph is wrong twice over and is struck rather than
+deleted, because it is the sentence that sent W6 looking for the arena on a task
+stack.** The arena has been a BORROWED SLICE since phase-271 — placement is the
+caller's — and since W6 the Rust caller's backing is a named `.bss` static
+(`nros_node::executor::backing::EXECUTOR_BACKING`), which `mem-report` and `nm`
+both see. The stack probe it asks for exists and was run for a different
+question (issue 1146): on the FreeRTOS app task the arena contributes nothing to
+the frame, and the whole register pass peaks at 36 152 bytes.
 
 **W3 — per-subscriber wire sizing.** Lever 1. Requires W1 so the saving is
 measured rather than asserted.
@@ -1322,6 +1334,21 @@ static.
   stack is carrying the arena" — was already false when it was written, because
   phase-271 had taken the arena out of that frame. Deriving that number needs a
   FreeRTOS image and a stack high-water reading. → **issue 1146**.
+
+  **CLOSED 2026-09-07 by issue 1146, and the wave's remaining premise did not
+  survive either.** 14 FreeRTOS QEMU images were built and RUN to a live zenoh
+  session with `uxTaskGetStackHighWaterMark` read at the end of the register
+  pass. The app task's worst peak is **36 152 bytes** on the Rust path and
+  **18 176** on the C path — so the 384 KiB was over-provisioned by 10x, not
+  because it carried the arena (it never did) but because nobody had ever
+  looked. `Executor::open`, which three documents priced at "over 160 KiB",
+  costs **8 952**. The default is 128 KiB now, and every image prints its own
+  peak at boot so the number stays derived rather than inherited. What the wave
+  DID predict correctly is that the saving is real and is charged per TASK: a
+  spawned tier with `stack_bytes = 0` takes the app default too, so a 2-tier
+  image stops reserving 768 KiB of the 2 MiB FreeRTOS heap and reserves 256 KiB.
+  It is a heap-BUDGET saving, not a `.bss` saving, until `configTOTAL_HEAP_SIZE`
+  follows — which is issue 1145's half.
 * **Only ONE platform was built and measured: native/linux.** No Zephyr,
   FreeRTOS, NuttX, ThreadX, ESP32 or bare-metal image was built. The change
   reaches them all by construction (one shared constructor), and on an RTOS the

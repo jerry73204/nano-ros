@@ -302,7 +302,11 @@ zenoh_lease_priority = 16   # Zenoh-pico session keep-alive task
 poll_priority = 16           # Network poll task (FreeRTOS only)
 
 # Stack sizes in bytes
-app_stack_bytes = 65536      # 64 KB (must fit executor arena)
+app_stack_bytes = 65536      # 64 KB. Sample, not a recommendation: the
+                             # FreeRTOS default is 128 KiB, measured (issue
+                             # 1146). It does NOT have to fit the executor
+                             # arena — that has been a borrowed slice, placed
+                             # by the caller, since phase-271.
 zenoh_read_stack_bytes = 5120
 zenoh_lease_stack_bytes = 5120
 

@@ -263,6 +263,6 @@ mod tests {
         );
         assert!(tu.contains(".prefix  = 24,"), "{tu}");
         // The number the hand-written mirror got wrong.
-        assert!(tu.contains(".app_stack_bytes         = 393216u,"), "{tu}");
+        assert!(tu.contains(".app_stack_bytes         = 131072u,"), "{tu}");
     }
 }

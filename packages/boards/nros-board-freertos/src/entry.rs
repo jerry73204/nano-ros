@@ -78,6 +78,14 @@ unsafe extern "C" {
 
     fn nros_freertos_get_netif_state() -> i32;
 
+    /// Smallest number of bytes ever left unused on the CALLING task's stack
+    /// (`uxTaskGetStackHighWaterMark(NULL)`, scaled to bytes), or `0` when the
+    /// port does not instrument stacks. Declared here rather than reached
+    /// through `nros_platform_api` because this crate already speaks to the
+    /// FreeRTOS C port directly and the query is a bare `extern "C"` with no
+    /// arguments.
+    fn nros_platform_task_stack_unused_bytes() -> usize;
+
     fn nros_freertos_set_current_task_priority(priority: u32);
 }
 
@@ -150,6 +158,39 @@ static mut POLL_INTERVAL_MS: u32 = 5;
 /// `arg` must point to a valid `AppContext<F>` allocated on the
 /// FreeRTOS heap by `run_entry()`, surviving until the scheduler
 /// exits.
+
+/// Say, once, how much of the task's stack the deepest point of bring-up
+/// actually used (issue 1146).
+///
+/// The register pass is that point: `Executor::open` and the boot bringup are
+/// both shallower, measured. Printing it is what makes `app_stack_bytes`
+/// DERIVABLE — before this the only way to learn the number was to patch the
+/// board, which is why three documents carried a figure nobody had measured
+/// and the default sat six times above what any in-tree image needs.
+///
+/// Called ONCE per task, deliberately. `uxTaskGetStackHighWaterMark` walks the
+/// unpainted region, so it costs O(unused bytes) per call — on a spin tick that
+/// is tens of thousands of byte compares per iteration on an emulated
+/// Cortex-M3, which is why the executor's `stack-headroom-runtime` rule is not
+/// wired to it here.
+///
+/// `0` from the port means "not instrumented" (`INCLUDE_uxTaskGetStackHigh
+/// WaterMark` off), not "no headroom" — say nothing rather than print a zero
+/// that reads as an overflow.
+fn report_stack_peak<B: BoardPrint>(what: &str, total_bytes: u32) {
+    let unused = unsafe { nros_platform_task_stack_unused_bytes() };
+    if unused == 0 || total_bytes as usize <= unused {
+        return;
+    }
+    B::println(format_args!(
+        "nros: {what} stack peak {} of {} bytes ({} free) \
+         — raise with NROS_FREERTOS_APP_STACK_KB / `[node.rt] app_stack_bytes`",
+        total_bytes as usize - unused,
+        total_bytes,
+        unused
+    ));
+}
+
 unsafe extern "C" fn app_task_entry_runtime<B, F, E>(arg: *mut c_void)
 where
     B: BoardPrint + BoardExit,
@@ -212,6 +253,7 @@ where
 
     match closure(&mut runtime) {
         Ok(()) => {
+            report_stack_peak::<B>("app task", ctx.config.app_stack_bytes);
             B::println(format_args!(""));
             B::println(format_args!(
                 "Application setup complete — entering spin loop."
@@ -538,6 +580,14 @@ where
     // `ctx.session` was consumed opening the executor above). A failed
     // DOWNSTREAM spawn must NOT stop this tier spinning its own work, so warn +
     // continue (do NOT exit_failure).
+    report_stack_peak::<B>(
+        ctx.tier.name,
+        if ctx.tier.stack_bytes == 0 {
+            ctx.app_stack_default_words.saturating_mul(4)
+        } else {
+            ctx.tier.stack_bytes as u32
+        },
+    );
     let next_session = crt.executor_mut().session_handle();
     if spawn_next_tier::<B, F, E>(
         next_session,
@@ -706,6 +756,7 @@ where
     // boot tier is the last element, or index 0 on the unsorted fallback.
     // A boot-side spawn failure is fatal (exit_failure) — unlike a downstream
     // tier's.
+    report_stack_peak::<B>("boot tier", ctx.config.app_stack_bytes);
     let rest = if boot_index == 0 {
         &ctx.tiers[1..]
     } else {

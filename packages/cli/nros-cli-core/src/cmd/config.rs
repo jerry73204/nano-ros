@@ -377,7 +377,7 @@ fn explain(args: ExplainArgs) -> Result<()> {
     // and the `nros_app` task stack. Both in BYTES, which is the ladder's unit;
     // their env front-ends are KiB and convert at the rung.
     let mem_defaults: &[(&str, usize)] =
-        &[("heap_bytes", 2048 * 1024), ("app_stack_bytes", 384 * 1024)];
+        &[("heap_bytes", 2048 * 1024), ("app_stack_bytes", 128 * 1024)];
     for (name, r) in tree
         .resolve_memory(
             &args.platform,
