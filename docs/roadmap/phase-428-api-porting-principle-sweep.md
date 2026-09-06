@@ -513,7 +513,12 @@ contained it, on a branch that was still open.
 
 So the fourth red did not slip past a gate; it reached `main` through the
 absence of one. Every "that class is now gated" conclusion downstream is
-unsupported until `ci/land-node-std-gate` (`00e8f3087`) merges.
+unsupported until **PR #557** (`ci/land-node-std-gate`) merges — that PR
+is this finding's other half, and it lands the step whose absence is the
+subject here. Cited by PR NUMBER and not by commit: the hash this line
+first carried (`00e8f3087`) stopped naming anything the moment that
+branch was rebased, which is the same "believed because it was AUTHORED
+rather than OBSERVED" shape the paragraph above is about.
 `check-api-parity` remains run by no workflow on any event (issue 1066), which
 was correctly stated and is unchanged.
 
