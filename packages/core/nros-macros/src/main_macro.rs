@@ -33,6 +33,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use nros_entry_lower::{LoweredNode, NodeIdentity, QosOverride};
 use nros_orchestration_ir::{CallbackGroupDecl, ResolvedTierTable, resolve_tiers};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
@@ -566,25 +567,23 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
     // dead-strip the backend's self-register `.init_array` ctor (the data-driven
     // `run_from_config` path references no backend symbol on its own).
     let mut bridge_rmws: Vec<String> = Vec::new();
-    // Phase 264 W4a — per-node launch `<param name=… value=…/>` initials, parallel to
-    // `pkg_idents` (launch arm only). Each entry is the baked `(name, value)` slice that
-    // seeds the node's `NodeContext::param` at register time (RFC-0004 §10). Empty in the
-    // self-bringup arm (no launch file → no `<param>`).
-    let mut node_param_bakes: Vec<Vec<(String, String)>> = Vec::new();
-    // Issue #52 — per-node `(topic, role, policy, value)` QoS-override codes,
-    // decomposed from the model's `qos_overrides.<topic>.<role>.<policy>`
-    // params. Same wire form as the C/C++ ABIs.
-    let mut node_qos_bakes: Vec<Vec<(String, u8, u8, u32)>> = Vec::new();
-    // Phase 268 W1 — per-node launch `<node name= namespace=>` identity, parallel to
-    // `node_param_bakes` (launch arm only). Each entry is the baked `(name, namespace)`
-    // pair that `ExecutorSink::create_node` uses instead of the `NodeOptions` default
-    // (RFC-0046). Empty (`None`) in the self-bringup arm.
-    let mut node_identity_bakes: Vec<(String, String)> = Vec::new();
-    // Phase 305 W3 (issue 0255) — per-node launch `<remap from= to=/>` rules, parallel
-    // to `node_param_bakes` (model arm only). Each entry is the baked `(from, to)` slice
-    // `ExecutorSink::create_entity` matches entity source names against (exact-FQN,
-    // first rule wins). Empty in the self-bringup arm.
-    let mut node_remap_bakes: Vec<Vec<(String, String)>> = Vec::new();
+    // phase-432 W2.4 — the per-node runtime bake, ONE struct per node.
+    //
+    // This was FOUR parallel vectors — `node_param_bakes` (phase-264 W4a),
+    // `node_qos_bakes` (issue #52), `node_identity_bakes` (phase-268 W1),
+    // `node_remap_bakes` (phase-305 W3 / issue 0255) — each indexed
+    // positionally against `pkg_idents` and each pushed from a different arm.
+    // Two failure modes went with that shape: an arm that pushes to three of
+    // four silently shifts every later node's identity, and a fifth feature
+    // arriving as a fifth vector is exactly how the CLI's Rust renderer fell
+    // four features behind the macro (archived issue 0302).
+    //
+    // `LoweredNode` also makes the facts SHAREABLE: `nros codegen entry`'s
+    // Rust renderer builds the same type from its own `Plan`, and the parity
+    // corpus at `packages/cli/nros-entry-lower/testdata/parity/` is rendered
+    // by both and compared (see `entry_parity` below). Empty in the
+    // self-bringup arm, where the node has no launch facts at all.
+    let mut lowered_nodes: Vec<LoweredNode> = Vec::new();
     // Issue 0257 — callback-slot-consuming entities the model declares for the
     // nodes THIS entry deploys (subs + service servers/clients + action
     // servers/clients). A LOWER bound: the model has no timer/guard-condition
@@ -811,28 +810,28 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
             // ERROR: an unknown policy or a misspelled role used to vanish,
             // leaving the image with different delivery semantics than the
             // model declares and nothing to read.
-            let lowered = nros_orchestration_ir::qos_override::lower_all(
+            let qos_overrides: Vec<QosOverride> = nros_orchestration_ir::qos_override::lower_all(
                 resolved.iter().map(|(k, v)| (k.as_str(), v.as_str())),
             )
             .map_err(|e| {
                 syn::Error::new(model_lit.span(), format!("nros::main!: node `{fqn}`: {e}"))
-            })?;
-            node_qos_bakes.push(
-                lowered
-                    .into_iter()
-                    .map(|o| (o.topic, o.role, o.policy, o.value))
-                    .collect(),
-            );
-            node_param_bakes.push(
-                resolved
-                    .into_iter()
-                    .filter(|(k, _)| !nros_orchestration_ir::qos_override::is_qos_override(k))
-                    .collect(),
-            );
+            })?
+            .into_iter()
+            .map(|o| QosOverride {
+                topic: o.topic,
+                role: o.role,
+                policy: o.policy,
+                value: o.value,
+            })
+            .collect();
+            let params: Vec<(String, String)> = resolved
+                .into_iter()
+                .filter(|(k, _)| !nros_orchestration_ir::qos_override::is_qos_override(k))
+                .collect();
 
             // Remaps (issue 0255) — resolved rules ride the model verbatim; the
             // runtime seam does the `~`/relative expansion + matching.
-            node_remap_bakes.push(remap_bakes_for(inst));
+            let remaps = remap_bakes_for(inst);
 
             // Identity: bare name + namespace from the FQN.
             let bare = fqn.rsplit('/').next().unwrap_or(fqn).to_string();
@@ -845,7 +844,13 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
                     ns.to_string()
                 }
             };
-            node_identity_bakes.push((bare.clone(), namespace));
+            lowered_nodes.push(LoweredNode {
+                pkg: pkg.clone(),
+                params,
+                remaps,
+                qos_overrides,
+                identity: Some(NodeIdentity::new(&bare, &namespace)),
+            });
 
             // Callback groups → tier, straight from the model's resolved
             // bindings (`<fqn>/<group>` → tier). A whole-node binding
@@ -1116,64 +1121,19 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
         })
     });
 
-    let register_calls: Vec<proc_macro2::TokenStream> = pkg_idents
+    // phase-432 W2.4 — one `LoweredNode` per register call, whatever arm
+    // produced the idents. The self-bringup arm has no launch facts, so its
+    // node is BARE rather than absent: every field is still written, which is
+    // the reset discipline `render_register_calls` documents.
+    let entry_nodes: Vec<LoweredNode> = pkg_idents
         .iter()
         .enumerate()
-        .map(|(i, ident)| {
-            // Phase 264 W4a — set `runtime.params` to this node's baked launch `<param>`
-            // initials (a promoted `&'static` slice) before the register call, so the
-            // node's `register`/`init` observes its launch values via `ctx.param(name)`.
-            // Empty (self-bringup arm, or a node with no `<param>`) → reset to `&[]` so a
-            // prior node's params never leak into the next register.
-            let params = node_param_bakes.get(i).cloned().unwrap_or_default();
-            let param_lits = params.iter().map(|(name, value)| {
-                let n = LitStr::new(name, Span::call_site());
-                let v = LitStr::new(value, Span::call_site());
-                quote! { (#n, #v) }
-            });
-            // Phase 268 W1 — set `runtime.node_identity` to this node's launch
-            // `<node name= namespace=>` identity before the register call (RFC-0046).
-            // `None` in the self-bringup arm (no launch, `node_identity_bakes` empty) so
-            // no identity leaks between components (same discipline as the params reset).
-            let identity_emit = match node_identity_bakes.get(i) {
-                Some((name, ns)) => {
-                    let n = LitStr::new(name, Span::call_site());
-                    let s = LitStr::new(ns, Span::call_site());
-                    quote! {
-                        runtime.node_identity = ::core::option::Option::Some((#n, #s));
-                    }
-                }
-                None => quote! {
-                    runtime.node_identity = ::core::option::Option::None;
-                },
-            };
-            // Phase 305 W3 (issue 0255) — set `runtime.remaps` to this node's launch
-            // `<remap>` rules before the register call (same reset discipline as
-            // params: empty slice when the node has none, so a prior node's rules
-            // never leak into the next register).
-            let remaps = node_remap_bakes.get(i).cloned().unwrap_or_default();
-            let remap_lits = remaps.iter().map(|(from, to)| {
-                let f = LitStr::new(from, Span::call_site());
-                let t = LitStr::new(to, Span::call_site());
-                quote! { (#f, #t) }
-            });
-            // Issue #52 — the node's QoS-override table, reset to `&[]` when it
-            // has none so a prior component's overrides never leak into the next
-            // (same discipline as params / remaps).
-            let qos = node_qos_bakes.get(i).cloned().unwrap_or_default();
-            let qos_lits = qos.iter().map(|(topic, role, policy, value)| {
-                let t = LitStr::new(topic, Span::call_site());
-                quote! { (#t, #role, #policy, #value) }
-            });
-            quote! {
-                runtime.params = &[ #( #param_lits ),* ];
-                runtime.remaps = &[ #( #remap_lits ),* ];
-                runtime.qos_overrides = &[ #( #qos_lits ),* ];
-                #identity_emit
-                ::#ident::register(runtime)?;
-            }
+        .map(|(i, ident)| match lowered_nodes.get(i) {
+            Some(n) => n.clone(),
+            None => LoweredNode::bare(&ident.to_string()),
         })
         .collect();
+    let register_calls: Vec<proc_macro2::TokenStream> = render_register_calls(&entry_nodes);
     // Node count for the Zephyr framework boot banner (literal baked at
     // expansion time so the runtime body needs no extra import).
     let num_register_calls = register_calls.len();
@@ -1212,11 +1172,14 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
     };
 
     let param_services_call: proc_macro2::TokenStream = if param_services_enabled {
-        let seed_lits = node_param_bakes.iter().flatten().map(|(name, value)| {
-            let n = LitStr::new(name, Span::call_site());
-            let v = LitStr::new(value, Span::call_site());
-            quote! { (#n, #v) }
-        });
+        let seed_lits = entry_nodes
+            .iter()
+            .flat_map(|n| n.params.iter())
+            .map(|(name, value)| {
+                let n = LitStr::new(name, Span::call_site());
+                let v = LitStr::new(value, Span::call_site());
+                quote! { (#n, #v) }
+            });
         quote! {
             // phase-314 — the system DECLARED `[param_services]`, so the entry
             // must carry the cargo feature. Without it `apply_param_services`
@@ -3336,15 +3299,83 @@ fn try_framework_for(deploy: &str) -> Result<Framework, String> {
 /// `sanitize_pkg_name_for_symbol` rule the existing `nros::node!()`
 /// macro uses, so the codegen + Entry-pkg sides round-trip.
 fn pkg_to_crate_ident(pkg: &str) -> String {
-    let mut out = String::with_capacity(pkg.len());
-    for c in pkg.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' {
-            out.push(c);
-        } else {
-            out.push('_');
-        }
-    }
-    out
+    // phase-432 W2.4 — DELEGATES. This body and
+    // `nros_cli_core::codegen::entry::sanitize_pkg` were character-for-
+    // character identical, on the two producers of the same generated text,
+    // with nothing asserting they agreed.
+    nros_entry_lower::sanitize_pkg(pkg)
+}
+
+/// Render the per-node runtime bake — the block both Rust producers emit.
+///
+/// phase-432 W2.4 / RFC-0091 §7. `nros codegen entry`'s Rust renderer emits
+/// this same block from the same [`LoweredNode`]s through a `.jinja` template;
+/// the `entry_parity` tests below render the shared corpus with THIS function
+/// and compare against that renderer's committed goldens, token for token.
+/// That is the byte-diff `emit_rust.rs` has claimed since it was written.
+///
+/// **Every field is written unconditionally, empty included.** `runtime` is
+/// reused across the nodes of one entry, so a node with no params must CLEAR
+/// the previous node's rather than inherit them. Emitting an assignment only
+/// when it has a value leaks state between nodes and still passes any "does
+/// the output contain this value" test — which is why the parity corpus
+/// carries a bare node.
+///
+/// Order is load-bearing too: the state is written BEFORE the `register` call
+/// it configures. After it would configure the NEXT node, or nothing.
+pub(crate) fn render_register_calls(nodes: &[LoweredNode]) -> Vec<proc_macro2::TokenStream> {
+    nodes
+        .iter()
+        .map(|node| {
+            let ident = Ident::new(&node.ident(), Span::call_site());
+            // Phase 264 W4a — the node's baked launch `<param>` initials (a
+            // promoted `&'static` slice), so its `register`/`init` observes
+            // launch values via `ctx.param(name)` (RFC-0004 §10).
+            let param_lits = node.params.iter().map(|(name, value)| {
+                let n = LitStr::new(name, Span::call_site());
+                let v = LitStr::new(value, Span::call_site());
+                quote! { (#n, #v) }
+            });
+            // Phase 305 W3 (issue 0255) — `<remap from= to=/>` rules;
+            // `ExecutorSink::create_entity` matches entity source names
+            // against them (exact-FQN, first rule wins).
+            let remap_lits = node.remaps.iter().map(|(from, to)| {
+                let f = LitStr::new(from, Span::call_site());
+                let t = LitStr::new(to, Span::call_site());
+                quote! { (#f, #t) }
+            });
+            // Issue #52 — the node's QoS-override table, in the same wire form
+            // the C/C++ ABIs use.
+            let qos_lits = node.qos_overrides.iter().map(|o| {
+                let t = LitStr::new(&o.topic, Span::call_site());
+                let (role, policy, value) = (o.role, o.policy, o.value);
+                quote! { (#t, #role, #policy, #value) }
+            });
+            // Phase 268 W1 — `<node name= namespace=>` identity, which
+            // `ExecutorSink::create_node` uses instead of the `NodeOptions`
+            // default (RFC-0046). `None` in the self-bringup arm, so no
+            // identity leaks between components.
+            let identity_emit = match node.identity_pair() {
+                Some((name, ns)) => {
+                    let n = LitStr::new(name, Span::call_site());
+                    let s = LitStr::new(ns, Span::call_site());
+                    quote! {
+                        runtime.node_identity = ::core::option::Option::Some((#n, #s));
+                    }
+                }
+                None => quote! {
+                    runtime.node_identity = ::core::option::Option::None;
+                },
+            };
+            quote! {
+                runtime.params = &[ #( #param_lits ),* ];
+                runtime.remaps = &[ #( #remap_lits ),* ];
+                runtime.qos_overrides = &[ #( #qos_lits ),* ];
+                #identity_emit
+                ::#ident::register(runtime)?;
+            }
+        })
+        .collect()
 }
 
 /// Silence the unused-import warning in proc_macro2 — Expr / ExprLit /

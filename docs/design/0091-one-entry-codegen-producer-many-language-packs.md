@@ -40,10 +40,15 @@ Entry code has **four** producers, not the two issue 1003 assumed:
 `nros::main!(...)` — it delegates rather than restating.
 
 **(2) and (3) are two paths to one outcome.** `emit_rust.rs`'s doc says it exists
-"for byte-level diffs against the proc-macro output". That diff does not exist —
-no gate, and the only test naming both never mentions the emitter. Nothing
-consumes it either: `nano_ros_entry` passes `--lang` as `c` or `cpp` only, and
-Rust entries reach the proc-macro via `rust_cargo_application()`.
+"for byte-level diffs against the proc-macro output". That diff did not exist —
+no gate, and the only test naming both never mentioned the emitter. **§7 now
+has it** (phase-432 W2.4), so the two paths stay two paths on purpose: the
+duplication is a deliberate answer to issue 0083, and what was missing was the
+measurement. What nothing consumes is the CLI's `--lang rust` VERB —
+`nano_ros_entry` passes `--lang` as `c` or `cpp` only, and Rust entries reach
+the proc-macro via `rust_cargo_application()` — and that is retired. Read §7
+before acting on this paragraph: an earlier draft of it read "delete
+`emit_rust.rs`", which would have deleted the gate's other half.
 
 **The duplication is not sloppiness.** Issue **0083** / phase-262 removed the
 macro's `nros-build` dependency because it pulled all of `nros-cli-core` —
@@ -371,13 +376,39 @@ where it would first bite.
 
 ## 7. One path per outcome
 
-**Delete `emit_rust.rs`.** No consumer; the CLI's Rust story is
-`builder/entry.rs` emitting `nros::main!(...)`.
+**Retire the `--lang rust` VERB, and KEEP the renderer.** *(Amended by
+phase-432 W2.4, which implemented this section. The first draft said "delete
+`emit_rust.rs` — no consumer", and that is wrong in a way worth recording,
+because it contradicts the parity gate two paragraphs down: with one renderer
+there is nothing to compare. Measured: `NanoRosEntry.cmake` does reject any
+`LANG` but `cpp`/`c`, and a Rust entry does reach the proc-macro through
+`rust_cargo_application()` — but `cmd/codegen.rs` dispatched `--lang rust` to
+the emitter and the golden harness renders it with two committed goldens. What
+was dead is the VERB. It also produced a strictly POORER entry than the macro's
+— the `OwnedSpin` register path only, silently ignoring tiers, `[lifecycle]`,
+`[param_services]` and executor sizing — so retiring it is a fix, not a
+tidy-up. The CLI's Rust STORY is still `builder/entry.rs` emitting
+`nros::main!(...)`.)*
 
-**The proc-macro consumes `LoweredEntry`**, so it stops re-deriving tiers (91
-references), QoS (23) and board paths (6). It keeps `quote!` rendering behind a
-**parity gate** that renders a corpus both ways and compares — the diff
-`emit_rust` promised and never delivered.
+**Both Rust producers consume `LoweredEntry`.** *(Also amended: this said the
+macro "stops re-deriving tiers (91 references), QoS (23) and board paths (6)".
+Measured on `main_macro.rs`: 93 `tier`, 34 `qos`, 15 `board_path` — but every
+one is a REFERENCE to shared code in `nros-orchestration-ir`, not a
+re-derivation. `board_path_for` delegates (phase-346), QoS goes through
+`qos_override::lower_all` (issue 0303), tiers through `resolve_tiers` /
+`tier_from_model` / `derive_tiers_from_contracts` (phase-228.G, RFC-0032 §6).
+That convergence had already landed. What was genuinely duplicated is the
+**per-node runtime bake** — params, remaps, QoS overrides, identity and the
+`register` call — which is precisely where the two drifted, and
+`sanitize_pkg`, which existed twice character-for-character. Those are what
+moved into `nros-entry-lower`.)*
+
+It keeps `quote!` rendering behind a **parity gate** that renders a shared
+corpus both ways and compares — the diff `emit_rust` promised and never
+delivered. The comparison is TOKEN-wise: `quote!` has no formatting and a
+template does, so the two agree on tokens and can never agree on whitespace.
+It found a real divergence immediately — a QoS code rendered `1` by the
+template where `quote!` interpolating a `u8` emits `1u8`.
 
 Rendering through the pack instead (parse text -> `TokenStream`) was considered
 and rejected: it compiles `minijinja` into every user's entry build, which is

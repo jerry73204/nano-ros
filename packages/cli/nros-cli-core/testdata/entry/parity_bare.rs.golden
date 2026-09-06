@@ -19,16 +19,11 @@ fn __nros_entry_run() -> ::core::result::Result<
                 ::nros::__macro_support::nros_platform::RuntimeError,
             >
     {
-            runtime.params = &[("rate_hz", "10"), ("greeting", "he said \"hi\" \\ bye")];
-            runtime.remaps = &[("chatter", "/demo/chatter")];
-            runtime.qos_overrides = &[("/demo/chatter", 1u8, 2u8, 5u32)];
-            runtime.node_identity = ::core::option::Option::Some(("renamed_talker", "/demo"));
-            ::talker_pkg::register(runtime)?;
             runtime.params = &[];
             runtime.remaps = &[];
             runtime.qos_overrides = &[];
             runtime.node_identity = ::core::option::Option::None;
-            ::listener_pkg::register(runtime)?;
+            ::talker_pkg::register(runtime)?;
             ::core::result::Result::Ok(())
         },
     )

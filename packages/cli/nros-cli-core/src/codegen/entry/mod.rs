@@ -46,6 +46,9 @@ pub mod emit_rust;
 #[cfg(test)]
 mod golden;
 pub mod metadata;
+/// phase-432 W2.4 — the shared Rust-entry parity corpus, this side.
+#[cfg(test)]
+mod parity;
 mod render;
 
 /// The entry emitters' target language.
@@ -291,19 +294,14 @@ pub fn emit_boot_config_static(out: &mut String, plan: &Plan) -> Result<(), Stri
 
 /// Sanitise a pkg name into a valid identifier (`-` → `_`).
 ///
-/// Mirrors the rule the Rust `nros::node!()` macro and the cmake fn
-/// `nano_ros_node_register()` already apply (see
-/// `packages/core/nros-macros/src/main_macro.rs::pkg_to_crate_ident`).
+/// phase-432 W2.4 — DELEGATES to [`nros_entry_lower::sanitize_pkg`]. This body
+/// and `main_macro.rs::pkg_to_crate_ident` were character-for-character
+/// identical, which made "which identifier does this package become" a
+/// question with two authored answers and no test that they agreed. The
+/// cmake fn `nano_ros_node_register()` applies the same rule from its own
+/// side; it is not Rust and cannot call this one.
 pub fn sanitize_pkg(pkg: &str) -> String {
-    let mut out = String::with_capacity(pkg.len());
-    for c in pkg.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' {
-            out.push(c);
-        } else {
-            out.push('_');
-        }
-    }
-    out
+    nros_entry_lower::sanitize_pkg(pkg)
 }
 
 /// Issue #52 — decompose `qos_overrides.<topic>.<role>.<policy>` parameters

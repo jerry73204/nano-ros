@@ -1,0 +1,21 @@
+{
+  "_why": "Both identity arms in one entry, across two nodes, plus the four features archived issue 0302 records as having reached the proc-macro and not the emitter: params (phase-264 W4a), identity (phase-268 W1), remaps (phase-305 W3), QoS overrides (issue #52). The greeting value carries a quote AND a backslash on purpose: quoting is the half that stays in each pack, so it is the half most likely to diverge.",
+  "bringup": "demo_bringup",
+  "launch": "/tmp/system.launch.xml",
+  "board": "native",
+  "nodes": [
+    {
+      "pkg": "talker_pkg",
+      "params": [
+        ["rate_hz", "10"],
+        ["greeting", "he said \"hi\" \\ bye"]
+      ],
+      "remaps": [["chatter", "/demo/chatter"]],
+      "qos_overrides": [
+        { "topic": "/demo/chatter", "role": 1, "policy": 2, "value": 5 }
+      ],
+      "identity": { "name": "renamed_talker", "namespace": "/demo" }
+    },
+    { "pkg": "listener_pkg" }
+  ]
+}

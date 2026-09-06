@@ -26,6 +26,12 @@
 #![forbid(unsafe_code)]
 #![no_std]
 
+extern crate alloc;
+
+mod node;
+
+pub use node::{LoweredEntry, LoweredNode, NodeIdentity, QosOverride, sanitize_pkg};
+
 /// The board families the entry pipeline distinguishes.
 ///
 /// Nineteen board keys collapse onto five families. The KEY is what a user

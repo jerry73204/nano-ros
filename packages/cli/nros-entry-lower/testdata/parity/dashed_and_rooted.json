@@ -1,0 +1,22 @@
+{
+  "_why": "A package name that is not an identifier (`sanitize_pkg` must be the SAME function on both sides, or one producer emits `::talker-pkg::register`, which does not compile) and a node at the ROOT namespace. An empty-vs-`/` namespace is a fact the two producers derive from different inputs — the macro from an FQN, the CLI from a launch attribute — so it is exactly where they can disagree while both look right.",
+  "bringup": "demo_bringup",
+  "launch": "/tmp/system.launch.xml",
+  "board": "freertos-posix",
+  "nodes": [
+    {
+      "pkg": "talker-pkg",
+      "params": [["rate_hz", "1"]],
+      "identity": { "name": "talker", "namespace": "" }
+    },
+    {
+      "pkg": "sensor.driver/pkg",
+      "remaps": [["~/in", "/bus/in"], ["out", "/bus/out"]],
+      "qos_overrides": [
+        { "topic": "/bus/in", "role": 0, "policy": 1, "value": 0 },
+        { "topic": "/bus/out", "role": 1, "policy": 3, "value": 42 }
+      ],
+      "identity": { "name": "driver", "namespace": "/" }
+    }
+  ]
+}

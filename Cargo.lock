@@ -1824,6 +1824,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nros-entry-lower"
+version = "0.5.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "nros-ghost-types"
 version = "0.5.0"
 
@@ -1850,6 +1857,7 @@ dependencies = [
 name = "nros-macros"
 version = "0.5.0"
 dependencies = [
+ "nros-entry-lower",
  "nros-orchestration-ir",
  "nros-pkg-index",
  "proc-macro2",
