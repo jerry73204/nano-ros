@@ -47,8 +47,9 @@ nros_components_register_node(add_two_ints_server_lib
     EXECUTABLE add_two_ints_server
     SHAPE configure
     TYPED
-    # issue 1033 — what this image CREATES, read off its own source.
-    # The XRCE subscriber cap derives from this; absence means "nobody
-    # said" and the image keeps the 8-slot default.
-    ENTITIES
-             service_server:example_interfaces/srv/AddTwoInts:/add_two_ints)
+    # phase-412 -- `ENTITIES` is retired. A standalone Zephyr application has
+    # no launch file, so it has no contract sidecar to state itself in; what
+    # this image creates is stated as the XRCE session caps in prj-xrce.conf,
+    # which is what phase-412's own guidance leaves such an image ("a system
+    # with no contract yet keeps its configured" knobs). See issue 1033.
+)

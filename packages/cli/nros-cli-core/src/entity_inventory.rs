@@ -1075,12 +1075,22 @@ impl EntityInventory {
                 .join("\n");
             return Derivation::Refused {
                 reason: format!(
+                    // issue 1033 -- this used to say "Add `ENTITIES ...` to each
+                    // `nano_ros_node_register()`", which phase-412 turned into a
+                    // FATAL_ERROR: the one remedy the refusal named was the one
+                    // thing the caller could not do. A diagnostic that survives the
+                    // mechanism it describes aims the next reader at a wall, and
+                    // this one did it for every standalone image in the tree.
                     "{} of {} components in this image declare no entities:\n{block}\n\
                      Deriving over only the components that did would publish a slot count \
                      smaller than the image needs, and a short NROS_EXECUTOR_MAX_CBS fails \
-                     entity creation at boot. Add `ENTITIES ...` to each \
-                     `nano_ros_node_register()` above -- `ENTITIES NONE` for a component that \
-                     really creates none.",
+                     entity creation at boot. State what each component creates in the \
+                     contract sidecar beside the launch file that runs it \
+                     (<bringup>/launch/<stem>.contract.yaml), which reaches this through the \
+                     SystemModel. An image that runs from no launch file -- a standalone \
+                     Zephyr application, say -- reaches no contract, so it keeps its \
+                     CONFIGURED pool knobs and must state the ones its RMW session sizes \
+                     (see issue 1033).",
                     undeclared.len(),
                     self.components.len()
                 ),
@@ -1901,9 +1911,17 @@ mod tests {
         match inv.derive() {
             Derivation::Refused { reason } => {
                 assert!(reason.contains("b::two"), "names the component: {reason}");
+                // issue 1033 -- the remedy must be one the caller can still
+                // perform. This asserted `ENTITIES NONE` for a phase after
+                // phase-412 made `ENTITIES` a FATAL_ERROR, so the test held the
+                // message to advice that could not be followed.
                 assert!(
-                    reason.contains("ENTITIES NONE"),
-                    "names the remedy: {reason}"
+                    reason.contains("contract.yaml"),
+                    "names a remedy that still exists: {reason}"
+                );
+                assert!(
+                    !reason.contains("ENTITIES"),
+                    "never names a retired keyword as the remedy: {reason}"
                 );
             }
             other => panic!("expected a refusal, got {other:?}"),

@@ -73,6 +73,24 @@ cmake-find-program-shadowed:
     @python3 scripts/check-cmake-find-program-shadowed.py --self-test
     @python3 scripts/check-cmake-find-program-shadowed.py
 
+# issue 1033 — a RETIRED cmake API keyword must survive in no caller.
+#
+# Our verbs retire a keyword by keeping it PARSED and raising a FATAL_ERROR
+# naming the replacement, so an old caller fails loudly instead of having the
+# keyword fall into UNPARSED_ARGUMENTS and become source files nobody can find.
+# Right shape, but it only fires when somebody CONFIGURES the caller — and the
+# six standalone `examples/zephyr/cpp` leaves are configured by no lane a pull
+# request runs. phase-412 retired `ENTITIES`, migrated the six workspace
+# packages and missed those six, so all of them (and the 19 fixture rows over
+# them, across all three RMWs, since the error precedes the RMW) could not
+# configure on main and nothing said so. The retirement is a good mechanism
+# reporting to nobody; this is the reader.
+#
+# The retired set is DISCOVERED from the cmake sources, so the next retirement
+# arms this gate by itself and a moved wording makes it BLIND, not permissive.
+retired-cmake-keywords:
+    @python3 scripts/check-retired-cmake-keywords.py
+
 # issue 0719 — the C/C++ half of the same question. `check-image-panic-policy`
 # reads what a RUST image declares (`nros::main!(panic = …)`) and says outright
 # that it cannot see "the C/C++ side, where the policy is a cargo feature on the
