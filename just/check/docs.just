@@ -246,6 +246,23 @@ rustdoc-links:
         "${pkgs[@]}"
     echo "rustdoc-links OK — the ${#NROS_RUSTDOC_CRATES[@]} published crates document cleanly."
 
+# Issue 0937's shape — an issue in `archived/` must SAY it is resolved.
+#
+# `4f1305788` archived 0937 with an `R100` rename: a 100% similarity move, zero
+# content change. The correction its own commit message described had been
+# clobbered by a `git checkout origin/main -- <file>`, so the file sat in
+# `archived/` for a day reading `status: open` and blaming a cause that had
+# been disproved. `c7f2b09a0` restored it, +81/-72.
+#
+# The rule was CHOSEN by measurement, not taste: "an archive move must not
+# delete text" fires on 127 of 668 archive renames (19%), most of them
+# legitimate; "the archived content equals an older committed version" fires on
+# zero, including 0937, and costs 27 s. A frontmatter that still reads `open`
+# is what an R100 rename necessarily leaves behind, and it is one cheap read.
+[private]
+archived-issue-status:
+    @python3 scripts/check-archived-issue-status.py
+
 # phase-359 W0 — the `std` census ratchet. Buildless (reads sources), so it
 # belongs in the fast tier next to the other convention gates.
 #
