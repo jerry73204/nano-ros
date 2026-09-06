@@ -17,11 +17,29 @@
 set(CMAKE_SYSTEM_NAME       Generic)
 set(CMAKE_SYSTEM_PROCESSOR  arm)
 
-set(CMAKE_C_COMPILER    arm-none-eabi-gcc)
-set(CMAKE_CXX_COMPILER  arm-none-eabi-g++)
-set(CMAKE_ASM_COMPILER  arm-none-eabi-gcc)
-set(CMAKE_AR            arm-none-eabi-ar  CACHE FILEPATH "Archiver")
-set(CMAKE_RANLIB        arm-none-eabi-ranlib CACHE FILEPATH "Ranlib")
+# Issue 1117 — WHICH arm-none-eabi-gcc, and from WHERE. The bare names below
+# used to resolve on PATH alone, so a host that had never run `nros setup
+# --tool arm-none-eabi-gcc` silently built with Ubuntu's 10.3.1 against a
+# 13.2.rel1 pin, and said nothing. Shared module: resolution order, the
+# provenance line, and the GCC floor.
+include("${CMAKE_CURRENT_LIST_DIR}/NanoRosCrossToolchain.cmake")
+nros_cross_toolchain_resolve(
+    TOOL         arm-none-eabi-gcc
+    PREFIXES     arm-none-eabi
+    OVERRIDE_VAR NROS_ARM_NONE_EABI_PREFIX
+    OUT_PREFIX   _NROS_ARM_PREFIX
+    OUT_ORIGIN   _NROS_ARM_ORIGIN)
+nros_cross_toolchain_report(
+    TOOL   arm-none-eabi-gcc
+    PREFIX "${_NROS_ARM_PREFIX}"
+    ORIGIN "${_NROS_ARM_ORIGIN}"
+    OVERRIDE_VAR NROS_ARM_NONE_EABI_PREFIX)
+
+set(CMAKE_C_COMPILER    ${_NROS_ARM_PREFIX}-gcc)
+set(CMAKE_CXX_COMPILER  ${_NROS_ARM_PREFIX}-g++)
+set(CMAKE_ASM_COMPILER  ${_NROS_ARM_PREFIX}-gcc)
+set(CMAKE_AR            ${_NROS_ARM_PREFIX}-ar  CACHE FILEPATH "Archiver")
+set(CMAKE_RANLIB        ${_NROS_ARM_PREFIX}-ranlib CACHE FILEPATH "Ranlib")
 
 # Cortex-A7 flags matching NuttX QEMU virt board configuration.
 # Must use hard-float to match NuttX kernel (built with -mfloat-abi=hard).

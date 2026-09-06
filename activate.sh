@@ -301,6 +301,23 @@ fi
 # board, Phase 194.3c). Scope to store bin dirs that hold a whitelisted tool
 # so the build/<tool> convention for qemu is preserved. A system cross-gcc
 # (e.g. /usr/bin/arm-none-eabi-gcc) still resolves when the store has none.
+#
+# THAT FALLBACK STAYS, AND IT IS NO LONGER SILENT — issue 1117. PATH is not the
+# whole story for a CMake cross build, and reading it as if it were cost two
+# wrong diagnoses (issue 1113): this loop runs when activate.sh is SOURCED, so
+# `nros setup --tool arm-none-eabi-gcc` in an already-active shell never reached
+# PATH, and the build kept using the distro's 10.3.1 against a 13.2.rel1 pin
+# with nothing printed. `cmake/toolchain/NanoRosCrossToolchain.cmake` now
+# resolves the store DIRECTLY, so provisioning takes effect immediately, and it
+# prints which compiler it picked and from where:
+#
+#   -- nano-ros: arm-none-eabi-gcc 13.2.1 via SDK store - <path> (pin 13.2.rel1)
+#
+# Its order is: -D/env NROS_<PREFIX>_PREFIX  ->  SDK store (newest version
+# first)  ->  this PATH. Point it at a toolchain of your own with, e.g.,
+# `NROS_ARM_NONE_EABI_PREFIX=/opt/gcc/bin/arm-none-eabi`; before issue 1117 the
+# only such knob was NROS_RISCV64_PREFIX, documented nowhere outside its own
+# file.
 # `zenohd` was on this whitelist for the book's first-node flow (issue #204),
 # back when `nros setup native` installed a router into the store. It is gone:
 # RFC-0075 / phase-362 retired the vendored router, nothing provisions one, and
