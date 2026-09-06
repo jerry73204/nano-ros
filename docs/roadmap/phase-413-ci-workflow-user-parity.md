@@ -186,7 +186,7 @@ conversion can be verified in a lane that is already red.
 Acceptance: each lane green at least once, and the date recorded here. A lane
 that cannot be made green is a finding, not a skip — file it.
 
-## W3 — a gate: no workflow installs what the index already declares
+## W3 — a gate: no workflow installs what the index already declares — DONE (verified 2026-09-07)
 
 `nros setup --system` resolves the `[prereq.*]` closure for the detected package
 manager (RFC-0062 / phase-327). Measured on a dev host: 38 present, 5 missing, 3
@@ -219,6 +219,56 @@ Two halves:
 
 Acceptance: the gate reproduces each of the three sites before the fix and passes
 after; no workflow apt-installs an indexed package.
+
+### What landed
+
+**The gate**, `check-workflow-indexed-apt`, on the fast line, self-testing (5
+cases + extraction). Current verdict: *14 workflow(s), 40 indexed apt
+package(s), none restated.*
+
+**All three conversions.** `docs.yml` and `nightly.yml` resolve their names
+through `scripts/sdk/prereq-packages.py --manager apt <key>`, and so does
+`post-submit.yml`'s clang step. Grepping the workflows for `apt-get install`
+now returns three sites and **not one literal package name** among them.
+
+**colcon-parity moved into the CI image.** It was bare `ubuntu-22.04`, adding
+the ROS apt repository and installing ten packages plus `just` on every run,
+while `images.yml` had been building
+`ghcr.io/newslabntu/nano-ros-ci:humble` — described in its own workflow as the
+base `container:` for these lanes — and only `nightly.yml` and the `check` job
+used it.
+
+Measured before converting rather than assumed. The image is `FROM
+ros:humble-ros-base`, and **all ten apt names are already in that upstream
+base**: `python3-colcon-common-extensions`, `ros-humble-ros-base`, `-rclcpp`,
+`-std-msgs`, `-geometry-msgs`, `-sensor-msgs`, `-rosidl-default-generators`,
+`-rosidl-default-runtime`, `-ament-cmake`, `-ament-cmake-auto`, with `colcon`
+on PATH. `just` is baked and PINNED by the image, which is stronger than the
+`curl | sh` it replaces — that fetched whatever was current at run time. Then
+`just colcon-parity` was RUN in the image: 3 packages, consumer binary
+produced, 7.63 s.
+
+The apt-repo step goes with them, and its exception expires cleanly: its
+`gnupg`/`lsb-release` were kept literal because RFC-0062 cannot express "add
+this apt repository first". True, and moot once nothing adds a repository — the
+image's ROS comes from its own base layer.
+
+**One thing the conversion had to add.** `just colcon-parity` SKIPS when
+`colcon` is absent (`nros_check_skip`, exit 0). Right for a developer host,
+wrong for a job that exists to run it: an image that lost ROS would report
+green over nothing, the fail-open shape of issues 0650 and 1001. The lane now
+asserts the precondition its container is supposed to provide, so a skip cannot
+pass for a run.
+
+### The gap this leaves, named rather than papered over
+
+The gate compares **apt** names. `python3-colcon-common-extensions` is the apt
+spelling of `[python.colcon]`, whose index row says `pip =
+"colcon-common-extensions"` — so an indexed *python-layer* tool restated as an
+apt package is invisible to it, which is W3's own asymmetry one namespace over.
+Deriving the apt name from the pip name is a Debian naming convention, not a
+fact the index states, so the rule is not written; the site that would have
+tripped it is gone, and this is recorded so the next one is recognised.
 
 ## W4 — decide what the required check promises on a pull request — DONE (verified 2026-09-06)
 

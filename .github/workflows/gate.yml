@@ -1250,58 +1250,73 @@ jobs:
           source ./activate.sh
           just scaffold-journey
 
-  # ----- colcon-parity (bare ubuntu — no base image) -----
+  # ----- colcon-parity (the CI image, phase-413 W3) -----
+  #
+  # This lane used to be bare `ubuntu-22.04` and spend its first minutes adding
+  # the ROS apt repository and installing a ROS desktop stack — ten packages —
+  # plus `just`, on EVERY run. `images.yml` has been building
+  # `ghcr.io/newslabntu/nano-ros-ci:humble` and describing it as "ROS 2 Humble +
+  # host tools, the base `container:` for the check / … lanes" the whole time;
+  # only `nightly.yml` and the `check` job above used it.
+  #
+  # MEASURED before converting, not assumed. The image is `FROM
+  # ros:humble-ros-base`, and all ten apt names this lane installed are already
+  # in that upstream base — `python3-colcon-common-extensions`,
+  # `ros-humble-{ros-base,rclcpp,std-msgs,geometry-msgs,sensor-msgs,
+  # rosidl-default-generators,rosidl-default-runtime,ament-cmake,
+  # ament-cmake-auto}` — with `colcon` on PATH. `just` is baked and PINNED by
+  # the image (`JUST_VERSION`), which is stronger than the `curl | sh` this
+  # replaces: that fetched whatever was current at run time. Then
+  # `just colcon-parity` was RUN in the image: 3 packages, consumer binary
+  # produced, 7.63 s.
+  #
+  # The apt repo step goes with them. Its `gnupg`/`lsb-release` were kept
+  # literal on the argument that RFC-0062 cannot express "add this apt
+  # repository first" — true, and moot once nothing adds a repository: the
+  # image's ROS comes from its own base layer.
   colcon-parity:
     name: colcon build examples/templates/local-msg-package/src/
     needs: changes
     if: ${{ needs.changes.outputs.colcon == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/newslabntu/nano-ros-ci:humble
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false  # fixture is self-contained; no nano-ros submodules needed
 
-      - name: Add ROS 2 apt repo
-        run: |
-          sudo apt-get update
-          # `curl` dropped: it is preinstalled on the GitHub runner AND
-          # declared by `[prereq.curl]`, so naming it here was the index's fact
-          # restated in a second place (phase-413 W3). `gnupg` and
-          # `lsb-release` stay literal on purpose — they exist only to ADD the
-          # third-party ROS apt source below, and RFC-0062's providers are
-          # system / sdk / source / submodule, none of which can express "add
-          # this apt repository first". Indexing them would claim the index
-          # provisions something it cannot.
-          sudo apt-get install -y gnupg lsb-release
-          sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" \
-            | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
-
-      - name: Install ROS 2 Humble msg deps + colcon
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            python3-colcon-common-extensions \
-            ros-humble-ros-base \
-            ros-humble-rclcpp \
-            ros-humble-std-msgs \
-            ros-humble-geometry-msgs \
-            ros-humble-sensor-msgs \
-            ros-humble-rosidl-default-generators \
-            ros-humble-rosidl-default-runtime \
-            ros-humble-ament-cmake \
-            ros-humble-ament-cmake-auto
-
-      # No base image on this lane → install `just` so CI calls the SAME recipe a
-      # developer runs (SSoT — phase-253). Official prebuilt installer; the lane
-      # already uses sudo+curl for the ROS apt repo.
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
-
       # `just colcon-parity` sources ROS, scans ONLY src/ (`--base-paths src`:
       # local_msgs → extra_msgs → consumer, skipping the top-level nano-ros umbrella
       # CMakeLists that needs the `nros` codegen tool), builds, and asserts the
       # consumer binary — the same parity check, no inline drift.
+      #
+      # The recipe SKIPS when `colcon` is absent (`nros_check_skip`, exit 0).
+      # That is right for a developer host and wrong here: this job exists to
+      # run it, and an image that lost ROS would report GREEN over nothing —
+      # the fail-open shape issues 0650/1001 are about. Assert the precondition
+      # the container is supposed to provide, so a skip cannot pass for a run.
+      - name: assert this lane can actually run colcon
+        run: |
+          source ./activate.sh
+          if ! command -v colcon >/dev/null; then
+            echo "colcon absent from the CI image: the recipe would SKIP and" >&2
+            echo "this lane would report green over nothing. The image is" >&2
+            echo "FROM ros:humble-ros-base, which carries colcon; if that" >&2
+            echo "changed, fix the image rather than this step." >&2
+            exit 1
+          fi
+          echo "colcon: $(command -v colcon)"
+
       - name: just colcon-parity
         run: |
           source ./activate.sh
