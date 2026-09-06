@@ -47,38 +47,45 @@
 #
 # WHOSE PULL REQUESTS GET ARMED
 #
-# Only ones that could ONLY have come from someone who already has write
-# access. Two conditions, and both must hold:
+# `author_association` is OWNER, MEMBER or COLLABORATOR. That is the whole
+# test, and it carries the distinction on its own -- those three are exactly
+# the values that mean the account has access to THIS repository.
 #
-#   * the head branch lives in THIS repository, not a fork. Creating that
-#     branch required push access, so the PR is from inside the trust
-#     boundary by construction. A third-party contributor has no such access
-#     and must fork -- that is the whole distinction, and it is structural
-#     rather than a guess about identity.
-#   * `author_association` is OWNER, MEMBER or COLLABORATOR. GitHub computes
-#     this per event and it is the field that says "this account has a
-#     relationship with this repository".
+# The one that looks close and is not is `CONTRIBUTOR`. GitHub gives it to
+# anyone who has had a commit merged here, so an outside contributor's SECOND
+# pull request arrives as `CONTRIBUTOR` with no more access than their first.
+# It is a history, not a permission. `FIRST_TIME_CONTRIBUTOR` and `NONE` are
+# the same case, said differently.
 #
-# The two overlap, deliberately. The fork test is the one that matters and the
-# association test costs nothing, so a scoped or revoked permission does not
-# turn into an auto-merged pull request through the other door.
+# WHERE THE BRANCH LIVES IS REPORTED, NOT ENFORCED
 #
-# Everything else -- a fork PR, a first-time contributor, `NONE` -- is simply
-# NOT ARMED. Nothing is blocked and nothing is rejected: CI still runs, the PR
-# is still reviewable, and a maintainer who wants it to land arms it by hand
-# after reading it. Auto-merge is a convenience for work that was already
-# going to land unattended; an outside contribution is exactly the case that
-# wants a human at the end.
+# An earlier version also required the head branch to be in this repository,
+# on the argument that pushing it proved write access. True, but the converse
+# does not hold: a member who prefers to work from their own fork has the same
+# access and was getting the outsider's treatment, and "not armed" would then
+# depend on the contributor's workflow rather than on their permissions. The
+# fork flag is still printed, because it is the first thing anyone asks when
+# reading one of these logs.
+#
+# Nothing is lost by dropping it. A fork PR from a non-member still fails the
+# association test, which is the check that was doing the work.
+#
+# Everything else -- a fork PR from an outsider, a first-time contributor,
+# `NONE` -- is simply NOT ARMED. Nothing is blocked and nothing is rejected:
+# CI still runs, the PR is still reviewable, and a maintainer who wants it to
+# land arms it by hand after reading it. Auto-merge is a convenience for work
+# that was already going to land unattended; an outside contribution is
+# exactly the case that wants a human at the end.
 #
 # `AUTO_MERGE_AUTHORS` (a repository variable, optional) narrows it further:
 # a comma-separated list of accounts, and when set, ONLY those accounts are
 # armed. Use it to name the agent accounts explicitly instead of trusting
-# every member. Unset -- the default -- means the two conditions above decide.
+# every member. Unset -- the default -- means the association decides.
 #
 # Note this rule has NO history to validate against: all 556 pull requests
 # ever opened here are from one MEMBER account on non-fork branches, so no
 # third-party PR has ever existed to test it. It is written to fail CLOSED for
-# that reason -- an unrecognised case is not armed.
+# that reason -- an unrecognised association is not armed.
 
 name: arm auto-merge
 
@@ -117,15 +124,16 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           ALLOWLIST: ${{ vars.AUTO_MERGE_AUTHORS }}
         run: |
+          # `fork=` is REPORTED and not tested: a member working from their own
+          # fork has the same access as one pushing a branch here, and it is
+          # the first thing anyone asks when reading this log.
           echo "author=$AUTHOR association=$ASSOCIATION fork=$IS_FORK"
 
           arm=yes
-          if [ "$IS_FORK" = "true" ]; then
-            # The structural test: this branch could not have been pushed here.
-            echo "not arming — the head branch is on a fork, so the author has no write access"
-            arm=no
-          fi
           case "$ASSOCIATION" in
+            # The three values that mean access to THIS repository. CONTRIBUTOR
+            # is deliberately absent: GitHub gives it to anyone who has had a
+            # commit merged, so it is a history rather than a permission.
             OWNER|MEMBER|COLLABORATOR) ;;
             *)
               echo "not arming — author_association is '$ASSOCIATION', not OWNER/MEMBER/COLLABORATOR"
