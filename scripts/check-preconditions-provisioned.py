@@ -44,6 +44,12 @@ import os
 import re
 import subprocess
 import sys
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent / "lib"))
+# The gates live across `just/check/*.just` now; the index alone is a
+# SMALLER closure than `just` sees, and this gate fails quietly on it.
+from check_just_sources import check_just_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRECONDITIONS = os.path.join(ROOT, "scripts", "check-tier-preconditions.sh")
@@ -197,7 +203,7 @@ def gate_tool_recipes(root):
         except OSError:
             continue
         found.update(re.findall(r"just (setup-[a-z-]+)", t))
-    found.update(re.findall(r"just (setup-[a-z-]+)", read(os.path.join(root, "just", "check.just"))))
+    found.update(re.findall(r"just (setup-[a-z-]+)", check_just_text(root)))
     _TOOL_CACHE[root] = found
     return found
 
