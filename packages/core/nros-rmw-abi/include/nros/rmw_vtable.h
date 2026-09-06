@@ -523,8 +523,13 @@ typedef struct nros_rmw_vtable_t {
      *  Reserve a writable slot of at least `requested_len` bytes inside
      *  the backend's outbound buffer. Returns:
      *    * `NROS_RMW_RET_OK` + writes `*out_buf` / `*out_cap` / `*out_token`.
-     *    * `NROS_RMW_RET_TRY_AGAIN` if the backend has no slot
+     *    * `NROS_RMW_RET_WOULD_BLOCK` if the backend has no slot
      *      available (caller may retry or fall back to a copy path).
+     *      This line said `TRY_AGAIN` until issue 1126 — a spelling
+     *      `rmw_ret.h` has never defined, in the header that
+     *      IS the ABI contract a third-party backend writes against.
+     *      The runtime reads `WOULD_BLOCK` (and `NO_DATA`) as "no slot,
+     *      not an error"; every other code propagates as a failure.
      *    * `NROS_RMW_RET_INVALID_ARGUMENT` on bad pointers / size.
      *
      *  `*out_cap` may exceed `requested_len`. The slot's bytes are
