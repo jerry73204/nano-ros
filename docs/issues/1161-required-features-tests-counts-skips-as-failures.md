@@ -1,83 +1,95 @@
 ---
 id: 1161
-title: "`check-required-features-tests` runs bare `cargo nextest`, so a `skip!` precondition is a FAILURE there and a skip in `test-unit` — and `just ci gate` runs both"
+title: "The skip budget forbids a missing FIXTURE and permits a missing CAPABILITY, so `check-required-features-tests` reports pass having run 7 of 20"
 status: open
 type: bug
 area: testing, ci
 severity: medium
 found: 2026-09-06
-related: [0774, 0652, 0612]
+related: [0584, 0673, 1168]
 ---
 
-# The same panic, the same host, two opposite verdicts in one lane
+> **Filed premise was wrong, corrected 2026-09-06.** This was filed as "a
+> `skip!` is a failure in one lane and a skip in another, and `just ci gate`
+> runs both", from reading a raw nextest `Summary` line as the lane's verdict.
+> It is not the verdict, and CLAUDE.md says so in as many words: *"Bare
+> `cargo nextest` counts `nros_tests::skip!` panics as FAILURES ... `Real
+> failures: N` from the junit rewrite counts what the RUN saw."* The lane does
+> not use a bare run — it goes through `_nextest-tolerant`, which rewrote the
+> 13 and printed `All failures were [SKIPPED] preconditions — treating as
+> pass`. The red I attributed to this was issue 1168's timer flake, four steps
+> later. What survives is a different and real problem, below.
 
-`just ci gate` on a host with no `ros-<distro>-rmw-zenoh-cpp` installed:
+# A lane that ran 7 of its 20 tests, and said pass
 
 ```
-check::build   FAILED   required-features-tests
-  Summary [0.074s] 20 tests run: 7 passed, 13 failed, 0 skipped
-  panicked at fixtures/zenohd_router.rs:560:
-  [SKIPPED:capability] no `rmw_zenoh_cpp/rmw_zenohd` found. ...
-
-test-unit      ok
-  Summary [0.907s] 1158 tests run: 1155 passed, 3 failed, 2 skipped
-  rewrite-skipped-junit: rewrote 3 [SKIPPED] failure(s) to <skipped>
-  All failures were [SKIPPED] preconditions — treating as pass.
+check-skip-budget: 7 ran, 0 deselected (out of lane), 13 skipped for an unmet
+                   precondition — capability=13
+All failures were [SKIPPED] preconditions — treating as pass.
 ```
 
-Both numbers count the same `nros_tests::skip!` macro, raised for the same
-reason. `test-unit` reclassifies them and passes; `check-required-features-tests`
-does not and fails. The lane is 13 `cargo nextest run` invocations
-(`just/check/lanes.just:1130-1157`), each bare, with no junit rewrite behind
-them.
+Thirteen of twenty tests never executed, on a host with no
+`ros-<distro>-rmw-zenoh-cpp`, and `check-required-features-tests` is green. That
+is the shape issue 0584 exists to prevent — "a lane greens over a coverage
+hole" — and the guard was built and then applied to one of the two classes.
 
-## Why it matters
+## The rule is already written; it names fixtures only
 
-CLAUDE.md already records the mechanism -- "Bare `cargo nextest` counts
-`nros_tests::skip!` panics as FAILURES; only `just test-all`'s junit rewrite
-makes them skips" -- as advice for a human reading a red. Here it is wired into
-a lane, so the consequence is structural:
+`scripts/test/check-skip-budget.py` asserts exactly two properties, and the
+second is:
 
-* **`just ci gate` cannot be green on a host without an optional ROS package**,
-  and `ci gate` is the documented run-before-every-push tier. A contributor with
-  no `rmw_zenoh_cpp` gets a red they cannot fix and did not cause.
-* **The lane loses its signal capacity**, which is the class recorded for
-  uniformly-red lanes: a real regression in these 13 targets arrives looking
-  exactly like today's 13 skips. The targets are there because issues
-  0652/0612/0667 found four of them broken and one capability non-functional
-  when they finally ran -- signal worth keeping.
-* It reads as a REGRESSION to whoever runs it. It is the first thing
-  `check::build` reports, and `ci gate` stops at the first failure, so it also
-  WITHDRAWS `api-parity`, `test-unit` and `test-lane-contracts` from the run
-  (issue 0952's rule) for a reason that is not a defect.
+> **No skip whose reason is a missing fixture.** Since 0584 part 2 an absent
+> in-lane fixture is a hard failure, not a skip.
 
-## What it is not
+So a missing FIXTURE fails. A missing CAPABILITY — here `rmw_zenoh_cpp/rmw_zenohd`,
+resolved through `AMENT_PREFIX_PATH` — is counted, printed, and tolerated. The
+difference is not principled: both are "the thing this test needs is not here",
+and both make the run do less than it claims. It is historical, because 0673
+introduced the capability tolerance to stop tier 1 going red for an environment
+fact, before 0584 established that an unmet precondition should fail.
 
-Not issue 0774. That one was a router that RESOLVED but SEGV'd on a mismatched
-`libzenohc.so`, on a host that HAS ROS; it is fixed, and the fixture now pins
-the pairing. This is the plain absence of `rmw_zenoh_cpp`, which `skip!` is the
-correct response to -- the bug is only in how the lane counts it.
+The cost is the one already recorded for uniformly-red lanes, in the other
+direction: **these 13 have no signal capacity.** A regression in any of them
+looks exactly like today's skip, and they are worth signal — issues
+0652/0612/0667 found four targets broken and one capability non-functional the
+first time this lane's targets actually ran.
 
-## Shape of a fix
+## What "set the scope precisely" means here
 
-Route these invocations through whatever `test-unit` uses (the
-`rewrite-skipped-junit` step), rather than teaching each call site. Two things
-to get right:
+The choice is between two honest states, and the current one is neither:
 
-1. **A rewrite that swallows everything is worse than the red.** It must
-   reclassify only `[SKIPPED...]` panics and leave a real failure red -- the
-   `test-unit` step already does exactly this and prints its count, so the
-   number rewritten stays visible.
-2. **`0 skipped` should not stay the printed summary.** The `Summary` line is
-   what a reader believes; if 13 targets skipped, the lane should say 13
-   skipped, or the next person re-derives this issue from the same output.
+1. **The lane provides the capability.** `rmw_zenohd` is resolvable through
+   RFC-0075's documented order (`NROS_RMW_ZENOHD` -> `AMENT_PREFIX_PATH` ->
+   `$ROS_DISTRO` under `/opt/ros`), so a lane that declares it can also
+   provision it, and then a red is a red.
+2. **The lane does not claim them.** Move the router-dependent targets to a
+   lane whose contract states the requirement, and let this one run only what it
+   can. Seven tests honestly reported beats twenty with thirteen absent.
 
-## Also seen in the same run, separately
+Either way the tolerance stops being ambient: a capability skip becomes a
+FAILURE by default, and any remaining one needs a declared, checked exemption
+the way `check-submodule-pins`' NOT VERIFIED does — a reported skip in a ledger,
+not a silent subtraction.
 
-`nros-platform-cffi::c_port_posix_timer periodic_timer_fires_repeatedly` failed
-with `expected at least 4 fires over 40 ms, got 0` inside the `-P12` build and
-passed 3 of 3 solo with the lane's own `--features posix-c-port`. Its sibling
-`rust_trait_periodic_fires` passed in the same run. A timing assertion under a
-saturated jobserver -- the load-flake class of issue 1159, not this issue's
-mechanism, and not filed separately because a lower bound on a 40 ms window is
-inherently load-sensitive and the fix is the same conversation.
+`check-lane-contracts` already encodes the same principle one layer over: *a
+gate in an affordability tier may only resolve artifacts the JOB ITSELF builds.*
+This is that rule for capabilities rather than artifacts.
+
+## Measured
+
+| | |
+| --- | --- |
+| host | no `ros-humble-rmw-zenoh-cpp` installed (`dpkg -l` = 0 matches, `/opt/ros/humble/lib/rmw_zenoh_cpp` absent) |
+| lane | `check-required-features-tests`, first step |
+| ran | 7 |
+| skipped `capability` | 13 |
+| verdict | pass |
+
+The 13 are in `trigger_conditions`, `wake_latency`, `component_runtime`,
+`component_dispatch`, `component_param` and `signal_fd_wake`, all panicking at
+`fixtures/zenohd_router.rs:560`.
+
+## Not in scope here
+
+The `nros-platform-cffi` timer red seen in the same run is issue 1168 — a
+compute-budget flake, fixed there — not a skip-accounting problem.
