@@ -26,6 +26,11 @@
     "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
+  "c:client_init": {
+    "disposition": "adopt",
+    "verdict": "declined",
+    "why": "rcl's options-taking client constructor, and the one rcl name in this family we do not define. The CAPABILITY is present under our own spelling: `nros_client_init_with_options(cli, node, type_support, name, const struct nros_client_options_t *)` (`nros_generated.h`), and rclc's default form ships under rclc's exact name as `rclc_client_init_default`. Ours says `_with_options` where rcl says bare `_init` because rcl has no second constructor to distinguish it from -- its `_init` IS the options-taking form -- while our surface spells the pair `_init_default` / `_init_with_options` across all five entities, so a reader who has seen one has seen them all. See `c:client_init_with_options` for the ours-only half and `c:client_get_options` for the readback rcl also has and we decline."
+  },
   "c:client_init_best_effort": {
     "verdict": "divergence",
     "why": "rclc ships an entry point per QoS preset; ours takes a QoS value. See `c:publisher_init_best_effort`."
@@ -182,6 +187,11 @@
     "verdict": "declined",
     "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
+  },
+  "c:service_init": {
+    "disposition": "adopt",
+    "verdict": "declined",
+    "why": "rcl's options-taking service constructor, and the one rcl name in this family we do not define. The CAPABILITY is present under our own spelling: `nros_service_init_with_options(srv, node, type_support, name, const struct nros_service_options_t *)` (`nros_generated.h`), and rclc's default form ships under rclc's exact name as `rclc_service_init_default`. Ours says `_with_options` where rcl says bare `_init` because rcl has no second constructor to distinguish it from -- its `_init` IS the options-taking form -- while our surface spells the pair `_init_default` / `_init_with_options` across all five entities, so a reader who has seen one has seen them all. See `c:service_init_with_options` for the ours-only half and `c:service_get_options` for the readback rcl also has and we decline."
   },
   "c:service_init_best_effort": {
     "verdict": "divergence",

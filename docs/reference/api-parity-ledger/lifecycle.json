@@ -425,6 +425,10 @@
     "verdict": "extension",
     "why": "the ours-only half of `rclcpp_lifecycle::State`: a `uint8_t`-backed `enum class` over the five REP-2002 primary states plus an `Unknown = 0` sentinel for a null executor handle. See `cpp:LifecycleNode::on_activate` for why it is an enum and not a class."
   },
+  "cpp:LifecycleTransition": {
+    "verdict": "extension",
+    "why": "the REP-2002 transition set as a closed `enum class LifecycleTransition : uint8_t` (`nros/lifecycle.hpp:65`). rclcpp has no such type: it takes a raw `uint8_t` and a porting user reaches for `lifecycle_msgs::msg::Transition::TRANSITION_*`, which is an INTERFACE PACKAGE constant, not a rclcpp type -- so within this lane there is nothing to correspond to. The Rust half is `rust:LifecycleTransition`, ledgered `extension` for the same reason, and this row is half of what `cpp:Transition` records as OUR LANGUAGES DISAGREE: C++ now has the id enum. It is NOT rclcpp's `Transition` class, which also carries `start_state` / `goal_state` / `label`; that one is still the gap `cpp:Transition` describes.\n\nThe ids ARE upstream's, and were not always: issue 1099 found ours crossed four of eight values (ours had `Activate = 2` where upstream has `CLEANUP = 2`), so a ported file calling `trigger_transition(TRANSITION_CLEANUP)` on an Inactive node was silently ACTIVATING it and returning ok. `ErrorRecovery = 60` is upstream's implicit error-recovery success edge; upstream `8` is `TRANSITION_DESTROY`, which nano-ros does not implement and `trigger_transition` rejects."
+  },
   "cpp:ManagedEntityInterface": {
     "verdict": "gap",
     "bucket": "theirs-only",
@@ -458,6 +462,10 @@
     "verdict": "declined",
     "disposition": "absent",
     "why": "see `cpp:create_default_publisher_options`."
+  },
+  "cpp:shutdown_transition_for": {
+    "verdict": "extension",
+    "why": "`constexpr LifecycleTransition shutdown_transition_for(LifecycleState)` (`nros/lifecycle.hpp:105`) -- the shutdown transition legal from a given state. REP-2002 gives shutdown THREE ids, one per legal source state, so no fixed id shuts a node down from an arbitrary state. rclcpp exposes no such helper: `LifecycleNode::shutdown()` resolves it inside `rcl_lifecycle`'s state machine, so the mapping is never a name a user writes.\n\nOurs is public and `constexpr` for two reasons the issue that created it records. It is what `LifecycleNode::shutdown()` calls, after issue 1099 found it sending `5` unconditionally and therefore unable to shut down an Inactive or Active node; and being `constexpr` lets a test pin every arm without building an executor. The no-legal-shutdown states (`Unknown`, `Finalized`, `ErrorProcessing`) fall back to `ShutdownUnconfigured` on purpose, so the refusal comes from the state machine that owns the rule instead of being re-derived here. The Rust counterpart is `LifecycleTransition::from_shorthand(state, name)` (`nros-core/src/lifecycle.rs:122`), which does the same source-state-dependent resolution for the generic `\"shutdown\"` label a `ChangeState` request carries."
   },
   "rust:Executor::lifecycle_state_machine": {
     "verdict": "divergence",

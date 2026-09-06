@@ -96,7 +96,10 @@ LIB_PREFIXES = {
     # that keeps the prefix on our side can never meet the same symbol on
     # theirs (issue 1188). Stripping it on both sides is what makes
     # `rclc_executor_spin` correlate with `rclc_executor_spin`.
-    "c": (("nros_", "NROS_", "rclc_", "RCLC_"), ("rclc_", "RCLC_", "rcl_", "RCL_")),
+    "c": (
+        ("nros_", "NROS_", "rclc_", "RCLC_", "rcl_", "RCL_"),
+        ("rclc_", "RCLC_", "rcl_", "RCL_"),
+    ),
 }
 
 
