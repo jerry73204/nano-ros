@@ -97,6 +97,18 @@ COMPILER says, not by verdict alphabetics:
 The second set is a SUBSET of `divergence` on purpose -- see
 `same_shaped_divergences` for the measurement and the reason.
 
+It also REJECTS two shapes a disposition can be wrong in (phase-428 Q1):
+
+  a `refuse-loud` row whose  a refusal is a DECLARATION, so its subject must
+  key correlates             be on our side. What the user gets here is
+  `theirs-only`              `undeclared identifier`, which is `absent`. 130
+                             of 144 refuse-loud rows were this on 2026-09-06.
+  a `NROS_RCLCPP_REFUSE_*`   the inverse: a refusal that was written and never
+  message cited by no row    ledgered. A refusing name correlates `same`, so
+                             `--check` stops asking; ~23 live sites had no
+                             row. Checked by name, not by parse -- see
+                             `unreferenced_refusals` for what that cannot do.
+
 # The C++ lane measures TWO surfaces (issue 1020, phase-417 W0.a)
 
 `rclcpp_compat.hpp` is what a ported file actually reaches, so it is the fourth
@@ -185,6 +197,22 @@ UPSTREAM_TOKENS = ("rcl", "rclcpp", "rclrs", "rclc", "rcl_interfaces",
 # OTHER half of W6 -- the `same:ret` promotion -- authored 20 `divergence`
 # rows on subjects that correlate `same`, so they land in exactly this set.
 # The two halves compound; they do not overlap.
+#
+# WHAT IT REJECTS ABOUT A DISPOSITION'S VALUE (phase-428 Q1, 2026-09-06). The
+# gate above asks whether a disposition is PRESENT; these two ask whether a
+# `refuse-loud` is TRUE, in the one direction each that needs no C++ parse:
+#
+#   `misdeclared_refusals`    a refuse-loud row on a `theirs-only` key. The
+#                             subject is not declared, so nothing refuses and
+#                             the user gets `undeclared identifier` -- that is
+#                             `absent`. 130 of 144 refuse-loud rows were this
+#                             when the field was audited; the count of TRUE
+#                             refusals with a row was 3.
+#   `unreferenced_refusals`   a `NROS_RCLCPP_REFUSE_*` message no row cites.
+#                             The inverse defect: a refusal that was written
+#                             and never ledgered, because a refusing name
+#                             correlates `same` and `--check` stops asking.
+#                             ~23 live sites had no row for a phase.
 DISPOSITIONS = ("adopt", "adopt-bounded", "refuse-loud", "absent")
 
 BUCKETS = ("systematic", "arity-only", "differs", "ours-only", "theirs-only")
@@ -860,6 +888,88 @@ def same_shaped_divergences(ledger, lang, rows):
     return sorted(out)
 
 
+def misdeclared_refusals(ledger, lang, rows):
+    """`refuse-loud` rows whose subject our side does not DECLARE.
+
+    phase-428 Q1. A refusal is a declaration (RFC-0089 Part I): the name
+    exists as a `static_assert` or a deleted overload whose message carries
+    the constraint and the alternative. So a refuse-loud subject must appear
+    on OUR side of the correlation -- `same`, `ours-only`, `differs`,
+    `arity-only`, `systematic` -- and a refuse-loud row whose key correlates
+    `theirs-only` is a promise no compiler keeps: the user gets `undeclared
+    identifier`, which is `absent`, and the row says a migration diagnostic
+    fires. Measured 2026-09-06 before this gate existed: 129 of 144
+    refuse-loud rows were exactly that (130 with one key on neither surface),
+    against 3 whose refusal was real. Both directions of the field were wrong
+    at once, and this is the direction a gate can see.
+
+    Keyed on the PORTED-file bucket, like `same_shaped_divergences`, and for
+    the same reason: the refusals live in the `rclcpp::` face a ported file
+    reaches, and on the native surface they are `theirs-only` by design.
+
+    Reports the MEMBER key even when the disposition was inherited from its
+    type: the type's refusal may be real, and the row to write is the
+    member's own `absent`.
+    """
+    buckets = {r["key"]: r.get("bucket") for r in rows if r.get("bucket")}
+    out = set()
+    for r in rows:
+        if r.get("bucket") != "theirs-only":
+            continue
+        entry, _inherited = lookup(ledger, lang, r["key"], "theirs-only", buckets)
+        if entry is None or entry.get("disposition") != "refuse-loud":
+            continue
+        out.add(ledger_key(lang, r["key"]))
+    return sorted(out)
+
+
+# The C++ refusal messages. Every `static_assert(detail::refuse<...>, MSG)`
+# names one of these, so the macro list IS the list of refusal concepts, and
+# it can be read with a regex where the sites themselves cannot (a site is an
+# overload of a working verb, or a variadic template a macro expands to, and
+# tying it to a ledger key needs a C++ parse -- see `unreferenced_refusals`).
+REFUSAL_MACRO_RE = re.compile(r"^\s*#\s*define\s+(NROS_RCLCPP_REFUSE_[A-Z0-9_]+)\b", re.M)
+CPP_INCLUDE_DIR = os.path.join(ROOT, "packages", "api", "nros-cpp", "include", "nros")
+
+
+def refusal_macros(include_dir=CPP_INCLUDE_DIR):
+    """Every `NROS_RCLCPP_REFUSE_*` message the C++ headers define."""
+    found = set()
+    if not os.path.isdir(include_dir):
+        return found
+    for name in sorted(os.listdir(include_dir)):
+        if not name.endswith((".hpp", ".h")):
+            continue
+        with open(os.path.join(include_dir, name), encoding="utf-8") as fh:
+            found.update(REFUSAL_MACRO_RE.findall(fh.read()))
+    return found
+
+
+def unreferenced_refusals(ledger, macros):
+    """Refusal messages no ledger row mentions -- a live refusal the ledger
+    does not know about.
+
+    phase-428 Q1, the cheap half of "a refusing declaration whose row is not
+    refuse-loud". The full rule needs a C++ parse: the `shared_ptr` callback
+    refusal is the third overload of `create_service`, a verb whose row is
+    legitimately adopt-bounded, and the throttle refusal is a `detail::`
+    template five macros expand to. What CAN be checked without a parser is
+    that every refusal CONCEPT -- every `NROS_RCLCPP_REFUSE_*` message -- is
+    cited by at least one row's `why`, whatever that row's disposition. That
+    is the inverse of `misdeclared_refusals`: it catches a refusal that was
+    written and never ledgered, which is how ~23 live sites carried no
+    refuse-loud row for a phase (the name refuses, so it correlates `same`,
+    so `--check` stops asking).
+    """
+    cited = set()
+    for value in ledger.values():
+        why = value.get("why", "")
+        for macro in macros:
+            if macro in why:
+                cited.add(macro)
+    return sorted(set(macros) - cited)
+
+
 # --------------------------------------------------------------------------
 # report
 # --------------------------------------------------------------------------
@@ -1063,6 +1173,7 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
     ported_unledgered = []
     misfiled = []
     same_shaped = []
+    misdeclared = []
     with tempfile.TemporaryDirectory() as tmpdir:
         for lang in langs:
             rows, prov, removed = run_lang(lang, tmpdir, include_internal)
@@ -1082,6 +1193,9 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
             # RFC-0089's other half: a ledgered `divergence` whose shape
             # corresponds is the one difference no compiler mentions.
             same_shaped.extend(same_shaped_divergences(ledger, lang, rows))
+            # phase-428 Q1: a refusal is a declaration, so a refuse-loud
+            # subject must be on OUR side of the correlation.
+            misdeclared.extend(misdeclared_refusals(ledger, lang, rows))
 
             print("\n=== %s vs %s ===" % (lang, prov.get("package", "?")))
             if prov:
@@ -1247,6 +1361,37 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
                     print("  " + key, file=sys.stderr)
                 if len(shaped) > 40:
                     print("  ... and %d more" % (len(shaped) - 40), file=sys.stderr)
+                return 1
+            bad_refusals = sorted(set(misdeclared))
+            if bad_refusals:
+                print(
+                    "\n%d `refuse-loud` ledger row(s) name a symbol our side does not "
+                    "DECLARE (the key correlates theirs-only). A refusal is a declaration "
+                    "-- a `static_assert` or deleted overload whose message names the "
+                    "constraint and the alternative (RFC-0089 Part I) -- so what a porting "
+                    "user actually gets here is `undeclared identifier`, which is `absent`. "
+                    "Relabel the row `absent`, or write the refusal."
+                    % len(bad_refusals),
+                    file=sys.stderr,
+                )
+                for key in bad_refusals[:40]:
+                    print("  " + key, file=sys.stderr)
+                if len(bad_refusals) > 40:
+                    print("  ... and %d more" % (len(bad_refusals) - 40), file=sys.stderr)
+                return 1
+            uncited = unreferenced_refusals(ledger, refusal_macros())
+            if uncited:
+                print(
+                    "\n%d C++ refusal message(s) are defined in nros-cpp's headers and "
+                    "cited by NO ledger row. A refusal that refuses correlates `same`, so "
+                    "`--check` never asks for its row; this is the only place the ledger "
+                    "learns it exists. Cite the macro by name in the `why` of the row for "
+                    "the name it refuses (and make that row `refuse-loud` if the whole "
+                    "name refuses):" % len(uncited),
+                    file=sys.stderr,
+                )
+                for macro in uncited:
+                    print("  " + macro, file=sys.stderr)
                 return 1
         failing = list(unledgered) + (ported_unledgered if check_ported else [])
         if failing:
@@ -1868,6 +2013,68 @@ def self_test():
              {"key": "U", "bucket": "differs"}, {"key": "U::m", "bucket": "same"}]
     check("an inherited member reports its type's ledger key",
           same_shaped_divergences(iled, "cpp", irows), ["cpp:T"])
+
+    # ------------------------------------------------------------- Q1 (428)
+    # A refusal is a DECLARATION, so a refuse-loud subject must be on our side.
+    # Four planted rows, one per arm:
+    #   R  refuse-loud + theirs-only  -> MUST be reported
+    #   A  absent      + theirs-only  -> must NOT be (that is the honest label)
+    #   L  refuse-loud + same         -> must NOT be (the refusal is a declaration
+    #      and correlates `same` by design -- `cpp:NodeOptions`)
+    #   O  refuse-loud + ours-only    -> must NOT be (`enable_logger_service`,
+    #      declared here, absent from the recorded Humble surface)
+    rled = {
+        "cpp:R": {"verdict": "declined", "why": "x", "disposition": "refuse-loud"},
+        "cpp:A": {"verdict": "declined", "why": "x", "disposition": "absent"},
+        "cpp:L": {"verdict": "divergence", "why": "x", "disposition": "refuse-loud"},
+        "cpp:O": {"verdict": "declined", "why": "x", "disposition": "refuse-loud"},
+    }
+    rrows = [{"key": "R", "bucket": "theirs-only"},
+             {"key": "A", "bucket": "theirs-only"},
+             {"key": "L", "bucket": "same"},
+             {"key": "O", "bucket": "ours-only"}]
+    check("a refuse-loud row on a theirs-only key is caught",
+          misdeclared_refusals(rled, "cpp", rrows), ["cpp:R"])
+    for key, want in (("R", ["cpp:R"]), ("A", []), ("L", []), ("O", [])):
+        got = misdeclared_refusals({"cpp:" + key: rled["cpp:" + key]}, "cpp",
+                                   [r for r in rrows if r["key"] == key])
+        check("planted refusal %s alone" % key, got, want)
+    # Inheritance: a theirs-only MEMBER of a refuse-loud theirs-only TYPE
+    # inherits the refusal and is reported under its OWN key -- the type's
+    # refusal may be real, and the row to write is the member's `absent`.
+    check("an inherited refuse-loud on a theirs-only member names the member",
+          misdeclared_refusals(
+              {"cpp:V": {"verdict": "declined", "why": "x", "disposition": "refuse-loud"}},
+              "cpp", [{"key": "V", "bucket": "theirs-only"},
+                      {"key": "V::m", "bucket": "theirs-only"}]),
+          ["cpp:V", "cpp:V::m"])
+
+    # The inverse: every refusal MESSAGE the headers define must be cited by
+    # some row, whatever its disposition. Planted both ways, and the reader
+    # pinned on a header shape so a `#define` that moves or gains spaces does
+    # not silently empty the list (an empty list makes the gate vacuously green).
+    check("an uncited refusal macro is reported",
+          unreferenced_refusals(
+              {"cpp:X": {"verdict": "declined", "why": "see NROS_RCLCPP_REFUSE_ONE",
+                         "disposition": "refuse-loud"}},
+              {"NROS_RCLCPP_REFUSE_ONE", "NROS_RCLCPP_REFUSE_TWO"}),
+          ["NROS_RCLCPP_REFUSE_TWO"])
+    check("a cited refusal macro is not reported, whatever the row's disposition",
+          unreferenced_refusals(
+              {"cpp:X": {"verdict": "divergence", "why": "NROS_RCLCPP_REFUSE_ONE at :1",
+                         "disposition": "adopt-bounded"}},
+              {"NROS_RCLCPP_REFUSE_ONE"}),
+          [])
+    check("refusal macros are read from a #define, with or without spacing",
+          REFUSAL_MACRO_RE.findall(
+              "#define NROS_RCLCPP_REFUSE_A \\\n  \"x\"\n"
+              "  #  define NROS_RCLCPP_REFUSE_B(x) y\n"
+              "// #define NROS_RCLCPP_REFUSE_C\n"
+              "#define NROS_RCLCPP_ABORT_FAILED_CREATE \"z\"\n"),
+          ["NROS_RCLCPP_REFUSE_A", "NROS_RCLCPP_REFUSE_B"])
+    if os.path.isdir(CPP_INCLUDE_DIR) and not refusal_macros():
+        failures.append("refusal_macros() found nothing under nros-cpp/include -- "
+                        "the reader is broken, and an empty list is a vacuous green")
 
     # `_ret_of` takes the FLATTENED ITEM, whose return types live one level
     # down under `overloads`. Pinned because getting it wrong is SILENT: it was
