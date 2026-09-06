@@ -1666,10 +1666,18 @@ fn test_zephyr_workspace_entry_native_sim_e2e() {
     // `bins/int32-sink`, which subscribes Int32 natively. Readiness is
     // unchanged ("Waiting for"); the per-message marker is not — the sink
     // prints "Received:", the example printed "I heard:".
-    let listener_path = match nros_tests::fixtures::build_int32_sink() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("int32-sink fixture not prebuilt ({e})"),
-    };
+    //
+    // HARD FAILURE, not a skip — issue 1124, the sibling of the `.expect()` on
+    // the Entry twenty lines up. One test, two spellings, and the skipping one
+    // hid a lane gap: the row (`int32-sink-zenoh`, `linux,rust,zenoh`) is in
+    // EVERY lane's coordinate set and in every lane's build set (measured over
+    // tier1 / tier2 / tier2-nightly), and out-of-lane never reaches this arm
+    // anyway — `require_coord_in_lane` panics `[SKIPPED:lane]` inside the
+    // resolver, before the existence check. This is issue 1112's site one file
+    // over.
+    let listener_path = nros_tests::fixtures::build_int32_sink()
+        .expect("int32-sink fixture (row `int32-sink-zenoh`)")
+        .to_path_buf();
     use nros_tests::process::ManagedProcess;
     use std::process::Command;
     let mut listener_cmd = Command::new(listener_path);

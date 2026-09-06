@@ -27,8 +27,33 @@
 //! domain (overriding the baked `s0` locator + `s1` domain), with no fixed-port /
 //! fixed-domain collision risk.
 //!
-//! Skips cleanly when `zenohd`, the bridge entry fixture (gated on the cyclonedds
-//! submodule), or the nano cyclone listener fixture is not built.
+//! Skips cleanly when `zenohd` is absent, or when this run's lane does not
+//! select the fixtures' coordinates.
+//!
+//! ## A failed fixture resolution is a FAILURE here, never a skip (issue 1124)
+//!
+//! Every resolver below is `.expect()`ed. That is not a blanket policy — it is
+//! what the lane machinery leaves once out-of-lane is subtracted:
+//!
+//! * **Out of lane never reaches the caller.** `require_coord_in_lane` /
+//!   `require_workspace_in_lane` run INSIDE the resolver, BEFORE the existence
+//!   check, and panic `[SKIPPED:lane]`. So an `Err` here can never mean "this
+//!   lane deliberately did not build it".
+//! * **Every fixture this file names has a manifest row, in the build set of
+//!   every lane that selects its coordinate.** Measured:
+//!   `workspace-rust-native-bridge` and `int32-sink-cyclonedds` are
+//!   `linux,rust,cyclonedds`; `header-chatter-talker` is `linux,rust,zenoh`.
+//!   tier 1 and tier2-nightly select both coordinates and build all three rows;
+//!   tier 2 selects only `linux,rust,zenoh`, so the cyclone rows lane-skip in
+//!   the resolver above and this file's `Err` arm is unreachable there.
+//! * So an `Err` is a missing, stale or failed-to-build IN-LANE fixture, which
+//!   issue 0584 makes a hard failure. `check-skip-budget` already fails the run
+//!   for any `not prebuilt` skip — converting only moves the red from the gate,
+//!   twenty minutes later and site-less, onto the site.
+//!
+//! The workspace-entry resolver is the one that mattered most:
+//! `require_prebuilt_workspace_binary` has no `gate_promised_fixtures()` panic,
+//! so unlike a cargo row its `Err` reached this file even in a GATED run.
 
 use std::{
     path::{Path, PathBuf},
@@ -52,8 +77,7 @@ use rstest::rstest;
 const ZENOH_NODE: &str = "S0";
 const CYCLONE_NODE: &str = "S1";
 
-/// Resolve the Int32 sink built for cyclonedds, or skip when the fixtures
-/// aren't set up.
+/// Resolve the Int32 sink built for cyclonedds.
 ///
 /// issue 0449 — this used to drive `examples/native/c/listener` with
 /// `NROS_SUB_TYPE=int32`, a runtime message-type switch that existed ONLY for
@@ -61,14 +85,12 @@ const CYCLONE_NODE: &str = "S1";
 /// `std_msgs/String`; a test that needs a different payload uses a test bin.
 /// `bins/int32-sink` gained the cyclone axis so this could stop bending an
 /// example around a test.
+///
+/// HARD FAILURE, not a skip — issue 1124; see the module note below.
 fn nano_cyclone_listener() -> PathBuf {
     build_int32_sink_rmw(Rmw::Cyclonedds)
         .map(Path::to_path_buf)
-        .unwrap_or_else(|e| {
-            nros_tests::skip!(
-                "int32-sink cyclonedds fixture not built (run `just build-test-fixtures`): {e:?}"
-            )
-        })
+        .expect("int32-sink cyclonedds fixture (row `int32-sink-cyclonedds`)")
 }
 
 fn spawn_cyclone_listener(binary: &Path, domain: u8) -> ManagedProcess {
@@ -109,15 +131,17 @@ fn declarative_zenoh_to_cyclonedds_bridge_to_nano_listener() {
     if !require_zenohd() {
         nros_tests::skip!("zenohd not found");
     }
-    // Gated on the cyclonedds submodule — the entry build compiles vendored C++
-    // Cyclone, so an unprovisioned tree leaves the fixture absent.
-    let bridge_bin = match build_native_workspace_rust_bridge_entry() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!(
-            "bridge-cyclonedds native_entry fixture not prebuilt ({e}); run \
-             `just native build-workspace-fixtures` (needs `just cyclonedds setup`)"
-        ),
-    };
+    // An unprovisioned cyclonedds submodule does NOT silently leave this
+    // fixture absent: `workspace-fixtures-build.sh` fails loud and actionable
+    // for a `NROS_RMW=cyclonedds` row on linux (issue 0120). So a resolver
+    // `Err` here means the fixture is missing or stale in a lane that selected
+    // it — hard failure (issue 1124).
+    let bridge_bin = build_native_workspace_rust_bridge_entry()
+        .expect(
+            "bridge-cyclonedds native_entry fixture (row `workspace-rust-native-bridge`); run \
+             `just native build-workspace-fixtures` (needs `just cyclonedds setup`)",
+        )
+        .to_path_buf();
     let listener_bin = nano_cyclone_listener();
 
     // Ephemeral router + unique cyclone domain (overriding the baked endpoints
@@ -147,10 +171,9 @@ fn declarative_zenoh_to_cyclonedds_bridge_to_nano_listener() {
         .expect("spawn declarative bridge entry");
     std::thread::sleep(Duration::from_secs(2));
 
-    let talker_binary = match build_native_talker_header() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("talker `header` fixture not prebuilt ({e})"),
-    };
+    let talker_binary = build_native_talker_header()
+        .expect("talker `header` fixture (row `header-chatter-talker`)")
+        .to_path_buf();
     let mut talker = spawn_zenoh_talker(&talker_binary, &zenoh_locator);
 
     let listener_output = listener
@@ -194,14 +217,12 @@ fn declarative_zenoh_to_cyclonedds_nested_header_to_ros2() {
     if !require_ros2_cyclonedds() {
         nros_tests::skip!("ROS 2 + rmw_cyclonedds_cpp not available");
     }
-    let bridge_bin = match build_native_workspace_rust_bridge_entry() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("bridge-cyclonedds native_entry fixture not prebuilt ({e})"),
-    };
-    let talker_bin = match build_native_talker_header() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("talker `header` fixture not prebuilt ({e})"),
-    };
+    let bridge_bin = build_native_workspace_rust_bridge_entry()
+        .expect("bridge-cyclonedds native_entry fixture (row `workspace-rust-native-bridge`)")
+        .to_path_buf();
+    let talker_bin = build_native_talker_header()
+        .expect("talker `header` fixture (row `header-chatter-talker`)")
+        .to_path_buf();
 
     let zenohd = nros_tests::fixtures::or_skip(ZenohRouter::start_unique());
     let zenoh_locator = zenohd.locator();

@@ -24,8 +24,25 @@
 //! The agent's DDS participant joins the XRCE-client-requested domain, so the
 //! bridge egress and the listener share it.
 //!
-//! Skips cleanly when `zenohd`, the XRCE Agent, the bridge entry fixture, or the
-//! xrce listener fixture is not built.
+//! Skips cleanly when `zenohd` or the XRCE Agent is absent, or when this run's
+//! lane does not select the fixtures' coordinates.
+//!
+//! ## A failed fixture resolution is a FAILURE here, never a skip (issue 1124)
+//!
+//! Out-of-lane never reaches this file: `require_workspace_in_lane` /
+//! `require_coord_in_lane` run inside the resolver, BEFORE the existence check,
+//! and panic `[SKIPPED:lane]`. All three fixtures named below have manifest
+//! rows — `workspace-rust-native-bridge-xrce` and `int32-sink-xrce` at
+//! `linux,rust,xrce`, `header-chatter-talker` at `linux,rust,zenoh` — and each
+//! is in the build set of every lane selecting its coordinate (measured: tier 1
+//! and tier2-nightly build all three; tier 2 selects only `linux,rust,zenoh`,
+//! so the xrce entry lane-skips in the resolver before this file's first
+//! `Err` arm is reachable). What is left is a missing / stale / failed-build
+//! IN-LANE fixture, which issue 0584 makes a hard failure.
+//!
+//! `require_prebuilt_workspace_binary` carries no `gate_promised_fixtures()`
+//! panic, so — unlike a cargo row — the entry's `Err` reached this file even in
+//! a GATED run. That is the one that was actually laundering.
 
 use std::{process::Command, time::Duration};
 
@@ -52,13 +69,12 @@ fn declarative_zenoh_to_xrce_bridge_to_nros_listener(zenohd_unique: ZenohRouter)
     if !require_xrce_agent() {
         nros_tests::skip!("XRCE-DDS Agent not found");
     }
-    let bridge_bin = match build_native_workspace_rust_bridge_xrce_entry() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!(
-            "bridge-xrce native_entry fixture not prebuilt ({e}); run \
-             `just native build-workspace-fixtures`"
-        ),
-    };
+    let bridge_bin = build_native_workspace_rust_bridge_xrce_entry()
+        .expect(
+            "bridge-xrce native_entry fixture (row `workspace-rust-native-bridge-xrce`); run \
+             `just native build-workspace-fixtures`",
+        )
+        .to_path_buf();
 
     let zenoh_locator = zenohd_unique.locator();
     let agent = XrceAgent::start_unique().expect("XRCE Agent start");
@@ -99,10 +115,9 @@ fn declarative_zenoh_to_xrce_bridge_to_nros_listener(zenohd_unique: ZenohRouter)
     // the same `rmw-*` axis the examples do, so the example is free of the
     // switch. Marker moves with the binary: the sink prints "Received:"
     // (INT32_LISTENER_LOG_PREFIX), not the example's "I heard:".
-    let xrce_listener_binary = match build_int32_sink_rmw(nros_tests::fixtures::Rmw::Xrce) {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("int32-sink xrce fixture not prebuilt ({e})"),
-    };
+    let xrce_listener_binary = build_int32_sink_rmw(nros_tests::fixtures::Rmw::Xrce)
+        .expect("int32-sink xrce fixture (row `int32-sink-xrce`)")
+        .to_path_buf();
     let mut listener_cmd = Command::new(&xrce_listener_binary);
     listener_cmd
         .env("RUST_LOG", "info")
@@ -118,10 +133,9 @@ fn declarative_zenoh_to_xrce_bridge_to_nros_listener(zenohd_unique: ZenohRouter)
         )
         .expect("xrce listener did not become ready");
 
-    let talker_binary = match build_native_talker_header() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("talker `header` fixture not prebuilt ({e})"),
-    };
+    let talker_binary = build_native_talker_header()
+        .expect("talker `header` fixture (row `header-chatter-talker`)")
+        .to_path_buf();
     let mut talker_cmd = Command::new(&talker_binary);
     // Match the Int32 bridge/listener (issue #183): publish std_msgs/Int32.
     // phase-338 W3 — this used the native rust talker with `NROS_PUB_TYPE=int32`;

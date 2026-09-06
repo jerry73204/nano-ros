@@ -37,6 +37,20 @@
 //! * **B — env-gated companion** (`test_zenoh_to_cyclonedds_bridge_ros2`): receive
 //!   side is stock `ros2 topic echo` over `rmw_cyclonedds_cpp`. Skips unless ROS 2
 //!   + cyclone are installed; the `cross-backend-bridges.md` recipe's live demo.
+//!
+//! ## A failed fixture resolution is a FAILURE here, never a skip (issue 1124)
+//!
+//! Out-of-lane never reaches this file: `require_in_lane` /
+//! `require_coord_in_lane` run inside the resolver, BEFORE the existence check,
+//! and panic `[SKIPPED:lane]`. Both fixtures this file names have manifest rows
+//! at `linux,rust,cyclonedds` (`bins/bridge-zenoh-to-cyclonedds-fwd`) and
+//! `linux,c,cyclonedds` (`examples/native/c/listener`, `build-cyclonedds`), and
+//! both are in the build set of every lane that selects those coordinates
+//! (measured: tier 1 and tier2-nightly build them; tier 2 selects neither, so
+//! the resolver lane-skips there and this file's `Err` arm is unreachable).
+//! What is left is a missing / stale / failed-build IN-LANE fixture, which
+//! issue 0584 makes a hard failure — and which `check-skip-budget` already
+//! fails the run for, site-less, twenty minutes downstream.
 
 use std::{
     path::{Path, PathBuf},
@@ -57,14 +71,13 @@ use rstest::rstest;
 const TOPIC: &str = "/chatter";
 const MSG_TYPE: &str = "std_msgs/msg/String";
 
-/// Resolve (building if needed) the native Cyclone C listener, or skip when the
-/// fixtures aren't set up. Mirrors `cyclonedds_ros2_interop::nano_cyclone_c_binary`.
+/// Resolve the prebuilt native Cyclone C listener. Mirrors
+/// `cyclonedds_ros2_interop::nano_cyclone_c_binary`.
+///
+/// HARD FAILURE, not a skip — issue 1124; see the module note above.
 fn nano_cyclone_listener() -> PathBuf {
-    build_native_c_example_rmw("listener", "c_listener", Rmw::Cyclonedds).unwrap_or_else(|e| {
-        nros_tests::skip!(
-            "native/c/listener cyclonedds fixture not built (run `just cyclonedds setup`): {e:?}"
-        )
-    })
+    build_native_c_example_rmw("listener", "c_listener", Rmw::Cyclonedds)
+        .expect("native/c/listener cyclonedds fixture (run `just cyclonedds setup`)")
 }
 
 fn spawn_cyclone_listener(binary: &Path, domain: u8) -> ManagedProcess {
@@ -109,16 +122,9 @@ fn test_zenoh_to_cyclonedds_bridge_e2e(zenohd_unique: ZenohRouter, talker_binary
         nros_tests::skip!("zenohd not found");
     }
 
-    let bridge_bin = match build_bridge_zenoh_to_cyclonedds_fwd() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => {
-            nros_tests::skip!(
-                "bridge-zenoh-to-cyclonedds-fwd binary not prebuilt ({e}); run `cargo build \
-                 --profile nros-relwithdebinfo` inside \
-                 packages/testing/nros-tests/bins/bridge-zenoh-to-cyclonedds-fwd/"
-            );
-        }
-    };
+    let bridge_bin = build_bridge_zenoh_to_cyclonedds_fwd()
+        .expect("bridge-zenoh-to-cyclonedds-fwd fixture (bins/bridge-zenoh-to-cyclonedds-fwd)")
+        .to_path_buf();
 
     let zenoh_locator = zenohd_unique.locator();
 
@@ -188,10 +194,9 @@ fn test_zenoh_to_cyclonedds_bridge_to_nano_listener(
     if !require_zenohd() {
         nros_tests::skip!("zenohd not found");
     }
-    let bridge_bin = match build_bridge_zenoh_to_cyclonedds_fwd() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("bridge-zenoh-to-cyclonedds-fwd binary not prebuilt ({e})"),
-    };
+    let bridge_bin = build_bridge_zenoh_to_cyclonedds_fwd()
+        .expect("bridge-zenoh-to-cyclonedds-fwd fixture (bins/bridge-zenoh-to-cyclonedds-fwd)")
+        .to_path_buf();
     let listener_bin = nano_cyclone_listener();
 
     let zenoh_locator = zenohd_unique.locator();
@@ -248,10 +253,9 @@ fn test_zenoh_to_cyclonedds_bridge_ros2(zenohd_unique: ZenohRouter, talker_binar
     if !require_ros2_cyclonedds() {
         nros_tests::skip!("ROS 2 + rmw_cyclonedds_cpp not available");
     }
-    let bridge_bin = match build_bridge_zenoh_to_cyclonedds_fwd() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => nros_tests::skip!("bridge-zenoh-to-cyclonedds-fwd binary not prebuilt ({e})"),
-    };
+    let bridge_bin = build_bridge_zenoh_to_cyclonedds_fwd()
+        .expect("bridge-zenoh-to-cyclonedds-fwd fixture (bins/bridge-zenoh-to-cyclonedds-fwd)")
+        .to_path_buf();
 
     let zenoh_locator = zenohd_unique.locator();
     let domain = nros_tests::unique_ros_domain_id();

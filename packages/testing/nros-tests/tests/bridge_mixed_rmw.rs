@@ -60,15 +60,17 @@ fn test_zenoh_to_xrce_bridge_e2e(
         nros_tests::skip!("XRCE-DDS Agent not found");
     }
 
-    let bridge_bin = match build_bridge_zenoh_to_xrce_fwd() {
-        Ok(p) => p.to_path_buf(),
-        Err(e) => {
-            nros_tests::skip!(
-                "bridge-zenoh-to-xrce-fwd binary not prebuilt ({e}); run `cargo build --profile nros-relwithdebinfo` inside \
-                 packages/testing/nros-tests/bins/bridge-zenoh-to-xrce-fwd/"
-            );
-        }
-    };
+    // HARD FAILURE, not a skip — issue 1124. `require_in_lane` runs inside the
+    // resolver BEFORE the existence check, so an out-of-lane coordinate has
+    // already panicked `[SKIPPED:lane]` and never returns `Err` here. The row
+    // (`bins/bridge-zenoh-to-xrce-fwd`, `linux,rust,xrce`) is in the build set
+    // of every lane that selects that coordinate — measured: tier 1 and
+    // tier2-nightly build it; tier 2 does not select `linux,rust,xrce`, so this
+    // arm is unreachable there. What is left is a missing / stale / failed-build
+    // IN-LANE fixture, which issue 0584 makes a hard failure.
+    let bridge_bin = build_bridge_zenoh_to_xrce_fwd()
+        .expect("bridge-zenoh-to-xrce-fwd fixture (bins/bridge-zenoh-to-xrce-fwd)")
+        .to_path_buf();
 
     let zenoh_locator = zenohd_unique.locator();
     let agent = XrceAgent::start_unique().expect("XRCE Agent start");
