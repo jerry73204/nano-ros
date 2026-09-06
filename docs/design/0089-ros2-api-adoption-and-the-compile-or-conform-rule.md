@@ -1832,3 +1832,125 @@ one that reaches further is the one with no `std::` in it.
 capability upstream does not have, so each keeps our namespace and a ledger row
 with a disposition. Giving them upstream spellings would be the compile-and-differ
 this RFC exists to forbid.
+
+## Context and `init`, settled (2026-09-07)
+
+Two questions came out of the phase-428 closure: whether `rclrs::Context::
+default_from_env()` should exist beside `nros::init()`, and — behind it — what
+"from the environment" can mean on a target that has no environment. Both are
+settled here; the work items are phase-427 W9 and W10.
+
+### `Context` is not `Node`, in either language
+
+They answer different questions, and one image holds one of the first and
+several of the second. `Context` is WHERE this image is connected: locator,
+domain, RMW, session mode, and the source those came from. One per process or
+image; a resolved value, not an entity on the graph. `Node` is a named
+participant with its own entities. RFC-0047 already puts several named nodes
+in one image and the bridge image (`Executor::open_multi`) opens two sessions,
+so folding context into node would either copy session config onto every node
+or force one node per session. Upstream draws the same line: rclrs has an
+explicit `Context` object, rclcpp hides one behind `init()` as the global
+default context every `Node` reads. Our C++ already does the rclcpp thing;
+the Rust side doing the rclrs thing is the same model in each language's own
+spelling (clause "each language follows its own upstream").
+
+The value is thin — five fields and "create the executor from me". The
+executor owns the session; the context says where; the node has the name.
+
+### "From the environment" on a target with no environment
+
+rclrs's `default_from_env` reads the process environment (`ROS_DOMAIN_ID`,
+`RMW_IMPLEMENTATION`). Hosted, ours reads the same thing (`init.rs`,
+`try_resolve_hosted`), and a launcher projects per-node values into that
+environment before exec. On an RTOS or bare-metal image there is no process
+and no environment; the same values are BAKED at compile time —
+`option_env!("NROS_LOCATOR")`, `NROS_DOMAIN_ID` exported by the leaf
+`build.rs` from Kconfig or `config.toml` — with one runtime hook for a locator
+a board hands in. The semantics survive with the source moved from run time
+to build time: "the environment this image was built for or launched in".
+That is a bounded adoption, not a lie, and it is what the row says.
+
+Consequence: `Context` compiles on EVERY target. Today `init.rs` sits whole
+behind the `env` feature (`std::env`), so a freestanding image has no
+`Context` at all and the entry macros build an `ExecutorConfig` by hand from
+the baked constants. After W9 the `env` feature gates only the process-env
+reader; the freestanding constructor reads the baked constants, and the entry
+macros call it — one source of the baked shape.
+
+### The Rust shape
+
+```rust
+pub struct InitOptions { domain_id: Option<u32> }          // the one option that exists
+impl InitOptions { pub fn new() -> Self; pub fn with_domain_id(self, Option<usize>) -> Self; }
+
+impl Context {
+    pub fn default_from_env() -> Result<Context, InitError>;        // hosted: env; freestanding: baked
+    pub fn from_env(o: InitOptions) -> Result<Context, InitError>;  // + domain override
+    #[cfg(feature = "env")]
+    pub fn new(args: impl IntoIterator<Item = String>, o: InitOptions) -> Result<Context, InitError>;
+                                                                    // refuses --ros-args loudly; absent freestanding
+    #[cfg(feature = "alloc")]
+    pub fn create_executor(&self) -> Result<Executor<'static>, InitError>;
+    pub fn create_executor_in<'b>(&self, backing: &'b mut [MaybeUninit<u64>]) -> Result<Executor<'b>, InitError>;
+}
+impl Executor<'_> {
+    pub fn create_node(&mut self, name: &str) -> Result<Node, NodeError>;   // several named nodes: RFC-0047
+    pub fn spin(&mut self, opts: SpinOptions) -> Result<(), NodeError>;
+    pub fn spin_once(&mut self, timeout_ms: u32) -> Result<(), NodeError>; // ours, kept
+}
+pub fn init() -> Result<Context, InitError>;   // stays: the C++-symmetric anchor, equal to default_from_env()
+```
+
+| rclrs | ours | disposition |
+| --- | --- | --- |
+| `Context::default_from_env` | same | `adopt`; source bounded on freestanding, stated in the row |
+| `Context::from_env(InitOptions)` | same, domain only | `adopt-bounded` |
+| `Context::new(args, InitOptions)` | same hosted, refuses `--ros-args` at run time | `adopt-bounded` hosted, `absent` freestanding (no argv) |
+| `Context::create_executor` | returns `Result`, `alloc` only | `adopt-bounded` |
+| `create_executor_in` | ours | `extension` |
+| `Executor::create_node` | same | `adopt` |
+| `Executor::spin(SpinOptions)` | subset of options | `adopt-bounded` |
+| `spin_once` | ours | `extension` (kept, phase-427) |
+| `nros::init` | ours, equals `default_from_env` | kept; the C++ anchor |
+
+A ported rclrs `main` then changes in exactly two places, both `?` on calls
+that can fail here and cannot there (`create_executor`, `spin`); the error
+types differ (`InitError`/`NodeError` for `RclrsError`), invisible under `?`
+and loud under a `match`. The line that is a real design difference —
+`create_executor` needing a backing on a no-alloc target — is the one the
+compiler names.
+
+### The C++ shape, and why `init` has two overloads
+
+Not multiple ways to init a node. One way to init the process context, with
+argv OPTIONAL, and nodes constructed one way (`Node(name)` + `init()`
+freestanding, `make_shared<Node>(name)` hosted; phase-427 W2).
+
+```cpp
+inline void init(int argc, char const* const* argv);   // hosted text; aborts if argv carries --ros-args
+inline void init();                                    // no argv
+```
+
+Upstream has only the argc/argv form because upstream always has a
+`main(argc, argv)`. An RTOS image has no such `main` — Zephyr's takes nothing,
+ThreadX starts a thread, bare metal enters `app_main` — so the ported
+tutorial's `main` does not survive the port on those targets regardless, and
+the user writes `init()` (or `init(0, nullptr)`, which also compiles). The argv
+form is `adopt-bounded` on every target: it accepts argv, honours nothing in
+it, and refuses `--ros-args`. The single-spelling alternative (argv overload
+hosted-only) was considered and rejected: the argv form is what makes a ported
+hosted `main` compile unchanged, and on RTOS the `main` is rewritten anyway.
+
+Who initialises the context, per case:
+
+| case | who | the user writes |
+| --- | --- | --- |
+| standalone, hosted | the user's `main` | `rclcpp::init(argc, argv)` / `Context::default_from_env()` |
+| standalone, RTOS or bare | the user's entry function | `rclcpp::init()` / `Context::default_from_env()` (baked) |
+| workspace, hosted | generated entry | nothing; the node is a component |
+| workspace, RTOS | generated entry | nothing; the node is a component |
+
+In a workspace project the user never writes any of this: `nros::main!(launch
+= "bringup")` generates the entry, the config comes from the SystemModel, and
+the same node links into a Linux process or a Zephyr image unchanged.
