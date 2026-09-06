@@ -423,3 +423,21 @@ workflow-runner-isolation:
 [group("checks")]
 workflow-setup-spelling:
     @python3 scripts/check-workflow-setup-spelling.py
+
+# A hook must leave the repository it guards byte-identical — issues 0986/0988.
+#
+# The three scripts above build throwaway repos in their selftests, and an
+# inherited GIT_DIR overrides BOTH a path argument and `git -C`, so they ran
+# against the CALLER's repo instead: `core.bare = true` written into its config,
+# a gitlink with an invalid sha staged into its index — by the hook whose job is
+# refusing bad submodule pins. Nothing could see it, because the damage does not
+# reproduce by hand (an interactive shell has no GIT_DIR) and it is self-masking
+# (run 2 dies before reaching the cause).
+#
+# So this runs them, and the hook, under the environment git actually supplies,
+# against a victim repo compared byte for byte including mtimes — which matters
+# here beyond correctness: anything that rewrites a tracked file re-stales every
+# prebuilt fixture in the tree. ~6 s, no network, no build.
+[private]
+hook-repo-side-effects:
+    @bash scripts/check-hook-repo-side-effects.sh
