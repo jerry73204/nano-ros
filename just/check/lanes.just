@@ -100,6 +100,52 @@ c: c-fmt
         "$nros_c_lib" -lpthread -ldl -lm \
         -o tmp/cdr_borrow_le_slice
     ./tmp/cdr_borrow_le_slice
+    echo "  - entry seam links from C alone + the strong override wins (phase-432 W3.1)"
+    # `nros_board_network_wait()` is the board hook the three RTOS
+    # `run_tiers.c` call `extern`. Its weak default used to live in
+    # `<nros/main.hpp>`, so it reached an image only through the generated
+    # `.cpp` entry: a pure C entry compiled and then failed at LINK. This is a
+    # LINK probe because that is the only stage where the bug is visible —
+    # `-fsyntax-only` is green either way, and so is `check-weak-symbols`,
+    # which checks WHERE the attribute lives and not whether C can reach it.
+    # No archive, no C++ header: the seam must resolve from the C headers a C
+    # entry already includes. `test -f` first — a missing TU must not read as a
+    # pass (issue 0196's class).
+    for _tu in entry_seam_c_linkage entry_seam_c_override; do \
+        test -f "packages/api/nros-c/tests/run/$_tu.c" || { \
+            echo "ERROR: $_tu.c is MISSING -- this check passes on absence." >&2; exit 1; }; \
+    done
+    mkdir -p tmp
+    cc -std=c11 -Wall -Wextra -Wmissing-prototypes \
+        -Ipackages/api/nros-c/include \
+        packages/api/nros-c/tests/run/entry_seam_c_linkage.c \
+        -o tmp/entry_seam_c_linkage
+    ./tmp/entry_seam_c_linkage
+    # The override is the reason the hook is weak; nothing else in tree
+    # exercises it, so a regression would surface only in an out-of-tree image.
+    cc -std=c11 -Wall -Wextra -Wmissing-prototypes \
+        -Ipackages/api/nros-c/include \
+        packages/api/nros-c/tests/run/entry_seam_c_linkage.c \
+        packages/api/nros-c/tests/run/entry_seam_c_override.c \
+        -o tmp/entry_seam_c_override
+    ./tmp/entry_seam_c_override > tmp/entry_seam_c_override.log
+    # `nros_grep_q`, not `grep -q`: grep exits 1 for "no match" and >=2 for a
+    # tool ERROR, and a bare `grep -q … || finding` reports the second as the
+    # first (issue 0726). Here that would claim the override stopped working.
+    # shellcheck source=scripts/lib/grep-q.sh
+    source scripts/lib/grep-q.sh
+    # `&& _rc=0 || _rc=$?`, not a bare call followed by `case $?`: this recipe
+    # runs under `set -e`, which exits on the non-zero BEFORE the case is
+    # reached, so the branch's diagnostic never prints and the lane fails
+    # naming nothing. (`nros_grep_q` still `exit 2`s past this on a tool
+    # failure — `||` cannot catch an exit.)
+    nros_grep_q 'STRONG-OVERRIDE-RAN' tmp/entry_seam_c_override.log && _rc=0 || _rc=$?
+    if [ "$_rc" -ne 0 ]; then \
+        echo "ERROR: the strong nros_board_network_wait override did NOT win over" >&2; \
+        echo "       the weak default in <nros/main.h>. A board can no longer take" >&2; \
+        echo "       the hook. See tmp/entry_seam_c_override.log" >&2; \
+        exit 1; \
+    fi
     echo "  - executor verb spelling + deprecated aliases (issue 0338)"
     # The entity-registration family is `nros_executor_add_*` (rclc's spelling);
     # the old `register_*` names survive one release as macro aliases. The probe
@@ -749,13 +795,12 @@ cpp: cpp-fmt
                -Ipackages/platform/nros-platform-api/include "$f" 2>"tmp/refuse-$probe.log"; then \
             echo "ERROR: $f COMPILED. The refusal for '$probe' is not firing." >&2; exit 1; \
         fi; \
-        nros_grep_q "REFUSED by nano-ros" "tmp/refuse-$probe.log"; \
-        case $? in \
-            0) : ;; \
-            1) echo "ERROR: $f failed WITHOUT the refusal diagnostic -- it broke for" >&2; \
-               echo "       another reason, so this check proves nothing. See tmp/refuse-$probe.log" >&2; \
-               exit 1 ;; \
-        esac; \
+        nros_grep_q "REFUSED by nano-ros" "tmp/refuse-$probe.log" && _rc=0 || _rc=$?; \
+        if [ "$_rc" -ne 0 ]; then \
+            echo "ERROR: $f failed WITHOUT the refusal diagnostic -- it broke for" >&2; \
+            echo "       another reason, so this check proves nothing. See tmp/refuse-$probe.log" >&2; \
+            exit 1; \
+        fi; \
     done
 
     echo "  - declared QoS depth: the three cases COMPILE (c++17)"

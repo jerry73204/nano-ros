@@ -131,22 +131,13 @@ inline int32_t component_spin_loop() {
 
 } // namespace detail
 
-// Phase 235.B — weak network-readiness hook for embedded Board adapters.
-//
-// Default: no-op. The canonical in-tree Zephyr path auto-brings-up
-// networking at boot (`CONFIG_NET_CONFIG_AUTO_INIT` — static IP / DHCP),
-// so `ZephyrBoard::run` needs no explicit wait. A board crate or Entry app
-// that must block until the link / DHCP lease is ready (e.g. ASI's
-// `configure_network()` prologue) provides a STRONG definition of this
-// symbol, which the linker prefers over the weak default. Mirrors the
-// weak-default discipline already used for `nros_app_register_backends`.
-extern "C" {
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((weak)) void nros_board_network_wait(void) {}
-#else
-void nros_board_network_wait(void);
-#endif
-}
+// Phase 235.B — the weak `nros_board_network_wait()` network-readiness hook
+// used below is DEFINED in `<nros/main.h>`, included above. It moved there
+// as the phase-432 W3.1 prerequisite: the three RTOS `run_tiers.c` files call
+// it `extern` and linked only because the generated entry is a `.cpp` that
+// includes THIS header, so a pure C entry failed at link. One definition, in
+// the C header both entry languages reach. See `<nros/main.h>` for the
+// override contract.
 
 /// Phase 274.W2 (RFC-0015 Model 1) — per-tier spec for
 /// `LinuxBoard::run_tiers`. Layout mirrors `nros_native_tier_spec_t` in

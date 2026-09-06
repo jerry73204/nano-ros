@@ -53,9 +53,11 @@ extern uint64_t nros_tier_spin_gap_step(uint64_t state, uint64_t iter_start_ns, 
 extern uint64_t nros_platform_clock_ns(void);
 
 
-/* nros_board_network_wait: weak no-op in main.hpp; strong override on boards that
- * need an extra poll-wait after network bring-up. On MPS2-AN385 the startup.c
- * already waits 2 s and polls lwIP, so this is usually a no-op. */
+/* nros_board_network_wait: weak no-op in <nros/main.h> (phase-432 W3.1 moved
+ * it there from the C++ sibling main.hpp so a pure C entry links); strong
+ * override on boards that need an extra poll-wait after network bring-up. On
+ * MPS2-AN385 the startup.c already waits 2 s and polls lwIP, so this is
+ * usually a no-op. */
 extern void nros_board_network_wait(void);
 
 /* RFC-0034 — the sole sanctioned allocation seam (wraps the FreeRTOS heap); a
