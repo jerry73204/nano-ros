@@ -935,6 +935,18 @@ pub unsafe extern "C" fn nros_action_server_init_polling(
 
     server_mut.node = unsafe { crate::node::node_ref_of(node) };
 
+    // Resolve the SOURCE action name to its wire name — see
+    // `nros_publisher_init_with_qos`. All five channel keyexprs are derived
+    // from it below, so resolving once here moves the whole action.
+    let _resolved_name = {
+        let source =
+            core::str::from_utf8_unchecked(&server_mut.action_name[..server_mut.action_name_len]);
+        match crate::node::resolve_entity_name_on_node(node_ref, source) {
+            Some(r) => r,
+            None => return NROS_RET_INVALID_ARGUMENT,
+        }
+    };
+
     #[cfg(feature = "rmw-cffi")]
     {
         // Phase 156 Sub-bug D — multi-Session dispatch (see
@@ -944,8 +956,8 @@ pub unsafe extern "C" fn nros_action_server_init_polling(
             None => return NROS_RET_NOT_INIT,
         };
 
-        let action_str =
-            core::str::from_utf8_unchecked(&server_mut.action_name[..server_mut.action_name_len]);
+        // RESOLVED name on the wire — see the resolution above.
+        let action_str = _resolved_name.as_str();
         let type_str =
             core::str::from_utf8_unchecked(&server_mut.type_name[..server_mut.type_name_len]);
         let type_hash_str =

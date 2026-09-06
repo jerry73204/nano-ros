@@ -332,6 +332,58 @@ constexpr bool argv_has_ros_args(int argc, char const* const* argv, int i = 0) {
            : is_ros_args_flag(argv[i]) ? true
                                        : argv_has_ros_args(argc, argv, i + 1);
 }
+
+/// What upstream's `throw` becomes here — phase-428 W5 finding 9.
+///
+/// Seven `create_*` verbs on `rclcpp::Node` used to write
+/// `(void)node_.create_…(…)` and return the `shared_ptr` regardless. The
+/// `(void)` was not incidental: `nros::Result` carries `[[nodiscard]]`
+/// (`result.hpp`, phase-428 W6), and the casts SUPPRESSED the one signal that
+/// existed. Measured, because the claim is easy to overstate: no C++ lane in
+/// this tree compiles with `-Werror`, so a bare discard here is a
+/// `-Wunused-result` WARNING and `just check cpp` stays green through it —
+/// the Rust-side `-D warnings` has no C++ counterpart. Even at full strength
+/// it would only have told the AUTHOR of this header, never the porting user,
+/// which is why the fix is a runtime refusal rather than a lint.
+///
+/// Every alternative was weighed against RFC-0089 Part I ("a difference must
+/// be one the compiler points at, and where it cannot be, it must be loud by
+/// other means"):
+///
+/// * a `Result`-returning overload makes the compiler point at it — and at
+///   every SUCCEEDING call too, so a ported `auto pub = node->create_publisher
+///   <M>("chatter", 10);` no longer compiles. That trades clause 2 (port
+///   upstream: same name, same shape) for a diagnostic on the path that is
+///   not broken. Rejected.
+/// * a null `shared_ptr` says nothing at compile time and, at runtime, says
+///   nothing either: `create_wall_timer`'s result is stored and never
+///   dereferenced, so a null there is a timer that silently never fires —
+///   the same "reads as success" one level down. Rejected.
+/// * an `ok()` flag on the node is opt-in, and a ported file never asks. It
+///   would also be a member written by us and read by nobody, which is
+///   finding 10 in the same sweep. Rejected.
+///
+/// So: the loudest thing available, at the earliest point the defect is
+/// knowable, which is the CALL. This is the identical shape
+/// `rclcpp::init(argc, argv)` uses for `--ros-args` a few lines below, and it
+/// is what an uncaught upstream throw actually does to a tutorial `main` —
+/// terminate with a diagnostic, rather than continue with a dead object.
+///
+/// The failure is still HANDLEABLE: the underlying `nros::Node` verbs return
+/// `nros::Result` into caller-owned storage, and the message names them.
+[[noreturn]] inline void abort_failed_create(const char* verb, const char* name, int32_t code) {
+    NROS_ERROR("rclcpp::Node::%s(\"%s\") failed with nros::ErrorCode %d. %s", verb, name,
+               static_cast<int>(code), NROS_RCLCPP_ABORT_FAILED_CREATE);
+    ::std::abort();
+}
+
+/// The one spelling every `create_*` verb uses. Takes the `Result` by value so
+/// the `[[nodiscard]]` is consumed HERE and cannot be silently dropped again.
+inline void require_created(::nros::Result r, const char* verb, const char* name) {
+    if (!r.ok()) {
+        abort_failed_create(verb, name, r.raw());
+    }
+}
 } // namespace detail
 
 /// `rclcpp::init(argc, argv)` — ADOPT-BOUNDED, refused at RUNTIME when it must be.
@@ -375,9 +427,20 @@ inline void init(int argc, char const* const* argv) {
 inline void init() {
     (void)::nros::init();
 }
+/// `rclcpp::shutdown()` — ADOPT-BOUNDED.
+///
+/// phase-428 W5 finding 9, one site over from the seven `create_*` verbs and
+/// the only one the compiler already pointed at: this DISCARDED
+/// `nros::shutdown()`'s `[[nodiscard]]` Result and returned a hardcoded
+/// `true`, so `just check cpp` carried a standing `-Wunused-result` and a
+/// teardown that actually failed still reported success. Upstream's `bool` is
+/// the answer, so there is somewhere to put it.
+///
+/// The bound: upstream returns `false` when the context was never initialised;
+/// `nros::shutdown()` answers `success()` for that case (it is a no-op), so we
+/// return `true` there. `false` here means the teardown itself failed.
 inline bool shutdown() {
-    ::nros::shutdown();
-    return true;
+    return ::nros::shutdown().ok();
 }
 inline bool ok() {
     return ::nros::ok();
@@ -578,6 +641,13 @@ class Node : public std::enable_shared_from_this<Node> {
         // "constructor never returns an error code" contract and subsequent
         // `create_*` fail visibly.
         //
+        // phase-428 W5 finding 9 — "fail visibly" was the INTENT and was false
+        // until the seven `create_*` verbs stopped discarding their `Result`.
+        // They now abort with a diagnostic (`detail::require_created`), which
+        // is what makes this deferral honest: the failure surfaces at the
+        // first create, naming the entity, instead of at a `spin` that returns
+        // immediately and an exit code of 0.
+        //
         // Issue 0465 — this used to call `Executor::create(executor_)`, giving
         // every Node its OWN executor and therefore its own RMW session.
         // A non-bridge application has exactly one session; two is the bridge
@@ -604,7 +674,8 @@ class Node : public std::enable_shared_from_this<Node> {
     std::shared_ptr<::nros::Publisher<M>> create_publisher(const std::string& topic,
                                                            const ::nros::QoS& qos) {
         auto p = std::make_shared<::nros::Publisher<M>>();
-        (void)node_.create_publisher(*p, topic.c_str(), qos);
+        detail::require_created(node_.create_publisher(*p, topic.c_str(), qos), "create_publisher",
+                                topic.c_str());
         return p;
     }
 
@@ -674,9 +745,11 @@ class Node : public std::enable_shared_from_this<Node> {
                                                                  const ::nros::QoS& qos, Cb cb) {
         auto cell = std::make_shared<detail::SubscriptionCallback<M>>();
         cell->fn = std::move(cb);
-        (void)::nros::create_subscription_raw(
-            node_, topic.c_str(), M::TYPE_NAME, &detail::SubscriptionCallback<M>::trampoline,
-            cell.get(), qos, ::nros::rx_buffer_capacity<M>::value);
+        detail::require_created(
+            ::nros::create_subscription_raw(node_, topic.c_str(), M::TYPE_NAME,
+                                            &detail::SubscriptionCallback<M>::trampoline,
+                                            cell.get(), qos, ::nros::rx_buffer_capacity<M>::value),
+            "create_subscription", topic.c_str());
         owned_entities_.push_back(cell);
         return std::shared_ptr<::nros::Subscription<M>>(cell, &cell->handle);
     }
@@ -704,8 +777,13 @@ class Node : public std::enable_shared_from_this<Node> {
         auto t = std::make_shared<detail::WallTimer>();
         t->callback = std::move(cb);
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(period).count();
-        (void)node_.create_timer(t->timer, ms > 0 ? static_cast<uint64_t>(ms) : uint64_t(0),
-                                 &detail::WallTimer::trampoline, t.get());
+        // A null return would be silent HERE above all: a ported node stores
+        // the timer handle and never dereferences it, so a dead timer would
+        // simply never fire.
+        detail::require_created(node_.create_timer(t->timer,
+                                                   ms > 0 ? static_cast<uint64_t>(ms) : uint64_t(0),
+                                                   &detail::WallTimer::trampoline, t.get()),
+                                "create_wall_timer", "");
         // The arena holds `t.get()`; the node keeps the cell alive, and
         // `~nros::Timer` cancels the slot when it finally drops.
         // `owned_entities_`, NOT a typed `timers_` member. The typed vector
@@ -846,7 +924,8 @@ class Node : public std::enable_shared_from_this<Node> {
     std::shared_ptr<::nros::Service<S>> create_service(const std::string& name,
                                                        const ::nros::QoS& qos = ServicesQoS()) {
         auto s = std::make_shared<::nros::Service<S>>();
-        (void)node_.template create_service<S>(*s, name.c_str(), qos);
+        detail::require_created(node_.template create_service<S>(*s, name.c_str(), qos),
+                                "create_service", name.c_str());
         return s;
     }
 
@@ -858,7 +937,8 @@ class Node : public std::enable_shared_from_this<Node> {
                                                        const ::nros::QoS& qos = ServicesQoS()) {
         auto s = std::make_shared<::nros::Service<S>>();
         owned_entities_.push_back(s);
-        (void)node_.template create_service<S>(*s, name.c_str(), callback, qos);
+        detail::require_created(node_.template create_service<S>(*s, name.c_str(), callback, qos),
+                                "create_service", name.c_str());
         return s;
     }
 
@@ -881,7 +961,8 @@ class Node : public std::enable_shared_from_this<Node> {
     std::shared_ptr<::nros::Client<S>> create_client(const std::string& name,
                                                      const ::nros::QoS& qos = ServicesQoS()) {
         auto c = std::make_shared<::nros::Client<S>>();
-        (void)node_.template create_client<S>(*c, name.c_str(), qos);
+        detail::require_created(node_.template create_client<S>(*c, name.c_str(), qos),
+                                "create_client", name.c_str());
         return c;
     }
 
@@ -893,7 +974,8 @@ class Node : public std::enable_shared_from_this<Node> {
                                                      const ::nros::QoS& qos = ServicesQoS()) {
         auto c = std::make_shared<::nros::Client<S>>();
         owned_entities_.push_back(c);
-        (void)node_.template create_client<S>(*c, name.c_str(), callback, qos);
+        detail::require_created(node_.template create_client<S>(*c, name.c_str(), callback, qos),
+                                "create_client", name.c_str());
         return c;
     }
 
