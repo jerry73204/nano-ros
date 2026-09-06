@@ -14,11 +14,28 @@
 set(CMAKE_SYSTEM_NAME       Generic)
 set(CMAKE_SYSTEM_PROCESSOR  riscv)
 
-set(CMAKE_C_COMPILER    riscv-none-elf-gcc)
-set(CMAKE_CXX_COMPILER  riscv-none-elf-g++)
-set(CMAKE_ASM_COMPILER  riscv-none-elf-gcc)
-set(CMAKE_AR            riscv-none-elf-ar  CACHE FILEPATH "Archiver")
-set(CMAKE_RANLIB        riscv-none-elf-ranlib CACHE FILEPATH "Ranlib")
+# Issue 1117 — WHICH riscv-none-elf-gcc, and from WHERE. See
+# NanoRosCrossToolchain.cmake: SDK store (newest first) beats PATH, the choice
+# is printed, and a below-floor GCC is refused at configure rather than 400
+# lines into a generated TU.
+include("${CMAKE_CURRENT_LIST_DIR}/NanoRosCrossToolchain.cmake")
+nros_cross_toolchain_resolve(
+    TOOL         riscv-none-elf-gcc
+    PREFIXES     riscv-none-elf
+    OVERRIDE_VAR NROS_RISCV_NONE_ELF_PREFIX
+    OUT_PREFIX   _NROS_RV32_PREFIX
+    OUT_ORIGIN   _NROS_RV32_ORIGIN)
+nros_cross_toolchain_report(
+    TOOL   riscv-none-elf-gcc
+    PREFIX "${_NROS_RV32_PREFIX}"
+    ORIGIN "${_NROS_RV32_ORIGIN}"
+    OVERRIDE_VAR NROS_RISCV_NONE_ELF_PREFIX)
+
+set(CMAKE_C_COMPILER    ${_NROS_RV32_PREFIX}-gcc)
+set(CMAKE_CXX_COMPILER  ${_NROS_RV32_PREFIX}-g++)
+set(CMAKE_ASM_COMPILER  ${_NROS_RV32_PREFIX}-gcc)
+set(CMAKE_AR            ${_NROS_RV32_PREFIX}-ar  CACHE FILEPATH "Archiver")
+set(CMAKE_RANLIB        ${_NROS_RV32_PREFIX}-ranlib CACHE FILEPATH "Ranlib")
 
 # rv32imac / ilp32 SOFT-float — must match the NuttX kernel ABI (the board
 # defconfig disables the FPU so the kernel is ilp32 soft, matching the
