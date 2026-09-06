@@ -770,6 +770,7 @@ test-all verbose="":
     just native test-ros2 {{verbose}} || failed=1
     just native test-ros2-params {{verbose}} || failed=1
     just native test-ros2-lifecycle {{verbose}} || failed=1
+    just native test-ros2-action {{verbose}} || failed=1
     just native test-native-api {{verbose}} || failed=1
     just native test-c-xrce {{verbose}} || failed=1
     just native _test-c-codegen {{verbose}} || failed=1
@@ -860,6 +861,21 @@ test-ros2-lifecycle verbose="":
 [group("debug")]
 test-ros2-graph verbose="":
     @just _test-focused 'binary(=graph_interop)' {{verbose}}
+
+# The `ros2 action …` family against nano-ros action nodes — phase-433 W6 /
+# issue 1127. Two `interop::CELLS` cells (`native-action-rust-cyclone-*`), and
+# the n2r direction additionally needs
+# `ros-<distro>-examples-rclcpp-minimal-action-server` for its peer; each is a
+# `skip!` when absent, never a red.
+#
+# Written through `_test-focused` like its siblings above. The branch that
+# added this lane predates that helper and carried its own copy of the
+# skip-accounting tail; a second spelling of the same accounting is the #282 ->
+# #326 shape, so the copy went and the helper stayed.
+# Runs `ros2_action_e2e`; needs ROS 2 + `rmw_cyclonedds_cpp` + the native action fixtures.
+[group("debug")]
+test-ros2-action verbose="":
+    @just _test-focused 'binary(=ros2_action_e2e)' {{verbose}}
 
 # A plan-level QoS override reaches the ADVERTISED profile a stock
 # `ros2 topic info --verbose` peer reads (issue #52 / 0303 / 0306). Nextest

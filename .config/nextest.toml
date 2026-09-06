@@ -770,6 +770,25 @@ test-group = "host-dds-ros2-interop"
 slow-timeout = { period = "60s", terminate-after = 3 }
 retries = 2
 
+# phase-433 W6 — the ACTIONS live-peer lane, routed exactly like the cyclone
+# half of `interop_e2e` above and for the same two reasons.
+#
+# GROUP: it stands up a real RTPS participant on a `unique_ros_domain_id`
+# domain, so it competes for the same 232-slot space the group exists to bound.
+# It had no override at all, which is how a real-DDS binary ends up ungrouped.
+#
+# BUDGET: the default is `30s × 2` = terminated at 60 s, and this binary's own
+# budget is larger than that — up to 20 s of discovery polling plus a
+# `timeout 60` on the goal. So the default would kill it before its own timeout
+# fired, replacing the assertion's diagnostic with a nextest timeout. 60s × 3
+# covers the worst case with headroom; `retries = 2` re-rolls the PID → domain
+# on the residual collision, as for every sibling host-DDS lane.
+[[profile.default.overrides]]
+filter = "binary(=ros2_action_e2e)"
+test-group = "host-dds-ros2-interop"
+slow-timeout = { period = "60s", terminate-after = 3 }
+retries = 2
+
 [[profile.default.overrides]]
 filter = "binary(interop_e2e)"
 test-group = "ros2-interop"
