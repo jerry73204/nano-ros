@@ -31,7 +31,7 @@
 # the regenerator's output is the committed headers — so arm 1 and arm 2 are
 # unchanged, and the vacuity guard at the bottom still refuses a silent zero.
 #
-# This is deliberately NOT the `.clang-format-version` / bindgen-cli treatment.
+# This is deliberately NOT the `[tool.clang-format]` / bindgen-cli treatment.
 # Those are PATH binaries with no resolver, so they need a version file plus a
 # provisioning recipe. cbindgen is a cargo dependency: cargo's resolver IS the
 # pinning mechanism, and a separate pin file would be a second spelling of the

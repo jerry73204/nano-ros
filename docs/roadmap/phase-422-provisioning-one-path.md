@@ -10,9 +10,10 @@ plus the gate), W8 (scoped to `infra`).
 
 **OPEN BY DECISION, not by omission:** W7's true unification — the index
 namespace is what users type while the cmake namespace is what the build uses,
-and neither is obviously the one to keep — and W2's clang-format exception, a
-pip wheel whose binary sits at an inner path, which would need index machinery
-serving exactly one consumer.
+and neither is obviously the one to keep. That is the only one left: W2's
+clang-format exception was retired on 2026-09-06 when its stated reason expired
+(the machinery it said would serve one consumer had been built for another), and
+the four un-indexed cargo tools went in with it.
 
 **The 2026-09-05 header was stale in both directions** and this is a note about
 reading them, not only about this one: it listed W2, W4 and W7's additive half
@@ -141,6 +142,62 @@ shape".
 **Acceptance.** `scripts/setup-mdbook.sh` and `scripts/setup-verus.sh` no longer
 exist as bespoke downloaders. Every remaining bespoke installer is listed in this doc
 with a reason.
+
+**The second half landed 2026-09-06, and the clang-format exception is gone
+with it.** The exception's stated reason had expired: W2 declined clang-format
+because the index would need "to unzip and know an inner path — new machinery
+for exactly one consumer", and that machinery now exists and serves two.
+`DistArtifact.install` was added for `[tool.ninja]`, whose upstream zip holds a
+bare binary; a pip wheel is the same shape one directory deeper. So it is a
+`dist` row with an `install` step, not an exception:
+
+```toml
+install = "unzip -q -o {archive} -d {prefix}/.wheel && \
+           install -Dm755 {prefix}/.wheel/clang_format/data/bin/clang-format \
+                          {prefix}/bin/clang-format && rm -rf {prefix}/.wheel"
+```
+
+**`.clang-format-version` is deleted.** The version lives in
+`[tool.clang-format]` and nowhere else, which is the point rather than a side
+effect: two homes for this exact number had already drifted invisibly — gate.yml
+pinned 17.0.5 in a `pip install` while the file said 17.0.6, and the resolver's
+fallback order meant CI checked a different formatting standard than every local
+run for as long as that stood. `scripts/dev/clang-format.sh` reads the pin from
+the index and resolves the store path, and `just doctor` calls that same
+resolver instead of re-deriving either.
+
+**And the four cargo tools are indexed**, which W5's audit had listed as "left,
+because nothing judges them". `cargo-nextest`, `cargo-llvm-cov`, `rustfilt` and
+`cargo-show-asm` were bare `cargo install <name> --locked` — the drift
+`[tool.espflash]`'s own comment already names, *"resolve against crates.io at
+whatever version is current that day"*. Prebuilt where upstream publishes one
+(nextest and llvm-cov, both Linux arches), source otherwise.
+
+`cargo-nextest` is the one that mattered: **it was the only tool here with no
+pin at all**, CI's runners installed it through `just setup native`, and
+`.config/nextest.toml` is version-sensitive enough that a stale filter is a
+parse error killing every nextest run in the repo (issue 0743). The tool running
+the whole suite was the unpinned one.
+
+They join `scripts/sdk-path-tools.txt`, because `cargo nextest` is cargo finding
+`cargo-nextest` **on PATH** — a cargo subcommand is invoked by bare name by
+cargo itself, which is what that list is for. In `~/.cargo/bin` rustup provided
+that; in the versioned store nothing does.
+
+*Observed, installing each into a scratch `$NROS_HOME`:*
+
+```
+cargo-nextest    0.9.143   (dist)     clang-format  17.0.6  (dist, wheel)
+cargo-llvm-cov   0.9.0     (dist)     rustfilt      0.2.1   (source)
+cargo-show-asm   0.2.9     (source)
+```
+
+*One smoke check was wrong and running it is what said so.* `bin/cargo-llvm-cov
+--version` fails — it is a cargo subcommand binary and answers
+`expected subcommand 'llvm-cov', found argument '--version'`. The probe is
+`cargo-llvm-cov llvm-cov --version` now. That is issue 0929's argument playing
+out once more: `system` answers "are its libraries present", and only smoke
+answers "does it run".
 
 ### W3 — retire the old spelling everywhere — DONE
 
