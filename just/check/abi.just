@@ -240,3 +240,32 @@ weak-symbols:
 # The fast source-level half is `weak_symbol_audit.rs` (in `just test`).
 weak-symbols-image:
     @bash scripts/check-weak-symbols-image.sh
+
+# The BUILD-tier half of `check-c-array-pool-floors` — issue 1015.
+#
+# That gate is on the fast line and reasons about the SOURCE: a guard must sit
+# after the `#ifndef` fallback that defines its knob. This one asks the
+# COMPILER, which is the only way to answer "can this guard fire" for a guard
+# unreachable for a reason no static rule enumerates.
+#
+# It needs the zenoh-pico SOURCE, and where that is provisioned decides where
+# this runs. `gate.yml` provisions `--source zenoh-pico` on
+# pull_request/merge_group at a step BEFORE `just check fast`, so the fast lane
+# runs it on both merge-gating events and SKIPS it on push, where the source is
+# absent. That skip is recorded, so the lane summary says what did not run.
+#
+# NOT `build-serial:`. That lane is schedule/workflow_dispatch only, and
+# `check-gate-visibility` refuses a gate no pull request reaches -- "a gate no
+# pull request runs is a gate that rots (issue 0981)". Putting a probe of a
+# defect that shipped THIS WEEK somewhere no pull request looks would have been
+# the wrong half of the trade.
+#
+# It compiles, in a lane documented as buildless. One `cc -fsyntax-only` per
+# guarded knob, ~0.4 s total, over a source the SAME JOB provisioned -- which is
+# the affordability rule as `check-lane-contracts` states it (an artifact the
+# job itself builds). Called out rather than buried: if that reads as too much
+# for the fast tier, the answer is a dedicated pull-request step like
+# `rustdoc-links` has, not a build tier nobody runs.
+[private]
+c-array-guard-probe:
+    @python3 scripts/check-c-array-guard-probe.py
