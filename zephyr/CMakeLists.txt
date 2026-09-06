@@ -649,7 +649,15 @@ if(CONFIG_NROS_CPP_API)
     # via `TARGET nros_c_cargo_build` in nros_cargo_build.cmake).
     if(NOT CONFIG_NROS_C_API)
         if(CONFIG_NROS_RMW_ZENOH)
-            set(_nros_c_for_cpp_features "rmw-cffi,cffi-zenoh-cffi,platform-zephyr,ros-humble")
+            # `rmw-zenoh`, not the `cffi-zenoh-cffi` back-compat alias. The two
+            # are the same feature (`cffi-zenoh-cffi = ["rmw-zenoh"]`, kept only
+            # so downstream cmake glue that still passes the old name does not
+            # error), but cargo keys a unit by the feature SET, so the alias
+            # spelling asks for a feature set no other consumer names.
+            # `nros-cpp` forwards `nros-c/rmw-zenoh`; naming the same thing here
+            # makes both cargo invocations resolve nros-c to the SAME feature
+            # set, which is what the shared generated header needs.
+            set(_nros_c_for_cpp_features "rmw-cffi,rmw-zenoh,platform-zephyr,ros-humble")
         elseif(CONFIG_NROS_RMW_XRCE)
             set(_nros_c_for_cpp_features "rmw-cffi,cffi-xrce-c,platform-zephyr,ros-humble")
         elseif(CONFIG_NROS_RMW_CYCLONEDDS)
@@ -671,11 +679,24 @@ if(CONFIG_NROS_CPP_API)
         # the image still carried two nros-c units with different
         # EXECUTOR_SIZE and the second build script still aborted.
         #
-        # `alloc` unconditionally: this branch is inside `if(CONFIG_NROS_CPP_API)`,
-        # so the C++ half has it by construction. `param-services` under the
-        # same NANO_ROS_FEATURES condition `_nros_cpp_features` gates on.
-        string(APPEND _nros_c_for_cpp_features ",alloc")
-        if("param_services" IN_LIST NANO_ROS_FEATURES)
+        # ASK the C++ string rather than assuming what it holds. #1156 appended
+        # `alloc` unconditionally, reasoning that this branch is inside
+        # `if(CONFIG_NROS_CPP_API)` "so the C++ half has it by construction".
+        # That is true of the xrce (585) and cyclonedds (604) strings and FALSE
+        # of the zenoh one (567), which is the only backend string that does not
+        # name `alloc` — and a Zephyr zenoh image is the configuration #1100 and
+        # #1156 were both reported from. So the append did not close the split
+        # there, it INVERTED it: `nros_c_cargo_build` took `alloc`,
+        # `nros_cpp_cargo_build` did not, and the image carried two nros-c units
+        # again with EXECUTOR_SIZE 63632 against 63512.
+        #
+        # A condition that restates what another string holds is a second copy
+        # of it, and this is the third time that copy has drifted. Read the
+        # string.
+        if(_nros_cpp_features MATCHES "(^|,)alloc(,|$)")
+            string(APPEND _nros_c_for_cpp_features ",alloc")
+        endif()
+        if(_nros_cpp_features MATCHES "(^|,)param-services(,|$)")
             string(APPEND _nros_c_for_cpp_features ",param-services")
         endif()
         nros_cargo_build(
