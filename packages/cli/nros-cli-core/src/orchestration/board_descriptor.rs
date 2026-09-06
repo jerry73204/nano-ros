@@ -612,23 +612,143 @@ impl BoardCatalog {
     /// Append every `<root>/*/nros-board.toml` to `descriptors`.
     /// `rel_base = Some(ws)` records workspace-relative sources (in-tree);
     /// `None` records absolute ones (extra roots).
+    /// Directories under `root` holding an `nros-board.toml`.
+    ///
+    /// RFC-0064 R5 D2. This used to be a single `read_dir` one level below the
+    /// root, which had two consequences worth stating because both were load
+    /// bearing:
+    ///
+    /// * A BUNDLE board could not own a descriptor. `fvp-aemv8r-smp` lives at
+    ///   `nros-board-zephyr/boards/fvp-aemv8r-smp/`, one level too deep, and
+    ///   resolved only because `attach_bundle_aliases` read its `board.cmake`
+    ///   and pushed the bundle name onto the `zephyr` descriptor as an ALIAS.
+    ///   The FVP board therefore had no descriptor at all — it borrowed one.
+    ///   RFC-0064 R5 D4 deletes `board.cmake`, so the depth is a prerequisite.
+    /// * A board could exist without ever announcing itself, because this walk
+    ///   found descriptors and `provider_scan` found announcements, and nothing
+    ///   compared them. See [`Self::require_announcement`].
+    ///
+    /// The prune and ignore rules are `cargo_nano_ros::provider_scan`'s, reached
+    /// by `pub` rather than copied: a second list is how the two walks diverged
+    /// in the first place (issue 0809 is the same defect one lane over).
+    ///
+    /// The recursion does NOT descend into a directory that already holds a
+    /// descriptor. A board is a package, and a package does not contain another
+    /// package — colcon's rule, and it keeps a board crate's own `target/`
+    /// escapees from reading as nested boards even if a prune rule ever misses.
+    /// A descriptor must sit beside a `package.xml` that announces a board.
+    ///
+    /// RFC-0064 R5 D5. A provider says what it IS in `package.xml` and what it
+    /// LOWERS TO in the descriptor; with only the second half it resolves here
+    /// and is invisible to `provider_scan` and to every consumer that reaches
+    /// providers through it. That asymmetry is not hypothetical — phase-385
+    /// landed `nros-board-mps3-an536-freertos` with a descriptor and no
+    /// announcement and no gate said so, because the in-tree gate skipped any
+    /// descriptor whose `package.xml` was absent (a migration ratchet that
+    /// outlived its migration).
+    ///
+    /// Checked HERE and not only in the gate, because the gate sees the
+    /// nano-ros tree and this sees a consumer's own boards and
+    /// `$NROS_EXTRA_BOARD_PATH` too — the case the gate structurally cannot
+    /// reach.
+    ///
+    /// Deliberately shallow: it requires the FILE and the `kind="board"` tag,
+    /// not that the names match. Name equality is
+    /// `check-provider-announcements`'s job and it needs a TOML parse this
+    /// walk has not done yet.
+    fn require_announcement(dir: &Path, descriptor_path: &Path) -> Result<(), BoardLoadError> {
+        let pkg_xml = dir.join("package.xml");
+        let announced = std::fs::read_to_string(&pkg_xml)
+            .ok()
+            .is_some_and(|body| Self::announces_a_board(&body));
+        if announced {
+            return Ok(());
+        }
+        Err(BoardLoadError::Unannounced {
+            descriptor: descriptor_path.to_path_buf(),
+            package_xml: pkg_xml,
+        })
+    }
+
+    /// Does this `package.xml` body carry a `kind="board"` provision?
+    ///
+    /// Comments are stripped first, for issue 0516's reason: a provider's
+    /// `package.xml` documents the tag in a comment, and a scan that cannot
+    /// tell a comment from a declaration counts the documentation as the
+    /// announcement. Every board `package.xml` in this tree has such a comment,
+    /// so without the strip this check passes on a file that announces nothing.
+    fn announces_a_board(body: &str) -> bool {
+        let mut stripped = String::with_capacity(body.len());
+        let mut rest = body;
+        while let Some(start) = rest.find("<!--") {
+            stripped.push_str(&rest[..start]);
+            match rest[start..].find("-->") {
+                Some(end) => rest = &rest[start + end + 3..],
+                None => return stripped.contains("<nano_ros_provides") && false,
+            }
+        }
+        stripped.push_str(rest);
+        stripped.split("<nano_ros_provides").skip(1).any(|tag| {
+            let tag = tag.split('>').next().unwrap_or("");
+            tag.contains(r#"kind="board""#) || tag.contains("kind='board'")
+        })
+    }
+
+    fn collect_board_dirs(
+        dir: &Path,
+        root: &Path,
+        depth: usize,
+        out: &mut Vec<PathBuf>,
+    ) -> Result<(), BoardLoadError> {
+        // A root the caller named is a root the caller meant, so a marker only
+        // opts out BELOW it — provider_scan's `depth > 0` rule, same reasoning.
+        if depth > 0 && cargo_nano_ros::provider_scan::is_ignored_dir(dir) {
+            return Ok(());
+        }
+        if dir.join("nros-board.toml").is_file() {
+            out.push(dir.to_path_buf());
+            return Ok(());
+        }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(e) if depth > 0 => {
+                // Unreadable subdirectory: skip it. Only the ROOT being
+                // unreadable is an error the caller must hear about.
+                let _ = e;
+                return Ok(());
+            }
+            Err(e) => return Err(BoardLoadError::Io(dir.to_path_buf(), e)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|e| BoardLoadError::Io(dir.to_path_buf(), e))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') || cargo_nano_ros::provider_scan::is_pruned_dir(name) {
+                continue;
+            }
+            Self::collect_board_dirs(&path, root, depth + 1, out)?;
+        }
+        out.sort();
+        Ok(())
+    }
+
     fn load_root(
         root: &Path,
         rel_base: Option<&Path>,
         descriptors: &mut Vec<BoardDescriptor>,
     ) -> Result<(), BoardLoadError> {
-        let entries = match std::fs::read_dir(root) {
-            Ok(e) => e,
-            // The in-tree dir must exist; an extra root was existence-checked
-            // by `extra_board_roots`, so a race here is still an error.
-            Err(e) => return Err(BoardLoadError::Io(root.to_path_buf(), e)),
-        };
-        for entry in entries {
-            let entry = entry.map_err(|e| BoardLoadError::Io(root.to_path_buf(), e))?;
-            let descriptor_path = entry.path().join("nros-board.toml");
-            if !descriptor_path.is_file() {
-                continue;
-            }
+        let mut dirs = Vec::new();
+        // The in-tree dir must exist; an extra root was existence-checked by
+        // `extra_board_roots`, so a race here is still an error.
+        Self::collect_board_dirs(root, root, 0, &mut dirs)?;
+        for dir in dirs {
+            let descriptor_path = dir.join("nros-board.toml");
+            Self::require_announcement(&dir, &descriptor_path)?;
             let text = std::fs::read_to_string(&descriptor_path)
                 .map_err(|e| BoardLoadError::Io(descriptor_path.clone(), e))?;
             let file: BoardFile = toml::from_str(&text)
@@ -867,6 +987,13 @@ pub enum DeployResolution<'a> {
 pub enum BoardLoadError {
     Io(std::path::PathBuf, std::io::Error),
     Parse(std::path::PathBuf, toml::de::Error),
+    /// A descriptor with no sibling `package.xml` announcing a board
+    /// (RFC-0064 R5 D5). Its own variant rather than an `Io` so the message can
+    /// say what to write, not merely that a file was missing.
+    Unannounced {
+        descriptor: std::path::PathBuf,
+        package_xml: std::path::PathBuf,
+    },
 }
 
 impl std::fmt::Display for BoardLoadError {
@@ -874,6 +1001,21 @@ impl std::fmt::Display for BoardLoadError {
         match self {
             BoardLoadError::Io(path, e) => write!(f, "reading {}: {e}", path.display()),
             BoardLoadError::Parse(path, e) => write!(f, "parsing {}: {e}", path.display()),
+            BoardLoadError::Unannounced {
+                descriptor,
+                package_xml,
+            } => write!(
+                f,
+                "{} has no sibling package.xml announcing a board.\n  \
+                 A provider says what it IS in package.xml and what it LOWERS TO \
+                 in the descriptor; with only the second half it is invisible to \
+                 `provider_scan`.\n  \
+                 Write {} with:\n    \
+                 <export><nano_ros_provides kind=\"board\" name=\"...\"/></export>\n  \
+                 naming the descriptor's `names`, canonical first.",
+                descriptor.display(),
+                package_xml.display()
+            ),
         }
     }
 }
@@ -989,6 +1131,149 @@ mod tests {
     /// A descriptor in an extra root joins the catalog, resolves by name,
     /// and carries an ABSOLUTE source (out-of-tree paths are consumer-local,
     /// never committed nano-ros artifacts — see `load_with_extra`).
+    /// Write the `package.xml` a board package must carry (RFC-0064 R5 D5).
+    ///
+    /// Carries a COMMENT mentioning the tag, because every real board
+    /// `package.xml` in this tree does and issue 0516 is about a scan that
+    /// counts the documentation as the declaration.
+    fn write_board_package_xml(dir: &Path, names: &[&str]) {
+        let tags: String = names
+            .iter()
+            .map(|n| format!("    <nano_ros_provides kind=\"board\" name=\"{n}\"/>\n"))
+            .collect();
+        std::fs::write(
+            dir.join("package.xml"),
+            format!(
+                "<?xml version=\"1.0\"?>\n<package format=\"3\">\n  <export>\n\
+                 <!-- e.g. <nano_ros_provides kind=\"board\" name=\"documented\"/> -->\n\
+                 {tags}  </export>\n</package>\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_descriptor_with_no_announcement_is_refused() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let crate_dir = tmp.path().join("nros-board-silentx");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        std::fs::write(
+            crate_dir.join("nros-board.toml"),
+            STM32_TOML.replace("stm32f4\"", "silentx\""),
+        )
+        .unwrap();
+
+        let err =
+            BoardCatalog::load_with_extra(&repo_root_for_tests(), &[tmp.path().to_path_buf()])
+                .expect_err("a descriptor with no package.xml must not resolve");
+        assert!(
+            matches!(err, BoardLoadError::Unannounced { .. }),
+            "expected Unannounced, got {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("package.xml") && msg.contains("nano_ros_provides"),
+            "the message must say what to write; got {msg}"
+        );
+    }
+
+    #[test]
+    fn a_commented_out_announcement_does_not_count() {
+        // Issue 0516's rule, applied here: every board package.xml in this tree
+        // documents the tag in a comment, so a check that cannot tell a comment
+        // from a declaration passes on a file announcing nothing.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let crate_dir = tmp.path().join("nros-board-commentedx");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        std::fs::write(
+            crate_dir.join("nros-board.toml"),
+            STM32_TOML.replace("stm32f4\"", "commentedx\""),
+        )
+        .unwrap();
+        std::fs::write(
+            crate_dir.join("package.xml"),
+            "<package><export>\n<!-- <nano_ros_provides kind=\"board\" name=\"commentedx\"/> -->\n</export></package>",
+        )
+        .unwrap();
+
+        let err =
+            BoardCatalog::load_with_extra(&repo_root_for_tests(), &[tmp.path().to_path_buf()])
+                .expect_err("a commented-out announcement must not satisfy D5");
+        assert!(
+            matches!(err, BoardLoadError::Unannounced { .. }),
+            "got {err:?}"
+        );
+    }
+
+    /// A bundle board one level deeper than the old walk reached.
+    ///
+    /// The depth is the point: before RFC-0064 R5 D2 this descriptor was
+    /// invisible, and `fvp-aemv8r-smp` only resolved because
+    /// `attach_bundle_aliases` read its `board.cmake` and pushed the name onto
+    /// the family descriptor as an alias.
+    #[test]
+    fn a_bundle_board_one_level_deeper_is_found() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bundle = tmp.path().join("nros-board-familyx/boards/deepx");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(
+            bundle.join("nros-board.toml"),
+            STM32_TOML.replace("stm32f4\"", "deepx\""),
+        )
+        .unwrap();
+        write_board_package_xml(&bundle, &["deepx"]);
+
+        let cat =
+            BoardCatalog::load_with_extra(&repo_root_for_tests(), &[tmp.path().to_path_buf()])
+                .expect("bundle-depth descriptor loads");
+        assert!(
+            cat.descriptors()
+                .iter()
+                .any(|d| d.names.iter().any(|n| n == "deepx")),
+            "a board one level below the root must be found"
+        );
+    }
+
+    /// A pruned or opted-out subtree stays invisible at depth.
+    ///
+    /// The walk got deeper, so the prune rules stopped being decorative. They
+    /// are `provider_scan`'s, reached by `pub` rather than copied.
+    #[test]
+    fn the_deep_walk_honours_prunes_and_ignore_markers() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        for (rel, marker) in [
+            ("target/nros-board-buildx", None),
+            ("vendored/nros-board-optedx", Some("COLCON_IGNORE")),
+        ] {
+            let dir = tmp.path().join(rel);
+            std::fs::create_dir_all(&dir).unwrap();
+            let name = dir.file_name().unwrap().to_str().unwrap().to_string();
+            let board = name.trim_start_matches("nros-board-").to_string();
+            std::fs::write(
+                dir.join("nros-board.toml"),
+                STM32_TOML.replace("stm32f4\"", &format!("{board}\"")),
+            )
+            .unwrap();
+            // Deliberately NOT announced: if a prune ever regressed, D5 would
+            // mask it as an Unannounced error instead of the missed prune it is.
+            if let Some(m) = marker {
+                std::fs::write(dir.parent().unwrap().join(m), "").unwrap();
+            }
+        }
+
+        let cat =
+            BoardCatalog::load_with_extra(&repo_root_for_tests(), &[tmp.path().to_path_buf()])
+                .expect("pruned and ignored subtrees must not even be read");
+        for absent in ["buildx", "optedx"] {
+            assert!(
+                !cat.descriptors()
+                    .iter()
+                    .any(|d| d.names.iter().any(|n| n == absent)),
+                "{absent} sits in a pruned/ignored subtree and must not resolve"
+            );
+        }
+    }
+
     #[test]
     fn an_extra_root_descriptor_joins_the_catalog_with_absolute_source() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -999,6 +1284,10 @@ mod tests {
             STM32_TOML.replace("stm32f4\"", "vendorx\""),
         )
         .unwrap();
+        // RFC-0064 R5 D5 — a board is a package, out of tree exactly as in it,
+        // so the fixture announces itself. Before D5 this file was absent and
+        // the board resolved anyway, which is the asymmetry D5 closes.
+        write_board_package_xml(&crate_dir, &["vendorx"]);
 
         let cat =
             BoardCatalog::load_with_extra(&repo_root_for_tests(), &[tmp.path().to_path_buf()])

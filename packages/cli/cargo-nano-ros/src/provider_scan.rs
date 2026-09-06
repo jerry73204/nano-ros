@@ -82,7 +82,11 @@ const PRUNED_DIRS: &[&str] = &[
 const PRUNED_DIR_PREFIXES: &[&str] = &["build-", "target-"];
 
 /// Is this directory name build output or a vendored tree?
-fn is_pruned_dir(name: &str) -> bool {
+///
+/// `pub` so the BOARD walk shares it rather than growing a second prune list.
+/// RFC-0064 R5 D2: boards were found by their own walk with its own rules,
+/// which is how a board came to have a descriptor and no announcement.
+pub fn is_pruned_dir(name: &str) -> bool {
     PRUNED_DIRS.contains(&name)
         || PRUNED_DIR_PREFIXES
             .iter()
@@ -100,12 +104,21 @@ fn is_pruned_dir(name: &str) -> bool {
 // spellings are accepted rather than one replaced: `NROS_IGNORE` may exist in a
 // consumer tree that predates 0621, and silently dropping support would be the
 // same defect pointed the other way.
-const IGNORE_MARKERS: &[&str] = &[
+pub const IGNORE_MARKERS: &[&str] = &[
     "COLCON_IGNORE",
     "AMENT_IGNORE",
     "NROS_IGNORE",
     ".nros-ignore",
 ];
+
+/// Does `dir` carry a marker opting its subtree out of discovery?
+///
+/// Shared with the board walk (RFC-0064 R5 D2). Note the caller decides whether
+/// the ROOT itself may opt out: `scan_root` checks this only at `depth > 0`,
+/// because a root the user named explicitly is a root they meant.
+pub fn is_ignored_dir(dir: &Path) -> bool {
+    IGNORE_MARKERS.iter().any(|m| dir.join(m).exists())
+}
 
 /// A package that announces at least one provision.
 #[derive(Debug, Clone, Serialize, Deserialize)]
