@@ -220,8 +220,23 @@ mod tests {
     /// A test that only ever saw `take` return `None` would pass against a `take`
     /// that can never succeed, which is exactly the bug that would make this
     /// whole module inert while reading as if it worked.
+    ///
+    /// `#[ignore]` because it needs a VIRGIN PROCESS, and that is a property of
+    /// the subject rather than a wish: `TAKEN` is process-global, and
+    /// `spin.rs`'s `default_backing` — reached by every `Executor::open` under
+    /// the `alloc` feature — claims it. Any of this binary's other 365 tests
+    /// that opens an executor therefore consumes the one handout first, and
+    /// this test's own positive control (`take` returning `Some`) becomes
+    /// impossible. Measured: passes alone, fails in the full lane at the
+    /// `!is_taken()` assertion below.
+    ///
+    /// `just check node-std-tests` runs it in its own cargo invocation, which
+    /// is a second process. Same shape and same answer as `boot_report::tests`
+    /// one recipe over, and for the same underlying reason.
     #[cfg(nros_executor_backing_static)]
     #[test]
+    #[ignore = "needs a virgin process: TAKEN is a process-global latch that \
+                Executor::open consumes — run via `just check node-std-tests`"]
     fn the_static_is_handed_out_once_and_only_once() {
         // Too large for the reservation: refused BEFORE the latch is touched, so
         // this case cannot consume the one handout.

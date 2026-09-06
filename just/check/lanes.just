@@ -1085,6 +1085,31 @@ node-std-tests:
     NROS_BOOT_REPORT=1 cargo test -p nros-node --lib --features std --quiet boot_report::tests
     NROS_BOOT_REPORT=1 cargo test -p nros-node --lib --features std --quiet -- \
         --exact executor::tests::arena_exhaustion_reaches_the_boot_record
+    # issues 1183/1186 — a THIRD process-global in this crate, found the same
+    # way and answered the same way. `executor::backing::TAKEN` is a
+    # process-scoped latch, and `spin.rs`'s `default_backing` claims it on every
+    # `Executor::open` under `alloc` — so any of the other 365 tests in this
+    # binary that opens an executor consumes the one handout, and
+    # `the_static_is_handed_out_once_and_only_once` loses its positive control.
+    # Measured: green alone, red in the full lane. It is `#[ignore]`d for that
+    # reason and runs here, in its own process.
+    #
+    # The `1 passed` assertion is not belt-and-braces. `--exact` against a
+    # renamed test matches NOTHING and cargo exits 0 having run none — the
+    # silently-inert shape this file already guards against for
+    # `required-features` targets. A skip must be loud or it is not a lane.
+    backing_out="$(cargo test -p nros-node --lib \
+        --features std,sim-time,param-services --quiet -- --ignored --exact \
+        executor::backing::tests::the_static_is_handed_out_once_and_only_once 2>&1)"
+    printf '%s\n' "$backing_out"
+    case "$backing_out" in
+        *"1 passed"*) ;;
+        *) printf '%s\n' \
+             "node-std-tests: the executor-backing latch test ran 0 tests." \
+             "  \`--exact\` matched nothing, so it was renamed or its cfg is off." \
+             "  A filter that matches nothing exits 0 — fix the name here." >&2
+           exit 1 ;;
+    esac
     # `env,std` and NOT `rmw-cffi`: the cffi flavour makes the wall clock an
     # extern the linker wants a platform port for, and this lane links none.
     cargo test -p nros --lib --features env,std --quiet
