@@ -126,6 +126,26 @@ no-vacuous-tests:
     @python3 scripts/check-no-vacuous-tests.py --self-test
     @python3 scripts/check-no-vacuous-tests.py
 
+# Issue 1135 — the sibling of `no-vacuous-tests`, one level up. That gate reads a
+# test BODY ("it only prints"); this one reads a test-local GUARD's SIGNATURE. A
+# `require_*`/`ensure_*`/`need_*`/`maybe_*` helper that hands back a `bool` (or an
+# `Option<()>`, a bool wearing a hat) has given the verdict to callers nobody
+# checks, and four callers of one such helper wrote `if !guard() { return; }` — a
+# bare `return` from a `#[test]` is a PASS, so four `ros2 param *` tests reported
+# green on a host where our node never joined the graph, with the only evidence in
+# an `eprintln!` that `--failure-output never` discards.
+#
+# It keys on the signature because the CALL SITE is not statically separable from
+# its legitimate twin: `if !probe() { return; }` and `if check().is_ok() { return; }`
+# are the same shape and only the meaning of the condition differs. A blanket
+# "no bare `return;` in a test body" rule is decidable but flags 40 sites across
+# the tree, mostly the legitimate form — an authored 40-entry allowlist, which is
+# the map shape CLAUDE.md already records drifting. Self-tests its classifier on
+# every run, not only behind `--self-test`.
+[private]
+test-precondition-guards:
+    @python3 scripts/check-test-precondition-guards.py
+
 # Issue 0975 — a REQUIRED check that cannot report on a pull request freezes the
 # repo, and it freezes it SILENTLY: no red check, no message, just PRs that never
 # merge. Requiring `L3` (a merge_group-only job) did exactly that to seven PRs.

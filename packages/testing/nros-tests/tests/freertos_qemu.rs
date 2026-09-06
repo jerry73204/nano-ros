@@ -35,24 +35,31 @@ use std::time::Duration;
 // Prerequisite checks
 // =============================================================================
 
-/// Skip test if FreeRTOS prerequisites are not available
-fn require_freertos() -> bool {
+/// Require the FreeRTOS prerequisites; skip loudly (naming which one) otherwise.
+///
+/// Issue 1135 — this returned `bool` and every caller wrote
+/// `if !require_freertos() { nros_tests::skip!("require_freertos check failed"); }`. That is the
+/// CORRECT verdict spelled uninformatively: the real reason was an
+/// `eprintln!` inside the helper, and `--failure-output never` (what the
+/// `just` recipes pass) eats it, so the log said only "check failed". A guard
+/// that skips where it KNOWS the reason names the reason, and cannot be
+/// misused by a caller who writes a bare `return` instead.
+fn require_freertos() {
     if !is_freertos_available() {
-        eprintln!("Skipping test: FREERTOS_DIR not set or invalid");
-        eprintln!("Run: just setup-freertos && source .envrc");
-        return false;
+        nros_tests::skip!(
+            "FREERTOS_DIR not set or invalid — run `just setup-freertos` + `source .envrc`"
+        );
     }
     if !is_lwip_available() {
-        eprintln!("Skipping test: LWIP_DIR not set or invalid");
-        eprintln!("Run: just setup-freertos && source .envrc");
-        return false;
+        nros_tests::skip!(
+            "LWIP_DIR not set or invalid — run `just setup-freertos` + `source .envrc`"
+        );
     }
     if !is_arm_gcc_available() {
-        eprintln!("Skipping test: arm-none-eabi-gcc not found");
-        eprintln!("Install: sudo apt install gcc-arm-none-eabi");
-        return false;
+        nros_tests::skip!(
+            "arm-none-eabi-gcc not found — install it (`sudo apt install gcc-arm-none-eabi`)"
+        );
     }
-    true
 }
 
 // =============================================================================
@@ -75,9 +82,7 @@ fn require_freertos() -> bool {
 #[test]
 #[ignore = "Phase 220.C path B: FreeRTOS rust cyclonedds fixture retired (cmake-bridge removed; pure-cargo path blocked on Phase 214.S.5.b BSP gate). Sibling `test_freertos_rust_cyclonedds_local_pubsub_e2e` carries the same gate."]
 fn test_freertos_rust_talker_cyclonedds_boot() {
-    if !require_freertos() {
-        nros_tests::skip!("require_freertos check failed");
-    }
+    require_freertos();
     if !is_qemu_available() {
         nros_tests::skip!("qemu-system-arm not found");
     }
@@ -157,9 +162,7 @@ fn test_freertos_rust_talker_cyclonedds_boot() {
 #[test]
 #[ignore = "Phase 214.P: FreeRTOS rust cyclonedds fixture infrastructure missing post-212.M.5.b refactor (8bd016d66) — see comment above"]
 fn test_freertos_rust_cyclonedds_local_pubsub_e2e() {
-    if !require_freertos() {
-        nros_tests::skip!("require_freertos check failed");
-    }
+    require_freertos();
     if !is_qemu_available() {
         nros_tests::skip!("qemu-system-arm not found");
     }

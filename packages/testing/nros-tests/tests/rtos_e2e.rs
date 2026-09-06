@@ -558,22 +558,39 @@ fn binaries(platform: Platform, lang: Lang, variant: Variant) -> BinaryPair {
 // Helpers shared by all three parametrised tests
 // =============================================================================
 
-/// Returns `true` if the caller should silently return from the test.
+/// Returns normally ONLY when this cell can actually run; otherwise it skips.
 ///
-/// Two skip paths with different semantics:
+/// Two skip paths with different causes, one verdict:
 /// - **Unsupported combination** (`skip_reason` returns `Some`): the example
 ///   for this (platform, lang, variant) tuple is not implemented upstream
 ///   (e.g., NuttX C++ blocked by libc, or Phase 69.7/77/69.8 follow-ups).
-///   These silently return — equivalent to the `#[ignore]` attribute the
-///   original per-platform tests used. rstest `#[values]` can't attach
-///   `#[ignore]` per-case, so we use runtime skip instead.
-/// - **Missing prerequisite** (`require_e2e` returns `false`): SDK / env
-///   var / toolchain missing. Per CLAUDE.md, this must panic (fail) so
-///   absent tools don't silently turn into false PASS results.
-fn maybe_skip(platform: Platform, lang: Lang, variant: Variant) -> bool {
+///   The intent has always been "the `#[ignore]` the original per-platform
+///   tests used, expressed at runtime because rstest `#[values]` cannot
+///   attach `#[ignore]` per case" — but the pre-1135 spelling was a printed
+///   `[SKIP]` and a bare `return`, which reports PASS, and `#[ignore]` does
+///   not. `skip_class!(capability, …)` is the spelling that actually matches
+///   the intent.
+/// - **Missing prerequisite** (`require_e2e` returns `Err`): SDK / env
+///   var / toolchain missing. Per CLAUDE.md, this must not silently turn into
+///   a false PASS either.
+fn require_cell_runnable(platform: Platform, lang: Lang, variant: Variant) {
+    // Issue 1135 — this was `maybe_skip(..) -> bool` and its three callers wrote
+    // `if maybe_skip(..) { return; }`. `skip_reason` returns `None` for every
+    // combination today, so the `true` arm was unreachable and the guard branch
+    // dead — but the branch is the live defect's shape: the moment someone
+    // declares a genuinely unsupported (platform, lang, variant), the printed
+    // `[SKIP]` becomes a bare `return`, i.e. a PASS for a cell that never ran.
+    // Skipping HERE, and returning nothing, means a future `Some(reason)` is
+    // reported as a skip by construction.
     if let Some(reason) = platform.skip_reason(lang, variant) {
-        eprintln!("[SKIP] {} {} {:?}: {}", platform, lang, variant, reason);
-        return true;
+        nros_tests::skip_class!(
+            capability,
+            "{} {} {:?}: {}",
+            platform,
+            lang,
+            variant,
+            reason
+        );
     }
     if let Err(why) = platform.require_e2e() {
         // The site's OWN text, unchanged — those messages already name the
@@ -584,7 +601,6 @@ fn maybe_skip(platform: Platform, lang: Lang, variant: Variant) -> bool {
         // lane needs Arm"), and only the colon reads correctly for both.
         nros_tests::skip!("{}: {}", platform, why);
     }
-    false
 }
 
 /// Build a (first, second) binary pair, panicking on build failure.
@@ -1047,9 +1063,7 @@ fn test_rtos_pubsub_e2e(
     platform: Platform,
     #[values(Lang::Rust, Lang::C, Lang::Cpp)] lang: Lang,
 ) {
-    if maybe_skip(platform, lang, Variant::Pubsub) {
-        return;
-    }
+    require_cell_runnable(platform, lang, Variant::Pubsub);
 
     let (talker_bin, listener_bin) = build_pair(platform, lang, Variant::Pubsub);
 
@@ -1247,9 +1261,7 @@ fn test_rtos_service_e2e(
     platform: Platform,
     #[values(Lang::Rust, Lang::C, Lang::Cpp)] lang: Lang,
 ) {
-    if maybe_skip(platform, lang, Variant::Service) {
-        return;
-    }
+    require_cell_runnable(platform, lang, Variant::Service);
 
     let (server_bin, client_bin) = build_pair(platform, lang, Variant::Service);
 
@@ -1378,9 +1390,7 @@ fn test_rtos_action_e2e(
     #[values(Platform::Freertos, Platform::Nuttx, Platform::ThreadxLinux)] platform: Platform,
     #[values(Lang::Rust, Lang::C, Lang::Cpp)] lang: Lang,
 ) {
-    if maybe_skip(platform, lang, Variant::Action) {
-        return;
-    }
+    require_cell_runnable(platform, lang, Variant::Action);
 
     let (server_bin, client_bin) = build_pair(platform, lang, Variant::Action);
 

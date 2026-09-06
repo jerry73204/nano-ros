@@ -34,7 +34,14 @@ fn fixture() -> PathBuf {
     nros_tests::fixtures::fixture_dir("multi_pkg_workspace_nuttx")
 }
 
-fn require_nuttx_setup() -> Option<()> {
+/// Skip-or-proceed guard: returns normally ONLY when every precondition holds.
+///
+/// Issue 1135 — the third arm used to `return None` and the one caller wrote
+/// `if require_nuttx_setup().is_none() { return; }`, so a host with NuttX and
+/// arm-gcc but no built `nros` CLI reported this test GREEN. The other two arms
+/// already skipped; the odd one out silently passed. The signature carries the
+/// fix: with no value to inspect, a caller cannot get the verdict wrong.
+fn require_nuttx_setup() {
     if !is_nuttx_available() {
         nros_tests::skip!(
             "NUTTX_DIR unset / NuttX submodule not provisioned — run `just nuttx setup`"
@@ -44,9 +51,8 @@ fn require_nuttx_setup() -> Option<()> {
         nros_tests::skip!("arm-none-eabi-gcc missing — install gcc-arm-none-eabi");
     }
     if !nros_tests::require_nros_cli() {
-        return None;
+        nros_tests::skip!("nros CLI not found — run `just setup-cli` + `source ./activate.sh`");
     }
-    Some(())
 }
 
 #[test]
@@ -79,9 +85,7 @@ fn template_files_exist_and_loc_under_budget() {
 
 #[test]
 fn nuttx_qemu_arm_2_component_bringup_builds() {
-    if require_nuttx_setup().is_none() {
-        return;
-    }
+    require_nuttx_setup();
 
     // Stage into a scratch tempdir that mimics NuttX's apps tree shape.
     let scratch = tempfile::tempdir().expect("tempdir");

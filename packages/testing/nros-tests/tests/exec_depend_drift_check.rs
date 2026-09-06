@@ -11,11 +11,12 @@ fn nros_bin() -> PathBuf {
         .expect("nros CLI available (require_test_prereqs gate would skip earlier)")
 }
 
-fn require_nros_cli() -> Option<()> {
-    if nros_tests::require_nros_cli() {
-        Some(())
-    } else {
-        None
+/// Issue 1135 — was `-> Option<()>`, forcing every caller to spell
+/// `if require_nros_cli().is_none() { skip!(..) }`. An `Option<()>` carries no
+/// value, only a verdict the caller may drop on the floor; the guard keeps it.
+fn require_nros_cli() {
+    if !nros_tests::require_nros_cli() {
+        nros_tests::skip!("nros CLI not on PATH — run `just setup-cli` + `source ./activate.sh`");
     }
 }
 
@@ -68,9 +69,7 @@ fn run_check_bringup(dir: &std::path::Path) -> (bool, String) {
 
 #[test]
 fn check_passes_when_exec_depend_matches_components() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     let dir = write_bringup(
         tmp.path(),
@@ -83,9 +82,7 @@ fn check_passes_when_exec_depend_matches_components() {
 
 #[test]
 fn check_rejects_missing_exec_depend() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     // system.toml declares two components, package.xml lists only one.
     let dir = write_bringup(tmp.path(), &["talker_pkg", "listener_pkg"], &["talker_pkg"]);
@@ -102,9 +99,7 @@ fn check_rejects_missing_exec_depend() {
 
 #[test]
 fn check_rejects_stray_exec_depend() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     // package.xml lists a stray dep not in system.toml.
     let dir = write_bringup(tmp.path(), &["talker_pkg"], &["talker_pkg", "ghost_pkg"]);

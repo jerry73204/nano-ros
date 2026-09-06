@@ -10,6 +10,7 @@ use nros_tests::{
         build_native_workspace_rust_params_entry, require_ros2, require_zenohd, zenohd_unique,
     },
     output::param_talker,
+    ros2::DEFAULT_ROS_DISTRO,
 };
 use rstest::rstest;
 use std::{process::Command, time::Duration};
@@ -152,24 +153,40 @@ fn start_talker_with_params(locator: &str) -> ManagedProcess {
     talker
 }
 
-/// Verify the nros node is discoverable via `ros2 node list`.
-/// Returns true if discoverable, false otherwise (prints skip message).
-fn require_node_discoverable(locator: &str) -> bool {
+/// Require that the nros node is discoverable via `ros2 node list`; skip loudly
+/// if it is not. Returns normally ONLY on success — issue 1135.
+///
+/// This used to return `bool`, and all four callers wrote
+/// `if !require_node_discoverable(&locator) { return; }`. A bare `return` from a
+/// `#[test]` is a PASS, so on a host where our node never joined the graph the
+/// four `ros2 param *` tests reported green — and `just native
+/// test-ros2-params` passes `--failure-output never`, so the `eprintln!` that
+/// was the only evidence never reached the log either. A `require_*` helper that
+/// hands the caller a `bool` hands them the verdict; this one keeps it.
+///
+/// Note WHAT is being swallowed. Every cheap precondition (zenohd, ROS 2,
+/// the fixture) has already passed by the time this runs, so a negative here
+/// means "ROS 2 is up, the router is up, our talker is up, and the node is not
+/// in the graph" — a DELIVERY failure, which is the exact thing these tests
+/// exist to detect. That is `resource`, not `capability`: the host can run this
+/// test, a peer just never appeared.
+fn require_node_discoverable(locator: &str) {
     for attempt in 1..=3 {
-        if let Ok(output) = nros_tests::ros2::ros2_node_list(locator, "humble")
+        if let Ok(output) = nros_tests::ros2::ros2_node_list(locator, DEFAULT_ROS_DISTRO)
             && output.contains("/demo/talker")
         {
-            return true;
+            return;
         }
         if attempt < 3 {
             std::thread::sleep(Duration::from_secs(1));
         }
     }
-    eprintln!(
-        "Skipping test: nros node /demo/talker not discoverable via ros2 \
-         (may be zenohd version mismatch or rmw_zenoh configuration issue)"
+    nros_tests::skip_class!(
+        resource,
+        "nros node /demo/talker not discoverable via `ros2 node list` after 3 attempts \
+         (locator {locator}) — zenohd, ROS 2 and the talker fixture were all present, so \
+         this is our node failing to reach the ROS graph, not a missing prerequisite"
     );
-    false
 }
 
 /// Test that ROS 2 can list parameters on nros node
@@ -186,15 +203,14 @@ fn test_ros2_param_list(zenohd_unique: ZenohRouter) {
     let locator = zenohd_unique.locator();
     let _talker = start_talker_with_params(&locator);
 
-    if !require_node_discoverable(&locator) {
-        return;
-    }
+    require_node_discoverable(&locator);
 
     // Retry up to 3 times since parameter services need discovery time
     let mut ros2_stdout = String::new();
     for attempt in 1..=3 {
-        ros2_stdout = nros_tests::ros2::ros2_param_list("/demo/talker", &locator, "humble")
-            .expect("Failed to run ros2 param list");
+        ros2_stdout =
+            nros_tests::ros2::ros2_param_list("/demo/talker", &locator, DEFAULT_ROS_DISTRO)
+                .expect("Failed to run ros2 param list");
 
         println!("=== ros2 param list attempt {} ===", attempt);
         println!("{}", ros2_stdout);
@@ -229,16 +245,18 @@ fn test_ros2_param_get(zenohd_unique: ZenohRouter) {
     let locator = zenohd_unique.locator();
     let _talker = start_talker_with_params(&locator);
 
-    if !require_node_discoverable(&locator) {
-        return;
-    }
+    require_node_discoverable(&locator);
 
     // Retry up to 3 times for discovery
     let mut ros2_stdout = String::new();
     for attempt in 1..=3 {
-        ros2_stdout =
-            nros_tests::ros2::ros2_param_get("/demo/talker", "start_value", &locator, "humble")
-                .expect("Failed to run ros2 param get");
+        ros2_stdout = nros_tests::ros2::ros2_param_get(
+            "/demo/talker",
+            "start_value",
+            &locator,
+            DEFAULT_ROS_DISTRO,
+        )
+        .expect("Failed to run ros2 param get");
 
         println!("=== ros2 param get attempt {} ===", attempt);
         println!("{}", ros2_stdout);
@@ -273,14 +291,17 @@ fn test_ros2_param_set(zenohd_unique: ZenohRouter) {
     let locator = zenohd_unique.locator();
     let _talker = start_talker_with_params(&locator);
 
-    if !require_node_discoverable(&locator) {
-        return;
-    }
+    require_node_discoverable(&locator);
 
     // Set start_value to 42
-    let set_output =
-        nros_tests::ros2::ros2_param_set("/demo/talker", "start_value", "42", &locator, "humble")
-            .expect("Failed to run ros2 param set");
+    let set_output = nros_tests::ros2::ros2_param_set(
+        "/demo/talker",
+        "start_value",
+        "42",
+        &locator,
+        DEFAULT_ROS_DISTRO,
+    )
+    .expect("Failed to run ros2 param set");
 
     println!("=== ros2 param set output ===");
     println!("{}", set_output);
@@ -292,9 +313,13 @@ fn test_ros2_param_set(zenohd_unique: ZenohRouter) {
     );
 
     // Read back to verify
-    let get_output =
-        nros_tests::ros2::ros2_param_get("/demo/talker", "start_value", &locator, "humble")
-            .expect("Failed to run ros2 param get");
+    let get_output = nros_tests::ros2::ros2_param_get(
+        "/demo/talker",
+        "start_value",
+        &locator,
+        DEFAULT_ROS_DISTRO,
+    )
+    .expect("Failed to run ros2 param get");
 
     println!("=== ros2 param get (after set) output ===");
     println!("{}", get_output);
@@ -320,9 +345,7 @@ fn test_ros2_param_describe(zenohd_unique: ZenohRouter) {
     let locator = zenohd_unique.locator();
     let _talker = start_talker_with_params(&locator);
 
-    if !require_node_discoverable(&locator) {
-        return;
-    }
+    require_node_discoverable(&locator);
 
     // Retry up to 3 times for discovery
     let mut ros2_stdout = String::new();
@@ -331,7 +354,7 @@ fn test_ros2_param_describe(zenohd_unique: ZenohRouter) {
             "/demo/talker",
             "start_value",
             &locator,
-            "humble",
+            DEFAULT_ROS_DISTRO,
         )
         .expect("Failed to run ros2 param describe");
 
@@ -493,7 +516,7 @@ fn test_ros2_param_set_reconfigures_live_read(zenohd_unique: ZenohRouter) {
     let node = {
         let mut found = None;
         for attempt in 1..=3 {
-            if let Ok(list) = nros_tests::ros2::ros2_node_list(&locator, "humble")
+            if let Ok(list) = nros_tests::ros2::ros2_node_list(&locator, DEFAULT_ROS_DISTRO)
                 && let Some(line) = list
                     .lines()
                     .map(str::trim)
@@ -521,9 +544,14 @@ fn test_ros2_param_set_reconfigures_live_read(zenohd_unique: ZenohRouter) {
         }
     };
 
-    let set_out =
-        nros_tests::ros2::ros2_param_set(&node, "publish_period_ms", "500", &locator, "humble")
-            .expect("ros2 param set");
+    let set_out = nros_tests::ros2::ros2_param_set(
+        &node,
+        "publish_period_ms",
+        "500",
+        &locator,
+        DEFAULT_ROS_DISTRO,
+    )
+    .expect("ros2 param set");
     assert!(
         set_out.contains("Set parameter successful"),
         "ros2 param set should succeed; output:\n{set_out}"

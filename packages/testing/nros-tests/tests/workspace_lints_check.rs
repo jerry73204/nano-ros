@@ -22,11 +22,12 @@ fn nros_bin() -> Option<PathBuf> {
     nros_tests::nros_cli_bin_path()
 }
 
-fn require_nros_cli() -> Option<()> {
-    if nros_tests::require_nros_cli() {
-        Some(())
-    } else {
-        None
+/// Issue 1135 — was `-> Option<()>`, forcing every caller to spell
+/// `if require_nros_cli().is_none() { skip!(..) }`. An `Option<()>` carries no
+/// value, only a verdict the caller may drop on the floor; the guard keeps it.
+fn require_nros_cli() {
+    if !nros_tests::require_nros_cli() {
+        nros_tests::skip!("nros CLI not on PATH — run `just setup-cli` + `source ./activate.sh`");
     }
 }
 
@@ -92,9 +93,7 @@ fn nros_check_rejects_unqualified_class() {
     // RFC-0057 D2 retired the pkg-prefix rule (any upstream namespace is
     // fine); the live L.4 lint rejects a class that is not namespace-
     // qualified at all.
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     write_bringup(
         tmp.path(),
@@ -119,9 +118,7 @@ fn nros_check_rejects_unqualified_class() {
 
 #[test]
 fn nros_check_accepts_correct_class_pkg_prefix() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     write_bringup(
         tmp.path(),
@@ -142,9 +139,7 @@ fn nros_check_accepts_correct_class_pkg_prefix() {
 
 #[test]
 fn nros_check_rejects_system_toml_in_component_pkg() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     let pkg = write_component_pkg(tmp.path(), "talker_pkg");
     fs::write(
@@ -170,9 +165,7 @@ fn nros_check_rejects_system_toml_in_component_pkg() {
 
 #[test]
 fn nros_check_accepts_system_toml_in_bringup_pkg() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     // Bringup-shape pkg: system.toml + package.xml only, no Cargo.toml,
     // no CMakeLists.txt, no src/. L.8 must NOT trip.
@@ -188,9 +181,7 @@ fn nros_check_accepts_system_toml_in_bringup_pkg() {
 
 #[test]
 fn nros_check_warns_on_per_pkg_cargo_config_patch() {
-    if require_nros_cli().is_none() {
-        nros_tests::skip!("nros CLI not on PATH");
-    }
+    require_nros_cli();
     let tmp = tempfile::tempdir().unwrap();
     let pkg = write_component_pkg(tmp.path(), "talker_pkg");
     fs::create_dir_all(pkg.join(".cargo")).unwrap();

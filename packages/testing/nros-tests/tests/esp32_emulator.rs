@@ -128,21 +128,28 @@ fn build_esp32_flash_images() -> (std::path::PathBuf, std::path::PathBuf) {
     (talker_bin, listener_bin)
 }
 
-/// Check all prerequisites for networked ESP32 tests
-fn require_esp32_networked() -> bool {
+/// Require every prerequisite for networked ESP32 tests; skip loudly otherwise.
+///
+/// Issue 1135 — this returned `bool` and every caller wrote
+/// `if !require_esp32_networked() { nros_tests::skip!("require_esp32_networked check failed"); }`. That is the
+/// CORRECT verdict spelled uninformatively: the real reason was an
+/// `eprintln!` inside the helper, and `--failure-output never` (what the
+/// `just` recipes pass) eats it, so the log said only "check failed". A guard
+/// that skips where it KNOWS the reason names the reason, and cannot be
+/// misused by a caller who writes a bare `return` instead.
+fn require_esp32_networked() {
     if !require_riscv32_target() {
-        return false;
+        nros_tests::skip!("riscv32imc-unknown-none-elf target not installed");
     }
     if !require_qemu_riscv32() {
-        return false;
+        nros_tests::skip!("qemu-system-riscv32 not found");
     }
     if !require_espflash() {
-        return false;
+        nros_tests::skip!("espflash not found");
     }
     if !require_zenohd() {
-        return false;
+        nros_tests::skip!("zenohd not found");
     }
-    true
 }
 
 /// Test ESP32 talker → ESP32 listener end-to-end
@@ -186,9 +193,7 @@ fn require_esp32_networked() -> bool {
 
 #[test]
 fn test_esp32_talker_listener_e2e() {
-    if !require_esp32_networked() {
-        nros_tests::skip!("require_esp32_networked check failed");
-    }
+    require_esp32_networked();
 
     let (talker_bin, listener_bin) = build_esp32_flash_images();
 
@@ -300,9 +305,7 @@ fn build_esp32_listener_flash() -> std::path::PathBuf {
 
 #[test]
 fn test_esp32_to_native() {
-    if !require_esp32_networked() {
-        nros_tests::skip!("require_esp32_networked check failed");
-    }
+    require_esp32_networked();
 
     // Only need talker flash + native listener
     let talker_bin = build_esp32_talker_flash();
@@ -382,9 +385,7 @@ fn test_esp32_to_native() {
 
 #[test]
 fn test_native_to_esp32() {
-    if !require_esp32_networked() {
-        nros_tests::skip!("require_esp32_networked check failed");
-    }
+    require_esp32_networked();
 
     // Only need listener flash + native talker
     let listener_bin = build_esp32_listener_flash();
@@ -496,9 +497,7 @@ const ESP32_WS_ENTRY_PORT: u16 = port_of(
 /// delivered cross-process to an external native listener.
 #[test]
 fn test_esp32_workspace_entry_e2e() {
-    if !require_esp32_networked() {
-        nros_tests::skip!("require_esp32_networked check failed");
-    }
+    require_esp32_networked();
 
     // Resolve the prebuilt workspace-Entry ELF + pack a flash image.
     let entry_elf = get_prebuilt_esp32_qemu_workspace_entry().expect(
