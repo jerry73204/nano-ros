@@ -93,10 +93,8 @@ Three of 11 binaries have a focused recipe (`interop_e2e`, `params`,
 0759). Verified 2026-09-06: the `ros2` box is fully provisioned — 290
 `ros-humble-*` packages, `rmw_zenoh_cpp` 0.1.9, `rmw_cyclonedds_cpp` 1.3.4,
 `rmw_fastrtps_cpp` 6.2.10, box-owned `just`/`cargo-nextest`/`nros`/`bindgen`
-under `~/.local-box/bin`. **Nothing about the environment is missing.** Source
-`activate.sh` FIRST and `ros2-box-env.sh` SECOND: box-env prepends
-`CARGO_INSTALL_ROOT/bin` last, and activate.sh otherwise re-shadows `just` with
-the host's glibc-2.39 build, which dies in the box.
+under `~/.local-box/bin`. **Nothing about the environment is missing.** Driving
+it correctly is the part with traps — see W1 below and issues 1144, 0759.
 
 ### W0 — unblock the lane (issue 1136)
 
@@ -199,14 +197,31 @@ cleared:
 1. `bash scripts/dev/ros2-box-sync.sh` — takes over an hour on this disk; do not
    wrap it in a timeout. It now excludes `/.claude/worktrees/`, which it was
    copying once per live agent session.
-2. In the box: source `activate.sh` FIRST, `ros2-box-env.sh` SECOND. box-env
-   prepends `CARGO_INSTALL_ROOT/bin` last, so the reverse order re-shadows
-   `just` with the host's glibc-2.39 build and it dies as `GLIBC_2.39 not
-   found`. This cost one build.
-3. `just setup-cli`, then `bash scripts/build/fixtures-build.sh linux rust
+2. **Enter as the user.** `podman exec` without `-u aeon` runs as ROOT, and
+   git then refuses the box tree as dubiously-owned. `git ls-files` fails,
+   `nros_source_manifest` cannot compute a workspace-fixture signature, and the
+   test emits `[SKIPPED] … fixture not built` — which nextest renders as
+   **FAIL**, because `skip!` panics and only `test-all`'s junit rewrite converts
+   it. Five cells reported red for a git-config reason, naming the fixture
+   rather than the ownership. It also stamps the box CLI inconsistently, so the
+   next run as `aeon` refuses everything with "in-tree nros CLI is STALE".
+   `distrobox enter` does not have this problem; `podman exec` is the shortcut
+   that does.
+3. **PATH: assert, do not assume** (issue 1144). In a NON-login shell
+   `~/.cargo/bin` is absent, so `activate.sh`'s conditional prepend fires and
+   lands the host's glibc-2.39 `just` ahead of the box's. Sourcing
+   `activate.sh` before `ros2-box-env.sh` makes that guard a no-op and works,
+   but it is a workaround — box-env sources `activate.sh` itself, and the
+   ordering belongs there. Either way, assert it:
+   `command -v just | grep -q local-box || exit 1`.
+4. `just setup-cli`, then `bash scripts/build/fixtures-build.sh linux rust
    <rmw>` — the positional filter narrows to a coordinate without needing a
    lane. 54 rows for zenoh, 11 for cyclonedds; roughly an hour together.
-4. `cargo nextest run -p nros-tests --test graph_interop`.
+   **`[[fixture]]` rows are not workspace fixtures**: cells whose nano side is a
+   workspace entry (the bridges, `qos_override_e2e`,
+   `rust_multi_node_per_node_graph`) additionally need `just native
+   build-workspace-fixtures`, a different builder.
+5. `cargo nextest run -p nros-tests --test graph_interop`.
 
 **Not done:** the `nano-ros-box-box` mirror-of-a-mirror still sits beside the
 box tree, and this procedure is recorded here rather than in
