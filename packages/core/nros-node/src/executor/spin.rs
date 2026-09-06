@@ -8197,8 +8197,12 @@ impl<'s> Executor<'s> {
         let timeout_us = opts.timeout.map(|d| d.as_micros() as u64);
         let mut total_callbacks = 0usize;
 
-        self.halt_flag
-            .store(false, core::sync::atomic::Ordering::SeqCst);
+        // phase-417 W4.c — clears the cancel flag AND raises `is_spinning`. The
+        // clear is the pre-existing behaviour (a cancel requested before this
+        // spin is not a cancel of this spin); the raise is what lets a peer
+        // thread see that its `cancel()` has not been acted on yet. Every exit
+        // below is a `break` to the single tail, which is where the scope ends.
+        self.enter_spin_loop();
 
         loop {
             if self.halt_flag.load(core::sync::atomic::Ordering::SeqCst) {
@@ -8225,6 +8229,7 @@ impl<'s> Executor<'s> {
             }
         }
 
+        self.exit_spin_loop();
         Ok(())
     }
 
@@ -8279,8 +8284,6 @@ impl<'s> Executor<'s> {
     /// executor.spin_period(core::time::Duration::from_millis(10))?;
     /// ```
     pub fn spin_period(&mut self, period: core::time::Duration) -> Result<(), NodeError> {
-        self.halt_flag
-            .store(false, core::sync::atomic::Ordering::SeqCst);
         let period_us = period.as_micros().min(u64::MAX as u128) as u64;
         // Absolute next-deadline in the executor's own clock. issue 0709 — the
         // sibling of `spin_blocking`'s guard above: with no clock there is no
@@ -8296,6 +8299,11 @@ impl<'s> Executor<'s> {
             );
             return Err(NodeError::NotInitialized);
         };
+        // phase-417 W4.c — after the clock guard, not before it: a call that
+        // returns an error never spun, and must not report that it did. (This
+        // also moved the cancel-flag clear past the guard, which is the same
+        // correction.)
+        self.enter_spin_loop();
         let mut next_us = Some(start_us + period_us);
 
         loop {
@@ -8318,6 +8326,7 @@ impl<'s> Executor<'s> {
                 next_us = Some(next + period_us);
             }
         }
+        self.exit_spin_loop();
         Ok(())
     }
 }
@@ -8545,9 +8554,18 @@ unsafe extern "C" fn threaded_spin_trampoline(
     // reported but not propagated — a runtime that fails to lift to SCHED_FIFO
     // still spins correctly at SCHED_OTHER (just without RT guarantees).
     let _ = (ctx.apply_policy)(ctx.policy);
+    // phase-417 W4.c — this loop owns its own iteration, so it is a spin and
+    // must say so. NOT `enter_spin_loop()`: that clears the cancel flag, and
+    // `open_threaded` hands the caller a `ThreadHandle` whose `halt()` may
+    // already have fired before this task was scheduled. Raising `is_spinning`
+    // without touching the cancel bit is the honest report here.
+    ctx.executor
+        .spinning
+        .store(true, core::sync::atomic::Ordering::SeqCst);
     while !ctx.executor.is_halted() {
         ctx.executor.spin_once(ctx.spin_period);
     }
+    ctx.executor.exit_spin_loop();
     core::ptr::null_mut()
 }
 
