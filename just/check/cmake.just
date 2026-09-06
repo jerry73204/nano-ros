@@ -199,3 +199,27 @@ reconfigure-on-change:
 [private]
 workspace-fmt:
     cargo +{{NIGHTLY}} fmt --check
+
+# Issue 1118 — nothing may DECLARE a C++ standard below the one nros-cpp needs.
+#
+# The tree said C++14 in 95 places while `component_node.hpp` used `if
+# constexpr`, which is C++17. GCC only warns on that, so the declared minimum
+# was a claim the code violated and no build ever failed. The number lived in
+# four vocabularies, two of which already disagreed with their own siblings
+# (`arm-freertos-armcr52.cmake` at 17 among four toolchains at 14;
+# `fvp_entry/prj.conf` at CPP17 beside its workspace's CPP14).
+#
+# The gate holds NO version number: it reads the floor out of
+# `target_compile_features(nros-cpp-headers INTERFACE cxx_std_NN)`, so raising
+# the floor is one edit and this follows. Covers `CMAKE_CXX_STANDARD`, the
+# `cxx_std_N` feature and Zephyr's `CONFIG_STD_CPPN`; the `-std=` in a
+# toolchain's `CMAKE_CXX_FLAGS_INIT` is deliberately out of scope and the
+# script's header says why.
+#
+# A site that consumes no nros-cpp header and whose own build imposes an older
+# dialect (uORB inside PX4 at `-std=gnu++14 -Werror`; the Cyclone wrapper on
+# Zephyr at `-std=c++11`) carries `# nros-cxx-floor-exempt: <reason>`. The
+# reason is required, and the exempt sites print on the GREEN path.
+[group("check")]
+cxx-standard-floor:
+    @python3 scripts/check-cxx-standard-floor.py

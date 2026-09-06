@@ -233,6 +233,11 @@ def candidates(root: Path) -> list[Path]:
     walk = (
         (Path(n) for n in keep)
         if keep is not None
+        # walk-ok: reached ONLY when `tracked()` returned None, i.e. `root` is
+        # not a git checkout — the self-test's temp tree. The live path over
+        # this repository always takes the `git ls-files` branch above, which
+        # is the whole point of `tracked()`. A walk here is over a handful of
+        # synthetic files, not the repo.
         else (p.relative_to(root) for p in root.rglob("*") if p.is_file())
     )
     out = []
