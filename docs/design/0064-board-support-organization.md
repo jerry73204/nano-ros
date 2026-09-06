@@ -1658,10 +1658,24 @@ re-finding (issues 0896, 0963, and `check-test-scripts-have-callers`):
    continue  # not migrated yet`. `nros-board-mps3-an536-freertos` (phase-385,
    the most recent board) has a descriptor and no `package.xml`. Nothing said so.
 
-3. **Discovery is a one-level glob**, `packages/boards/*/nros-board.toml`. A
-   bundle board stays invisible even after gaining a descriptor — issue 0729's
-   class, still open structurally — and an out-of-tree board has no way in at
-   all. Note this is *not* what phase-346 fixed: that phase made the board
+3. **Discovery is one level deep, and the bundle case is patched with a
+   `board.cmake` read.** `BoardCatalog::load_root` scans
+   `<root>/*/nros-board.toml` and no deeper, so a bundle board cannot carry a
+   descriptor of its own. `fvp-aemv8r-smp` resolves today only because
+   `attach_bundle_aliases` walks `nros-board-<family>/boards/*/board.cmake` and
+   appends the bundle name and its `NROS_BOARD_ZEPHYR_ID` as ALIASES onto the
+   family descriptor — so the FVP board has no descriptor, it borrows the
+   `zephyr` one. D4 deletes `board.cmake`, which deletes that alias path, so the
+   depth fix is a prerequisite rather than a tidy-up.
+
+   **The out-of-tree ROOTS, by contrast, are already right, and an earlier draft
+   of this revision said otherwise.** `extra_board_roots()` reads a PATH-style
+   `NROS_EXTRA_BOARD_PATH`, and `load_with_packages` absorbs a board declared
+   inside the user's own workspace package — the colcon property that a
+   workspace carries what it needs. What D2 asks for is the DEPTH and one scan
+   shared with `provider_scan`, not the root list, which exists.
+
+   Note none of this is what phase-346 fixed: that phase made the board
    FRAMEWORK resolvable from an out-of-tree leaf, through the Entry's build
    script. Descriptor discovery was never part of it.
 
@@ -1683,12 +1697,23 @@ bring-up code.
 
 Ours and a user's differ in exactly one respect: which search root found them.
 
-### D2 — Discovery is `provider_scan` over an ordered root list
+### D2 — One scan, depth-independent, shared with `provider_scan`
 
-Replace the glob with the scan RFC-0087 D6 specifies, rooted at
-`[workspace] package_paths` in `nros.toml`. Depth-independent, so bundle boards
-resolve; root-list-driven, so an out-of-tree board package is found by the same
-code path as an in-tree one. This is what makes D1 true rather than aspirational.
+The root list is already right (see the measurement's point 3). Two things are
+not:
+
+* **Depth.** `load_root` stops at one level, so a bundle board cannot own a
+  descriptor and is patched in by reading `board.cmake` — the file D4 deletes.
+* **Two scans.** `provider_scan` already walks `package.xml` with
+  `COLCON_IGNORE` / `AMENT_IGNORE` / `NROS_IGNORE` honoured;
+  `BoardCatalog::load_root` walks descriptors separately with its own rules.
+  Boards are found by the descriptor walk and announced to the other one, which
+  is exactly how a board comes to have a descriptor and no announcement.
+
+D2 is therefore: boards are discovered by `provider_scan` like every other
+provider, and `nros-board.toml` is read for a package that announced itself as a
+board. That collapses the two walks, makes depth a non-question, and makes the
+missing `package.xml` a resolution failure instead of a silent skip.
 
 ### D3 — `[board.zephyr]`, so routes 3 and 4 stop existing
 
@@ -1830,8 +1855,11 @@ against — authors the same shape plus what genuinely differs: a crate for rung
 bring-up (`nros_board_init_eth()`), a `[board.cmake] toolchain_file`, a linker
 script in `rustflags`, and a `[board.provisioning] gated` naming its own SDK
 entry. Field for field, that is the in-tree `s32z270-freertos` descriptor. The
-only difference is which root found it — which is the whole claim of D1 and D2,
-and today it is false, because the root list is a hardcoded glob.
+only difference is which root found it — which is the whole claim of D1 and D2.
+Today the ROOT part of that already works (`NROS_EXTRA_BOARD_PATH`, and a board
+declared inside the consumer's own workspace package); what does not is that a
+board is found by a different walk from every other provider, and so can exist
+without ever announcing itself.
 
 ### Gates this revision asks for
 
