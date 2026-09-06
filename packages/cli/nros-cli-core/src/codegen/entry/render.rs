@@ -125,6 +125,14 @@ static ENV: LazyLock<Environment<'static>> = LazyLock::new(|| {
     env
 });
 
+/// Every registered template key.
+///
+/// Exposed so the pack manifests can be checked against the registry rather
+/// than merely agreeing with it by inspection (phase-432 W3.2).
+pub(crate) fn template_keys() -> Vec<&'static str> {
+    TEMPLATES.iter().map(|(k, _)| *k).collect()
+}
+
 /// Render a bundled entry template.
 ///
 /// A failure here is a bug in a template that ships INSIDE the binary, not

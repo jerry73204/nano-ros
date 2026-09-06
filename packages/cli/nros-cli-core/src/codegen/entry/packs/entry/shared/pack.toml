@@ -1,0 +1,12 @@
+# Not a language pack — the partials both the C and the C++ packs include.
+#
+# Their bytes are identical C that a C++ entry compiles unchanged, so they are
+# one file rather than two spellings (phase-432 W2.3). Declared rather than
+# special-cased in code: a directory under `packs/entry/` that no manifest
+# describes is exactly the half-wired shape W3.3 exists to refuse.
+shared = true
+
+# No `language`, `extension`, `c_family` or `entry_template`: this pack renders
+# no TU of its own. The conformance check requires those fields of a LANGUAGE
+# pack and forbids them here, so the two kinds cannot be confused.
+partials = ["boot_config.jinja", "declare_calls.jinja"]

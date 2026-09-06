@@ -916,18 +916,42 @@ function(_nros_entry_invoke_codegen)
         set(_ws_root "${CMAKE_SOURCE_DIR}")
     endif()
 
-    # phase-263 C2 (issue 0097) — an embedded C entry's generated TU is C++ (it drives
-    # the C++ board runner `ThreadxBoard::run_components`, calling each C node via its
-    # `extern "C"` seam), so emit `.cpp` even for `LANG c` on a non-posix configure. The
-    # codegen routes embedded-C through the C++ emitter to match. Native C stays `.c`.
-    if(_NRX_LANG STREQUAL "c" AND DEFINED NANO_ROS_PLATFORM
-       AND NOT NANO_ROS_PLATFORM STREQUAL "posix")
-        set(_ext "cpp")
-    elseif(_NRX_LANG STREQUAL "c")
-        set(_ext "c")
-    else()
-        set(_ext "cpp")
+    # phase-432 W3.2 — ASK the pack which extension its TU gets; do not derive
+    # it here.
+    #
+    # phase-263 C2 (issue 0097) is the rule being applied: an embedded C entry's
+    # generated TU is C++, because it drives the C++ board runner
+    # (`ThreadxBoard::run_components`) and calls each C node through its
+    # `extern "C"` seam. Native C stays `.c`.
+    #
+    # This block used to APPLY that rule itself, as
+    # `LANG c AND NANO_ROS_PLATFORM != "posix"`, while the CLI's dispatch
+    # applied it as `board_family(plan.board).is_embedded()`. Two derivations of
+    # one decision, on DIFFERENT inputs — a platform label here, the board key
+    # there. They agree on every combination the tree exercises today; nothing
+    # made them agree, and the failure if they ever stopped would be a C++ TU
+    # written into a `.c` file, or the reverse.
+    #
+    # The answer now has one producer, and `check-entry-extension-ssot` refuses
+    # a second one.
+    set(_ext "")
+    execute_process(
+        COMMAND "${_nros_bin}" codegen entry-pack
+                --lang "${_NRX_LANG}" --board "${_NRX_BOARD}"
+        OUTPUT_VARIABLE _pack_info
+        ERROR_VARIABLE  _pack_err
+        RESULT_VARIABLE _pack_rc
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _pack_rc EQUAL 0)
+        message(FATAL_ERROR
+            "nano_ros_entry: `nros codegen entry-pack --lang ${_NRX_LANG} "
+            "--board ${_NRX_BOARD}` failed (rc=${_pack_rc}).\n${_pack_err}")
     endif()
+    if(NOT _pack_info MATCHES "extension=([A-Za-z0-9_]+)")
+        message(FATAL_ERROR
+            "nano_ros_entry: entry-pack reported no extension:\n${_pack_info}")
+    endif()
+    set(_ext "${CMAKE_MATCH_1}")
 
     # Per-target output paths under the build dir. Sidecars share the
     # current dir to keep the relative location simple for the

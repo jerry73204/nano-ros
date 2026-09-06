@@ -89,6 +89,33 @@ pub enum Sub {
     /// lived for three months beside a correct sibling.
     #[command(name = "entry-node")]
     EntryNode(EntryNodeArgs),
+
+    /// phase-432 W3.2 — report which entry pack renders a given (language,
+    /// board), and the two facts CMake needs BEFORE codegen runs: the
+    /// generated TU's extension, and whether a C-family compiler builds it.
+    ///
+    /// This exists so `NanoRosEntry.cmake` stops re-deriving them. It used to
+    /// key on `NANO_ROS_PLATFORM != "posix"` while the dispatch keyed on the
+    /// BOARD, and `board_family()` answers `native` for any key it does not
+    /// know — so an unlearned board is embedded to one and native to the
+    /// other, and the CLI writes a C TU into a file CMake named `.cpp`.
+    #[command(name = "entry-pack")]
+    EntryPack(EntryPackArgs),
+}
+
+/// phase-432 W3.2 — the query CMake asks before it names an output path.
+#[derive(Debug, ClapArgs)]
+pub struct EntryPackArgs {
+    /// The ENTRY's language: `c`, `cpp` or `rust`.
+    #[arg(long)]
+    pub lang: String,
+    /// The board key, as the plan spells it. Decides whether a C entry routes
+    /// to the C++ pack.
+    #[arg(long)]
+    pub board: String,
+    /// Emit the answer as JSON instead of `key=value` lines.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// phase-432 W2.6 — one registered node's facts, as `nano_ros_node_register()`
@@ -242,6 +269,7 @@ pub fn run(args: Args) -> Result<()> {
         }
         Some(Sub::Entry(sub_args)) => run_entry(sub_args),
         Some(Sub::EntryNode(sub_args)) => run_entry_node(sub_args),
+        Some(Sub::EntryPack(sub_args)) => run_entry_pack(sub_args),
         None => {
             let Some(args_file) = args.args_file else {
                 bail!("nros codegen: --args-file is required (or use a subcommand)");
@@ -423,6 +451,32 @@ fn write_generated_tu(out: &std::path::Path, src: &str) -> Result<()> {
                 .wrap_err_with(|| format!("create parent `{}`", parent.display()))?;
         }
         fs::write(out, src).wrap_err_with(|| format!("write generated TU `{}`", out.display()))?;
+    }
+    Ok(())
+}
+
+/// `nros codegen entry-pack` — phase-432 W3.2.
+///
+/// Prints `key=value` lines a CMake `execute_process` can read back with
+/// `string(REGEX MATCH)`, or JSON on `--json`. The key=value form is the
+/// default because CMake is the caller this exists for and it has no JSON
+/// parser; JSON is there so a human or a test can read it without a second
+/// spelling of the format.
+fn run_entry_pack(args: EntryPackArgs) -> Result<()> {
+    // The language is validated by the ONE parser, not by a string test here:
+    // a second spelling of "which languages exist" is exactly the drift this
+    // whole phase removes.
+    let language =
+        nros_lang::Language::parse(&args.lang).map_err(|e| eyre!("codegen entry-pack: {e}"))?;
+    let info = entry_codegen::pack::entry_pack_for(language, &args.board)
+        .map_err(|e| eyre!("codegen entry-pack: {e}"))?;
+    if args.json {
+        println!("{}", serde_json::to_string(&info)?);
+    } else {
+        println!("pack={}", info.pack);
+        println!("extension={}", info.extension);
+        println!("c_family={}", if info.c_family { 1 } else { 0 });
+        println!("routed={}", if info.routed { 1 } else { 0 });
     }
     Ok(())
 }

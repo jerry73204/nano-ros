@@ -1,0 +1,23 @@
+# The C entry pack.
+#
+# phase-432 W3.2 — this file is the SSoT for what CMake needs to know about a
+# pack before codegen has run: what the generated TU is called and which
+# toolchain compiles it. That knowledge used to be re-derived in
+# `NanoRosEntry.cmake`, keyed on a DIFFERENT variable than the CLI's dispatch
+# (`NANO_ROS_PLATFORM != "posix"` there, `board_family()` here), so the two
+# could disagree about the same entry. Ask `nros codegen entry-pack` instead.
+
+# The `nros_lang::Language` this pack renders for.
+language = "c"
+
+# The generated TU's extension, and whether a C-family compiler builds it.
+# `c_family` is what tells CMake to link the C runtime rather than the C++ one;
+# the two are separate because a future pack could be C-family with a different
+# extension, or neither.
+extension = "c"
+c_family = true
+
+# The template that renders the whole TU, and the partials it includes. Keys,
+# not paths: the registry owns paths (see `render.rs`).
+entry_template = "entry_c.c"
+partials = ["service_trailer_c.jinja", "boot_config.jinja", "declare_calls.jinja"]
