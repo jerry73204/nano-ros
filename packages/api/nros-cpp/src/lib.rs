@@ -3376,7 +3376,10 @@ pub struct NativeTierSpecC {
     pub preempt_threshold: i64,
     /// phase-296 W5.7 append — RTOS-agnostic scheduling class
     /// (`"best_effort"`|`"real_time"`|`"time_triggered"`); NULL = unset.
-    /// ABI append-only: keep main.h/main.hpp/board mirrors/emitters in sync.
+    /// ABI append-only. One of six hand mirrors of main.h's canonical
+    /// `nros_native_tier_spec_t` (the others: main.hpp `NativeTierSpec` and the
+    /// three board `nros_tier_spec_t`), plus the two entry templates that
+    /// initialise it. Gated by `check-ffi-struct-mirrors`; never insert.
     pub tier_class: *const c_char,
     /// Sporadic replenishment period (µs); 0 = unset.
     pub period_us: u64,

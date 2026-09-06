@@ -68,8 +68,38 @@ static int32_t __nros_entry_setup_tier_1(void* executor) {
 static const char* __nros_tier_0_groups[] = {"ctrl_grp", };
 static const char* __nros_tier_1_groups[] = {"telem_grp", };
 static const nros_native_tier_spec_t __nros_tiers[2] = {
-    { "high", __nros_tier_0_groups, 1u, 80LL, 0u, 10000ull, &__nros_entry_setup_tier_0, 0u, -1LL, NULL, 0ull, 0ull, 0ull, NULL },
-    { "low", __nros_tier_1_groups, 1u, 10LL, 0u, 100000ull, &__nros_entry_setup_tier_1, 0u, -1LL, NULL, 0ull, 0ull, 0ull, NULL },
+    {
+        .name = "high",
+        .groups = __nros_tier_0_groups,
+        .n_groups = 1u,
+        .priority = 80LL,
+        .stack_bytes = 0u,
+        .spin_period_us = 10000ull,
+        .setup = &__nros_entry_setup_tier_0,
+        .core_plus1 = 0u,
+        .preempt_threshold = -1LL,
+        .tier_class = NULL,
+        .period_us = 0ull,
+        .budget_us = 0ull,
+        .deadline_us = 0ull,
+        .deadline_policy = NULL,
+    },
+    {
+        .name = "low",
+        .groups = __nros_tier_1_groups,
+        .n_groups = 1u,
+        .priority = 10LL,
+        .stack_bytes = 0u,
+        .spin_period_us = 100000ull,
+        .setup = &__nros_entry_setup_tier_1,
+        .core_plus1 = 0u,
+        .preempt_threshold = -1LL,
+        .tier_class = NULL,
+        .period_us = 0ull,
+        .budget_us = 0ull,
+        .deadline_us = 0ull,
+        .deadline_policy = NULL,
+    },
 };
 
 /* Phase 266 (RFC-0045) — baked boot config: post-link readable + session name. */

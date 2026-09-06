@@ -258,14 +258,35 @@ Two entry renderers exist today (`rust_entry.rs.jinja`, `c_entry.c.jinja` +
 emitters they replaced. They should move from `templates/` to
 `packs/entry/<lang>/` so there is one convention.
 
-**The tier table must use DESIGNATED initialisers.** It is emitted positionally
-against `nros_native_tier_spec_t`, a struct mirrored across **nine** files whose
-own comment asks a human to keep them in sync — and `check-ffi-struct-mirrors`
-does not cover it (it compares `component.h` against `nros_cpp_ffi.h`). A field
-inserted anywhere but the end silently mis-assigns every generated entry:
-issue 0160's class, ungated. `{ .name = ..., .groups = ... }` makes drift a
-compile error at the generated TU; extending the mirror gate makes it loud at
-the point of edit. Both.
+**The tier table must use DESIGNATED initialisers.** It was emitted positionally
+against `nros_native_tier_spec_t` — mirrored by hand across **eight** sites, not
+the nine first counted here — and `check-ffi-struct-mirrors` did not cover it (it
+compared `component.h` against `nros_cpp_ffi.h`). A field inserted anywhere but
+the end silently mis-assigned every generated entry: issue 0160's class, ungated.
+`{ .name = ..., .groups = ... }` makes drift a compile error at the generated TU;
+extending the mirror gate makes it loud at the point of edit. Both — and both
+have LANDED (phase-432, branch `fix/nros-native-tier-spec-designated-init`).
+
+The eight, measured rather than counted from a comment: six DECLARATIONS —
+`nros-c/include/nros/main.h` (canonical), `nros-cpp/include/nros/main.hpp`
+(`NativeTierSpec`), `nros-cpp/src/lib.rs` (`NativeTierSpecC`) and the THREE
+board `nros_tier_spec_t` mirrors (zephyr, nuttx-qemu, freertos) — plus the two
+entry templates that initialise it. main.h's own comment claimed FOUR board
+mirrors; there are three. `nros_platform::TierSpec` is a semantic sibling with
+different field names and no `repr(C)`, so it is not a mirror and counting it is
+what made the number nine.
+
+**C++14 is the binding constraint, and it does not stop this.** Designated
+initialisers are C++20; the tree pins C++14 (Zephyr `CONFIG_STD_CPP14=y`,
+`-std=c++14` in three cross toolchains, `just check cpp` parsing at c++14).
+Measured accepted at `-std=c++14 -Wall -Wextra` by g++ 11.4, clang++ 14,
+arm-none-eabi-g++ 13.2, arm-zephyr-eabi-g++ 12.2 and riscv64-unknown-elf-g++
+10.2 — every compiler this tree reaches — as a GNU/Clang extension. Only
+`-Wpedantic` objects, and nothing in-tree sets it on a generated entry; a
+downstream build that does needs `-Wno-pedantic` on that TU. The C pack's are
+plain C99 and carry no caveat. C++ additionally requires designators in
+DECLARATION ORDER, which the gate's order comparison already enforces
+statically.
 
 ### The C pack is PURE C
 
@@ -579,7 +600,8 @@ language first is what made the shortcut visible at all.
 - The proc-macro and the CLI share lowering; a gate compares the two Rust
   renderings.
 - The tier table uses designated initialisers, and the mirror gate covers
-  `nros_native_tier_spec_t` across its nine sites.
+  `nros_native_tier_spec_t` across its EIGHT sites (six declarations + the two
+  entry templates; the nine was a miscount — see §5). DONE.
 - Adding a language touches no Rust beyond one `Language` variant.
 - Goldens stay byte-stable across the migration — they are how each step is
   proven, and they already caught a rebase-introduced field change and three
@@ -601,11 +623,18 @@ language first is what made the shortcut visible at all.
   maintainer call.
 - `nros_board_threadx_run_components` does not exist and neither does its
   `run_tiers` — is pure-C ThreadX worth the shim, or is the declaration enough?
-- Does the designated-initialiser change land with the C++ pack conversion or
-  ahead of it? It is byte-visible in every generated entry, so it wants its own
-  goldens diff.
-- Does the mirror gate extend (`check-ffi-struct-mirrors` assumes TWO files) or
-  get a sibling keyed on a struct with nine?
+- ~~Does the designated-initialiser change land with the C++ pack conversion or
+  ahead of it?~~ ANSWERED: its own branch immediately after W2.3, with its own
+  goldens diff (8 goldens, tier rows only).
+- ~~Does the mirror gate extend (`check-ffi-struct-mirrors` assumes TWO files) or
+  get a sibling keyed on a struct with nine?~~ ANSWERED: it EXTENDS, as a second
+  family inside the same script. The comparison is not uniform, and that is the
+  reason a sibling would have been worse: the C family (main.h + three board
+  mirrors) is compared by full DECLARATION because those four are cast to one
+  another, while C++/Rust and the templates are compared by field-name ORDER —
+  `NativeTierSpec` spells `groups` as `const char**` where C has
+  `const char* const*`, so a type comparison there would be permanently red. One
+  script, one canonical source, three comparison strengths.
 
 ## 12. Known gap in the current goldens
 

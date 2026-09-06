@@ -178,8 +178,10 @@ struct NativeTierSpec {
     int32_t (*setup)(void* executor);
     uint32_t core_plus1;
     int64_t preempt_threshold;
-    /* phase-296 W5.7 — ABI append-only; keep every mirror in sync (main.h
-     * nros_native_tier_spec_t, NativeTierSpecC, 4 board mirrors, emitters). */
+    /* phase-296 W5.7 — ABI append-only. One of six hand mirrors of main.h's
+     * canonical `nros_native_tier_spec_t` (the others: NativeTierSpecC and the
+     * three board `nros_tier_spec_t`), plus two entry templates that initialise
+     * it. Gated by `check-ffi-struct-mirrors`; never insert, only append. */
     const char* tier_class;
     uint64_t period_us;
     uint64_t budget_us;

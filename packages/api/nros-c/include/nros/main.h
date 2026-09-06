@@ -90,9 +90,16 @@ typedef struct {
     nros_c_entry_setup_fn setup;
     uint32_t core_plus1;
     int64_t preempt_threshold;
-    /* phase-296 W5.7 — appended (ABI append-only, keep every mirror in sync:
-     * main.hpp NativeTierSpec, nros-cpp NativeTierSpecC, the 4 board
-     * `nros_tier_spec_t` mirrors, and both entry emitters). */
+    /* phase-296 W5.7 — appended. THIS DECLARATION IS CANONICAL. The struct is
+     * mirrored by hand in five more places — main.hpp `NativeTierSpec`,
+     * nros-cpp `NativeTierSpecC`, and the THREE board `nros_tier_spec_t`
+     * mirrors (zephyr / nuttx-qemu / freertos) — and initialised by the two
+     * entry templates. ABI append-only: a field inserted anywhere but the end
+     * shifts every field after it in whichever mirror missed the edit.
+     * Gated by `check-ffi-struct-mirrors` (push lane), which compares all
+     * eight sites against this one; the templates use DESIGNATED
+     * initialisers so a rename is a compile error at the generated TU too
+     * (phase-432, RFC-0091 §5). */
     const char* tier_class;
     uint64_t period_us;
     uint64_t budget_us;

@@ -106,7 +106,10 @@ extern void nros_board_freertos_console_write(const char* s);
  *
  * Mirror of nros_native_tier_spec_t (nros/main.h). Layout MUST match: same
  * field order, same types, same ABI (verified by the C++ caller casting
- * NativeTierSpec* → nros_native_tier_spec_t* → this type). On 32-bit ARM:
+ * NativeTierSpec* → nros_native_tier_spec_t* → this type). Gated by
+ * `check-ffi-struct-mirrors`, which compares this declaration to main.h's
+ * field by field (the `nros_tier_setup_fn_t` typedef being the one legitimate
+ * spelling difference). On 32-bit ARM:
  *   offset 0:  name (ptr, 4 B)
  *   offset 4:  groups (ptr, 4 B)
  *   offset 8:  n_groups (size_t, 4 B)
