@@ -802,17 +802,21 @@ def run_lang(lang, tmpdir, include_internal=False):
 
     native_records = [r for r in ours_records if r.get("surface") != PORTED]
     if len(native_records) == len(ours_records):
-        native = {r["key"]: r["bucket"] for r in rows}
+        native_rows = rows
     else:
-        native = {
-            r["key"]: r["bucket"]
-            for r in correlate.compare(
-                correlate.flatten(native_records, clang, "ours"), theirs, clang)
-        }
+        native_rows = correlate.compare(
+            correlate.flatten(native_records, clang, "ours"), theirs, clang)
+    native = {r["key"]: r["bucket"] for r in native_rows}
+    # The DETAIL of the native correlation, not only its bucket. The gate runs
+    # on the native surface, and phase-428 W6's `ret_differs` marker lives in
+    # `detail` -- reusing the ported row's detail there would gate the native
+    # surface on a comparison made against a different set of overloads.
+    native_detail = {r["key"]: r.get("detail") for r in native_rows}
     for row in rows:
         item = row.get("ours")
         row["surface"] = (item.get("surface") or NATIVE) if item else ""
         row["native_bucket"] = native.get(row["key"])
+        row["native_detail"] = native_detail.get(row["key"])
     return rows, payload.get("provenance", {}), removed
 
 
@@ -919,7 +923,20 @@ def gate_rows(ledger, lang, rows, key_bucket="bucket"):
     Runs over ALL rows, independently of `--grep` / `--topic` / `--show`. The
     gate used to be collected inside the printing loop, so a filtered report
     silently gated a filtered surface.
+
+    `same` is exempt with ONE exception, added by phase-428 W6's remainder: a
+    `same` row whose RETURN TYPE differs. That is RFC-0089 Part I's fourth
+    table row -- "return type, where the result is discarded" -- the difference
+    the compiler does not point at, so nothing else will say it. W6 left it a
+    note rather than a verdict because 135 cpp `same` rows carried no ledger row
+    and failing on all of them at once is how a gate gets switched off. Two
+    things changed: W5 authored 82 ledger rows, and `_ret_of` was reading a
+    field `flatten` never writes, so the note had in fact fired ZERO times in
+    any language. Measured after the fix: 33 rows carry it across the three
+    lanes and 20 had no ledger entry on the NATIVE surface the gate reads --
+    small enough to enforce, so all twenty were authored rather than deferred.
     """
+    detail_key = "native_detail" if key_bucket == "native_bucket" else "detail"
     buckets = {}
     for r in rows:
         b = r.get(key_bucket)
@@ -928,10 +945,13 @@ def gate_rows(ledger, lang, rows, key_bucket="bucket"):
     out = []
     for r in rows:
         b = r.get(key_bucket)
-        if not b or b in ("same", "systematic"):
+        if not b:
+            continue
+        ret_differs = bool((r.get(detail_key) or {}).get("ret_differs"))
+        if b == "systematic" or (b == "same" and not ret_differs):
             continue
         if lookup(ledger, lang, r["key"], b, buckets)[0] is None:
-            out.append((lang, b, r["key"]))
+            out.append((lang, "same:ret" if b == "same" else b, r["key"]))
     return out
 
 
@@ -1034,6 +1054,13 @@ def report(langs, show, check, suggest, include_internal, grep=None, topic=None,
                 line = "  %s %-52s %-12s %s%s" % (
                     mark, r["key"], verdict or "UNLEDGERED", bucket, note)
                 print(line)
+                # phase-428 W6 remainder: a `same` row that is gated ONLY on its
+                # return type has to say so, or it reads as a spurious failure
+                # of a row the report just called `same`.
+                rd = r.get("detail") or {}
+                if rd.get("ret_differs"):
+                    print("      returns  theirs %s  ->  ours %s"
+                          % (rd["theirs_ret"], rd["ours_ret"]))
                 if bucket in ("differs", "systematic", "arity-only") and r.get("detail"):
                     print(
                         "      ours   %s\n      theirs %s"
@@ -1585,6 +1612,70 @@ def self_test():
     check("the ported gate sees it",
           gate_rows(gled, "cpp", grows, "bucket"),
           [("cpp", "ours-only", "Y")])
+
+    # ------------------------------------------- phase-428 W6 remainder
+    # The return-type comparison, and its promotion from a note to a verdict.
+    # Both halves get a LIVE negative control, because the first version of
+    # this feature had neither and was inert in every language for a week:
+    # `_ret_of` read `item["ret"]`, a field `flatten` does not write (it stores
+    # the return type per OVERLOAD), so it answered None for all 323 `same`
+    # rows and the note fired zero times while reading as landed.
+    def _pair(ours_ret, theirs_ret):
+        mk = lambda ret, side: correlate.flatten(  # noqa: E731
+            [{"kind": "type", "qual": "nros::P" if side == "ours" else "rclcpp::P",
+              "name": "P",
+              "members": [{"name": "f", "params": [], "ret": ret, "template": []}]}],
+            "c++", side)
+        return correlate.compare(mk(ours_ret, "ours"), mk(theirs_ret, "theirs"), "c++")
+
+    rd = {r["key"]: (r.get("detail") or {}) for r in _pair("Result", "void")}
+    check("a differing return type is SEEN",
+          rd.get("P::f", {}).get("ret_differs"), True)
+    check("and it is reported both ways round",
+          (rd["P::f"].get("theirs_ret"), rd["P::f"].get("ours_ret")),
+          ("void", "Result"))
+    agree = {r["key"]: (r.get("detail") or {}) for r in _pair("void", "void")}
+    check("an AGREEING return type raises nothing",
+          bool(agree.get("P::f", {}).get("ret_differs")), False)
+    # A spelling is not a difference: `_Bool`/`bool` and the two `int64_t`
+    # typedefs are normalised, and 10 of the 11 C rows were spurious without it.
+    for ours_ret, theirs_ret, why in (
+            ("bool", "_Bool", "_Bool is bool"),
+            ("int64_t", "rcl_time_point_value_t", "time_point_value_t is int64_t"),
+            ("int64_t", "rcl_duration_value_t", "duration_value_t is int64_t")):
+        spelled = {r["key"]: (r.get("detail") or {}) for r in _pair(ours_ret, theirs_ret)}
+        check("a spelling is not a divergence (%s)" % why,
+              bool(spelled.get("P::f", {}).get("ret_differs")), False)
+
+    # The promotion: a `same` row whose return type differs is GATED, and one
+    # whose return type agrees is still exempt.
+    retrows = [
+        {"key": "R", "bucket": "same", "native_bucket": "same",
+         "detail": {"ret_differs": True, "ours_ret": "Result", "theirs_ret": "void"},
+         "native_detail": {"ret_differs": True, "ours_ret": "Result",
+                           "theirs_ret": "void"}},
+        {"key": "S", "bucket": "same", "native_bucket": "same",
+         "detail": None, "native_detail": None},
+    ]
+    check("a same row with a differing return type is gated",
+          gate_rows({}, "cpp", retrows, "native_bucket"),
+          [("cpp", "same:ret", "R")])
+    check("a ledger row answers it",
+          gate_rows({"cpp:R": {"verdict": "divergence", "why": "x"}},
+                    "cpp", retrows, "native_bucket"),
+          [])
+    # The two surfaces disagree here as elsewhere: a shim overload can make the
+    # ported return type agree while the native one still differs. The native
+    # gate must read the NATIVE detail, or it gates on a comparison made
+    # against a different set of overloads.
+    split = [{"key": "T", "bucket": "same", "native_bucket": "same",
+              "detail": None,
+              "native_detail": {"ret_differs": True, "ours_ret": "Result",
+                                "theirs_ret": "void"}}]
+    check("the native gate reads the native return types",
+          (gate_rows({}, "cpp", split, "native_bucket"),
+           gate_rows({}, "cpp", split, "bucket")),
+          ([("cpp", "same:ret", "T")], []))
 
     # ---------------------------------------------------------------- W0.b
     # RFC-0089's four dispositions.

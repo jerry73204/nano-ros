@@ -251,6 +251,11 @@
     "verdict": "gap",
     "why": "Rust has `Timer::time_since_last_call`; C does not. See `c:timer_get_next_call_time`."
   },
+  "c:timer_get_time_until_next_call": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. The sharpest row of the twenty, and the one the old unconditional `same` hid best.\n\nUPSTREAM: `rcl_ret_t rcl_timer_get_time_until_next_call(const rcl_timer_t *, int64_t * time_until_next_call)`, marked `RCL_WARN_UNUSED`. The value is SIGNED on purpose — rcl's own header says \"a negative value indicates the timer call is overdue by that amount\" — and the return distinguishes `RCL_RET_OK`, `RCL_RET_INVALID_ARGUMENT`, `RCL_RET_TIMER_INVALID` and `RCL_RET_TIMER_CANCELED`.\n\nOURS: `uint64_t nros_timer_get_time_until_next_call(const struct nros_timer_t *, uint64_t current_time_ns)` (`packages/api/nros-c/include/nros/nros_generated.h:7278`). Three differences and only one of them is loud:\n  * the out-param became the return value and the clock became an IN param — a ported call is a COMPILE ERROR, correctly.\n  * the error channel is GONE. Our own doc comment says the result is \"Time until next firing in nanoseconds, or 0 if ready now OR INVALID\" — the ready case and the four error cases share one value, so a caller cannot tell a due timer from a dead one.\n  * unsigned cannot express OVERDUE. Upstream's negative range is not representable, so lateness reads as 0.\n\nNothing about a fixed arena requires either loss, so the disposition is ADOPT: an out-param plus a status return costs one pointer. Until that lands the row is a `gap`, not a settled divergence."
+  },
   "c:timer_get_zero_initialized": {
     "verdict": "extension",
     "why": "see `c:publisher_get_zero_initialized`."
@@ -709,6 +714,11 @@
   "rust:Clock::is_ros_time_override_active": {
     "verdict": "divergence",
     "why": "ROS time. rclrs models it as a `ClockSource` a `Clock` is built `with_source`, so the override is driven by whoever owns the source. Ours are methods on `Clock` itself, because with no allocator the source cannot be a separately-owned object shared between clocks -- an image has one clock and one owner of it."
+  },
+  "rust:Clock::new": {
+    "verdict": "divergence",
+    "disposition": "adopt-bounded",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. rclrs's `Clock::new(ClockType) -> (Self, Option<ClockSource>)` hands back the clock AND, for a ROS_TIME clock, the `ClockSource` that DRIVES it — so the only way to obtain a simulatable clock upstream is to receive its source handle in the same expression. Ours (`packages/core/nros-core/src/clock.rs:220`) is `pub const fn new(ClockType) -> Self`; time overriding is an ASSOCIATED function on the type instead (`Clock::set_ros_time_override`, `clock.rs:317`), i.e. one process-wide override rather than a per-clock handle.\n\nClause 1: a per-clock source is a shared owner (`Arc` upstream), and the terminal `core`/`core+alloc` targets have neither `Arc` nor a place to keep one per clock; `const fn new` is also what lets a `Clock` be a `static`. The bound is that sim-time is global here, not per-clock. LOUD: `let (clock, source) = Clock::new(ClockType::RosTime);` does not destructure a `Clock`. Sim-time semantics belong to phase-425; this row records only the shape."
   },
   "rust:Clock::ros_time": {
     "verdict": "divergence",

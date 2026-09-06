@@ -265,6 +265,11 @@
     ],
     "why": "theirs `(name[, namespace], NodeOptions&, bool)`, ours `()` / `(void* executor_handle)` (plus a deleted copy ctor). Every position is accounted for by a rule or a constraint: `NodeOptions&` is `compile-time-options`; `make_shared`-style construction is `no-shared-ptr` (see `cpp:LifecycleNode::make_shared`); the name and namespace are not construction parameters because the node is created by the executor from baked boot config (RFC-0045), not named at the call site; and the trailing `bool enable_communication_interface` is our explicit `register_services()` / `autostart()` -- `nros_executor_register_lifecycle_services` registers all five REP-2002 servers (`~/change_state`, `~/get_state`, `~/get_available_states`, `~/get_available_transitions`, `~/get_transition_graph`) in ONE call, explicitly, because each server is a zenoh queryable against `ZPICO_MAX_QUERYABLES` (issue 0460) -- see the service stage's `c:executor_register_lifecycle_services`. The `void*` handle rather than an `Executor&` is the house idiom (`Executor::handle()` returns `void*`), not a lifecycle decision. our `nros::LifecycleNode` is a MIXIN over an executor handle, not a `Node` subclass: RFC-0002 puts one executor per RTOS task and the lifecycle state machine lives on the EXECUTOR (that is what `nros_executor_lifecycle_*` and `register_lifecycle_services` drive), while the node-side API stays on `nros::Node`. rclcpp's `LifecycleNode` re-declares the whole `Node` surface because it cannot inherit from `Node`; ours does not need to, and duplicating ~50 methods onto a second class would cost image size for nothing. What a ported node loses: it holds a `Node&` and a `LifecycleNode` instead of one object."
   },
+  "cpp:LifecycleNode::activate": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. see `cpp:LifecycleNode::configure` — `Result` where upstream returns `const State &`. (`lifecycle.hpp:161`.)"
+  },
   "cpp:LifecycleNode::autostart": {
     "verdict": "extension",
     "why": "registers the services and then drives the node to `Inactive` or `Active` at boot, so an unattended device comes up active with no external `ros2 lifecycle set`. rclcpp assumes an operator or a launch action performs the transitions. OUR LANGUAGES DISAGREE: Rust reaches the same behaviour DECLARATIVELY through `system.toml`'s `[lifecycle]` autostart, expanded by `nros::main!`, and spells the programmatic form `LifecyclePollingNode::bring_up`; C has no autostart entry point at all (`nros_cpp_lifecycle_autostart` is the C++ shim, not the C API). Three languages, three answers, one feature."
@@ -273,6 +278,16 @@
     "verdict": "extension",
     "why": "two-phase construction for the component model: a nano-ros component is constructed before the executor handle exists (RFC-0043/0044 -- components are declared and installed, not constructed with their dependencies), so a component that inherits `LifecycleNode` default-constructs and binds the handle from its install hook. rclcpp has no equivalent because its node is constructed with everything it needs."
   },
+  "cpp:LifecycleNode::cleanup": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. see `cpp:LifecycleNode::configure` — `Result` where upstream returns `const State &`. (`lifecycle.hpp:163`.)"
+  },
+  "cpp:LifecycleNode::configure": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. The five named transition helpers (`packages/api/nros-cpp/include/nros/lifecycle.hpp:160-164`) return `Result`; `rclcpp_lifecycle::LifecycleNode::configure()` returns `const rclcpp_lifecycle::State &` — the state it ARRIVED IN. Two differences in one type: the error channel (RFC-0018, so `Result` is forced) and the loss of the resulting state, which upstream returns and we do not. The second half is recoverable at the call site through `get_current_state()`, so no information is unreachable — but a ported `auto & s = node->configure();` is a COMPILE ERROR, which is the outcome the rule asks for. Applies verbatim to `activate`, `deactivate`, `cleanup` and `shutdown`, each of which carries its own row pointing here. The ID-SPACE defect behind these five is a separate and much sharper finding: see `cpp:LifecycleNode::trigger_transition` and issue 1099."
+  },
   "cpp:LifecycleNode::create_callback_group": {
     "verdict": "divergence",
     "why": "`nros::Node` has callback groups (RFC-0002 maps them onto RTOS priority tiers). Reached through `nros::Node`, which has it. our `nros::LifecycleNode` is a MIXIN over an executor handle, not a `Node` subclass: RFC-0002 puts one executor per RTOS task and the lifecycle state machine lives on the EXECUTOR (that is what `nros_executor_lifecycle_*` and `register_lifecycle_services` drive), while the node-side API stays on `nros::Node`. rclcpp's `LifecycleNode` re-declares the whole `Node` surface because it cannot inherit from `Node`; ours does not need to, and duplicating ~50 methods onto a second class would cost image size for nothing. What a ported node loses: it holds a `Node&` and a `LifecycleNode` instead of one object."
@@ -280,6 +295,11 @@
   "cpp:LifecycleNode::create_wall_timer": {
     "verdict": "divergence",
     "why": "we spell it `nros::Node::create_wall_timer` too, since phase-425 W1 landed that rename (recorded in the timer stage's `cpp:Node::create_wall_timer`). Reached through `nros::Node`, which has it. our `nros::LifecycleNode` is a MIXIN over an executor handle, not a `Node` subclass: RFC-0002 puts one executor per RTOS task and the lifecycle state machine lives on the EXECUTOR (that is what `nros_executor_lifecycle_*` and `register_lifecycle_services` drive), while the node-side API stays on `nros::Node`. rclcpp's `LifecycleNode` re-declares the whole `Node` surface because it cannot inherit from `Node`; ours does not need to, and duplicating ~50 methods onto a second class would cost image size for nothing. What a ported node loses: it holds a `Node&` and a `LifecycleNode` instead of one object."
+  },
+  "cpp:LifecycleNode::deactivate": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. see `cpp:LifecycleNode::configure` — `Result` where upstream returns `const State &`. (`lifecycle.hpp:162`.)"
   },
   "cpp:LifecycleNode::for_each_callback_group": {
     "verdict": "divergence",
@@ -298,6 +318,11 @@
   "cpp:LifecycleNode::get_clock": {
     "verdict": "gap",
     "why": "issue 0789 gave `nros::Node` a clock (`get_clock()` / `now()`) and this row did not close with it: our `LifecycleNode` is not a Node. It wraps the executor's REP-2002 state machine and holds no node handle, so there is nothing for the accessor to reach. Closing it means deciding whether `LifecycleNode` owns a node -- a lifecycle question, not a clock one. Phase 379 W3."
+  },
+  "cpp:LifecycleNode::get_current_state": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp_lifecycle::LifecycleNode::get_current_state()` returns `const rclcpp_lifecycle::State &` — a class carrying the id AND the label as a `std::string`. Ours (`lifecycle.hpp:155`) returns `nros::LifecycleState`, a `uint8_t`-backed `enum class` over the REP-2002 primary states. Clause 1: the label is an owned string, which the terminal `core`/`core+alloc` target cannot have, and a reference return needs a `State` to live somewhere that outlives the call. The loss is the LABEL, not the id. LOUD: `node->get_current_state().label()` is a compile error on an enum, and `.id()` is too."
   },
   "cpp:LifecycleNode::get_logger": {
     "verdict": "divergence",
@@ -416,6 +441,11 @@
   "cpp:LifecycleNode::register_on_shutdown": {
     "verdict": "gap",
     "why": "OUR LANGUAGES DISAGREE: C has `nros_lifecycle_register_on_*` and `nros_executor_lifecycle_register_on_*`, Rust has `LifecyclePollingNode::register_on_*` and `LifecycleCallbacks`, and C++ exposes only the virtual overrides -- even though `nros::LifecycleNode::register_services()` already CALLS `nros_cpp_lifecycle_register_on_shutdown` internally. rclcpp lets a user register a transition callback instead of subclassing; the capability is present one layer down here and simply not surfaced, and nothing platform-shaped is in the way -- a `bool(*)(void*)`-style overload costs nothing on a freestanding target. Phase 379 W3."
+  },
+  "cpp:LifecycleNode::shutdown": {
+    "verdict": "gap",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `Result` where `rclcpp_lifecycle::LifecycleNode::shutdown()` returns `const State &` — the shared widening argued at `cpp:LifecycleNode::configure`. Filed as `gap` rather than `divergence` because this one has a SECOND defect that is not about the return type at all and is already recorded: `lifecycle.hpp:164` hardcodes transition id 5 (ShutdownUnconfigured), whose only legal source state is Unconfigured, so it cannot shut down an Inactive or Active node. That half belongs to `cpp:LifecycleNode::trigger_transition` / issue 1099; this row exists so the return-type gate does not read as answered when the method is not."
   },
   "cpp:LifecyclePublisher": {
     "verdict": "gap",

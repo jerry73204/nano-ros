@@ -7945,6 +7945,13 @@ impl<'s> Executor<'s> {
     }
 
     /// Declare a parameter with a value and descriptor. Returns `true` if successful.
+    ///
+    /// phase-428 W6 remainder — the sibling of [`Self::declare_parameter`],
+    /// with the identical `else { false }` arm and no attribute. W6 marked the
+    /// one method its audit named; this is the site three lines below it, which
+    /// is the shape CLAUDE.md's "fix the CLASS, not the reported site" rule
+    /// exists for.
+    #[must_use]
     pub fn declare_parameter_with_descriptor(
         &mut self,
         name: &str,

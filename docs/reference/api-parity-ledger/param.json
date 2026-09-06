@@ -566,9 +566,29 @@
     "verdict": "extension",
     "why": "min/max/step as three scalars. rclrs's `range()` takes a `T::Range` VALUE, and we have that method too (it matched) -- but a facade user cannot construct the value to pass it, because `ParameterRange`/`IntegerRange`/`FloatingPointRange` are not re-exported (see `rust:ParameterRange`). So the scalar form is currently the only reachable one. If the facade gap is closed this stops earning its place."
   },
+  "rust:ParameterBuilder::mandatory": {
+    "verdict": "rename",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. Return type differs in ONE name and nothing else: rclrs returns `Result<MandatoryParameter<T>, DeclarationError>`, ours (`packages/core/nros-params/src/typed.rs:200`) `Result<MandatoryParameter<'a, 's, T>, ParameterError>`. Same shape, same `Result` (so the discard is already lint-covered by core's own `#[must_use]`), same success type modulo our two lifetimes on a caller-owned store (phase-382). The only real difference is that our error enum is called `ParameterError` where upstream's is `DeclarationError` — a rename we chose and never wrote down, which is exactly what this ledger is for. RFC-0036 forbids recording a preference as a divergence, so the honest verdict is `rename`, and the disposition is ADOPT: nothing about an RTOS motivates the different word. Covers `optional` and `read_only`, which carry pointer rows."
+  },
   "rust:ParameterBuilder::new": {
     "verdict": "divergence",
     "why": "rclrs's builder is produced by `Node::declare_parameter(name)` and borrows the node; ours is `ParameterBuilder::new(&mut ParameterServer, name)` and borrows the SERVER, because there is no `Arc<Node>` holding parameters. the Rust API is a DECLARATIVE COMPONENT MODEL, not rclrs's handle model (RFC-0043/0044). A user implements `Node`/`ExecutableNode` for a type, declares entities in `register`, and receives callbacks; rclrs holds an `Arc<Node>` and calls methods on it. The constraint is static entity storage plus an executor that owns dispatch: with no allocator the entity set has to be known at declaration time."
+  },
+  "rust:ParameterBuilder::optional": {
+    "verdict": "rename",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. see `rust:ParameterBuilder::mandatory` — `ParameterError` where rclrs names `DeclarationError`. (`typed.rs:222`.)"
+  },
+  "rust:ParameterBuilder::range": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. NOT the error-name rename its three siblings are. rclrs's `ParameterBuilder::range` returns `Self` — an infallible builder step — while ours (`packages/core/nros-params/src/typed.rs:157`) returns `Result<Self, ParameterError>`, because a range is validated against the declared parameter TYPE at the point it is set rather than at `mandatory()`. That is a real behavioural difference and it is LOUD in the right direction: a ported `.range(a..=b).mandatory()` fails to compile (no `mandatory` on a `Result`), and `Result` is `#[must_use]`, so the value cannot be dropped silently either. ADOPT is recorded as the direction — validating at the terminal would restore upstream's chain — but nothing is silently wrong today, so this is a record, not a work item."
+  },
+  "rust:ParameterBuilder::read_only": {
+    "verdict": "rename",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. see `rust:ParameterBuilder::mandatory` — `ParameterError` where rclrs names `DeclarationError`. (`typed.rs:169`.)"
   },
   "rust:ParameterDefault": {
     "verdict": "extension",
