@@ -1070,6 +1070,22 @@ pub(crate) struct RemapRule {
     pub(crate) to: heapless::String<{ crate::names::MAX_RESOLVED_NAME_LEN }>,
 }
 
+/// The executor's halt flag, in the one shape each configuration can hold.
+///
+/// Issue 1177. With an allocator it is refcounted, because `halt_flag()` hands
+/// a caller its own handle to set from a signal handler or another thread.
+/// Without one there is no handle to hand out -- a C caller reaches the
+/// executor through its own pointer and calls `cancel()` directly -- so a plain
+/// atomic is the whole requirement.
+///
+/// `Arc<AtomicBool>` derefs to `AtomicBool`, so every `load`/`store` below is
+/// written once and only construction and the getter are cfg'd.
+#[cfg(feature = "alloc")]
+pub(crate) type HaltFlag = portable_atomic_util::Arc<portable_atomic::AtomicBool>;
+/// See [`HaltFlag`] above -- the no-allocator shape.
+#[cfg(not(feature = "alloc"))]
+pub(crate) type HaltFlag = portable_atomic::AtomicBool;
+
 pub struct Executor<'s> {
     /// Issue 0656 — the ROS domain this executor's entities belong to.
     ///
@@ -1285,22 +1301,35 @@ pub struct Executor<'s> {
     // phase-359 W3 — `portable_atomic_util::Arc`, not `std::sync::Arc`. Same
     // atomically-refcounted pointer, available without `std`, and it compiles on
     // std too. W3 left the GATE on `std` because the public `halt_flag()` getter
-    // was std-gated; W10 split that impl, so the field joins `wake_flag` on
-    // `alloc` — the allocator is the real requirement, and without this a no_std
-    // executor had no halt flag at all and so could not be stopped.
-    #[cfg(feature = "alloc")]
-    pub(crate) halt_flag: portable_atomic_util::Arc<portable_atomic::AtomicBool>,
+    // was std-gated; W10 split that impl, so the field joined `wake_flag` on
+    // `alloc`.
+    //
+    // Issue 1177 — the ALLOCATOR was never the requirement of the FLAG, only of
+    // SHARING it. The flag is an `AtomicBool`; what needs an allocator is
+    // `halt_flag()`, the getter that hands a caller its own refcounted handle to
+    // set from a signal handler or another thread. Gating the flag on `alloc`
+    // therefore gated the ability to STOP a no_std executor on a feature it does
+    // not need -- and `nros-c`'s spin loop calls `cancel`/`is_halted`/
+    // `enter_spin_loop`/`exit_spin_loop`/`is_spinning` unconditionally, so an
+    // embedded image did not merely lose cancellation, it failed to compile.
+    //
+    // `HaltFlag` is the one type name that differs, so every reader below is
+    // written once: `Arc<AtomicBool>` derefs to `AtomicBool`, so `load`/`store`
+    // are identical on both sides and only construction and the getter are
+    // cfg'd.
+    pub(crate) halt_flag: HaltFlag,
     /// Is a spin loop running right now? — the observable behind
     /// `is_spinning()` (phase-417 W4.c, rclcpp's `Executor::is_spinning`).
     ///
-    /// A plain atomic, not an `Arc` like `halt_flag`: nothing hands this one
+    /// A plain atomic, not refcounted like `halt_flag`: nothing hands this one
     /// out. `halt_flag()` is a public getter that gives a caller its own
     /// handle to set from another thread; `spinning` is only ever set by the
     /// executor's own loops through `&self`, so it needs no shared ownership.
     ///
-    /// It rides `alloc` for the same reason the impl that reads it does: the
-    /// lifecycle block also touches `halt_flag`.
-    #[cfg(feature = "alloc")]
+    /// Issue 1177 — this used to ride `alloc` "for the same reason the impl
+    /// that reads it does". It never needed an allocator itself; it was gated
+    /// by ASSOCIATION with `halt_flag`, and when that association turned out to
+    /// be wrong this went with it.
     pub(crate) spinning: portable_atomic::AtomicBool,
     /// Phase 104.C.6 — shared executor wake flag. Any source of work
     /// (foreign thread handing off a callback, signal handler, future
@@ -1613,9 +1642,13 @@ impl<'s> Executor<'s> {
                 let _ = ns.push_str("/");
                 ns
             },
+            // Issue 1177 -- the only cfg the halt flag still needs. `HaltFlag`
+            // is refcounted with an allocator and plain without one, and
+            // nothing below this line can tell the difference.
             #[cfg(feature = "alloc")]
             halt_flag: portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(false)),
-            #[cfg(feature = "alloc")]
+            #[cfg(not(feature = "alloc"))]
+            halt_flag: portable_atomic::AtomicBool::new(false),
             spinning: portable_atomic::AtomicBool::new(false),
             #[cfg(feature = "alloc")]
             wake_flag: portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(false)),
@@ -8012,10 +8045,16 @@ impl<'s> Executor<'s> {
 // Executor lifecycle — cancel / is_spinning (phase-417 W4.c)
 // ============================================================================
 
-// `alloc`, because every method here reads `halt_flag` or `spinning` and both
-// are `alloc` fields. Un-gated, this block did not compile without the feature
-// at all — `cancel()` stores into a field that is not there.
-#[cfg(feature = "alloc")]
+// Issue 1177 -- UN-GATED. This block was `#[cfg(feature = "alloc")]` because
+// `halt_flag` and `spinning` were `alloc` fields, and neither needed to be: the
+// allocator is required to SHARE the halt flag (`halt_flag()` hands out a
+// refcounted handle), never to hold it.
+//
+// Gating it meant a no_std executor could not be stopped, and worse, that
+// `nros-c`'s spin loop -- which calls `cancel`, `is_halted`, `is_spinning`,
+// `enter_spin_loop` and `exit_spin_loop` with no cfg of its own -- did not
+// COMPILE for an embedded image. The safety island found that; no
+// merge-gating lane builds this crate without `alloc`.
 impl<'s> Executor<'s> {
     /// Request the executor to stop spinning — `rclcpp::Executor::cancel`.
     ///
