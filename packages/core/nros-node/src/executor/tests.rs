@@ -2061,6 +2061,11 @@ fn ros_time_timer_follows_the_simulated_clock() {
 /// covered by `time_source::tests` and the timer behaviour by
 /// `ros_time_timer_follows_the_simulated_clock`.
 #[cfg(all(feature = "sim-time", feature = "param-services"))]
+// The `sim-time` gate is not decoration: `SimTimeGuard` is
+// `#[cfg(feature = "sim-time")]`, so without it this body names an undeclared
+// type (E0433) under the `--features std` invocation of `node-std-tests`.
+// The sibling below carries the gate; this one was missed (issue 1059).
+#[cfg(feature = "sim-time")]
 #[test]
 fn use_sim_time_attaches_and_detaches_the_clock_source() {
     let _sim_time = SimTimeGuard::acquire();
