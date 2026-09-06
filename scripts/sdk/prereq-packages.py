@@ -41,13 +41,35 @@ def load(path=INDEX):
         return toml.load(fh)
 
 
-def packages_for(index, manager, keys):
+# Issue 1128 — the ONE placeholder a `[prereq.*]` package name may carry.
+#
+# `ros-{ros_distro}-rmw-zenoh-cpp` expands against $ROS_DISTRO. Kept to exactly
+# one name, and `check-prereq-placeholders` refuses any other, because this is a
+# second implementation of the CLI's `PrereqContext::expand` and the two can
+# only stay honest while the vocabulary is small enough to hold in one line.
+DEFAULT_ROS_DISTRO = "humble"
+
+
+def prereq_context(env=None):
+    """The values placeholders expand to, read once from the environment."""
+    env = os.environ if env is None else env
+    distro = (env.get("ROS_DISTRO") or "").strip()
+    return {"ros_distro": distro or DEFAULT_ROS_DISTRO}
+
+
+def expand(name, ctx):
+    """Substitute the placeholders `ctx` knows. Mirrors `PrereqContext::expand`."""
+    return name.replace("{ros_distro}", ctx["ros_distro"])
+
+
+def packages_for(index, manager, keys, ctx=None):
     """The manager's packages for `keys`, in the order given, deduped.
 
     Raises on an unknown key, or on a key the index declares for no package
     under this manager — "declared but not for your OS" is a real answer and a
     silent empty string is not.
     """
+    ctx = prereq_context() if ctx is None else ctx
     prereq = index.get("prereq", {})
     out, seen, missing, unmapped = [], set(), [], []
     for k in keys:
@@ -60,6 +82,7 @@ def packages_for(index, manager, keys):
             unmapped.append(k)
             continue
         for p in pkgs:
+            p = expand(p, ctx)
             if p not in seen:
                 seen.add(p)
                 out.append(p)
@@ -84,6 +107,7 @@ def self_test():
             "doxygen": {"apt": ["doxygen"], "dnf": ["doxygen"]},
             "graphviz": {"apt": ["graphviz"]},
             "dup": {"apt": ["doxygen"]},
+            "ros-rmw-zenoh-cpp": {"apt": ["ros-{ros_distro}-rmw-zenoh-cpp"]},
         }
     }
     failures = 0
@@ -97,6 +121,26 @@ def self_test():
     # one `apt-get install` line.
     if packages_for(index, "apt", ["doxygen", "dup"]) != ["doxygen"]:
         print("  FAIL: duplicate package not deduped")
+        failures += 1
+
+    # Issue 1128 — the placeholder expands, and the default is humble.
+    #
+    # A dict is passed rather than `os.environ` being poked: the expansion is a
+    # pure function of its context, so its test needs no environment mutation
+    # (the process-global hazard issue 1101 records).
+    jazzy = prereq_context({"ROS_DISTRO": "jazzy"})
+    if packages_for(index, "apt", ["ros-rmw-zenoh-cpp"], jazzy) != [
+        "ros-jazzy-rmw-zenoh-cpp"
+    ]:
+        print("  FAIL: {ros_distro} did not expand")
+        failures += 1
+    for env, why in (({}, "unset"), ({"ROS_DISTRO": "   "}, "blank")):
+        if prereq_context(env)["ros_distro"] != DEFAULT_ROS_DISTRO:
+            print(f"  FAIL: {why} $ROS_DISTRO did not default to humble")
+            failures += 1
+    # A name with no placeholder is returned unchanged — the other 45 keys.
+    if packages_for(index, "apt", ["doxygen"], jazzy) != ["doxygen"]:
+        print("  FAIL: a plain name was rewritten")
         failures += 1
 
     for keys, why in ((["nope"], "unknown key"), (["graphviz"], "unmapped manager")):

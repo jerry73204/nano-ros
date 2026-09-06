@@ -199,6 +199,23 @@ preconditions-provisioned:
 one-producer-per-tool:
     @python3 scripts/check-one-producer-per-tool.py
 
+# Issue 1128 — a `[prereq.*]` package name may carry ONE placeholder,
+# `{ros_distro}`, and this gate is what stops that becoming a template language.
+#
+# The expansion has two implementations in two languages that cannot call each
+# other (`PrereqContext::expand` in the CLI; `expand()` in
+# `scripts/sdk/prereq-packages.py`, which exists so a job needing two package
+# names does not have to build the CLI first). Two implementations of one rule
+# is this repo's recurring drift — what makes it survivable is that the rule is
+# one line long in each, which is only true while the vocabulary is one name.
+#
+# Both are checked by being EXERCISED, not grepped: the first version grepped,
+# and a Python `expand` mutated to return its input unchanged still passed,
+# because the name sat in a comment three lines away.
+[group("checks")]
+prereq-placeholders:
+    @python3 scripts/check-prereq-placeholders.py
+
 [group("checks")]
 prereq-roles:
     @python3 scripts/check-prereq-roles.py

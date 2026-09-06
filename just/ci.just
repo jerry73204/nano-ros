@@ -406,8 +406,21 @@ full:
 provision-zenohd:
     #!/usr/bin/env bash
     set -uo pipefail
+    # Issue 1128 — the package NAME comes from the index, not from here.
+    #
+    # This composed `ros-${distro}-rmw-zenoh-cpp` itself because the index could
+    # only spell one distro, so the two agreed on humble and nowhere else: on a
+    # jazzy runner this installed `ros-jazzy-…` while `nros setup --system`
+    # went on reporting `ros-humble-…` missing. `[prereq.ros-rmw-zenoh-cpp]`
+    # carries `ros-{ros_distro}-rmw-zenoh-cpp` now, and this asks for it.
+    #
+    # Through the helper rather than the CLI: this runs before anything has
+    # built `nros`, which is the reason `prereq-packages.py` exists (phase-413
+    # W3). Same index either way.
+    pkg="$(python3 scripts/sdk/prereq-packages.py --manager apt ros-rmw-zenoh-cpp)"
+    # The PREFIX probe still needs the distro directly — that is a path on this
+    # host, not a package name, and `nros_zenohd_bin` is the resolver for it.
     distro="${ROS_DISTRO:-humble}"
-    pkg="ros-${distro}-rmw-zenoh-cpp"
     if [ -n "$(command -v rmw_zenohd 2>/dev/null)" ] || \
        ls /opt/ros/"$distro"/lib/rmw_zenoh_cpp/rmw_zenohd >/dev/null 2>&1; then
         echo "provision-zenohd: $pkg already present"
