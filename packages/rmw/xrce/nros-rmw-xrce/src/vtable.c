@@ -83,9 +83,16 @@ static const nros_rmw_vtable_t kVtable = {
     .take_loaned_message        = NULL,
     .return_loaned_message_from_subscription                = NULL,
 
-    /* Phase 124.C — service availability probe. micro-XRCE-DDS-Client
-     * has no participant enumeration; leave NULL → runtime surfaces
-     * NROS_RMW_RET_UNSUPPORTED. */
+    /* Phase 124.C / phase-428 W13.c — service availability probe: NULL,
+     * DELIBERATELY, and revisited. The Agent owns the DDS participant, so
+     * matched-endpoint state lives on the Agent side and micro-XRCE-DDS-Client
+     * has no read for it (no `dds_get_matched_*`, no built-in topic readers,
+     * no participant enumeration). What the client CAN see — the Agent
+     * acknowledged `create_requester` — says only that the Agent built the
+     * client's own endpoints, nothing about a server. Answering from that
+     * would be issue 1087's "yes without asking" one layer down. NULL is how
+     * the runtime says `Err(Unsupported)` ("cannot know"), and every wait loop
+     * then waits its budget rather than sending into the void. */
     .service_server_is_available = NULL,
 
     /* Phase 124.D — native batch take. XRCE delivers one sample per

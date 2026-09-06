@@ -57,8 +57,10 @@ FEATURES = [
      r"fn (create_service|send_response)"),
     ("Service clients", ["create_client", "send_request", "take_response"],
      r"fn (create_client|send_request)"),
+    # phase-428 W13: the zenoh trait method is `service_is_ready` (rclcpp's
+    # name); `server_available` was the pre-#638 spelling.
     ("Server-availability probe", ["service_server_is_available"],
-     r"fn server_available"),
+     r"fn (server_available|service_is_ready)"),
     ("Status events (deadline / liveliness / lost)",
      ["subscription_event_init", "publisher_event_init"],
      r"fn register_event_callback"),
@@ -85,9 +87,11 @@ FEATURES = [
     ("Wait-for-acked", ["publisher_wait_for_all_acked"],
      r"fn wait_for_all_acked"),
     ("Take-with-info", ["take_with_info"], r"fn take_with_info"),
-    ("Entity new-data callbacks",
-     ["subscription_set_on_new_message_callback"],
-     r"fn set_on_new_message"),
+    # "Entity new-data callbacks" (`subscription_set_on_new_message_callback`)
+    # was a row here until phase-407 retired the slot (issue 0960 DECLINED the
+    # trio); the generator then refused to run for four days — and nothing
+    # noticed, because `check rmw-feature-matrix` is on no lane. A row names a
+    # slot the canonical vtable has; a declined capability is not one.
     ("Graph introspection (names/types/counts)",
      ["get_node_names", "get_topic_names_and_types", "count_publishers"],
      r"fn (get_node_names|get_topic_names)"),

@@ -322,6 +322,28 @@ if(_addtwoints_sources)
         COMMAND nros_rmw_cyclonedds_service_two_outstanding
     )
 
+    # phase-428 W13.c — `service_server_is_available` from the DDS matched
+    # sets: false with no server, true once a server on a SECOND participant
+    # matches both halves, false again after it is destroyed. Polled, not
+    # slept, so cross-participant SEDP jitter costs time rather than a red.
+    add_executable(nros_rmw_cyclonedds_service_server_available
+        service_server_available.cpp
+        ${_addtwoints_sources}
+    )
+    target_link_libraries(nros_rmw_cyclonedds_service_server_available
+        PRIVATE
+            nros_rmw_cyclonedds
+            pthread
+    )
+    target_include_directories(nros_rmw_cyclonedds_service_server_available
+        PRIVATE
+            ${NROS_RMW_CFFI_DIR}
+    )
+    add_test(
+        NAME nros_rmw_cyclonedds_service_server_available
+        COMMAND nros_rmw_cyclonedds_service_server_available
+    )
+
     # Phase 117.7.B concurrent-call correlation. With Phase 117.X.3
     # this now goes through the typed-IDL header path; the
     # AddTwoInts type must be registered.
@@ -600,6 +622,7 @@ if(_addtwoints_sources)
     set_tests_properties(
         nros_rmw_cyclonedds_service_smoke
         nros_rmw_cyclonedds_service_roundtrip
+        nros_rmw_cyclonedds_service_server_available
         PROPERTIES
             ENVIRONMENT "${_nros_rmw_test_env}"
     )

@@ -1324,4 +1324,143 @@ dds_entity_t service_response_writer(const rmw_service_t* service) {
     return static_cast<const ServerState*>(service->backend_data)->writer;
 }
 
+/* phase-428 W13.c — `service_server_is_available`, answered from the DDS
+ * discovery cache the way upstream `rmw_cyclonedds_cpp` answers it
+ * (`rmw_node.cpp`, `check_for_service_reader_writer`, humble).
+ *
+ * The slot sat NULL since phase 124.C, so `service_is_ready` was
+ * `Err(Unsupported)` here and `wait_for_service` spent its whole budget and
+ * reported `false` with a server up. Nothing needed wiring: Cyclone keeps the
+ * matched-endpoint sets on every writer and reader, so this is a read.
+ *
+ * Upstream's logic, mirrored:
+ *   1. the request WRITER must have at least one matched reader AND the reply
+ *      READER at least one matched writer — a server is both halves;
+ *   2. a server that advertises `serviceid=<guid>` in the USER DATA of both
+ *      its endpoints (stock `rmw_cyclonedds_cpp` does) is available only when
+ *      the SAME id is seen on a matched request reader and a matched reply
+ *      writer — that pairs the two halves to one server, so a dead server's
+ *      lingering reader plus a different server's writer do not add up to
+ *      "available";
+ *   3. when no matched reader carries a `serviceid`, fall back to (1) — that
+ *      is every nano-ros server (this backend sets no user data).
+ *
+ * Upstream also consults its user-space graph cache for the topic's reader /
+ * writer counts first; that cache is a copy of the same discovery state the
+ * matched sets are read from, so it is a pre-check, not a second source. */
+namespace {
+
+/* Bounded, not `std::vector`: the answer wanted is "is there at least one",
+ * and a client sees a handful of servers, not hundreds. If more are matched
+ * than fit, the first `kMaxMatched` are examined and the rest ignored — which
+ * can only under-report on a bus with 32+ servers of one service. */
+constexpr std::size_t kMaxMatched = 32;
+
+/* Cyclone's `dds_get_matched_*(h, buf, n)` returns the TOTAL count and fills
+ * at most `n`; the same shape upstream's `get_matched_endpoints` grows a
+ * vector for. */
+using matched_fn_t = dds_return_t (*)(dds_entity_t, dds_instance_handle_t*, size_t);
+
+std::size_t matched_handles(dds_entity_t h, matched_fn_t fn, dds_instance_handle_t* out,
+                            bool* failed) {
+    dds_return_t n = fn(h, out, kMaxMatched);
+    if (n < 0) {
+        *failed = true;
+        return 0;
+    }
+    return static_cast<std::size_t>(n) < kMaxMatched ? static_cast<std::size_t>(n) : kMaxMatched;
+}
+
+/* `rmw_dds_common`'s user-data grammar (`parse_key_value`): `key=value;` pairs.
+ * Extract `serviceid`'s value into `out` (NUL-terminated); false when absent.
+ * Upstream's `get_user_data_key`, minus the std::map. */
+bool user_data_serviceid(const dds_qos_t* qos, char* out, std::size_t out_cap) {
+    void* ud = nullptr;
+    size_t sz = 0;
+    if (qos == nullptr || !dds_qget_userdata(qos, &ud, &sz) || ud == nullptr) return false;
+    const char* p = static_cast<const char*>(ud);
+    const char* end = p + sz;
+    bool found = false;
+    static const char kKey[] = "serviceid";
+    const std::size_t klen = sizeof(kKey) - 1;
+    while (p < end && !found) {
+        const char* semi =
+            static_cast<const char*>(std::memchr(p, ';', static_cast<size_t>(end - p)));
+        const char* pair_end = semi != nullptr ? semi : end;
+        const char* eq =
+            static_cast<const char*>(std::memchr(p, '=', static_cast<size_t>(pair_end - p)));
+        if (eq != nullptr && static_cast<std::size_t>(eq - p) == klen &&
+            std::memcmp(p, kKey, klen) == 0) {
+            std::size_t vlen = static_cast<std::size_t>(pair_end - (eq + 1));
+            if (vlen + 1 <= out_cap) {
+                std::memcpy(out, eq + 1, vlen);
+                out[vlen] = '\0';
+                found = true;
+            }
+        }
+        p = pair_end + 1;
+    }
+    dds_free(ud);
+    return found;
+}
+
+} // namespace
+
+rmw_ret_t client_server_is_available(const rmw_client_t* client, bool* out_available) {
+    if (client == nullptr || client->backend_data == nullptr || out_available == nullptr) {
+        return NROS_RMW_RET_INVALID_ARGUMENT;
+    }
+    const auto* state = static_cast<const ClientState*>(client->backend_data);
+
+    dds_instance_handle_t rds[kMaxMatched];
+    dds_instance_handle_t wrs[kMaxMatched];
+    bool failed = false;
+    std::size_t n_rds = matched_handles(state->writer, dds_get_matched_subscriptions, rds, &failed);
+    std::size_t n_wrs = matched_handles(state->reader, dds_get_matched_publications, wrs, &failed);
+    if (failed) return NROS_RMW_RET_ERROR;
+
+    /* (1) — both halves, or nothing. Answered before any allocation, which is
+     * also the common "no server yet" path `wait_for_service` spins on. */
+    if (n_rds == 0 || n_wrs == 0) {
+        *out_available = false;
+        return NROS_RMW_RET_OK;
+    }
+
+    /* (2) — collect the serviceids the matched request readers advertise. */
+    constexpr std::size_t kIdCap = 64;
+    char needles[kMaxMatched][kIdCap];
+    std::size_t n_needles = 0;
+    for (std::size_t i = 0; i < n_rds; ++i) {
+        dds_builtintopic_endpoint_t* ep = dds_get_matched_subscription_data(state->writer, rds[i]);
+        if (ep == nullptr) continue; /* unmatched between the two calls */
+        if (user_data_serviceid(ep->qos, needles[n_needles], kIdCap)) ++n_needles;
+        dds_builtintopic_free_endpoint(ep);
+    }
+
+    /* (3) — no server names itself: existence of both matches is the answer. */
+    if (n_needles == 0) {
+        *out_available = true;
+        return NROS_RMW_RET_OK;
+    }
+
+    /* (2), second half — a matched reply writer with one of those ids. */
+    bool available = false;
+    for (std::size_t i = 0; i < n_wrs && !available; ++i) {
+        dds_builtintopic_endpoint_t* ep = dds_get_matched_publication_data(state->reader, wrs[i]);
+        if (ep == nullptr) continue;
+        char id[kIdCap];
+        if (user_data_serviceid(ep->qos, id, kIdCap)) {
+            for (std::size_t k = 0; k < n_needles; ++k) {
+                if (std::strcmp(id, needles[k]) == 0) {
+                    available = true;
+                    break;
+                }
+            }
+        }
+        dds_builtintopic_free_endpoint(ep);
+    }
+    *out_available = available;
+    return NROS_RMW_RET_OK;
+}
+
 } // namespace nros_rmw_cyclonedds
