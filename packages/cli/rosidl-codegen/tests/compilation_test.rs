@@ -124,17 +124,64 @@ pub mod rosidl_runtime_rs {
     .to_string()
 }
 
-/// Helper to check if cargo is available
-fn cargo_available() -> bool {
-    Command::new("cargo").arg("--version").output().is_ok()
+/// Issue 1160 — this was `cargo_available() -> bool` and four test bodies wrote
+/// `if !cargo_available() { eprintln!("Skipping…"); return Ok(()); }`, which is
+/// a PASS.
+///
+/// The branch was DEAD, and that is the reason to remove it rather than the
+/// reason to keep it: every one of these tests is spawned BY cargo and then
+/// spawns `cargo check` itself, so a host where the probe answers `false` is a
+/// host where the test binary could not have been launched. Issue 1135 fixed
+/// exactly this shape in `native_api.rs` (×19) and `rtos_e2e.rs` (×3) — a dead
+/// guard is the live defect's shape and a standing invitation to add an arm
+/// that returns `false`.
+///
+/// If cargo really is unreachable, that is a broken toolchain and a red is the
+/// honest answer, not a green over four compilations nobody ran.
+fn require_cargo() {
+    assert!(
+        Command::new("cargo").arg("--version").output().is_ok(),
+        "`cargo` is not spawnable, yet this test process was launched by cargo — \
+         the generated code cannot be compile-checked. This is a broken toolchain, \
+         not a skippable precondition (issues 1135, 1160)."
+    );
+}
+
+/// Issue 1160 — `test_clippy_no_warnings` opened with
+///
+/// ```ignore
+/// let clippy_check = Command::new("cargo").arg("clippy").arg("--version").output();
+/// if clippy_check.is_err() { eprintln!("Skipping clippy test …"); return Ok(()); }
+/// ```
+///
+/// which is wrong TWICE. `output()` is `Err` only when `cargo` itself cannot be
+/// spawned; a host with cargo and no `clippy-driver` gets an `Ok` carrying a
+/// FAILING status, so the probe answered "clippy is available" and the test then
+/// ran `cargo clippy`, read its "no such command" stderr, found no `"error"`
+/// substring and reported PASS. And on the host where it did fire it reported
+/// PASS too — the 1135 shape, in a test NAMED for the lint verdict.
+///
+/// So: measure the exit status, and make it an assertion. `rustup component add
+/// clippy` is a one-line remedy and this repo's whole `just check` line already
+/// requires it; a green over a lint run that never happened is not a trade worth
+/// making.
+fn require_clippy() {
+    let probe = Command::new("cargo")
+        .arg("clippy")
+        .arg("--version")
+        .output();
+    let available = probe.as_ref().is_ok_and(|o| o.status.success());
+    assert!(
+        available,
+        "`cargo clippy` is not available — install it with `rustup component add \
+         clippy`. This test is named for the lint verdict on generated code; \
+         passing without one claims coverage nobody measured (issues 1135, 1160)."
+    );
 }
 
 #[test]
 fn test_simple_message_compiles() -> Result<(), GeneratorError> {
-    if !cargo_available() {
-        eprintln!("Skipping compilation test - cargo not available");
-        return Ok(());
-    }
+    require_cargo();
 
     let msg_def = "int32 x\nfloat64 y\nstring name\n";
     let msg = parse_message(msg_def).unwrap();
@@ -200,10 +247,7 @@ pub mod msg {{
 
 #[test]
 fn test_message_with_arrays_compiles() -> Result<(), GeneratorError> {
-    if !cargo_available() {
-        eprintln!("Skipping compilation test - cargo not available");
-        return Ok(());
-    }
+    require_cargo();
 
     // Use array sizes ≤ 32 to avoid needing big-array (serde limitation)
     let msg_def = "int32[5] small_array\nint32[32] large_array\n";
@@ -270,10 +314,7 @@ pub mod msg {{
 
 #[test]
 fn test_check_no_warnings() -> Result<(), GeneratorError> {
-    if !cargo_available() {
-        eprintln!("Skipping compilation test - cargo not available");
-        return Ok(());
-    }
+    require_cargo();
 
     let msg_def = "int32 x\nfloat64 y\n";
     let msg = parse_message(msg_def).unwrap();
@@ -345,16 +386,7 @@ pub mod msg {{
 
 #[test]
 fn test_clippy_no_warnings() -> Result<(), GeneratorError> {
-    // Check if clippy is available
-    let clippy_check = Command::new("cargo")
-        .arg("clippy")
-        .arg("--version")
-        .output();
-
-    if clippy_check.is_err() {
-        eprintln!("Skipping clippy test - clippy not available");
-        return Ok(());
-    }
+    require_clippy();
 
     let msg_def = "int32 value\nstring name\n";
     let msg = parse_message(msg_def).unwrap();

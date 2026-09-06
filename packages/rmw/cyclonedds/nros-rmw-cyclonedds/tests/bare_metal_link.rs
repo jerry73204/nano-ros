@@ -16,10 +16,17 @@
 //!   default `cargo test` loop. Run via
 //!   `cargo test -p nros-rmw-cyclonedds --no-default-features
 //!   --features bridge-stub,std -- --ignored bare_metal`.
-//! * Skips at runtime (without failing) when the
-//!   `thumbv7m-none-eabi` target isn't installed — `rustup target
-//!   list --installed` is the gate. CI is expected to install the
-//!   target as part of `nros setup` / `just workspace setup`.
+//! * **FAILS — it does not skip — when `thumbv7m-none-eabi` or `nm`
+//!   is missing** (issue 1160). Both preconditions used to
+//!   `eprintln!("[SKIPPED] …")` and `return`, and a bare `return` from
+//!   a `#[test]` is a PASS: `bare_metal_no_alloc_symbols` reported
+//!   green with the `nm` audit switched off, in a test named for the
+//!   symbol shape. That is issue 1135's `staticlib_duplicate_symbols`
+//!   bug, verbatim, one crate over. These two are `#[ignore]`d, so the
+//!   only way to reach them is to ask for them BY NAME — and a host
+//!   that cannot answer the question you asked should say so.
+//!   Remedy: `rustup target add thumbv7m-none-eabi`, and install
+//!   binutils.
 
 #![cfg(feature = "std")]
 
@@ -29,6 +36,10 @@ const TARGET: &str = "thumbv7m-none-eabi";
 
 /// Probes `rustup target list --installed` for the bare-metal target.
 /// Returns `true` iff `thumbv7m-none-eabi` is installed.
+///
+/// This is a PROBE, not a guard: it composes into [`require_bare_metal_target`],
+/// which owns the verdict. Issue 1160 — the two test bodies used to own it
+/// themselves, identically and wrongly.
 fn target_installed() -> bool {
     let out = match Command::new("rustup")
         .args(["target", "list", "--installed"])
@@ -57,13 +68,25 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// The one place the bare-metal precondition is decided — issue 1160.
+///
+/// It returns `()`, so there is no verdict for a caller to drop with a bare
+/// `return`. `check-test-precondition-guards` enforces exactly that shape for a
+/// `require_*` helper in a test file, which is why the name matters.
+fn require_bare_metal_target() {
+    assert!(
+        target_installed(),
+        "{TARGET} is not installed, so the bare-metal link this test is named for \
+         cannot be attempted. Run `rustup target add {TARGET}`. This test is \
+         `#[ignore]`d — you asked for it by name, and a PASS here would report a \
+         link nobody performed (issues 1135, 1160)."
+    );
+}
+
 #[test]
 #[ignore = "heavy: invokes cargo build for thumbv7m-none-eabi"]
 fn bare_metal_no_std_clean() {
-    if !target_installed() {
-        eprintln!("[SKIPPED] {TARGET} not installed. Run `rustup target add {TARGET}` to enable.");
-        return;
-    }
+    require_bare_metal_target();
 
     let root = workspace_root();
     let out = Command::new(env!("CARGO"))
@@ -113,14 +136,18 @@ fn bare_metal_no_alloc_symbols() {
     // which (1) builds the crate for `thumbv7m-none-eabi`, (2) runs
     // `nm` on the resulting rlib, (3) fails if any
     // `_ZN5alloc…` / `__rust_alloc…` symbols leaked in.
-    if !target_installed() {
-        eprintln!("[SKIPPED] {TARGET} not installed. Run `rustup target add {TARGET}` to enable.");
-        return;
-    }
-    if Command::new("nm").arg("--version").output().is_err() {
-        eprintln!("[SKIPPED] `nm` not on PATH; cannot audit symbols.");
-        return;
-    }
+    require_bare_metal_target();
+    // Issue 1160 — this used to `eprintln!("[SKIPPED] …")` and `return`, which
+    // reports PASS. `alloc_free_audit.sh` IS the `nm` scan; with no `nm` there
+    // is nothing left of this test but its name, and its name asserts the crate
+    // carries no alloc symbols. Identical to `staticlib_duplicate_symbols.rs`
+    // before issue 1135 fixed it.
+    assert!(
+        Command::new("nm").arg("--version").output().is_ok(),
+        "`nm` is not on PATH, so the alloc-symbol audit this test is named for \
+         cannot run. Install binutils. A PASS here would claim the crate is \
+         alloc-free on the strength of a scan nobody performed (issues 1135, 1160)."
+    );
 
     let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let script = crate_dir.join("tests").join("alloc_free_audit.sh");
