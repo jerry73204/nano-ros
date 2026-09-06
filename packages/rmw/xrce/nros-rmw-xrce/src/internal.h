@@ -192,6 +192,48 @@ static inline void nros_xrce_free(void* ptr) {
 #define XRCE_SUBSCRIBER_RING_DEPTH 32
 #endif
 
+/* ---- Smallest legal size for the four PER-SLOT arrays (issue 1131) ---
+ *
+ * BELOW the `#ifndef` fallbacks above, never before one: in `#if` an undefined
+ * identifier reads as 0, so a guard placed above its own default fires on every
+ * build instead of protecting anything (issue 1167).
+ *
+ * These four are CAPACITIES INSIDE a slot, and that is what separates them from
+ * the three slot COUNTS above, which issue 1033 ruled zero-legal. An image that
+ * wants none of an entity sets its COUNT to 0 and the whole slot array goes
+ * away — that is the 33,296-bytes-a-subscriber saving. Setting a capacity to 0
+ * instead keeps the slots and makes each one unable to do its job, silently:
+ *
+ *   XRCE_BUFFER_SIZE=0          `xrce_stage_inbound` needs `len + 4 <= cap`, so
+ *                               every inbound payload fails to stage and every
+ *                               take reports MESSAGE_TOO_LARGE. The only
+ *                               producer, `nros-rmw-xrce-cffi/build.rs`, already
+ *                               refuses anything under 64.
+ *   XRCE_SUBSCRIBER_RING_DEPTH=0  `count >= depth` is true at 0, so the topic
+ *                               callback takes its ring-full drop arm for every
+ *                               message and the subscriber receives nothing —
+ *                               issue 1015's silence exactly. Kconfig already
+ *                               says `range 1 1024`.
+ *   XRCE_SERVICE_REQUEST_RING_DEPTH=0  same arm in `xrce_request_callback`;
+ *                               every request is dropped, and the `% DEPTH` in
+ *                               `XRCE_REQ_RING_POP` is one branch away.
+ *   XRCE_MAX_PENDING_REPLIES=0  `take_request` finds no free token, returns
+ *                               WOULD_BLOCK and leaves the request in the ring,
+ *                               so the server can never answer anything.
+ */
+#if XRCE_BUFFER_SIZE < 1
+#error "XRCE_BUFFER_SIZE must be >= 1: it sizes a C array (issue 1015)"
+#endif
+#if XRCE_SUBSCRIBER_RING_DEPTH < 1
+#error "XRCE_SUBSCRIBER_RING_DEPTH must be >= 1: it sizes a C array (issue 1015)"
+#endif
+#if XRCE_SERVICE_REQUEST_RING_DEPTH < 1
+#error "XRCE_SERVICE_REQUEST_RING_DEPTH must be >= 1: it sizes a C array (issue 1015)"
+#endif
+#if XRCE_MAX_PENDING_REPLIES < 1
+#error "XRCE_MAX_PENDING_REPLIES must be >= 1: it sizes a C array (issue 1015)"
+#endif
+
 typedef struct xrce_subscriber_ring_entry {
     uint8_t data[XRCE_BUFFER_SIZE];
     size_t len;

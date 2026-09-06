@@ -31,6 +31,16 @@
 #ifndef STRESS_SIZE
 #define STRESS_SIZE 64
 #endif
+/* Issue 1131 — `g_payload[STRESS_SIZE]` is a fixed array AND `build_payload()`
+ * writes indices 0..11 (CDR header, seq, size) with no bounds test, so anything
+ * under 12 is an out-of-bounds write on a static object, not a smaller payload.
+ * 16 is the floor the CMake cache entry has always documented (`payload bytes
+ * (>=16)`); the fill loop starts at 12, so below it the bench also measures a
+ * payload the stress listener cannot validate. Below the `#ifndef`, never above
+ * it: an undefined identifier reads as 0 in `#if` (issue 1167). */
+#if STRESS_SIZE < 16
+#error "STRESS_SIZE must be >= 16: build_payload() writes 12 header bytes (issue 1015)"
+#endif
 #ifndef STRESS_EXPRESS
 #define STRESS_EXPRESS 0
 #endif
