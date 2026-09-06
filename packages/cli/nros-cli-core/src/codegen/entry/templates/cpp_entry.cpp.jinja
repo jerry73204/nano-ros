@@ -77,7 +77,9 @@ static int32_t __nros_entry_setup_tier_{{ setup.index }}(void* executor) {
     if (executor == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
 {%- for n in setup.nodes %}
     {
-{{- n.decls }}
+{%- with decls = n.decls %}
+{%- include "declare_calls.c.jinja" %}
+{%- endwith %}
 {%- include "cpp_node_body.cpp.jinja" %}
     }
 {%- endfor %}
@@ -98,8 +100,7 @@ static const ::nros::board::NativeTierSpec __nros_tiers[{{ tiers.n }}] = {
 {%- endfor %}
 };
 
-{{ boot_config }}
-
+{% include "boot_config.c.jinja" %}
 {% include "cpp_boot_wrapper.cpp.jinja" -%}
 {%- else -%}
 static int32_t __nros_entry_setup() {
@@ -135,7 +136,9 @@ static int32_t __nros_entry_setup() {
 {%- endif %}
 {%- for n in setup_nodes %}
     {
-{{- n.decls }}
+{%- with decls = n.decls %}
+{%- include "declare_calls.c.jinja" %}
+{%- endwith %}
 {%- include "cpp_node_body.cpp.jinja" %}
     }
 {%- endfor %}
@@ -165,8 +168,7 @@ int main(int /*argc*/, char** /*argv*/) {
     return nros_cpp_metadata_dump("{{ probe.package | c_str }}", "{{ probe.component | c_str }}", "{{ probe.executable | c_str }}", "{{ probe.language | c_str }}", "{{ probe.out_path | c_str }}");
 }
 {% else -%}
-{{ boot_config }}
-
+{% include "boot_config.c.jinja" %}
 {% include "cpp_boot_wrapper.cpp.jinja" -%}
 {%- endif -%}
 {%- endif -%}

@@ -1,0 +1,36 @@
+{#-
+  Phase 266 (RFC-0045) — the baked boot config blob.
+
+  ONE partial, included by both entry packs. The blob is a C struct literal
+  against `<nros/boot_config.h>`, and a C++ entry compiles the identical bytes,
+  so a second copy here would be two authored spellings of one ABI — the defect
+  phase-432 exists to remove. If a language ever needs a different spelling of
+  this blob, it gets its own partial then; today none does.
+
+  The view carries FACTS, not flags: whether a node name and a namespace were
+  resolved, and their raw text. `NROS_BOOT_SET_*` are this header's spelling of
+  those facts and belong here. The 63-byte field budget is NOT here — it is a
+  correctness check that refuses to emit, and it stays in Rust.
+
+  `domain_id`, `locator` and `rmw` are emitted empty with their bits clear, and
+  that is a scope statement rather than an oversight: all three are properties
+  of the IMAGE rather than of a node, and `Plan` carries no such field. A C/C++
+  image gets its RMW selector from the `NROS_ENTRY_RMW` compile definition the
+  entry gate bakes. They are spelled out rather than left to the designated
+  initialiser's zero fill so the fields stay visible in the generated code.
+-#}
+/* Phase 266 (RFC-0045) — baked boot config: post-link readable + session name. */
+static const struct nros_baked_boot_config NROS_BOOT_CONFIG
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((section(".nros_boot_config"), used))
+#endif
+= {
+.magic      = NROS_BOOT_CONFIG_MAGIC,
+.version    = NROS_BOOT_CONFIG_VERSION,
+.set_flags  = {% if boot_config.node_name is none %}0{% else %}NROS_BOOT_SET_NODE_NAME{% if boot_config.namespace is not none %} | NROS_BOOT_SET_NAMESPACE{% endif %}{% endif %},
+.domain_id  = 0,
+.node_name  = "{% if boot_config.node_name is not none %}{{ boot_config.node_name | c_str }}{% endif %}",
+.locator    = "",
+.namespace_ = "{% if boot_config.namespace is not none %}{{ boot_config.namespace | c_str }}{% endif %}",
+.rmw        = "",
+};

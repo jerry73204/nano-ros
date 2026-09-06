@@ -64,7 +64,20 @@ static int32_t __nros_entry_setup_tier_{{ t.index }}(void* executor) {
     {
         nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
-{{- n.decls }}
+{%- with decls = n.decls %}
+{%- include "declare_calls.c.jinja" %}
+{%- endwith %}
+{%- if n.qos %}
+        static const nros_cpp_qos_override_t __nros_qos_{{ n.index }}[] = {
+{%- for q in n.qos %}
+            { "{{ q.topic | c_str }}", {{ q.role }}, {{ q.policy }}, {{ q.value }} },
+{%- endfor %}
+        };
+        {
+            nros_cpp_ret_t qrc = nros_cpp_node_set_qos_overrides(&__nros_node_{{ n.index }}, __nros_qos_{{ n.index }}, {{ n.qos | length }});
+            if (qrc != NROS_CPP_RET_OK) return (int32_t)qrc;
+        }
+{%- endif %}
         void* self = __nros_c_component_{{ n.pkg }}_create();
         int32_t crc = __nros_c_component_{{ n.pkg }}_configure(&__nros_node_{{ n.index }}, executor, self);
         if (crc != 0) return crc;
@@ -87,7 +100,7 @@ static const nros_native_tier_spec_t __nros_tiers[{{ tiers.n }}] = {
 {%- endfor %}
 };
 
-{{ boot_config }}
+{% include "boot_config.c.jinja" %}
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -104,7 +117,20 @@ static int32_t __nros_entry_setup(void* executor) {
     {
         nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
-{{- n.decls }}
+{%- with decls = n.decls %}
+{%- include "declare_calls.c.jinja" %}
+{%- endwith %}
+{%- if n.qos %}
+        static const nros_cpp_qos_override_t __nros_qos_{{ n.index }}[] = {
+{%- for q in n.qos %}
+            { "{{ q.topic | c_str }}", {{ q.role }}, {{ q.policy }}, {{ q.value }} },
+{%- endfor %}
+        };
+        {
+            nros_cpp_ret_t qrc = nros_cpp_node_set_qos_overrides(&__nros_node_{{ n.index }}, __nros_qos_{{ n.index }}, {{ n.qos | length }});
+            if (qrc != NROS_CPP_RET_OK) return (int32_t)qrc;
+        }
+{%- endif %}
         void* self = __nros_c_component_{{ n.pkg }}_create();
         int32_t crc = __nros_c_component_{{ n.pkg }}_configure(&__nros_node_{{ n.index }}, executor, self);
         if (crc != 0) return crc;
@@ -114,7 +140,7 @@ static int32_t __nros_entry_setup(void* executor) {
     return 0;
 }
 
-{{ boot_config }}
+{% include "boot_config.c.jinja" %}
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;

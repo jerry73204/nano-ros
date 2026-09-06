@@ -42,6 +42,14 @@ const TEMPLATES: &[(&str, &str)] = &[
     ),
     ("c_entry.c.jinja", include_str!("templates/c_entry.c.jinja")),
     (
+        "boot_config.c.jinja",
+        include_str!("templates/boot_config.c.jinja"),
+    ),
+    (
+        "declare_calls.c.jinja",
+        include_str!("templates/declare_calls.c.jinja"),
+    ),
+    (
         "c_service_trailer.c.jinja",
         include_str!("templates/c_service_trailer.c.jinja"),
     ),

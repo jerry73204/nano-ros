@@ -26,44 +26,10 @@
 //! `nros::board::ZephyrBoard::run(...)`, which owns the Zephyr + Cyclone
 //! `init → network-wait → register → spin → shutdown` lifecycle.
 
-use std::fmt::Write;
-
 use super::{
-    Plan, QoSOverrideSpec, emit_boot_config_static,
-    emit_c::{emit_declare_params, emit_declare_remaps},
+    BootConfigView, DeclsView, Plan, QosRowView, boot_config_view, decls_view, qos_views,
     sanitize_pkg,
 };
-
-/// Emit a `static const nros_cpp_qos_override_t __nros_qos_<i>[] = {…};` + the
-/// `__nros_node_<i>.set_qos_overrides(…)` call for node `i`. No-op when the node
-/// has no (recognised) overrides.
-fn emit_qos_overrides(out: &mut String, i: usize, overrides: &[QoSOverrideSpec]) {
-    // Issue 0303 — the plan already carries CODES: the lowering (and its
-    // rejection of anything unusable) happened in
-    // `nros_orchestration_ir::qos_override`, so there is nothing to decode or
-    // silently skip here.
-    if overrides.is_empty() {
-        return;
-    }
-    let _ = writeln!(
-        out,
-        "        static const ::nros_cpp_qos_override_t __nros_qos_{i}[] = {{"
-    );
-    for o in overrides {
-        let topic = o.topic.replace('\\', "\\\\").replace('"', "\\\"");
-        let (role, policy, value) = (o.role, o.policy, o.value);
-        let _ = writeln!(
-            out,
-            "            {{ \"{topic}\", {role}, {policy}, {value} }},"
-        );
-    }
-    out.push_str("        };\n");
-    let _ = writeln!(
-        out,
-        "        __nros_node_{i}.set_qos_overrides(__nros_qos_{i}, {});",
-        overrides.len()
-    );
-}
 
 /// The C++ board class an entry calls.
 ///
@@ -228,11 +194,9 @@ struct CppEntryView {
     /// phase-308 — set for a metadata probe, which returns before the boot
     /// config and the board wrapper.
     probe: Option<CppProbeView>,
-    /// STILL pre-rendered: `emit_boot_config_static` writes the same C blob for
-    /// the C and the C++ entry, so structuring it here alone would give the C
-    /// emitter a second producer of it. It becomes a shared partial in the next
-    /// slice of W2.3.
-    boot_config: String,
+    /// `None` for a probe, which returns before the blob. Rendered by the
+    /// shared `boot_config.c.jinja` — the same partial the C pack includes.
+    boot_config: Option<BootConfigView>,
     boot: Option<CppBootView>,
 }
 
@@ -319,15 +283,12 @@ struct CppNodeView {
     /// what selects the executor expression. A fact about WHERE it renders,
     /// not about the node.
     tiered: bool,
-    /// STILL pre-rendered, deliberately: the remap and param declaration
-    /// helpers are shared with `emit_c`, so structuring them here alone would
-    /// give the C emitter a second producer of the same statements. They
-    /// become `Vec<Decl>` in the next slice of W2.3.
-    decls: String,
-    /// Likewise — but this one is `emit_cpp`'s OWN QoS block, which is a
-    /// method call on the node where C's is a free function on its address.
-    /// Same data, two language surfaces.
-    qos: String,
+    /// The remap + param calls, rendered by the SHARED
+    /// `declare_calls.c.jinja` — the same partial the C pack includes.
+    decls: DeclsView,
+    /// The QoS overrides. NOT shared: this pack calls a method on the node
+    /// where C calls a free function on its address.
+    qos: Vec<QosRowView>,
 }
 
 #[derive(serde::Serialize)]
@@ -369,34 +330,6 @@ fn node_shape(n: &super::PlanNode) -> &'static str {
     }
 }
 
-/// The remap + param declarations for one node, at the node-block indent.
-///
-/// Pre-rendered because its ELEMENTS are C statements built from escaped
-/// literals, and because the helpers that build them are shared with `emit_c`.
-/// The template writes the surrounding lines, so an empty block must
-/// contribute nothing at all rather than a blank line.
-fn node_decls(n: &super::PlanNode, exec_expr: &str) -> String {
-    let mut d = String::new();
-    emit_declare_remaps(&mut d, n, "        ", exec_expr);
-    emit_declare_params(&mut d, n, "        ", exec_expr);
-    if d.is_empty() {
-        d
-    } else {
-        format!("\n{}", d.trim_end_matches('\n'))
-    }
-}
-
-/// The QoS-override table + call, same contract as `node_decls`.
-fn node_qos(n: &super::PlanNode, i: usize) -> String {
-    let mut q = String::new();
-    emit_qos_overrides(&mut q, i, &n.qos_overrides);
-    if q.is_empty() {
-        q
-    } else {
-        format!("\n{}", q.trim_end_matches('\n'))
-    }
-}
-
 fn node_view(n: &super::PlanNode, i: usize, tiered: bool) -> CppNodeView {
     let exec_expr = if tiered {
         "executor"
@@ -410,8 +343,8 @@ fn node_view(n: &super::PlanNode, i: usize, tiered: bool) -> CppNodeView {
         pkg: sanitize_pkg(&n.pkg),
         class: n.class_name.clone(),
         tiered,
-        decls: node_decls(n, exec_expr),
-        qos: node_qos(n, i),
+        decls: decls_view(n, exec_expr),
+        qos: qos_views(n),
     }
 }
 
@@ -715,12 +648,10 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
     // A probe returns before the boot config and the board wrapper: it opens a
     // session against the recording backend, runs setup once, and dumps.
     let (boot_config, boot) = if probe.is_some() {
-        (String::new(), None)
+        (None, None)
     } else {
-        let mut bc = String::new();
-        emit_boot_config_static(&mut bc, plan)?;
         (
-            bc.trim_end_matches('\n').to_string(),
+            Some(boot_config_view(plan)?),
             Some(CppBootView {
                 shape: boot_shape_str(boot_shape(&plan.board)),
                 board_path: board_cpp_path(&plan.board),
