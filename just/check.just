@@ -1164,6 +1164,16 @@ workflow-setup-spelling:
 workflow-indexed-apt:
     @python3 scripts/check-workflow-indexed-apt.py
 
+# phase-413 W2 — a job asserts its runner's labels AFTER `just setup`, never
+# before. `runner-doctor.sh` looks for `build/qemu/bin/qemu-system-arm` FIRST
+# and `just setup tier2` is what creates it, so doctoring first asks the host
+# for what the next step supplies. The defect had three sites, #279 fixed one,
+# and the other two were still live months later because nothing was watching —
+# which is the whole argument for the gate rather than a third fix.
+[group("main")]
+workflow-doctor-after-setup:
+    @python3 scripts/check-workflow-doctor-after-setup.py
+
 # issue 0933 — a CI step that invokes `just`/`nros`/`west` must source the repo
 # environment. `activate.sh` is what exports `nano_ros_ROOT`, and that is how
 # `find_package(nano_ros)` resolves: the config lives at the checkout root and a
