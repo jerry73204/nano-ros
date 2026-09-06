@@ -38,6 +38,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# issue 1184 — the unsynced-leaf SKIP below has to be COUNTABLE, not just
+# printed. It writes to stderr and returns 0, so `check-fast`'s "N SKIPPED"
+# summary never saw it and CI read a clean pass over two leaves nobody checked.
+# shellcheck source=scripts/build/check-skip.sh
+. "$(pwd)/scripts/build/check-skip.sh"
+
 # issue 0726 — the leaf classification below is three `grep -qE` arms in a
 # chain, and a grep that failed to run falls through to the `else` and files the
 # leaf as BROKEN with three lines of cargo output attached. That is a confident,
@@ -226,7 +232,20 @@ if [ ${#unsynced[@]} -gt 0 ]; then
         echo "       they persist, their patch tables or \`generated/\` trees are wrong." >&2
         exit 1
     fi
-    echo "check-leaf-lockfiles: SKIP ${#unsynced[@]} leaf crate(s) — tree not synced" >&2
+    # issue 1184 — RECORD it, not just print it. Every CI checkout is unsynced
+    # (`nros sync` writes `nros-patch.toml` and the per-leaf `generated/` trees,
+    # neither committed), so this branch is the one CI always takes, and it
+    # exited 0 with nothing countable. Two leaves drifted for a whole phase
+    # behind it: `nros-macros` gained `nros-entry-lower` and both nuttx-ffi
+    # locks went stale, invisible to every unsynced tree including CI, and
+    # visible immediately on a synced one.
+    #
+    # Still a SKIP rather than a failure: these leaves genuinely cannot resolve
+    # without sync (issue 0378), so failing closed would break the book's own
+    # install flow. The ledger is what makes the difference between "checked"
+    # and "not checked" survive into the lane summary.
+    nros_check_skip leaf-lockfiles \
+        "tree not synced — ${#unsynced[@]} leaf crate(s) NOT checked: ${unsynced[*]}"
     printf '       %s\n' "${unsynced[@]}" >&2
     echo "" >&2
     echo "       Their \`.cargo/config.toml\` includes the central \`nros-patch.toml\`" >&2
