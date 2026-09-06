@@ -639,6 +639,28 @@ jobs:
           source ./activate.sh
           just check compile-smoke
 
+      # issue 1110 — rustdoc, on a lane a PR actually runs.
+      #
+      # The broken-link lint is deny-level here and NOTHING on a merge-gating
+      # path ran rustdoc, so `just book` and every docs deploy were red for
+      # three days with no lane saying so (`docs.yml`'s path filter includes the
+      # crate that broke, so it was failing rather than skipping). A second
+      # break sat behind the first, invisible, because rustdoc stops at the
+      # first crate that fails.
+      #
+      # It lives in THIS job because the job already compiles the workspace on a
+      # pull request — `check-lane-contracts`'s rule is that a lane may only
+      # resolve artifacts the job itself builds. It documents the DEPLOYED crate
+      # set (scripts/build/rustdoc-set.sh, shared with `just book`), not the
+      # workspace: the wider pass has ~70 diagnostics in crates nothing
+      # publishes (issue 1116), which is a separate cleanup and would make this
+      # gate un-landable rather than useful.
+      - name: just check rustdoc-links (pull request only)
+        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+        run: |
+          source ./activate.sh
+          just check rustdoc-links
+
       # The CLI sub-workspace's own tests, on BOTH merge-gating events.
       #
       # `cli-tests` lived only in `check-build`, which is `schedule` /

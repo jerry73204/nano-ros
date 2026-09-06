@@ -2901,6 +2901,38 @@ compile-smoke:
     cargo check --workspace --all-targets --quiet {{HOST_UNCHECKABLE}}
     echo "compile smoke: workspace + all targets check clean (no lints; see check-build)."
 
+# Issue 1110 — the PUBLISHED API docs must still build, on a lane a PR runs.
+#
+# rustdoc's broken-link lint is deny-level here, and NOTHING on a merge-gating
+# path ran rustdoc. `3941b569a` deleted `ClientTrait::is_server_ready` while the
+# paragraph beside it still linked to it, so `just book` and every docs deploy
+# went red and stayed red for three days — `docs.yml`'s path filter includes
+# that crate, so the deploy was failing, not skipping. A SECOND break sat behind
+# it (`nros-rmw-zenoh` naming a `record_alloc_ceilings` that never existed),
+# invisible because rustdoc stops at the first crate that fails.
+#
+# Same class as issues 0319 and 0896: a correct check on a path nothing
+# traverses. The fix is the path, not the check.
+#
+# The crate + feature set is `scripts/build/rustdoc-set.sh`, which `just book`
+# reads too — one spelling, because a gate documenting a DIFFERENT set from the
+# one that deploys is a gate that can be green while the deploy is red.
+#
+# Not on the fast line: it compiles. It runs in the `compile-smoke` JOB, which
+# already builds the workspace on every pull request — `check-lane-contracts`'s
+# rule is that a lane may only resolve artifacts the job itself builds, and this
+# one does.
+[group("ci")]
+rustdoc-links:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/build/rustdoc-set.sh
+    mapfile -t pkgs < <(nros_rustdoc_package_args)
+    cargo doc --no-deps --quiet \
+        --features "$NROS_RUSTDOC_FEATURES" \
+        "${pkgs[@]}"
+    echo "rustdoc-links OK — the ${#NROS_RUSTDOC_CRATES[@]} published crates document cleanly."
+
 # phase-359 W9 — every matrix platform resolves to exactly ONE std flavour, so a
 # lane keyed on the platform cannot mix std and no_std images. Buildless (reads
 # board manifests + the registry), so it belongs in the fast tier.

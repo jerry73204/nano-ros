@@ -4781,14 +4781,16 @@ book:
     # without them rustdoc drops ExecutorConfigEnvExt::from_env, the alloc-
     # gated ExecutorNodeRuntime::spin and `nros::node!` — and every doc
     # comment linking those fails the build (2026-08-21 book red).
+    # The crate + feature set is DATA, in scripts/build/rustdoc-set.sh, because
+    # `just check rustdoc-links` builds the same set on every pull request
+    # (issue 1110). A gate documenting a different set from the one that
+    # deploys can be green while the deploy is red, which is the state that
+    # issue records.
+    source scripts/build/rustdoc-set.sh
+    mapfile -t _nros_doc_pkgs < <(nros_rustdoc_package_args)
     cargo doc --no-deps \
-        --features rmw-cffi,platform-posix,ros-humble,safety-e2e,std,env,macros \
-        -p nros \
-        -p nros-rmw \
-        -p nros-rmw-cffi \
-        -p nros-rmw-zenoh \
-        -p nros-platform-api \
-        -p nros-platform-cffi
+        --features "$NROS_RUSTDOC_FEATURES" \
+        "${_nros_doc_pkgs[@]}"
     just doc-c
     just doc-cpp
     just doc-rmw-cffi
