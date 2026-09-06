@@ -209,6 +209,13 @@ fn spawn_nano_cyclone(binary: &Path, name: &str, domain_id: u8) -> ManagedProces
         _ => cyclone_lib.into_os_string(),
     };
     cmd.env("LD_LIBRARY_PATH", ld);
+    // Issue 1137 — the SAME bus as the `ros2` peer on the other side of every
+    // cyclone cell. Those peers go through `ros2_env_setup_rmw_with_domain`,
+    // which has exported a loopback-only `CYCLONEDDS_URI` since issue 1009;
+    // this half got nothing, so the pair sat on two different interfaces and
+    // discovered nothing at all. "Pin both sides or neither" is 1009's own
+    // conclusion, and this is the other side.
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
     ManagedProcess::spawn_command(cmd, name).unwrap_or_else(|_| panic!("Failed to start {name}"))
 }
 

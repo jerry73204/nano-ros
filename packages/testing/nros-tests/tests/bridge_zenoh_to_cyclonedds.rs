@@ -86,6 +86,12 @@ fn spawn_cyclone_listener(binary: &Path, domain: u8) -> ManagedProcess {
     let mut cmd = Command::new(binary);
     cmd.env("ROS_DOMAIN_ID", domain.to_string())
         .env("RUST_LOG", "info");
+    // Issue 1137 — the same bus as the Cyclone egress it listens to, and as the
+    // `ros2 topic echo` peer the companion case starts. Every one of those goes
+    // through `ros2_env_setup_rmw_with_domain`, which has exported a
+    // loopback-only `CYCLONEDDS_URI` since issue 1009; a participant without it
+    // sits on a different interface and discovers nothing.
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
     ManagedProcess::spawn_command(cmd, "nano-cyclone-listener-bridge-e2e")
         .expect("spawn nano cyclone listener")
 }
@@ -96,6 +102,9 @@ fn spawn_bridge(bin: &Path, locator: &str, domain: u8, label: &'static str) -> M
     cmd.env("RUST_LOG", "info")
         .env("ZENOH_LOCATOR", locator)
         .env("ROS_DOMAIN_ID", domain.to_string());
+    // Issue 1137 — the bridge's Cyclone EGRESS is a DDS participant, so it needs
+    // the same loopback pin the listener and the `ros2 topic echo` peer get.
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
     let mut bridge = ManagedProcess::spawn_command(cmd, label).expect("spawn bridge");
     bridge
         .wait_for_output_pattern("Spinning", Duration::from_secs(10))
@@ -142,6 +151,8 @@ fn test_zenoh_to_cyclonedds_bridge_e2e(zenohd_unique: ZenohRouter, talker_binary
         .env("RUST_LOG", "info")
         .env("ZENOH_LOCATOR", &zenoh_locator)
         .env("ROS_DOMAIN_ID", domain.to_string());
+    // Issue 1137 — same bus as the Cyclone listener this feeds.
+    nros_tests::dds_isolation::apply_to_command(&mut bridge_cmd);
     let mut bridge = ManagedProcess::spawn_command(bridge_cmd, "bridge-zenoh-to-cyclonedds-fwd")
         .expect("spawn bridge");
     bridge

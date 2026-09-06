@@ -28,6 +28,22 @@ domain's tokens. A standing liveliness SUBSCRIBER with history replaced it.
   exists in `interop::CELLS` and has never been executed; W5's reader is
   verified against our own builders only, which is exactly the state zenoh was
   in before 0903.
+  **Update 2026-09-06 (phase-433 W1, issue 1137).** It ran, and failed —
+  `get_node_names` enumerated only the probe. The reader is NOT at fault: the
+  harness had pinned the stock talker's Cyclone bus to loopback (issue 1009,
+  landed 2026-09-04) and left our side on Cyclone's default interface, so the
+  two participants never discovered each other. This cell had PASSED live on
+  2026-08-30 (issue 0927); the regression is in the test harness and dated. The
+  pin is now applied to both halves, and `check-dds-isolation-symmetry` keeps
+  it that way — but **the cell has still not been seen GREEN since, so W5's
+  reader remains live-unproven**, which is the same sentence this bullet
+  carried before.
+  W5's SCOPE, measured rather than restated: Cyclone's vtable fills
+  `get_node_names` and eleven `nullptr`s
+  (`nros-rmw-cyclonedds/src/vtable.cpp:380-391`), so ten declared
+  `Unsupported`s in that run are correct answers and not ten defects.
+  `check-rmw-slot-producers` now prints the per-backend split, so the number
+  no longer lives only in this paragraph.
 * **Ten of the twelve slots are unproven live.** Only `get_node_names` and
   `get_topic_names_and_types` have been measured against a real peer. The
   service forms, the counts and the six by-node forms are still self-verified.

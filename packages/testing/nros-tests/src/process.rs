@@ -554,26 +554,18 @@ impl ManagedProcess {
     /// * `binary` - Path to the executable
     /// * `args` - Command line arguments
     /// * `name` - Human-readable name for error messages
+    ///
+    /// Delegates to [`Self::spawn_command`] rather than duplicating its four
+    /// lines: two copies of the spawn sequence are two places to change when
+    /// the sequence grows, and this file had exactly that shape.
     pub fn spawn(
         binary: &std::path::Path,
         args: &[&str],
         name: impl Into<String>,
     ) -> Result<Self, TestError> {
-        let name = name.into();
         let mut cmd = Command::new(binary);
-        cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
-        #[cfg(unix)]
-        set_new_process_group(&mut cmd);
-        let cmdline = crate::qemu::render_command(&cmd);
-        let handle = cmd
-            .spawn()
-            .map_err(|e| TestError::ProcessFailed(format!("Failed to spawn {}: {}", name, e)))?;
-
-        Ok(Self {
-            handle,
-            name,
-            cmdline,
-        })
+        cmd.args(args);
+        Self::spawn_command(cmd, name)
     }
 
     /// Spawn a process from a Command builder
@@ -581,6 +573,19 @@ impl ManagedProcess {
     /// # Arguments
     /// * `command` - Pre-configured Command builder
     /// * `name` - Human-readable name for error messages
+    ///
+    /// # This does NOT pin the DDS bus — and that is deliberate (issue 1137)
+    ///
+    /// It is the obvious place to put [`crate::dds_isolation::apply_to_command`],
+    /// and it would be wrong. The pin is only correct when the PEER is pinned
+    /// too ("pin both sides or neither", issue 1009), and one family of peers
+    /// cannot be: the `DockerRosEnv` editions lanes run their ROS 2 side inside
+    /// a container whose mount namespace cannot reach the host profile path, so
+    /// those pairs are symmetric-UNPINNED today and pinning our half here would
+    /// break them exactly the way 1137 broke the Cyclone graph cell. So the pin
+    /// is applied at the spawn sites whose peer is a host `ros2` process, and
+    /// `check-dds-isolation-symmetry` is what keeps a new such site from
+    /// forgetting.
     pub fn spawn_command(mut command: Command, name: impl Into<String>) -> Result<Self, TestError> {
         let name = name.into();
         command.stdout(Stdio::piped()).stderr(Stdio::piped());

@@ -762,6 +762,14 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   transport beside the whitelisted one and isolates nothing while reading as if it does.
   Without the pin a foreign `add_two_ints_server` on ANOTHER HOST failed our XRCE service
   cell 4 of 15 and cost issue 0741 five wrong diagnoses. Opt out: `NROS_DDS_ALLOW_LAN=1`.
+  **And "both sides" includes OURS — `env_exports_for_rmw` only reaches a process started
+  from a `source setup.bash` STRING, i.e. the `ros2` peer** (issue 1137). Our half is a bare
+  `Command` and had no pin, so from 2026-09-04 every Cyclone pair ran half-pinned: the
+  Cyclone graph cell, green live on 2026-08-30, went back to enumerating only itself.
+  `dds_isolation::apply_to_command` is that half; gate `check-dds-isolation-symmetry`.
+  NOT applied in `ManagedProcess::spawn_command` on purpose — `DockerRosEnv` peers cannot
+  read a host profile path, so those pairs are symmetric-UNPINNED and pinning our half of
+  one would CREATE the bug.
 - **Manual native_sim pair repros need distinct `--seed`** — unseeded processes share the test
   entropy source → identical GUIDs/ports → discovery sees the peer as itself → false-negative
   "no delivery". The test harness seeds automatically; hand-run repros must too. → issue 0157

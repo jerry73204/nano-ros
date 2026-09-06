@@ -1,13 +1,22 @@
 ---
 id: 1137
-title: "Cyclone's graph reader sees only itself against a live stock talker, and 9 of its 12 graph slots answer Unsupported — measured, first live run"
+title: "Cyclone's graph reader saw only itself against a live stock talker — the
+  harness pinned the PEER's bus to loopback and not ours, and nine of the twelve
+  `Unsupported` slots were never a defect"
 status: open
 type: bug
 area: rmw, testing
 severity: high
 found: 2026-09-06
-related: [0791, 0903, 1127]
+related: [0791, 0903, 0927, 1009, 1127]
 ---
+
+> **State: root cause identified and a fix landed; OPEN until a live run
+> confirms it.** The fix is in the harness, not in `graph.cpp`, and the only
+> thing that can close this issue is the same measurement that opened it — a
+> `graph_interop` cyclone run against a live peer, which needs the `ros2`
+> distrobox. Marking it resolved on a reasoned diagnosis is what issues
+> 0859–0862 did. See "What remains unverified".
 
 # The first live run of `graph_interop`, and Cyclone fails it
 
@@ -53,70 +62,184 @@ GRAPH_PROBE_SLOTS_PARTIAL
 GRAPH_PROBE_FAIL: expected a node matching "talker", saw ["/|graph_probe"] after 20000 ms
 ```
 
-So on Cyclone: **`get_node_names` returns one entry, the probe itself.
-`get_topic_names_and_types` errors `Transport(Unsupported)`. Nine of the twelve
-slots answer Unsupported outright.** The reader phase-381 W5 added never sees a
-participant.
+## The nine `Unsupported` slots are not a defect, and never were
 
-## The peer is not the problem — control run
+Answered first, because nine of the eleven reported lines are a correct answer
+and treating them as bugs is how a day gets spent in `graph.cpp`.
 
-Before blaming the reader (issues 0859–0862: four ghost issues filed from
-failures whose cause was the harness, two with confident wrong root causes), the
-same box was asked whether a stock Cyclone talker is discoverable at all:
+**Cyclone's vtable fills exactly ONE of the twelve graph slots.**
+`nros-rmw-cyclonedds/src/vtable.cpp:380-391` is eleven consecutive `nullptr`s
+under `/*get_node_names*/ cyclone_get_node_names,`, and a NULL slot is
+`Transport(Unsupported)` by the ABI's own contract. Three independent sources
+say that is the intent, all written when W5 landed:
+
+* phase-381's status paragraph — *"zenoh answers all twelve, Cyclone answers
+  `get_node_names`"*;
+* `bins/graph-probe/src/main.rs:194` — *"Cyclone's W5 reader serves
+  `get_node_names` and nothing else"*, which is why the probe RECORDS an
+  `Unsupported` rather than failing on it;
+* `graph_interop.rs:155` — *"Cyclone answers FEWER slots than zenoh, and that is
+  the point of W6 rather than a defect."*
+
+So the correct count is **10 of 12 `Unsupported` on Cyclone, all intended**: the
+nine the probe classifies, plus `get_topic_names_and_types` (reported separately
+as `GRAPH_PROBE_TOPICS_ERR`, and `nullptr` in the same block). The twelfth,
+`node_get_graph_guard_condition`, is `nullptr` on every backend and is a
+declared inert family in `check-rmw-slot-producers`. `Transport(Unsupported)` on
+topics is an **honest answer**, not a contradiction of a `produced`
+classification — see the classification section below.
+
+That leaves exactly one real symptom: `get_node_names` returning only self.
+
+## Root cause: the harness pinned the peer's bus and not ours
+
+**Not the reader.** `graph.cpp` is unchanged since 2026-08-31 (a `std::fprintf`
+spelling fix for threadx-riscv64) and this exact cell **passed live on
+2026-08-30** — issue 0927 records `PASS cyclone_enumerates_a_stock_ros2_node`
+after fixing the probe's `ROS_DOMAIN_ID`. The regression is dated:
+
+| date | event |
+| --- | --- |
+| 2026-08-30 | issue 0927 fixed; both graph cells PASS live |
+| 2026-09-04 | issue 1009 lands: DDS interop peers pinned to loopback |
+| 2026-09-06 | this cell fails, "sees only itself", identical signature |
+
+Issue 1009 confined every DDS interop peer to loopback, because a participant
+elsewhere on the LAN is otherwise a peer (issue 0741 lost fifteen sections to
+one). It did that in `ros2_env_setup_rmw_with_domain`, which builds a
+`source setup.bash && export …` STRING — so the pin reaches exactly one kind of
+process: **a host `ros2` peer.** Our own side of every pair is a bare
+`std::process::Command`, and it got nothing.
+
+For the Cyclone graph cell that means:
+
+* the talker, via `demo_nodes_cpp_talker_cyclonedds_with_domain`, runs under
+  `CYCLONEDDS_URI` = a profile with `NetworkInterface address="127.0.0.1"`,
+  `multicast="false"`, `AllowMulticast=false` and `<Peer address="localhost"/>`
+  — unicast SPDP on loopback, no multicast at all;
+* `graph-probe` runs with Cyclone's DEFAULT interface pick, which on a
+  distrobox (host networking) is a real ethernet interface, announcing SPDP to
+  `239.255.0.1`.
+
+Neither side's discovery traffic reaches the other. The probe's participant
+still matches its OWN `ros_discovery_info` writer, so it enumerates one node,
+itself — which is bit-for-bit the symptom issue 0927 already produced from a
+different cause, and which reads as a broken reader.
+
+**This is the failure mode issue 1009 measured and then half-applied.** Its own
+conclusion: *pin both sides or neither; half is no discovery* — batch F, 0 of 15
+with EMPTY output, because `ROS_LOCALHOST_ONLY` reached the ROS side and not the
+XRCE Agent. The same asymmetry, one lane over, two days later.
+
+### Why the issue's control run did not catch it
 
 ```
-RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=77 ros2 run demo_nodes_cpp talker &
-$ ros2 node list --no-daemon
-/talker
-$ ros2 topic list --no-daemon
-/chatter
-/parameter_events
-/rosout
+RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=77 ros2 run demo_nodes_cpp talker
+ros2 node list --no-daemon   # -> /talker
 ```
 
-Discovery on Cyclone works in this container. The test's own setup is also
-sound: `unique_ros_domain_id()`, a stock
-`demo_nodes_cpp_talker_cyclonedds_with_domain` on that domain, and the probe
-given the same `ROS_DOMAIN_ID`/`NROS_DOMAIN_ID`.
+Neither of those processes has `CYCLONEDDS_URI` set. The control is a
+**both-unpinned** pair, which works; the harness is a **half-pinned** pair,
+which does not. The control was right that discovery works in that container —
+it just could not see the variable that the harness adds to one side only.
 
-## Why nothing caught it earlier
+## The fix
 
-This is phase-393's closing warning, demonstrated a second time. All twelve
-Cyclone graph slots are `produced` by `check-rmw-slot-producers`, the parity
-gate reports 0 gap, and every unit test passes — because each tests our code
-against our own builders and our own parser. `interop::CELLS` even carries the
-prediction, written when the reader landed:
+One helper, applied at every spawn site whose peer is a pinned host `ros2`
+process, plus a gate.
 
-> Cyclone's half. `graph.cpp` PUBLISHED `ros_discovery_info` since phase-177.36
-> and only gained a reader in W5, **which has never been run against a live
-> participant.**
+* `dds_isolation::apply_cyclone_config` / `apply_to_command` — the
+  bare-`Command` twin of `env_exports_for_rmw`, and the sibling
+  `apply_fastdds_profile` had been on its own since 1009.
+* Applied at the five sites that pair a nano-ros DDS participant with a pinned
+  host peer: `graph_interop.rs` (the probe), `interop_e2e.rs`
+  (`spawn_nano_cyclone`, three cyclone scenarios), `ros2_action_e2e.rs` (the
+  action server — the same defect, same day, never noticed),
+  `bridge_zenoh_to_cyclonedds.rs` and
+  `declarative_bridge_zenoh_to_cyclonedds.rs` (the Cyclone egress and the
+  listener it feeds).
+* Gate: **`check-dds-isolation-symmetry`** (fast line, buildless). A tracked
+  test source that starts a pinned host DDS peer must also apply the pin to
+  what it spawns. Mutation-tested: removing one call turns it red.
 
-It had been correct and unmeasured for as long as it had existed. Issue 1127 is
-why: the lane that would have run this has not completed in 30 runs (issue
-1136), so the prediction never became a verdict.
+### What is deliberately NOT pinned
 
-## What needs deciding, before fixing
+`ManagedProcess::spawn_command` is the obvious chokepoint and would be wrong.
+The `DockerRosEnv` editions lanes run their ROS 2 peer inside a container whose
+mount namespace cannot reach a host profile path, so those pairs are
+**symmetric-unpinned** today; pinning our half of one would create this bug
+rather than fix it. The gate therefore keys on `HostRosEnv` and the host
+`Ros2*Process` helpers, never on the `Middleware` enum both backends share, and
+`spawn_command` carries the reasoning in a comment so the next reader does not
+have to re-derive it.
 
-The nine `Unsupported` slots may be a deliberate partial from W5 rather than
-breakage — the phase shipped a reader for `ros_discovery_info`, which carries
-node/topic participation, not every by-node and by-topic query. **Establish
-which of the twelve W5 intended to answer on Cyclone before treating nine
-Unsupported as nine bugs.** If the partial is intended, the honest fix is that
-`check-rmw-slot-producers` should not count a slot as `produced` for a backend
-that answers `Unsupported` at runtime — a distinction the gate does not
-currently draw, and one that would change the "34 of 88 working" headline.
+## The classification question: is `produced` lying?
 
-The remaining three are unambiguous: `get_node_names` returning only self while
-a live participant is on the domain is a defect, and
-`get_topic_names_and_types` answering `Transport(Unsupported)` contradicts its
-`produced` classification.
+The issue was filed saying *"all twelve Cyclone graph slots are `produced` by
+`check-rmw-slot-producers`"*. That is a misreading, and worth recording because
+it aimed at the wrong tool.
 
-## Reproduce
+`check-rmw-slot-producers` answers **"does ANY backend's vtable fill this
+slot"** — it says so in its own docstring, and its output is one number for the
+whole ABI (`produced 58`). It has never made a per-backend claim, so it is not
+lying about Cyclone; it simply never had the answer. Neither did anything else:
+"zenoh 12, Cyclone 1, XRCE 0" lived only in prose, in three comments.
 
-Inside the `ros2` box, on the box tree (issue 0759), sourcing `activate.sh`
-FIRST and `ros2-box-env.sh` SECOND:
+Fixed by measuring it. The report now carries a per-backend table:
+
+```
+## filled per backend (of 68 slots)
+
+  cyclonedds                        38   graph 1/12  [get_node_names]
+  rust-adapter (every Rust backend) 42   graph 11/12 [...]
+  uorb                              18   graph 0/12
+  xrce                              24   graph 0/12
+  zenoh                              4   graph 0/12
+```
+
+**And that table still cannot answer the question for a Rust backend**, which
+the report now says out loud. The adapter's graph slots are trampolines,
+non-NULL for every `R: RustBackend`, forwarding to a `Session` trait method
+whose default returns `Unsupported` — so zenoh reads as filled whether or not it
+implements anything. No static tool closes that: the answer is a live call, and
+`graph_interop` is the only thing that makes it.
+
+So the recommendation is **not** to fail `--check` on a backend that answers
+`Unsupported`. A slot a backend declines is RFC-0035's designed behaviour and
+W6's whole point; the gap was visibility, and visibility is what was added.
+
+## What remains unverified
+
+The fix could not be run against a live peer from the authoring worktree — this
+host has no ROS (`/opt/ros` absent), and the `ros2` distrobox tree was being
+re-synced by another process (issue 0759: every job in the box, on its own
+tree). What is proven locally: the gate, its mutation, the symmetry unit tests,
+and that a child given `CYCLONEDDS_URI` can read the profile it names.
+
+What needs the box to confirm:
 
 ```bash
 bash scripts/build/fixtures-build.sh linux rust cyclonedds
 cargo nextest run -p nros-tests --test graph_interop -E 'test(cyclone)'
 ```
+
+The prediction is a PASS with `GRAPH_PROBE_NODE_COUNT 2` and
+`GRAPH_PROBE_SLOTS_PARTIAL` (ten declared `Unsupported`, which the cell already
+tolerates). If it still reports one node, the next measurement is
+`NROS_GRAPH_DUMP=1`: `matched_publications=1` means the two participants still
+do not see each other (look at the bus, not at `graph.cpp`),
+`matched_publications>=2` with an empty enumeration means the reader really is
+at fault this time.
+
+Four other cells are predicted to change with it, all currently half-pinned and
+all unmeasured since 2026-09-04: `interop_e2e`'s three cyclone scenarios and
+`ros2_action_e2e`.
+
+## The class
+
+Third instance of "a variable that isolates one half of a pair", after issue
+0741's foreign peer and issue 1009's own batch F. And the second time
+`get_node_names` returning only itself has been filed as a Cyclone reader
+defect when the reader was fine (issue 0927 is the first, and it says so in its
+own title). A cyclone peer's BUS is load-bearing and silent when wrong: it does
+not error, it reports an empty graph.

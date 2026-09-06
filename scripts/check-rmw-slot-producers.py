@@ -82,6 +82,27 @@ PRODUCER_GLOBS = (
 
 NULL_VALUES = {"nullptr", "NULL", "None", "0"}
 
+# The graph family (phase-381). Called out per backend because it is the one
+# family where the backends legitimately differ by an order of magnitude —
+# zenoh reads `@ros2_lv` liveliness tokens and answers all of it, Cyclone reads
+# the `ros_discovery_info` topic and answers node enumeration, XRCE has no graph
+# at all — and because reading the ANY-backend aggregate as a per-backend claim
+# is issue 1137.
+GRAPH_SLOTS = {
+    "get_node_names",
+    "get_topic_names_and_types",
+    "get_service_names_and_types",
+    "get_publisher_names_and_types_by_node",
+    "get_subscriber_names_and_types_by_node",
+    "get_service_names_and_types_by_node",
+    "get_client_names_and_types_by_node",
+    "get_publishers_info_by_topic",
+    "get_subscriptions_info_by_topic",
+    "count_publishers",
+    "count_subscribers",
+    "node_get_graph_guard_condition",
+}
+
 # A NULL slot's documented behaviour, in the header, near the declaration.
 NULL_DOC = re.compile(r"NULL (slot|function pointer|=)", re.IGNORECASE)
 
@@ -190,6 +211,46 @@ def consumers_in(text, slots):
     return {s for s in slots if re.search(CONSUME.format(re.escape(s)), text)}
 
 
+def backend_of(rel):
+    """The backend a producer file belongs to — `packages/rmw/<b>/...`.
+
+    The Rust adapter is not a backend: it fills slots for EVERY `R:
+    RustBackend`, so attributing its slots to one name would be a lie in both
+    directions. It is reported under its own label.
+    """
+    if rel.endswith("rust_adapter.rs"):
+        return "rust-adapter (every Rust backend)"
+    parts = rel.split("/")
+    if len(parts) > 2 and parts[0] == "packages" and parts[1] == "rmw":
+        return parts[2]
+    return rel
+
+
+def producers_by_backend(slots):
+    """backend -> the slots ITS vtable fills.
+
+    Issue 1137 — the aggregate `produced` answers "does ANY backend fill this",
+    which is what this tool documents and exactly what it should answer for a
+    question about the ABI. It was then READ as a per-backend claim: the issue
+    was filed saying "all twelve Cyclone graph slots are `produced`", and nine
+    answering `UNSUPPORTED` live looked like nine regressions. Cyclone fills ONE
+    of the twelve (`get_node_names`) and the other eleven are `nullptr` on
+    purpose — phase-381 W5's stated scope, which lived only in prose. So the
+    per-backend split is MEASURED here rather than argued anywhere, and the
+    aggregate keeps meaning what it always meant.
+    """
+    out = {}
+    for rel in _git("ls-files", *PRODUCER_GLOBS):
+        try:
+            text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        except OSError:
+            continue
+        got = producers_in(text, slots)
+        if got:
+            out.setdefault(backend_of(rel), set()).update(got)
+    return out
+
+
 def scan():
     slots = header_slots()
 
@@ -257,6 +318,20 @@ def self_test():
     if consumers_in("context->ops->publish(x)", slots):
         bad.append("an unrelated ops table was counted as a vtable consumer")
 
+    # Per-backend attribution (issue 1137). The adapter must NOT be attributed
+    # to a backend name — it fills slots for every Rust backend, so calling it
+    # "zenoh" would be wrong in both directions.
+    if backend_of("packages/rmw/cyclonedds/nros-rmw-cyclonedds/src/vtable.cpp") != "cyclonedds":
+        bad.append("a backend vtable was not attributed to its backend")
+    if backend_of("packages/rmw/cffi/src/rust_adapter.rs") == "cffi":
+        bad.append("the Rust adapter was attributed to a backend")
+
+    # Every graph slot named here is a real slot. A typo would silently shrink
+    # the family and make a backend look more complete than it is.
+    for s in sorted(GRAPH_SLOTS):
+        if s not in set(header_slots()):
+            bad.append(f"GRAPH_SLOTS names {s}, which is not a slot")
+
     # Every family member is a real slot, and no slot is in two families.
     real = set(header_slots())
     seen = set()
@@ -272,7 +347,7 @@ def self_test():
         for b in bad:
             sys.stderr.write("check-rmw-slot-producers --self-test: " + b + "\n")
         return 2
-    print(f"check-rmw-slot-producers --self-test: OK ({len(seen)} family member(s), 5 case(s))")
+    print(f"check-rmw-slot-producers --self-test: OK ({len(seen)} family member(s), 8 case(s))")
     return 0
 
 
@@ -294,6 +369,36 @@ def main(argv):
     print(f"# vtable slots: {total}\n")
     for k in ("produced", "default", "unimplemented", "inert"):
         print(f"  {k:<14} {counts.get(k, 0):>3}")
+
+    # Per-backend, and the graph family called out — issue 1137. `produced`
+    # above is an ANY-backend answer about the ABI; this is the per-backend one,
+    # and it is the difference between "the slot works" and "the slot works on
+    # the backend you are running".
+    by_backend = producers_by_backend(list(kinds))
+    if by_backend:
+        print("\n## filled per backend (of {} slots)\n".format(len(kinds)))
+        for name in sorted(by_backend):
+            got = by_backend[name]
+            graph = sorted(GRAPH_SLOTS & got)
+            print(
+                f"  {name:<32} {len(got):>3}   graph {len(graph)}/{len(GRAPH_SLOTS)}"
+                + (f"  [{', '.join(graph)}]" if graph else "")
+            )
+        print(
+            "\n  A slot this backend does not fill answers UNSUPPORTED at runtime,\n"
+            "  which is a DECLARED 'cannot tell you' — never an empty result\n"
+            "  (RFC-0035 / phase-381 W6). Do not read the aggregate above as a\n"
+            "  per-backend capability: issue 1137 did, and nine correct\n"
+            "  UNSUPPORTEDs were filed as nine bugs.\n"
+            "\n"
+            "  AND THIS TABLE STILL CANNOT ANSWER IT FOR A RUST BACKEND. The\n"
+            "  adapter row is a trampoline per slot, non-NULL for EVERY\n"
+            "  `R: RustBackend`, and the trampoline forwards to a `Session`\n"
+            "  trait method whose default returns `Unsupported`. So a Rust\n"
+            "  backend reads as filled here whether or not it implements the\n"
+            "  method. Nothing static closes that gap — the answer is a live\n"
+            "  call, which is what `graph_interop` is for."
+        )
 
     for k in ("default", "unimplemented", "inert"):
         members = [s for s, v in kinds.items() if v == k]

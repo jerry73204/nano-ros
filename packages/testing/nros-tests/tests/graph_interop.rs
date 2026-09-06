@@ -182,13 +182,24 @@ fn cyclone_enumerates_a_stock_ros2_node() {
 
     let probe = fixtures::build_graph_probe_rmw(nros_tests::fixtures::Rmw::Cyclonedds)
         .expect("prebuilt cyclone graph-probe");
-    let out = Command::new(probe)
-        .env("GRAPH_PROBE_EXPECT_NODE", "talker")
+    let mut cmd = Command::new(probe);
+    cmd.env("GRAPH_PROBE_EXPECT_NODE", "talker")
         .env("GRAPH_PROBE_TIMEOUT_MS", "20000")
         .env("ROS_DOMAIN_ID", domain.to_string())
-        .env("NROS_DOMAIN_ID", domain.to_string())
-        .output()
-        .expect("run graph-probe");
+        .env("NROS_DOMAIN_ID", domain.to_string());
+    // Issue 1137 — the SAME bus as the talker.
+    //
+    // `demo_nodes_cpp_talker_cyclonedds_with_domain` funnels through
+    // `ros2_env_setup_rmw_with_domain`, which since issue 1009 exports a
+    // `CYCLONEDDS_URI` confining that participant to `127.0.0.1` with
+    // `AllowMulticast=false` and an explicit localhost peer. This probe is a
+    // bare `Command` — not a `ManagedProcess`, which pins itself — so without
+    // this line the two sides sit on different interfaces and neither one's
+    // SPDP reaches the other. The probe then enumerates exactly one node,
+    // itself, which is indistinguishable from a broken `ros_discovery_info`
+    // reader and was filed as one twice (0927, then 1137).
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
+    let out = cmd.output().expect("run graph-probe");
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
