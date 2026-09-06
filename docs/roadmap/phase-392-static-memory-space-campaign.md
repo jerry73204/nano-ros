@@ -1,6 +1,9 @@
 # Phase 392 — 27% of a safety-island image is message buffers nobody can price
 
-**Status (2026-08-30). W1, W3 and most of W5 landed; W2 is now issue 0900.**
+**Status (2026-09-06). W1, W2, W4 and W5.a-W5.g landed. W3 is complete except
+W3c: W3a/W3b landed here, W3d landed as phase-408 W1, W3g as phase-403 W0/W6,
+W3e is superseded by phase 408 and W3f was delivered as a recorded refusal. W2
+IS issue 0900, which is RESOLVED. Open: W3c, W6, and amendment B's wave.**
 Opened from a memory-allocation review that measured a real 320 KiB-class board
 image.
 
@@ -13,9 +16,16 @@ and **W5.b1/c/d/e/f** (the queryable table sized by declaration — 143,456 B of
 a talker — with an exhausted table that names the declaration and a knob that is
 checked at build time).
 
-Still open: **W5.g**, which is the MEASUREMENT of W5 on a real cmake workspace
-image and has not been run; W5.d's 143,456 B was measured on a pure-cargo leaf
-that this wave changes by zero bytes. Sizes
+**W5.g HAS been run** — the "still open" text here said otherwise for six days
+after the measurement landed, which is the drift this header now exists to
+prevent. Read the two dated amendments below (`W5.g measured 2026-08-30` and
+`W5.g DIAGNOSED AND FIXED 2026-09-02`) plus
+[issue 0965](../issues/archived/0965-no-entity-inventory-so-three-consumers-cannot-be-derived.md),
+which measured it on six configured Zephyr images. What remains open from W5 is
+not the measurement but the SAVING: the figure reaches one of six compiled cargo
+units, carries the infrastructure half only, and W5.d's 143,456 B is still a
+measurement of what the mechanism WOULD save on a leaf where it does not run.
+Nothing in W5 may be quoted as a shipped saving. Sizes
 below are `nm` output from `build-board/zephyr/zephyr.elf` on
 mr_canhubk3/s32k344 (zenoh over serial), not estimates. Depends on
 [phase 390](phase-390-storage-mode-rename-inline-heap-view.md) for vocabulary
@@ -501,6 +511,20 @@ Acceptance: the emitted constant equals the Rust const for every type in the
 message corpus (one test, both encodings), and a C image's publish helpers stop
 referencing `NROS_PUB_BUFFER_SIZE`.
 
+**LANDED, as phase-408 W1** — recorded here 2026-09-06, because the work moved
+phases and this wave was left unmarked for long enough to read as unstarted.
+`packs/c/message.h.jinja:178` sizes a bounded type's helper from
+`<PREFIX>_TX_MAX_SERIALIZED_SIZE`; `rosidl-codegen/tests/
+message_size_bound_parity.rs` asserts the C constants, the C++ constants and
+`nros_serdes::size::max_serialized_size` are one number, both encodings.
+
+The second acceptance clause was WRONG as written and the outcome is better than
+it asked for: the helpers still name `NROS_PUB_BUFFER_SIZE` in the arm for a
+type that genuinely has no bound, with the reason in a comment beside it.
+Deleting it there leaves an unbounded type with no publish helper. The knob
+stopped being the DEFAULT — that was the wave's point; the criterion confused it
+with removing the symbol.
+
 **W3e — SUPERSEDED by [phase 408](phase-408-cpp-message-derived-buffers.md);
 the fork it described does not exist.** W3e asked for a decision between
 monomorphising the const generic per type and making the arena entry
@@ -549,6 +573,16 @@ one backend and helping the tree.
 **W3g — unbounded diagnostics and the TX/RX split.** 0896 layers 5-6, in that
 order: the diagnostic is cheap and immediately useful, the split is a naming
 change that must land before caps are honoured anywhere.
+
+**LANDED, as phase-403 W0/W6** — recorded here 2026-09-06, same reason as W3d.
+The split is `_TX_MAX_SERIALIZED_SIZE` / `_RX_MAX_SERIALIZED_SIZE`, classified
+in `bounds::BoundState` so the emitted constants and the exported inventory
+cannot disagree about which encoding feeds which direction (TX writes XCDR1; RX
+must hold either, so it takes the max — RFC-0055). The diagnostic is a POISON
+TOKEN, `generator/common.rs:1964`: an unbounded type emits
+`NROS_UNBOUNDED__<type>__field_<name>`, an undefined identifier, so the type
+fails to COMPILE and the error names the offending field. Same decision issue
+0964 reached from the C++ side.
 
 **Ordering note.** W3d unblocks W3e, and W3f is independent of both — a
 consumer on Cyclone sees nothing from W3c/W3d/W3e until W3f exists. If the
@@ -951,9 +985,11 @@ Net C/C++ API change: none. No function, no parameter, no generic in a header.
   literal before W5.e's build-time failure would not make those declare; it
   would make them fail.
 
-* **W5.g — measure and gate.** NOT MEASURED, and recorded as such rather than
-  estimated, per this phase's rule that no wave claims a saving it did not
-  measure.
+* **W5.g — measure and gate.** MEASURED. This bullet said "NOT MEASURED" for
+  six days after the measurement landed; the record is the two dated amendments
+  below and issue 0965. The paragraphs that follow are kept as the state at the
+  time of writing, because the reasoning about WHY the pure-cargo leaf was the
+  wrong subject is still what a reader needs.
 
   The reason is specific. W5.d's 143,456 B was measured on
   `examples/native/rust/talker`, a standalone pure-cargo leaf with no bringup
@@ -1254,7 +1290,6 @@ holds the evidence, the item is *close it*.
 | --- | --- |
 | [#0852](../issues/0852-zephyr-serial-rx-is-polled-and-overruns.md) | the zenoh read task inherits the executor's priority on Zephyr |
 | [#0880](../issues/0880-tcm-unused-while-sram-exhausted.md) | 192 KiB of tightly-coupled memory sits at 0 % while SRAM is exhausted |
-| [#0969](../issues/0969-cyclone-take-cdr-round-trip.md) | the Cyclone RMW deserializes every received sample and re-serializes it, so `take_serialized` costs a full round trip |
 | [#0969](../issues/0969-cyclone-take-cdr-round-trip.md) | the Cyclone RMW deserializes every received sample and re-serializes it, so `try_recv_raw` costs a full round trip. **Round trip removed; cost measured** — ~46 ns/message floor (176 ns at 16 KB). The allocation saving this row assumed did NOT appear: count unchanged, bytes a crossover at ~6 KB. Remaining: the third site, per 0976 |
 
 

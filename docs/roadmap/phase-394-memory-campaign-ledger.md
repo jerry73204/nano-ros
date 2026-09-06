@@ -1,6 +1,9 @@
 # Phase 394 — memory unification and optimization: the campaign ledger
 
-**Status (2026-08-27). Ledger open; the W1 instrument has landed.** This doc
+**Status (2026-09-06). Ledger open. 390 and 391 are done through W5; 392 has
+W1, W2, W3 (except W3c), W4 and W5 landed, with W6 in flight. Of the eighteen issues on
+the ledger, nine are resolved and nine open — two of those claimed today, plus
+the W6 wave.** This doc
 coordinates work that already had three phase docs and eight issues but no single
 place saying who is doing what. It owns no design of its own — every decision
 lives in the phase it belongs to.
@@ -108,112 +111,96 @@ decision, never this doc.
 
 | item | owns | state | notes |
 | --- | --- | --- | --- |
-| 392 W1 instrument | this session | **landed** | `just mem-report`, `check-mem-report`, `static_memory_declared_pools` |
-| 392 W1 amendment | this session | **landed** | annotate-the-rest is not achievable; measure instead (above) |
-| issue 0827 | unclaimed | filed | pools sized at the backend, not the image |
-| issue 0810 | unclaimed | open | executor arena at `MAX_CBS * sizeof(ActionClient)` |
-| issue 0811 | fan-out agent | **landed, unbuilt** | five ports; a real cross-allocator use-after-free, not a latent mismatch |
-| issue 0812 | fan-out agent | **landed, compiles** | TWO mallocs, not one; removed with zero new state. `nros-rmw-cffi`, `nros-rmw-zenoh` and `nros-c` all check clean with `lending` — the last of those is compiled by no lane |
-| issue 0813 | fan-out agent | **landed** | now the `ZPICO_PUBLISHER_TX_BUFFER_SIZE` knob; pool row deliberately NOT added (see below) |
-| issue 0814 | unclaimed | open | zero-copy surface behind a feature only a posix test crate enables |
-| issue 0815 | this session | **superseded in part** | 3-of-46 pricing — see the W1 amendment |
-| issue 0816 | fan-out agent | **gate landed, claims still unbacked** | the missing thing is a FIXTURE, not a gate — see below |
+| 392 W1 instrument | — | **landed** | `just mem-report`, `check-mem-report`, `static_memory_declared_pools` |
+| 392 W1 amendment | — | **landed** | annotate-the-rest is not achievable; measure instead (above) |
+| 392 W2 arena | — | **landed as issue 0900** | W2 IS 0900, and 0900 is resolved + archived. The ledger carried it as "unclaimed / open" for nine days |
+| 392 W3a / W3b | — | **landed** | subscription buffer sized from the type's own bound — Rust only |
+| 392 W3c | unclaimed | **open** | derived-by-default on the Rust path; the global becomes the opt-out |
+| 392 W3d | — | **landed, under another phase** | 0896 layers 1-3, delivered as phase-408 W1. The C publish helper sizes `buf[<PREFIX>_TX_MAX_SERIALIZED_SIZE]` for a bounded type (`packs/c/message.h.jinja:178`), and `message_size_bound_parity.rs` asserts the C constant, the C++ constant and the Rust const are one number, both encodings |
+| 392 W3e | — | **superseded** | by [phase 408](phase-408-cpp-message-derived-buffers.md) — the fork it described does not exist |
+| 392 W3f | — | **delivered as a refusal** | Cyclone records that the hint is inapplicable; see the phase's 2026-09-02 amendment, which corrects this row's original claim |
+| 392 W3g | — | **landed, under another phase** | 0896 layers 5-6, delivered as phase-403 W0/W6. The split is `_TX_/_RX_MAX_SERIALIZED_SIZE` (TX is XCDR1, RX is `max(XCDR1, XCDR2)`), and the unbounded diagnostic is a POISON TOKEN — `NROS_UNBOUNDED__<type>__field_<name>`, an undefined identifier that names the offending field at the compile error |
+| 392 W4 net stack | — | **landed and MEASURED** | 38,334 B of `.bss`+`.data` and 78,696 B of flash on mps2/an385, two images from one tree differing only in networking. Larger than this row's original 27,760 B estimate, because that counted `net_*` symbols and missed four stacks |
+| 392 W5.a-W5.g | — | **landed; NO SHIPPED SAVING** | the mechanism, the diagnostic, the checked override and the measurement all exist. The figure reaches one of six compiled cargo units and carries the infra half only. Do not quote 143,456 B as shipped |
+| 392 W6 arena static | **claimed 2026-09-06** | in flight | the executor arena becomes a named static, so the campaign's largest allocation stops being invisible to the campaign's own instrument |
+| 390 W1-W5 | — | **landed** | the `inline`/`heap`/`view` rename shipped; this row said "open" for nine days |
+| 390 W6 | unclaimed | open | the emitter's OWN vocabulary; found while rebasing W5, never started |
+| 391 W1-W5 | — | **landed** | one funnel, the tier model, rlsf, and the tier is gated |
+| issue 0810 | unclaimed | open | executor arena at `MAX_CBS * sizeof(ActionClient)`. Overlaps W6 — read that wave first |
+| issue 0811 | — | **resolved** | five ports; a real cross-allocator use-after-free |
+| issue 0812 | — | **resolved** | TWO mallocs, not one; removed with zero new state |
+| issue 0813 | — | **resolved** | now the `ZPICO_PUBLISHER_TX_BUFFER_SIZE` knob; pool row deliberately NOT added (see below) |
+| issue 0814 | unclaimed | open | zero-copy surface behind a feature only a posix test crate enables — `nm` on a built zenoh example finds zero |
+| issue 0815 | unclaimed | **open, superseded in part** | 3-of-46 pricing — the W1 amendment answers the annotation half, not the rest |
+| issue 0816 | unclaimed | **gate landed, claims still unbacked** | the missing thing is a FIXTURE, not a gate |
 | issue 0817 | — | resolved | sixteen Zephyr funnel bypasses (391 prerequisite) |
-| 390 W1 rename | unclaimed | open | `owned`/`borrowed` to `inline`/`heap`/`view` |
-| 391 waves | unclaimed | open | one funnel, tier model, rlsf |
-| 392 W2 arena | unclaimed | open | `NROS_ARENA_REQUIRED` linker symbol; hand-written `main`s explored, not assumed away |
-| 392 W3 wire sizing | unclaimed | blocked on W1 | now unblocked — the saving can be measured |
-| 392 W4 net stack | unclaimed | open | 27,760 B of net pools in a serial-only image; needs triage first |
+| issue 0827 | — | **resolved** | pools sized at the backend, not the image. `nros sync` now writes the derived budget — 176,720 B off a talker. The ledger carried it as "filed" |
+| issue 0857 | — | **resolved, in the merge queue** | `Node::ENTITY_BOUNDS` defaulted to the knob caps and 81 of 99 in-tree classes declared nothing. Measured −50,256 B on one slot store, −14.1 % of image `.bss` |
+| issue 0880 | unclaimed | open | 192 KiB of TCM at 0 % while SRAM is exhausted; stacks moved, 80 KiB of DTCM still free |
+| issue 0973 | **claimed 2026-09-06** | in flight | no resolved model describes endpoint wiring, so W5's application half never arrives. Answered (wiring is authored, nobody authors it); what remains is writing that down |
+| issue 1015 | — | **resolved** | the pool floor was in the wrong LAYER — applied at the shared derivation, where XRCE legitimately wants zero |
+| issue 1028 | **claimed 2026-09-06** | in flight | NuttX classified `hosted` because `target_os != "none"`, so an RTOS takes the 32-slot host budget: **106,752 B** measured waste |
+| issue 1033 | — | **resolved** | 62 % of the XRCE session struct is slots the image does not have. Also fixed six zephyr C++ leaves that could not CONFIGURE at all |
+| issue 1061 | — | **resolved** | a leaf declares what the probe cannot read |
+| issue 1125 | unclaimed | open | `ZPICO_MAX_LARGE_SUBSCRIBERS` is never derived; `LARGE_PAYLOADS` is the biggest symbol left in the esp32 image |
+| issue 1131 | unclaimed | open | fifteen knob-sized C arrays with no ruling on whether zero is a legal size |
 
-## A pool row is a claim about the reader's image, not about the source
+## Amendment 2026-09-06 — the ledger had drifted, and drift is the failure this doc exists to prevent
 
-Issue 0813's fix first annotated the publisher loan arena, and the inventory
-priced it at 8,192 bytes. The row was dropped before landing: the arena is behind
-`feature = "lending"`, which [issue
-0814](../issues/0814-lending-never-exercised-on-hardware.md) measured as enabled
-by one posix test crate and no shipped image — `nm` on a built zenoh example
-finds zero of them. The inventory is the page people use to rightsize a board, so
-a row there asserts *your image contains this*. The knob is enumerated either
-way, which is what 0813 asked for.
+This doc was opened because work spread across three phases and eight issues had
+no single place saying who was doing what. Nine days later its own table was the
+stalest record of the campaign in the tree: it listed 0827 as "filed" after it
+was resolved and archived, 392 W2 as "unclaimed / open" when W2 IS issue 0900
+and 0900 had closed, 390 and 391 as open when both had landed W1-W5, and W4 as
+"needs triage first" after the triage was answered and the saving measured at
+38,334 B.
 
-Rule for the rest of the campaign: **annotate a pool only if a built image
-contains the symbol, and confirm with `just mem-report` before adding the row.**
-The generator does no `cfg` analysis and cannot catch this class on its own.
+That is the same shape as the defects this campaign keeps finding — a record
+that reads as authoritative while describing a state that no longer exists. The
+phase-392 doc had it too: its header said W5.g "has not been run" for six days
+after two dated amendments in the same file recorded running it.
 
-## Three findings the fan-out produced that outrank their issues
+Neither was caught by a gate, because neither is checkable: no tool can know
+that a table row is out of date. What makes it self-correcting is the ledger's
+own rule, applied on the way OUT as well as in — **a row is claimed before
+starting and settled when it lands**, in the same change that lands it.
 
-**No image in this tree is built no-alloc, so the book's promise cannot be
-checked yet.** All 13 bare-metal Rust example leaves enable `alloc`, RTIC
-included, and there is no Embassy example at all. Issue 0816 framed this as a
-missing gate; the gate now exists (`scripts/check-no-alloc-image.py`, selftest
-wired as `check-no-alloc-image`) and reports **0 of 4 book claims backed** — not
-because it is weak but because there is nothing to point it at. The remaining
-half of 0816 is a `Cargo.toml` plus a `fixtures.toml` row, not more tooling.
+Three rows were claimed today (392 W6, 0973, 1028), each by a parallel agent
+working in its own tree.
 
-**The platform allocation funnel is absent from two of the three native
-backends.** `nros_platform_alloc` is defined in the zenoh talker and undefined in
-the cyclonedds and xrce ones. Phase 391's whole premise is one funnel; on a
-hosted image, two thirds of the backends do not reach it. Whether that is
-intended for hosted builds or is a real gap is a phase 391 question, and it
-should be answered before the tier model is built on top of the assumption.
+### The one gap the table admitted, then closed the same day
 
-**A public C symbol can be declared by the header and compiled by no lane.**
-`nros_publisher_loan` and its commit/discard siblings are emitted into the
-committed `nros_generated.h` unconditionally, while nothing in the tree enables
-`nros-c/lending` or `nros-cpp/lending` — not a test crate, not cmake, not an
-example. So the public header declares symbols no build produces, and no lane
-would have caught a change to them. That is the `check-required-features-reachable`
-class one level out: the manifest gate asks whether a target with
-`required-features` is reachable, and says nothing about a cbindgen-exported
-surface behind a feature nobody enables.
+W3d and W3g were first written into this table as **unverified**: they are issue
+0896's layers 1-3 and 5-6, 0896 is resolved and archived, and phase-392 carries
+no status marker for either wave. Rather than guess a status, the rows said so.
 
-## Measure the fixtures, not the example leaves
+Ten minutes of reading settled it, and the answer explains the gap. **Both
+landed — under different phases.** W3d is phase-408 W1 and W3g is phase-403
+W0/W6, so the work was done, recorded, and tested where it happened; only the
+phase-392 waves that ASKED for it were never marked. A wave that migrates leaves
+its origin doc looking unfinished, and nothing connects the two ends.
 
-`examples/**/target-*/` is the pre-phase-340 layout. P2 moved fixture builds into
-the shared cargo group under `build/cargo-fixtures/<host-hash>/<profile>/`, and
-the per-leaf directories are leftovers nothing rewrites — the ones here were
-three weeks stale while `just build-test-fixtures` reported success, because it
-no longer writes there at all. Issue 0827's first draft was measured on them.
-The pool figures were unchanged so the conclusion held, but the totals were
-wrong by ~2.5 KB and a "to the byte" claim was wrong by 16.
+The evidence, so the next reader does not repeat the search:
 
-The staleness probe cannot help here: it guards fixtures the harness RESOLVES,
-and a path typed by hand into a tool is not one of those. So the rule is manual
-and belongs with the tool: **check the artifact's mtime against its sources
-before quoting a number from it.**
+* `packs/c/message.h.jinja:178` — a bounded type's publish helper sizes
+  `buf[<PREFIX>_TX_MAX_SERIALIZED_SIZE]`, not the global knob.
+* `rosidl-codegen/tests/message_size_bound_parity.rs` — the C header's
+  constants, the C++ header's constants and `nros_serdes::size::
+  max_serialized_size` are asserted equal for every type in the corpus, both
+  encodings. That IS W3d's stated acceptance.
+* `generator/common.rs:1964` — the unbounded case emits
+  `NROS_UNBOUNDED__<type>__field_<name>`, an undefined identifier, so a type
+  with no bound fails to COMPILE and the error names the field. That is W3g's
+  diagnostic, and it is the same decision issue 0964 reached from the C++ side.
 
-## A green platform build is not coverage of that platform's files
+**One acceptance criterion was wrong as written, and the outcome is better than
+it asked for.** W3d said "a C image's publish helpers stop referencing
+`NROS_PUB_BUFFER_SIZE`". They still do — in the arm for a type that genuinely
+has no bound, with the reason stated in a comment beside it. Removing it there
+would mean an unbounded type has no publish helper at all. The knob stopped
+being the DEFAULT, which is what the wave was for; the criterion confused that
+with removing the symbol.
 
-Issue 0811 changed `net.c` on five ports. Tier 1 and tier 2 both went green
-having compiled exactly ONE of them --- every `net.c.o` in the tree was
-`nros_platform_posix_build`. Worse, two of the per-platform builds go green
-while deliberately skipping the file:
-
-| build | what it does with `net.c` |
-| --- | --- |
-| `just threadx_linux build-c-port` | **excludes it** --- "no NetX Duo", says so in the recipe |
-| `just freertos build-c-port` | **excludes it** --- "no lwIP in this harness" |
-| `just threadx_riscv64 build` | never compiles it; delegates to `build-fixture-extras` |
-| zephyr, any config | only under `if(CONFIG_NET_SOCKETS)` --- a serial image never compiles it |
-
-So "ThreadX built clean" and "the file I edited compiles" are independent
-statements, and the first is the one CI reports. What actually verified the
-five ports, on 2026-08-27:
-
-| port | how |
-| --- | ---: |
-| posix | tier 1 + tier 2 |
-| zephyr | `just zephyr build-c` --- 6 configs, exit 0 |
-| freertos | `just freertos build-examples` --- `net.c.obj` built |
-| threadx | direct `cc -fsyntax-only` under the file's own `-Wall -Wextra -Wpedantic -Werror`, against the vendored NetX Duo + ThreadX headers |
-| esp-idf | `just esp_idf build` --- exit 0 |
-
-Before claiming a platform change is verified, grep the build log for the FILE,
-not for the platform's name.
-
-## Working rule for this campaign
-
-Every saving is reported as a measured delta between two `just mem-report --json`
-runs, naming the image. Phase 392 opened with a hand-pasted `nm` table; the point
-of W1 is that no later wave has to do that again, and no later wave gets to claim
-a saving it did not measure.
+Recorded because the lesson generalises past this row: a status nobody can
+confirm is usually not unknowable, it is filed somewhere the question did not
+look.
