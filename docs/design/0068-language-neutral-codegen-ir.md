@@ -88,6 +88,26 @@ correct hashes without emitting them — RFC-0067 / phase-333 direction, relieve
 per-package tension of issue #378).
 
 ### Stage 2 — Lower (new: `rosidl-lower`)
+> **Amended by [RFC-0091](0091-one-entry-codegen-producer-many-language-packs.md)
+> (2026-09): `TargetProfile` is retired.** It shipped but never became
+> load-bearing — measured in the tree, it has one consumer outside its own
+> crate, which passes `TargetProfile::host()` UNCONDITIONALLY; `enum_width` is
+> read nowhere; `ptr_width` is read once as a "conservative stand-in" on a path
+> whose own comment says the result changes no outcome. The hazard it was built
+> for cannot occur in the current emitters either — the C and Rust packs emit no
+> `enum` at all, so there is nothing for the short-enums ABI to disagree about.
+>
+> The replacement is not a better profile but a different principle: generated
+> code stays TARGET-AGNOSTIC and the compiler resolves the target, while any
+> representation two languages must share is PINNED in the source (`uint8_t`
+> against `#[repr(u8)]`) and gated by compiling both for a non-host target and
+> comparing sizes. A pinned representation is target-agnostic by construction;
+> a profile is a model of the toolchain, and a model can be wrong silently.
+>
+> Everything else in this stage — storage, plainness, serialized size — is
+> unaffected: those are CDR and capacity-config facts, not target facts.
+
+
 `ResolvedType ⊗ CodegenConfig ⊗ TargetProfile → LoweredType`. This is where the embedded facts
 are baked: per-field storage from the `CapacityResolver`/`StorageMode` config; plainness;
 alignment and `repr(C)` field order and serialized-size under a `TargetProfile`
