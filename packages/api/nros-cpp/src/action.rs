@@ -2178,8 +2178,19 @@ pub unsafe extern "C" fn nros_cpp_action_server_init_polling(
         .unwrap_or("/");
     let ctx = unsafe { &mut *(node_ref.executor as *mut CppContext) };
 
+    // phase-428 W5 finding 3, swept — the CALLBACK action path resolves
+    // (`:902`); these polling ones created from the raw name, so a `~` or a
+    // launch remap moved the callback-mode action and not this one. All five
+    // channel keyexprs derive from `action_info`, so resolving once here moves
+    // the whole action.
+    let resolved_act = match crate::resolve_node_entity_name(ctx, node_ref, action_str) {
+        Ok(r) => r,
+        Err(()) => return NROS_CPP_RET_INVALID_ARGUMENT,
+    };
+
     use nros_node::{ActionInfo, QoSProfile, ServiceInfo, Session, TopicInfo};
-    let action_info = ActionInfo::new(action_str, type_str, hash_str).with_domain(ctx.domain_id);
+    let action_info =
+        ActionInfo::new(resolved_act.as_str(), type_str, hash_str).with_domain(ctx.domain_id);
     let session = ctx.executor.session_mut();
 
     fn with_node<'a>(info: ServiceInfo<'a>, node_name: Option<&'a str>) -> ServiceInfo<'a> {
@@ -2588,8 +2599,19 @@ pub unsafe extern "C" fn nros_cpp_action_client_init_polling(
         .unwrap_or("/");
     let ctx = unsafe { &mut *(node_ref.executor as *mut CppContext) };
 
+    // phase-428 W5 finding 3, swept — the CALLBACK action path resolves
+    // (`:902`); these polling ones created from the raw name, so a `~` or a
+    // launch remap moved the callback-mode action and not this one. All five
+    // channel keyexprs derive from `action_info`, so resolving once here moves
+    // the whole action.
+    let resolved_act = match crate::resolve_node_entity_name(ctx, node_ref, action_str) {
+        Ok(r) => r,
+        Err(()) => return NROS_CPP_RET_INVALID_ARGUMENT,
+    };
+
     use nros_node::{ActionInfo, QoSProfile, ServiceInfo, Session, TopicInfo};
-    let action_info = ActionInfo::new(action_str, type_str, hash_str).with_domain(ctx.domain_id);
+    let action_info =
+        ActionInfo::new(resolved_act.as_str(), type_str, hash_str).with_domain(ctx.domain_id);
     let session = ctx.executor.session_mut();
 
     fn with_node<'a>(info: ServiceInfo<'a>, node_name: Option<&'a str>) -> ServiceInfo<'a> {

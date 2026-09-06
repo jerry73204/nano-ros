@@ -1050,6 +1050,78 @@ pub unsafe extern "C" fn nros_node_resolve_name(
     }
 }
 
+/// Resolve an entity's SOURCE name to the name that goes on the wire, for the
+/// C entity-init paths that create their entity EAGERLY.
+///
+/// **Why this exists.** Most C entities are created at REGISTRATION, not at
+/// init: `nros_subscription_init` only records the request and
+/// `nros_executor_add_subscription` builds the entity — and that path resolves
+/// the name (`executor.rs`, eight sites, `Executor::resolve_entity_name`).
+/// Publishers and polling subscriptions have no registration step, so they
+/// create inside `*_init` and never reached that seam. The result was a
+/// namespaced node whose publisher and subscription, given the SAME string,
+/// landed on DIFFERENT keys and never connected, and a launch
+/// `<remap from= to=/>` that moved one and not the other — both returning
+/// `NROS_RET_OK`. `TopicInfo::with_namespace` does not close it: the zenoh
+/// keyexpr is built from `TopicInfo::name` alone (`keyexpr.rs::to_key`), so a
+/// namespace attached beside an unexpanded name reaches nothing.
+///
+/// It resolves through the SAME two primitives every other path uses —
+/// `Executor::resolve_entity_name_for` (expansion + this node's launch remap
+/// table) and `nros_node::names::expand_name` — so the answer cannot drift
+/// from what registering the entity would have produced. The nros-cpp CFFI
+/// layer's `resolve_node_entity_name` is this function one crate over.
+///
+/// The two arms are a property of the NODE, not a choice:
+///
+/// * executor-bound node (`nros_executor_node_init`) → expansion + remaps.
+///   Identity comes from the executor's `NodeRecord` when it has one, because
+///   that is the identity the remap table is KEYED on; the caller's struct is
+///   the fallback, not the preference.
+/// * legacy node (`rclc_node_init_default` / `nros_node_init`) → expansion
+///   only. There is no executor, and `declare_remap` is an executor call, so
+///   there are no rules to drop — unlike `nros_node_resolve_name`, which is
+///   ASKED for the rules and must refuse when it cannot read them.
+///
+/// Returns `None` when the source name cannot be expanded (empty, a `~` with
+/// no node name, or a result past `MAX_RESOLVED_NAME_LEN`). Callers surface
+/// that as `NROS_RET_INVALID_ARGUMENT`; a name we cannot resolve must never
+/// fall back to the raw spelling, which is the bug this closes.
+///
+/// # Safety
+/// `node` must be an initialised `nros_node_t`, and when it is executor-bound
+/// its `executor` pointer must reference a live `nros_executor_t`.
+pub(crate) unsafe fn resolve_entity_name_on_node(
+    node: &nros_node_t,
+    source: &str,
+) -> Option<nros_node::names::ResolvedName> {
+    let struct_name = inline_str(&node.name, node.name_len);
+    let struct_ns = inline_str(&node.namespace, node.namespace_len);
+
+    if !node.is_multi_session() {
+        return nros_node::names::expand_name(source, struct_name, struct_ns).ok();
+    }
+
+    let exec_mut = &mut *(node.executor as *mut crate::executor::nros_executor_t);
+    let rust_exec = crate::executor::get_executor(&mut exec_mut._opaque);
+    let id = nros_node::executor::node_record::NodeId::from_raw(node.node_id);
+    // Clone out of the record so the immutable borrow ends before the resolve
+    // call; `set_executor_node_identity` reads the same two strings for the
+    // registration paths, which is why they are read from here and not from
+    // the caller's struct.
+    let record_identity = rust_exec
+        .node(id)
+        .map(|rec| (rec.name.clone(), rec.namespace.clone()));
+    match record_identity {
+        Some((name, ns)) => rust_exec
+            .resolve_entity_name_for(name.as_str(), ns.as_str(), source)
+            .ok(),
+        None => rust_exec
+            .resolve_entity_name_for(struct_name, struct_ns, source)
+            .ok(),
+    }
+}
+
 #[cfg(kani)]
 mod verification {
     use super::*;

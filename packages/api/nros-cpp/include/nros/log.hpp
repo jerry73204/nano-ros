@@ -202,6 +202,26 @@ template <typename T> struct refuse {
     "into the environment before exec. Call the zero-argument rclcpp::init(), or "                 \
     "nros::init_with_launch_auto(0, nullptr, \"my_session\") for the launch-aware entry point."
 
+// phase-428 W5 finding 9. Runtime, like `NROS_RCLCPP_REFUSE_INIT_ARGV` above
+// and for the same reason: only the VALUE carries the defect, so the earliest
+// point loudness is available is the call. Prose tail only — the verb, the
+// name and the code are printed by `rclcpp::detail::abort_failed_create`.
+#define NROS_RCLCPP_ABORT_FAILED_CREATE                                                            \
+    "Upstream rclcpp THROWS here, so control never continues past a failed create; nano-ros has "  \
+    "no exceptions (RFC-0018) and the verb returns a shared_ptr, which left two ways to differ. "  \
+    "It used to discard the Result and hand back a NON-NULL pointer to a dead entity: publish "    \
+    "went nowhere, and rclcpp::spin(node) returned at once because the node was never "            \
+    "initialized, so init -> create -> spin -> shutdown ran to completion and exited 0. "          \
+    "Returning "                                                                                   \
+    "null instead would be quieter still -- a nullptr dereference with no message, and entirely "  \
+    "inert for create_wall_timer, whose result a ported node stores and never dereferences. "      \
+    "RFC-0089's rule is that a difference the compiler cannot point at must be made loud by "      \
+    "other means, so this aborts. To HANDLE the failure rather than die on it, drop to the "       \
+    "underlying nros API, where every create verb RETURNS nros::Result into caller-owned "         \
+    "storage: nros::create_node(node, name), node.create_publisher(pub, topic, qos), "             \
+    "node.create_subscription(sub, topic, qos, cb), node.create_service<S>(srv, name, cb), "       \
+    "node.create_client<S>(cli, name), node.create_timer(t, period_ms, cb, ctx)."
+
 #define NROS_RCLCPP_REFUSE_SYSTEM_DEFAULTS_QOS                                                     \
     "rclcpp::SystemDefaultsQoS is REFUSED by nano-ros (RFC-0089 W3.f, issue 0829). Upstream's "    \
     "rmw_qos_profile_system_default names NO concrete policy: every field is a sentinel meaning "  \

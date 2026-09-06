@@ -217,6 +217,32 @@ pub unsafe extern "C" fn nros_publisher_init_with_qos(
     // Store node reference
     publisher.node = unsafe { crate::node::node_ref_of(node) };
 
+    // Resolve the SOURCE topic name to its wire name — ROS 2 expansion plus
+    // this node's launch remap rules.
+    //
+    // A publisher is created HERE, not at executor registration, so it is one
+    // of the two C entities that never reached the resolution seam every other
+    // kind goes through (`nros_executor_add_*`). On a `/ns` node a publisher
+    // and a subscription created with the same string therefore landed on
+    // different keys and never connected, and a launch remap moved the
+    // subscription and not the publisher — both returning `NROS_RET_OK`.
+    // `TopicInfo::with_namespace` below does NOT close it: the zenoh key is
+    // built from `TopicInfo::name` alone.
+    //
+    // Resolved BEFORE `resolve_session_and_domain`: both reach the executor
+    // through `node.executor`, and taking the second `&mut` while the first
+    // session borrow is live would alias. The order is also the better
+    // contract — an unresolvable name is INVALID_ARGUMENT rather than
+    // whatever the session lookup happens to answer first.
+    let _resolved_topic = {
+        let source =
+            core::str::from_utf8_unchecked(&publisher.topic_name[..publisher.topic_name_len]);
+        match crate::node::resolve_entity_name_on_node(node_ref, source) {
+            Some(r) => r,
+            None => return NROS_RET_INVALID_ARGUMENT,
+        }
+    };
+
     // Get QoS settings
     let _qos_settings = if qos.is_null() {
         crate::qos::NROS_QOS_DEFAULT.to_qos_settings()
@@ -241,7 +267,11 @@ pub unsafe extern "C" fn nros_publisher_init_with_qos(
             None => return NROS_RET_NOT_INIT,
         };
 
-        // Build the topic key expression for ROS 2 compatibility
+        // Build the topic key expression for ROS 2 compatibility. `topic_str`
+        // is the SOURCE spelling and is used only for the QoS-override lookup
+        // below (the deploy plan writes overrides against launch names, which
+        // is the same choice `nros-cpp/src/publisher.rs` records); the wire
+        // name is `_resolved_topic`.
         let topic_str =
             core::str::from_utf8_unchecked(&publisher.topic_name[..publisher.topic_name_len]);
         let type_str =
@@ -255,8 +285,8 @@ pub unsafe extern "C" fn nros_publisher_init_with_qos(
         let namespace_str =
             core::str::from_utf8_unchecked(&node_ref.namespace[..node_ref.namespace_len]);
 
-        // Build TopicInfo
-        let topic_info = TopicInfo::new(topic_str, type_str, type_hash_str)
+        // Build TopicInfo from the RESOLVED name — see the resolution above.
+        let topic_info = TopicInfo::new(_resolved_topic.as_str(), type_str, type_hash_str)
             .with_domain(domain_id)
             .with_node_name(node_name_str)
             .with_namespace(namespace_str);
@@ -870,5 +900,128 @@ mod verification {
         );
         assert!(!pub_.node.is_bound(), "fini must unbind the node reference");
         assert!(pub_._opaque.iter().all(|&v| v == 0));
+    }
+}
+
+/// Name resolution on the eager entity-init paths (phase-428 W5 finding 3).
+///
+/// `nros_publisher_init_with_qos` used to hand `TopicInfo` the RAW string the
+/// caller passed. Every other C entity kind reaches
+/// `Executor::resolve_entity_name` through `nros_executor_add_*`; a publisher
+/// has no registration step, so it never did — and `.with_namespace()` does not
+/// substitute, because the zenoh key is built from `TopicInfo::name` alone
+/// (`nros-rmw-zenoh/src/keyexpr.rs::to_key`, whose own test
+/// `an_unresolved_name_and_its_resolved_form_are_different_keys` pins that).
+///
+/// The resolution runs BEFORE the session is resolved, so it is observable
+/// with no backend session at all: an unresolvable name answers
+/// `NROS_RET_INVALID_ARGUMENT` where the un-fixed code got as far as
+/// `NROS_RET_NOT_INIT`. (`mod publisher` itself is `rmw-cffi`-gated in
+/// `lib.rs`, so these run under that feature.)
+#[cfg(test)]
+mod name_resolution_tests {
+    use super::*;
+    use crate::node::resolve_entity_name_on_node;
+
+    /// A legacy (`rclc_node_init_default`) node with a name and namespace.
+    /// Not executor-bound, so `resolve_entity_name_on_node` takes its
+    /// expansion-only arm — the arm every standalone C example is on.
+    fn node_named(name: &str, namespace: &str) -> nros_node_t {
+        let mut node = crate::node::rcl_get_zero_initialized_node();
+        node.name[..name.len()].copy_from_slice(name.as_bytes());
+        node.name_len = name.len();
+        node.namespace[..namespace.len()].copy_from_slice(namespace.as_bytes());
+        node.namespace_len = namespace.len();
+        node.state = nros_node_state_t::NROS_NODE_STATE_INITIALIZED;
+        node
+    }
+
+    /// THE regression: on a `/ns` node, a publisher and a subscription created
+    /// with the same string must reach the same wire name.
+    ///
+    /// Both call sites go through one function, and the assertion that it is
+    /// the RIGHT function is the third one: `names::resolve_name` is what
+    /// `Executor::resolve_entity_name_for` — the L2/registration path — calls,
+    /// so publisher, polling subscription and callback subscription cannot
+    /// drift.
+    ///
+    /// Fails on the pre-fix code, where the publisher's name was the raw
+    /// `"chatter"` while the subscription's was `"/ns/chatter"`.
+    #[test]
+    fn namespaced_publisher_and_subscription_reach_the_same_name() {
+        let node = node_named("talker", "/ns");
+
+        // The call `nros_publisher_init_with_qos` makes.
+        let publisher_side = unsafe { resolve_entity_name_on_node(&node, "chatter") }
+            .expect("a relative name on a named node must resolve");
+        // The call `nros_subscription_init_polling_with_qos` makes.
+        let subscription_side = unsafe { resolve_entity_name_on_node(&node, "chatter") }
+            .expect("a relative name on a named node must resolve");
+        // What the executor-registration path (`nros_executor_add_subscription`
+        // → `Executor::resolve_entity_name_for`) computes for the same input.
+        let registration_side =
+            nros_node::names::resolve_name("chatter", "talker", "/ns", core::iter::empty())
+                .expect("the registration seam must resolve it too");
+
+        assert_eq!(publisher_side.as_str(), "/ns/chatter");
+        assert_eq!(publisher_side, subscription_side);
+        assert_eq!(publisher_side, registration_side);
+        // The pre-fix value, stated so the test says what it is protecting.
+        assert_ne!(publisher_side.as_str(), "chatter");
+    }
+
+    /// `~` is the case a namespace alone could never have covered: it needs the
+    /// NODE NAME too, which `TopicInfo` never carried into the key.
+    #[test]
+    fn a_private_name_expands_against_the_node_not_just_the_namespace() {
+        let node = node_named("filter", "/sensing");
+        let resolved = unsafe { resolve_entity_name_on_node(&node, "~/points") }
+            .expect("a private name on a named node must resolve");
+        assert_eq!(resolved.as_str(), "/sensing/filter/points");
+    }
+
+    /// An absolute name is already the wire name — resolution must not touch
+    /// it. This is why the fix is invisible to every root-namespace C example.
+    #[test]
+    fn an_absolute_name_passes_through_unchanged() {
+        let node = node_named("talker", "/ns");
+        let resolved = unsafe { resolve_entity_name_on_node(&node, "/chatter") }
+            .expect("an absolute name must resolve");
+        assert_eq!(resolved.as_str(), "/chatter");
+    }
+
+    /// The resolver is WIRED INTO the FFI entry point, not merely present.
+    ///
+    /// Observable with no session: the resolution runs before
+    /// `resolve_session_and_domain`, so a name that cannot be expanded is
+    /// `NROS_RET_INVALID_ARGUMENT` here. `~` needs a node name; this node has
+    /// none, so `expand_name` errors. Pre-fix this call never consulted the
+    /// name at all and reached the session lookup, answering
+    /// `NROS_RET_NOT_INIT`.
+    #[test]
+    fn an_unresolvable_name_is_rejected_by_publisher_init() {
+        let node = node_named("", "/ns");
+        let type_name = b"std_msgs::msg::dds_::Int32_\0";
+        let type_hash = b"RIHS01_test\0";
+        let type_info = nros_message_type_t {
+            type_name: type_name.as_ptr() as *const c_char,
+            type_hash: type_hash.as_ptr() as *const c_char,
+            serialized_size_max: 4,
+        };
+        let topic = b"~/private\0";
+        let mut pub_ = rcl_get_zero_initialized_publisher();
+
+        let ret = unsafe {
+            rclc_publisher_init_default(
+                &mut pub_,
+                &node,
+                &type_info,
+                topic.as_ptr() as *const c_char,
+            )
+        };
+        assert_eq!(
+            ret, NROS_RET_INVALID_ARGUMENT,
+            "a name the resolver cannot expand must be refused, never published raw"
+        );
     }
 }

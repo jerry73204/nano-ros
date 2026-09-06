@@ -379,4 +379,51 @@ mod tests {
         let s: heapless::String<32> = qos.to_qos_string();
         assert_eq!(s.as_str(), "2:1:2,42:,:,:,,");
     }
+
+    /// phase-428 W5 finding 3 — the namespace never reaches the key, so a name
+    /// must arrive here ALREADY RESOLVED.
+    ///
+    /// `TopicInfo::with_namespace` exists (liveliness tokens use it) and reads
+    /// as if it placed the entity in a namespace. `to_key` does not consult
+    /// it: the key is `<domain>/<name>/<type>/<hash>`, `name` trimmed of its
+    /// slashes and nothing else. So a publisher handed the raw `"chatter"` on a
+    /// `/ns` node and a subscription handed the resolved `"/ns/chatter"` are on
+    /// two different keys with no error anywhere — which is precisely what
+    /// `nros_publisher_init_with_qos` did until it resolved first.
+    ///
+    /// This is the CONSEQUENCE half of the fix; the resolution half is pinned
+    /// by `nros-c/src/publisher.rs`'s `name_resolution_tests`.
+    #[test]
+    fn an_unresolved_name_and_its_resolved_form_are_different_keys() {
+        const TYPE: &str = "std_msgs::msg::dds_::String_";
+        const HASH: &str = "TypeHashNotSupported";
+
+        // What the publisher used to build: the source spelling, with the
+        // node's namespace attached beside it.
+        let unresolved = TopicInfo::new("chatter", TYPE, HASH)
+            .with_domain(0)
+            .with_namespace("/ns");
+        // What the subscription's registration path builds for the SAME input.
+        let resolved = TopicInfo::new("/ns/chatter", TYPE, HASH)
+            .with_domain(0)
+            .with_namespace("/ns");
+
+        let unresolved_key: heapless::String<128> = unresolved.to_key();
+        let resolved_key: heapless::String<128> = resolved.to_key();
+
+        assert_ne!(
+            unresolved_key, resolved_key,
+            "with_namespace does not place the entity — if these ever match, \
+             the key gained a namespace segment and the resolution contract \
+             moved"
+        );
+        assert!(
+            unresolved_key.starts_with("0/chatter/"),
+            "the namespace is absent from the unresolved key: {unresolved_key}"
+        );
+        assert!(
+            resolved_key.starts_with("0/ns/chatter/"),
+            "the resolved name carries the namespace as key segments: {resolved_key}"
+        );
+    }
 }
