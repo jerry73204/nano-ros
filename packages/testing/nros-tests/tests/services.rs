@@ -39,7 +39,7 @@ use std::{path::PathBuf, process::Command, time::Duration};
 /// and its C/C++ twin — CLAUDE.md's rule is that a test grep names a constant,
 /// never a literal, precisely so a reworded example breaks the build instead of
 /// silently turning a wait into a timeout.
-use nros_tests::output::SERVICE_CALL_FAILED_MARKER;
+use nros_tests::output::SERVICE_NOT_AVAILABLE_MARKER;
 
 /// How many consecutive failures prove the client is RETRYING rather than
 /// reporting once and wedging. At the measured 1 Hz this is reached in ~3 s.
@@ -119,8 +119,13 @@ fn test_service_client_starts_without_server(
     let mut client = ManagedProcess::spawn_command(cmd, "native-rs-service-client")
         .expect("Failed to start service client");
 
-    // Without a server the very first call must FAIL and SAY SO. That is the
-    // whole property here: the error path is reachable and audible.
+    // Without a server the client must SAY SO and send nothing. That is the
+    // whole property here: "no server" is audible, and it is not a request
+    // into the void. phase-428 W13 — this binary gates its first call on
+    // `service_is_ready`, which the zenoh backend answers from its
+    // matched-server set, so the marker is rclcpp's "service not available,
+    // waiting again..." rather than a failed-call report (that one is what a
+    // backend WITHOUT discovery still prints — `SERVICE_CALL_FAILED_MARKER`).
     //
     // Issue 1026 — this waits on the CONDITION, not on a lifetime. The client
     // is `spin = "forever"` (issue 0274) and never exits, so the old
@@ -129,7 +134,7 @@ fn test_service_client_starts_without_server(
     // output the first wait had collected, so the assertion only ever saw the
     // last 2 s.
     let (output, why) =
-        client.collect_until_count(SERVICE_CALL_FAILED_MARKER, 1, Duration::from_secs(15));
+        client.collect_until_count(SERVICE_NOT_AVAILABLE_MARKER, 1, Duration::from_secs(15));
     let alive = client.is_running();
     // We own the lifetime; nothing above kills it.
     client.kill();
@@ -137,8 +142,8 @@ fn test_service_client_starts_without_server(
     eprintln!("Client output (no server):\n{}", output);
 
     assert!(
-        output.contains(SERVICE_CALL_FAILED_MARKER),
-        "client without a server must report the failed call (`{SERVICE_CALL_FAILED_MARKER}`); \
+        output.contains(SERVICE_NOT_AVAILABLE_MARKER),
+        "client without a server must say so (`{SERVICE_NOT_AVAILABLE_MARKER}`); \
          got:\n{output}{}",
         why.unwrap_or_default()
     );
@@ -250,11 +255,13 @@ fn test_service_client_timeout(zenohd_unique: ZenohRouter, service_client_binary
     let mut client = ManagedProcess::spawn_command(client_cmd, "service-client-timeout")
         .expect("Failed to start service client");
 
-    // What this test is FOR, restated after issue 1026: a client with no server
-    // must time out EVERY attempt and keep saying so at the timer cadence —
-    // not report once and wedge, not fall silent, and never manufacture a
-    // reply. The sibling above proves the error path is reachable at all; this
-    // one proves it stays reachable.
+    // What this test is FOR, restated after issue 1026 and phase-428 W13: a
+    // client with no server must keep saying so at the timer cadence — not
+    // report once and wedge, not fall silent, and never manufacture a reply.
+    // The sibling above proves "no server" is audible at all; this one proves
+    // it stays audible. (It was "must time out EVERY attempt": the client now
+    // gates the attempt on `service_is_ready`, so with no server there is no
+    // attempt to time out, and what recurs is the waiting line.)
     //
     // The old shape could not fail on any build: it greped a string nothing
     // prints, so the `or_else` fallback always ran, `wait_for_all_output`
@@ -266,11 +273,11 @@ fn test_service_client_timeout(zenohd_unique: ZenohRouter, service_client_binary
     // the 20 s here is a deadline, not the node's lifetime. MEASURED: the
     // marker arrives at 1 Hz from ~1 s, so the wait returns in ~3 s.
     let (output, why) = client.collect_until_count(
-        SERVICE_CALL_FAILED_MARKER,
+        SERVICE_NOT_AVAILABLE_MARKER,
         SERVICE_RETRY_EVIDENCE,
         Duration::from_secs(20),
     );
-    let failures = count_pattern(&output, SERVICE_CALL_FAILED_MARKER);
+    let failures = count_pattern(&output, SERVICE_NOT_AVAILABLE_MARKER);
     let alive = client.is_running();
     client.kill();
 
@@ -278,20 +285,20 @@ fn test_service_client_timeout(zenohd_unique: ZenohRouter, service_client_binary
 
     assert!(
         failures >= SERVICE_RETRY_EVIDENCE,
-        "a client with no server must report a failed call on every attempt: \
-         expected >= {SERVICE_RETRY_EVIDENCE} `{SERVICE_CALL_FAILED_MARKER}` within 20s, \
+        "a client with no server must say so on every tick: \
+         expected >= {SERVICE_RETRY_EVIDENCE} `{SERVICE_NOT_AVAILABLE_MARKER}` within 20s, \
          saw {failures}:\n{output}{}",
         why.unwrap_or_default()
     );
     assert!(
         !output.contains(SERVICE_RESULT_PREFIX),
-        "no server is running, so every call must fail — yet the client printed \
+        "no server is running, so no call can succeed — yet the client printed \
          `{SERVICE_RESULT_PREFIX}`:\n{output}"
     );
     assert!(
         alive,
-        "the client must survive its own timeouts and keep retrying; it had \
-         exited after {failures} failures:\n{output}"
+        "the client must survive waiting and keep checking; it had \
+         exited after {failures} waits:\n{output}"
     );
 
     // Not observed here (stated per issue 1026's acceptance): whether the

@@ -1113,28 +1113,10 @@ pub struct ActionClientCore<
 impl<const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBACK_BUF: usize>
     ActionClientCore<GOAL_BUF, RESULT_BUF, FEEDBACK_BUF>
 {
-    /// Begin a server-discovery probe on the underlying `send_goal`
-    /// service client. Used by the C action-client wrapper
-    /// (`nros_action_client_wait_for_action_server`) to keep
-    /// `send_goal_client` private while still exposing the discovery
-    /// surface from `ClientTrait`.
-    pub fn start_server_discovery(
-        &mut self,
-        timeout_ms: u32,
-    ) -> Result<(), nros_rmw::TransportError> {
-        use nros_rmw::ClientTrait;
-        self.send_goal_client.start_server_discovery(timeout_ms)
-    }
-
-    /// Poll the in-flight server-discovery probe started by
-    /// [`start_server_discovery`](Self::start_server_discovery).
-    pub fn poll_server_discovery(&mut self) -> Result<Option<bool>, nros_rmw::TransportError> {
-        use nros_rmw::ClientTrait;
-        self.send_goal_client.poll_server_discovery()
-    }
-
-    /// Latched "is server visible" snapshot. See
-    /// `ActionClient::action_server_is_ready` for the semantic.
+    /// Whether the action server's `send_goal` service is CURRENTLY visible.
+    /// See `ActionClient::action_server_is_ready` for the semantic; the C and
+    /// C++ `wait_for_action_server` bindings spin on this (phase-428 W13 — the
+    /// asynchronous discovery pair they used to drive is gone).
     ///
     /// phase-379 W6 / issue 1008 — `Err` (the backend cannot answer) reports
     /// NOT ready. The deleted `is_server_ready` defaulted to `true`, so an

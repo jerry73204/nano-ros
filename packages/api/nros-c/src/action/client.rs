@@ -296,13 +296,10 @@ pub unsafe extern "C" fn nros_action_client_set_result_callback(
 /// on the network, or `timeout_ms` elapses.
 ///
 /// Mirrors `rclcpp_action::Client::wait_for_action_server` and the
-/// the underlying `ActionClient::wait_for_action_server`. Internally
-/// probes the action's `send_goal` service-server liveliness keyexpr
-/// (the goal queryable is the load-bearing entity for the first
-/// `nros_action_send_goal` call) via the same primitive as the
-/// service-client equivalent. See
-/// `packages/api/nros-c/src/service.rs::nros_client_wait_for_service`
-/// for the re-probe rationale.
+/// underlying `ActionClient::wait_for_action_server`. Spins on the
+/// action's `send_goal` service client's readiness (the goal queryable is
+/// the load-bearing entity for the first `nros_action_send_goal` call) via
+/// the same primitive as `nros_client_wait_for_service` (phase-428 W13).
 ///
 /// # Returns
 /// * `NROS_RET_OK` — server visible.
@@ -338,19 +335,8 @@ pub unsafe extern "C" fn nros_action_client_wait_for_action_server(
             return NROS_RET_REENTRANT;
         }
 
-        // Latched fast-path.
-        {
-            let exec = crate::executor::get_executor(&mut exec_t._opaque);
-            let core = match exec.action_client_core_mut(internal.arena_entry_index as usize) {
-                Some(c) => c,
-                None => return NROS_RET_NOT_INIT,
-            };
-            if core.is_server_ready() {
-                return NROS_RET_OK;
-            }
-        }
-
-        const PROBE_TIMEOUT_MS: u32 = nros_node::SERVER_DISCOVERY_PROBE_TIMEOUT_MS; // issue #224
+        // phase-428 W13 — spin, then ask again; see
+        // `nros_client_wait_for_service`.
         let start_ns = crate::platform::get_time_ns();
         let timeout_ns: u64 = (timeout_ms as u64).saturating_mul(1_000_000);
         loop {
@@ -360,36 +346,15 @@ pub unsafe extern "C" fn nros_action_client_wait_for_action_server(
                     Some(c) => c,
                     None => return NROS_RET_NOT_INIT,
                 };
-                if core.start_server_discovery(PROBE_TIMEOUT_MS).is_err() {
-                    return NROS_RET_ERROR;
+                if core.is_server_ready() {
+                    return NROS_RET_OK;
                 }
             }
-
-            loop {
-                crate::executor::rclc_executor_spin_some(executor, 10_000_000);
-
-                let exec = crate::executor::get_executor(&mut exec_t._opaque);
-                let core = match exec.action_client_core_mut(internal.arena_entry_index as usize) {
-                    Some(c) => c,
-                    None => return NROS_RET_NOT_INIT,
-                };
-                match core.poll_server_discovery() {
-                    Ok(Some(true)) => return NROS_RET_OK,
-                    Ok(Some(false)) => break,
-                    Ok(None) => {}
-                    Err(_) => return NROS_RET_ERROR,
-                }
-
-                let elapsed_ns = crate::platform::get_time_ns().saturating_sub(start_ns);
-                if elapsed_ns >= timeout_ns {
-                    return NROS_RET_TIMEOUT;
-                }
-            }
-
             let elapsed_ns = crate::platform::get_time_ns().saturating_sub(start_ns);
             if elapsed_ns >= timeout_ns {
                 return NROS_RET_TIMEOUT;
             }
+            crate::executor::rclc_executor_spin_some(executor, 10_000_000);
         }
     }
 

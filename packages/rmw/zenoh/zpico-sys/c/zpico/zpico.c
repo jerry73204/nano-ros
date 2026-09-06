@@ -3666,23 +3666,8 @@ int32_t zpico_liveliness_entry_count(zpico_session_t* session, int32_t handle) {
  * reason the handler drops rather than truncates: half a keyexpr names a
  * different, plausible entity.
  */
-/* phase-381 / issue 0903 — graph cache: find `key` in the NUL-separated run.
- *
- * Returns the offset of the entry, or `SIZE_MAX` when absent. Split out so the
- * PUT and DELETE arms of the sample handler share one notion of identity, and
- * so it is testable without a session. */
-static size_t graph_cache_find(const graph_cache_t* c, const char* key, size_t klen) {
-    size_t off = 0;
-    while (off < c->len) {
-        const char* e = (const char*)c->buf + off;
-        size_t n = strlen(e);
-        if (n == klen && memcmp(e, key, klen) == 0) {
-            return off;
-        }
-        off += n + 1;
-    }
-    return SIZE_MAX;
-}
+int32_t zpico_graph_set_apply(uint8_t* buf, size_t cap, size_t* len, uint32_t* count,
+                              uint32_t* dropped, const char* key, size_t klen, bool remove);
 
 /* Sample handler for the liveliness subscriber.
  *
@@ -3705,29 +3690,69 @@ static void graph_cache_sample_handler(z_loaned_sample_t* sample, void* arg) {
 #if Z_FEATURE_MULTI_THREAD == 1
     _z_mutex_lock(&c->mutex);
 #endif
-    size_t at = graph_cache_find(c, key, klen);
-    if (z_sample_kind(sample) == Z_SAMPLE_KIND_DELETE) {
-        if (at != SIZE_MAX) {
-            /* Close the gap so the run stays dense and `entry_count` keeps
-             * indexing it. */
-            size_t n = strlen((const char*)c->buf + at) + 1;
-            memmove(c->buf + at, c->buf + at + n, c->len - at - n);
-            c->len -= n;
-            c->entry_count--;
-        }
-    } else if (at == SIZE_MAX) {
-        if (c->len + klen + 1 <= sizeof(c->buf)) {
-            memcpy(c->buf + c->len, key, klen);
-            c->buf[c->len + klen] = '\0';
-            c->len += klen + 1;
-            c->entry_count++;
-        } else {
-            c->dropped++;
-        }
-    }
+    (void)zpico_graph_set_apply(c->buf, sizeof(c->buf), &c->len, &c->entry_count, &c->dropped, key,
+                                klen, z_sample_kind(sample) == Z_SAMPLE_KIND_DELETE);
 #if Z_FEATURE_MULTI_THREAD == 1
     _z_mutex_unlock(&c->mutex);
 #endif
+}
+
+/* The PURE half of `graph_cache_sample_handler`: apply one liveliness sample
+ * to a NUL-separated token SET held in a caller buffer (phase-428 W13).
+ *
+ * `remove == false` is a PUT ("this token exists"): inserted once, a duplicate
+ * is a no-op. `remove == true` is a DELETE ("it is gone"): the entry is
+ * removed and the run closed up so `count` keeps indexing it; an absent key is
+ * a no-op. A PUT that does not fit is COUNTED in `*dropped`, never truncated —
+ * half a keyexpr names a different, plausible entity.
+ *
+ * Split out like `zpico_entry_at` so the set semantics — the thing
+ * `service_is_ready` now answers from — can be tested against the real C code
+ * without a zenoh session. Returns 1 if the set changed, 0 if it did not,
+ * `ZPICO_ERR_INVALID` for a NULL argument.
+ */
+int32_t zpico_graph_set_apply(uint8_t* buf, size_t cap, size_t* len, uint32_t* count,
+                              uint32_t* dropped, const char* key, size_t klen, bool remove) {
+    if (buf == NULL || len == NULL || count == NULL || dropped == NULL || key == NULL ||
+        klen == 0) {
+        return ZPICO_ERR_INVALID;
+    }
+    /* Find `key` in the run: the PUT and DELETE arms share one notion of
+     * identity, the whole keyexpr. */
+    size_t at = SIZE_MAX;
+    size_t off = 0;
+    while (off < *len) {
+        const char* e = (const char*)buf + off;
+        size_t n = strlen(e);
+        if (n == klen && memcmp(e, key, klen) == 0) {
+            at = off;
+            break;
+        }
+        off += n + 1;
+    }
+    if (remove) {
+        if (at == SIZE_MAX) {
+            return 0;
+        }
+        /* Close the gap so the run stays dense and `count` keeps indexing it. */
+        size_t n = strlen((const char*)buf + at) + 1;
+        memmove(buf + at, buf + at + n, *len - at - n);
+        *len -= n;
+        (*count)--;
+        return 1;
+    }
+    if (at != SIZE_MAX) {
+        return 0;
+    }
+    if (*len + klen + 1 > cap) {
+        (*dropped)++;
+        return 0;
+    }
+    memcpy(buf + *len, key, klen);
+    buf[*len + klen] = '\0';
+    *len += klen + 1;
+    (*count)++;
+    return 1;
 }
 
 /* Start the standing graph cache on `keyexpr`.

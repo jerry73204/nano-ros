@@ -611,18 +611,23 @@ pub struct ZenohServiceClient {
     keyexpr: [u8; 257],
     /// Length of valid keyexpr
     keyexpr_len: usize,
-    /// Wildcard liveliness keyexpr matching any service-server token for
-    /// this service (null-terminated). Used by `start_server_discovery`.
-    discovery_keyexpr: [u8; 257],
-    /// Length of valid `discovery_keyexpr`.
-    discovery_keyexpr_len: usize,
-    /// Latched result of the most recent `start_server_discovery`/poll
-    /// pair. Set to `Some(true)` once the first liveliness reply arrives
-    /// so subsequent `is_server_ready` calls can answer without a round
-    /// trip. Reset to `None` when discovery hasn't been started.
-    server_seen: bool,
-    /// Slot handle of an in-flight liveliness query (None if idle).
-    discovery_handle: Option<i32>,
+    /// phase-428 W13 — what a matching `SS` liveliness token carries for
+    /// this service, rendered the way the token carries it: the mangled
+    /// service name (`/add_two_ints` -> `%add_two_ints`) and the DDS type
+    /// spelling (`example_interfaces::srv::dds_::AddTwoInts_`). Computed once
+    /// at construction; `service_is_ready` compares against them on every
+    /// call. The type hash and QoS are NOT matched — a server whose QoS is
+    /// incompatible is a question upstream answers through
+    /// `rmw_service_server_is_available` too, and it is not answered here
+    /// either (issue 1087 leaves QoS matching to the request path).
+    service_mangled: heapless::String<KEYEXPR_STRING_SIZE>,
+    /// See `service_mangled`.
+    dds_type: heapless::String<KEYEXPR_STRING_SIZE>,
+    /// The domain the service was created in. The graph cache is already
+    /// scoped to the session's domain by its keyexpr; this is the belt to
+    /// that brace, because a wrong-domain match is the plausible-wrong-answer
+    /// shape.
+    domain_id: u32,
     /// Liveliness token for ROS 2 graph discovery (kept alive for client lifetime)
     _liveliness: Option<super::LivelinessToken>,
     /// Reference to context for making queries
@@ -700,17 +705,21 @@ impl ZenohServiceClient {
         keyexpr_buf[..bytes.len()].copy_from_slice(bytes);
         keyexpr_buf[bytes.len()] = 0;
 
-        // Build the wildcard liveliness keyexpr we'll query in
-        // `start_server_discovery`. Null-terminate for the C shim.
-        let liv: heapless::String<KEYEXPR_STRING_SIZE> =
-            super::Ros2Liveliness::service_server_keyexpr_wildcard(service.domain_id, service);
-        let mut discovery_buf = [0u8; KEYEXPR_BUFFER_SIZE];
-        let liv_bytes = liv.as_bytes();
-        if liv_bytes.len() >= discovery_buf.len() {
+        // phase-428 W13 — the two fields a matching server's liveliness token
+        // is recognised by. Rendered ONCE here, with the same mangler and the
+        // same type renderer the token builders use, so what we look for and
+        // what a peer declares cannot drift apart.
+        let service_mangled: heapless::String<KEYEXPR_STRING_SIZE> =
+            super::Ros2Liveliness::mangle_topic_name_pub(service.name);
+        let mut dds_type: heapless::String<KEYEXPR_STRING_SIZE> = heapless::String::new();
+        if core::fmt::write(
+            &mut dds_type,
+            format_args!("{}", crate::keyexpr::DdsTypeName(service.type_name)),
+        )
+        .is_err()
+        {
             return Err(TransportError::TopicNameInvalid);
         }
-        discovery_buf[..liv_bytes.len()].copy_from_slice(liv_bytes);
-        discovery_buf[liv_bytes.len()] = 0;
 
         #[cfg(feature = "std")]
         log::debug!("Service client keyexpr: {}", key.as_str());
@@ -725,10 +734,9 @@ impl ZenohServiceClient {
         Ok(Self {
             keyexpr: keyexpr_buf,
             keyexpr_len: bytes.len(),
-            discovery_keyexpr: discovery_buf,
-            discovery_keyexpr_len: liv_bytes.len(),
-            server_seen: false,
-            discovery_handle: None,
+            service_mangled,
+            dds_type,
+            domain_id: service.domain_id,
             _liveliness: liveliness,
             context: context as *const Context,
             session_index: session_index as usize,
@@ -977,113 +985,57 @@ impl ClientTrait for ZenohServiceClient {
         Ok(None)
     }
 
-    fn start_server_discovery(&mut self, timeout_ms: u32) -> Result<(), Self::Error> {
-        // Idempotent: a previous query in flight is fine — let it run.
-        if self.discovery_handle.is_some() {
-            return Ok(());
-        }
-        // Already proven the server is visible; no need to re-query.
-        if self.server_seen {
-            return Ok(());
-        }
-        let context = unsafe { &*self.context };
-        let handle = context
-            .liveliness_get_start(
-                &self.discovery_keyexpr[..=self.discovery_keyexpr_len],
-                timeout_ms,
-            )
-            .map_err(TransportError::from)?;
-        self.discovery_handle = Some(handle);
-        Ok(())
-    }
-
-    fn poll_server_discovery(&mut self) -> Result<Option<bool>, Self::Error> {
-        // issue 1087 — the latch stays, and the justification that used to sit
-        // here does not. It claimed "rclcpp's `service_is_ready` snapshot
-        // semantic"; there is no such semantic.
-        // `rclcpp::ClientBase::service_is_ready()` calls
-        // `rcl_service_server_is_available` on EVERY invocation, and upstream
-        // `rmw.h` says the outcome reflects a QoS-compatibility CHANGE, in
-        // either direction.
-        //
-        // What the latch actually is: a positive cache over a single-shot
-        // liveliness query, with NO invalidation. It is right that a
-        // `wait_for_service` which already succeeded need not re-query, and
-        // wrong that a server which has since died still reads available for
-        // the client's lifetime.
-        //
-        // The invalidation is NOT implemented here and issue 1087 stays open
-        // for it: clearing this needs the liveliness subscription to report a
-        // token DROP, which the shim does not surface today. Saying so rather
-        // than shipping a comment that describes a hook nobody wrote.
-        if self.server_seen {
-            return Ok(Some(true));
-        }
-        let handle = match self.discovery_handle {
-            Some(h) => h,
-            None => return Ok(Some(false)),
-        };
-        let context = unsafe { &*self.context };
-        match context.liveliness_get_check(handle) {
-            Ok(true) => {
-                self.discovery_handle = None;
-                self.server_seen = true;
-                Ok(Some(true))
-            }
-            Ok(false) => Ok(None),
-            Err(crate::zpico::ZpicoError::Timeout) => {
-                // Dropper fired with no replies — no server seen.
-                self.discovery_handle = None;
-                Ok(Some(false))
-            }
-            Err(e) => {
-                self.discovery_handle = None;
-                Err(TransportError::from(e))
-            }
-        }
-    }
-
-    // phase-379 W6 — the `is_server_ready` override was deleted with the trait
-    // method. It returned `self.server_seen`, which is exactly what
-    // `service_is_ready` below already reports, so nothing is lost: zenoh was
-    // the ONLY backend that implemented the bool form honestly, and every other
-    // one inherited a default of `true` (issue 1008).
-
+    /// phase-428 W13 — answered from the session's MATCHED-SERVER SET, not a
+    /// latch and not a query.
+    ///
+    /// The set is the graph cache: one standing liveliness subscriber per
+    /// session on `@ros2_lv/<domain>/**`, fed PUT on declare and DELETE on
+    /// undeclare (`zpico_graph_cache_start`, `zpico_graph_set_apply`). This
+    /// is what upstream's DDS discovery cache is to
+    /// `rmw_service_server_is_available`: the middleware already knows which
+    /// endpoints are matched, and no query is issued at call time. So the
+    /// answer is synchronous, CURRENT, and can go from true back to false —
+    /// the property issue 1087 was about, which the `server_seen` latch this
+    /// replaces did not have (set on the first liveliness reply, never
+    /// cleared, so a server that died read available for the client's
+    /// lifetime).
+    ///
+    /// Three answers, kept apart:
+    ///   * `Ok(true)`  — at least one `SS` token for this service name AND
+    ///     type is in the set.
+    ///   * `Ok(false)` — none is, and the set is complete.
+    ///   * `Err(Unsupported)` — the cache is not running (the platform stubs
+    ///     the subscriber, or the session could not declare it), OR it has
+    ///     DROPPED tokens for lack of room, so an absence proves nothing.
+    ///     Every caller reads this through `matches!(.., Ok(true))` (issue
+    ///     1008) and keeps waiting.
+    ///
+    /// The match is on `(service name, type)`, the pair `rmw_zenoh_cpp` keys a
+    /// service on (`liveliness_utils.cpp`, `Entity::Entity`); zid, node,
+    /// namespace, type hash and QoS are not consulted.
     fn service_is_ready(&self) -> Result<bool, TransportError> {
-        // issue 1087 — this returned the LATCH, and the latch has no
-        // invalidation: `server_seen` is set when a liveliness token is first
-        // observed and never cleared, so a server that died still read
-        // available for the rest of the client's lifetime.
-        //
-        // The justification used to be "rclcpp's `service_is_ready` snapshot
-        // semantic". There is no such semantic:
-        // `rclcpp::ClientBase::service_is_ready()` calls
-        // `rcl_service_server_is_available` on EVERY invocation, and upstream's
-        // `rmw.h` says the outcome reflects a QoS-compatibility CHANGE, in
-        // either direction — so it must be able to go from true back to false.
-        //
-        // A cheap re-query is not available here: the only probe zenoh-pico
-        // gives us is `z_liveliness_get`, which is asynchronous (start, then
-        // poll a handle) and therefore cannot be answered inside this
-        // synchronous `&self` method. So the honest answer for a caller that
-        // wants a CURRENT reading is "cannot say", and that is what this now
-        // returns unless the latch has never been set.
-        //
-        //   * `server_seen == false` -> `Ok(false)`: nothing has ever been
-        //     observed, which IS a current answer and the one that matters for
-        //     the startup race this exists to prevent.
-        //   * `server_seen == true`  -> `Err(Unsupported)`: we saw one once and
-        //     cannot confirm it is still there. Every caller in the tree reads
-        //     this through `matches!(..., Ok(true))` (issue 1008), so `Err`
-        //     falls through to the wait loop, which re-issues a real query.
-        //
-        // That is strictly better than a permanent yes and strictly worse than
-        // a synchronous probe; the synchronous probe needs a zenoh-pico API we
-        // do not have.
-        if self.server_seen {
-            Err(TransportError::Unsupported)
-        } else {
+        let context = unsafe { &*self.context };
+        let mut found = false;
+        let dropped =
+            super::session::graph_cache_for_each(context.handle(), "service_is_ready", &mut |e| {
+                if e.kind == super::EntityKind::ServiceServer
+                    && e.domain_id == self.domain_id
+                    && e.topic == Some(self.service_mangled.as_str())
+                    && e.type_name == Some(self.dds_type.as_str())
+                {
+                    found = true;
+                    return false; // one is enough
+                }
+                true
+            })?;
+        if found {
+            Ok(true)
+        } else if dropped == 0 {
             Ok(false)
+        } else {
+            // The token we want may be among the ones that did not fit.
+            // "Cannot say" is the honest answer, and the caller waits on it.
+            Err(TransportError::Unsupported)
         }
     }
 }

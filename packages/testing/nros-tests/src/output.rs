@@ -397,6 +397,17 @@ pub const SERVICE_CALL_FAILED_MARKER: &str = "Service call failed, retrying:";
 /// and it is here so the next one does not invent a third spelling.
 pub const SERVICE_CALL_FAILED_MARKER_C: &str = "Service call failed with error";
 
+/// What the native Rust service client prints, once per timer tick, while
+/// `service_is_ready` says no server is up (phase-428 W13) — rclcpp's exact
+/// wording from the official `add_two_ints_client` demo, so a ROS user reading
+/// the log recognises it.
+///
+/// This is the sound of "no server" on a backend WITH discovery (zenoh): the
+/// client sends nothing, so [`SERVICE_CALL_FAILED_MARKER`] does not appear.
+/// On a backend without it (XRCE) the readiness check cannot answer, the
+/// request goes out, and the failure marker is still the evidence.
+pub const SERVICE_NOT_AVAILABLE_MARKER: &str = "service not available, waiting again...";
+
 /// The exact service client result line for `sum`
 /// (`"Result of add_two_ints: N"`).
 pub fn service_result_line(sum: impl std::fmt::Display) -> String {

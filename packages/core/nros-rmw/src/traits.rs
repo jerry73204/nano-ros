@@ -2787,52 +2787,16 @@ pub trait ClientTrait {
     /// Default: no-op (backends that don't support waking simply ignore this).
     fn register_waker(&self, _waker: &core::task::Waker) {}
 
-    /// Begin a server-discovery query on this client (non-blocking).
-    ///
-    /// Models `rclcpp::ClientBase::wait_for_service` machinery: the backend
-    /// fires off a discovery probe (typically a Zenoh liveliness query
-    /// against the matching server's wildcarded liveliness keyexpr) and
-    /// the caller polls [`poll_server_discovery`](Self::poll_server_discovery)
-    /// to collect the result.
-    ///
-    /// Default impl: no-op success. A backend without a discovery channel
-    /// leaves this default; `poll_server_discovery` then answers `Ok(None)`
-    /// ("cannot say"), and the caller waits rather than being told yes.
-    fn start_server_discovery(&mut self, _timeout_ms: u32) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Poll an in-flight server-discovery query.
-    ///
-    /// - `Ok(Some(true))` — at least one matching server has reported
-    ///   back; safe to send the first request.
-    /// - `Ok(Some(false))` — discovery query finished without finding
-    ///   any matching server (timeout / no-replies).
-    /// - `Ok(None)` — query still in flight.
-    /// - `Err(_)` — transport-level failure unrelated to server presence.
-    ///
-    /// Default impl: `Ok(None)` — **cannot say**, not "yes".
-    ///
-    /// issue 1087. This returned `Ok(Some(true))`, and six wait paths read
-    /// `Some(true) => return Ok(true)`, so `wait_for_service` returned
-    /// immediately on every backend that did not override it. The pair has NO
-    /// VTABLE SLOT (`grep -n discovery rmw_vtable.h` finds nothing), so
-    /// `CffiClient` inherits this default and a Rust backend loses its
-    /// override crossing the C ABI — cyclone, XRCE and uORB all answered "yes"
-    /// without asking anything.
-    ///
-    /// `None` is the honest answer for a backend with no discovery channel: it
-    /// means the query is unresolved, so the caller keeps waiting and reports
-    /// `false` at the deadline. That is the conservative direction — a caller
-    /// that waits unnecessarily loses time, a caller told `true` sends into
-    /// the void and times out on the REQUEST, 30 s later and somewhere else.
-    ///
-    /// This is issue 1008's defect in the pair one frame down; 1008 hardened
-    /// the method that HAS a slot, and the loop it now falls through to had the
-    /// identical optimism.
-    fn poll_server_discovery(&mut self) -> Result<Option<bool>, Self::Error> {
-        Ok(None)
-    }
+    // phase-428 W13 — the `start_server_discovery` / `poll_server_discovery`
+    // pair was DELETED here. It existed because the only zenoh backend could
+    // answer "is a server up?" only by issuing a `z_liveliness_get`, which is
+    // start-then-poll, so the synchronous `service_is_ready` below had nothing
+    // to return but a latch (issue 1087). The pair had no vtable slot, so every
+    // C-ABI backend inherited its default and `wait_for_service` answered
+    // without asking. The zenoh backend now keeps a matched-server SET fed by
+    // its liveliness subscriber — the state upstream's DDS discovery cache
+    // keeps — and `service_is_ready` reads it synchronously; the wait loops
+    // spin on that one query, and nothing needs the pair.
 
     /// Whether a matching service server is currently discoverable.
     ///
@@ -2845,10 +2809,20 @@ pub trait ClientTrait {
     /// exceptions; RFC-0018 forbids exceptions, so `Result<bool, _>` is how the
     /// same contract is expressed here (phase-379 W6, RFC-0036).
     ///
-    /// Returns `Ok(true)` if at least one matching server has been
-    /// discovered, `Ok(false)` if none yet, or `Err(_)` if the
-    /// backend cannot answer (e.g. XRCE — micro-XRCE-DDS-Client has
-    /// no participant enumeration).
+    /// Returns `Ok(true)` if at least one matching server is CURRENTLY
+    /// discoverable, `Ok(false)` if none is, or `Err(_)` if the backend
+    /// cannot answer (e.g. XRCE — micro-XRCE-DDS-Client has no participant
+    /// enumeration).
+    ///
+    /// CURRENT, not latched: upstream `rmw.h` says the outcome reflects a
+    /// change in either direction, and `rclcpp::ClientBase::service_is_ready`
+    /// calls `rcl_service_server_is_available` on every invocation. A backend
+    /// answers from the discovery state it maintains — the DDS built-in
+    /// topics, or the zenoh matched-server set fed by liveliness PUT/DELETE
+    /// (phase-428 W13) — so a server that goes away reads unavailable again.
+    /// Every wait loop in the tree (`wait_for_service`,
+    /// `wait_for_action_server`, their C and C++ bindings) is a spin on this
+    /// one method; there is no separate asynchronous probe (issue 1087).
     ///
     /// Those are three answers, not two, and keeping them apart is the whole
     /// point: `is_server_ready` used to sit beside this method collapsing

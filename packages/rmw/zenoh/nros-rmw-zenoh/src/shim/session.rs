@@ -222,6 +222,93 @@ pub struct ZenohSession {
     graph_cache_started: bool,
 }
 
+/// phase-428 W13 — walk the session's graph cache, parsed. THE one walk.
+///
+/// `for_each_entity` (the ten graph vtable slots) and
+/// `ZenohServiceClient::service_is_ready` (the matched-server set) read the
+/// same cache; a client holds only a `Context` pointer, not the session, so the
+/// walk is a free function over the raw handle rather than a method. Two walks
+/// would be the second spelling this codebase keeps paying for.
+///
+/// Returns how many tokens the cache DROPPED for lack of room. A caller
+/// answering "is X present?" must treat a non-zero count as "cannot say",
+/// because the token it is looking for may be among the dropped — a graph
+/// answer that quietly omits entries is the plausible-wrong-answer failure
+/// phase-381 exists to avoid. `Err(Unsupported)` when the cache is not
+/// running (the C shim refused the subscriber, or the platform stubs it).
+///
+/// `f` returns `false` to stop early. `label` only names the caller in the
+/// opt-in `NROS_GRAPH_DUMP` diagnostics.
+pub(super) fn graph_cache_for_each(
+    handle: *mut zpico_sys::zpico_session_t,
+    label: &'static str,
+    f: &mut dyn FnMut(&Ros2LivelinessEntity<'_>) -> bool,
+) -> Result<u32, TransportError> {
+    #[cfg(not(feature = "std"))]
+    let _ = label;
+    let mut dropped: u32 = 0;
+    let count = unsafe { zpico_sys::zpico_graph_entry_count(handle, &mut dropped) };
+    if count < 0 {
+        return Err(TransportError::Unsupported);
+    }
+    let count = count as u32;
+
+    // Opt-in wire diagnostic (issue 0903). Committed rather than patched in
+    // when needed: the first time this was wanted it lived in the distrobox
+    // tree and a re-sync destroyed it, so the next person re-derived it.
+    // `NROS_GRAPH_DUMP=1` prints what the wire ACTUALLY carries and what the
+    // parser made of it — the two questions any "the graph is empty" report
+    // has to separate.
+    #[cfg(feature = "std")]
+    let dump = std::env::var_os("NROS_GRAPH_DUMP").is_some();
+    #[cfg(not(feature = "std"))]
+    let dump = false;
+    if dump {
+        #[cfg(feature = "std")]
+        log::warn!("GRAPH_COUNTS[{label}] cached={count} dropped={dropped}");
+    }
+
+    for index in 0..count {
+        let mut key = [0i8; GRAPH_KEYEXPR_MAX];
+        let n = unsafe {
+            zpico_sys::zpico_graph_entry_at(
+                handle,
+                index,
+                key.as_mut_ptr() as *mut core::ffi::c_char,
+                key.len(),
+            )
+        };
+        if n <= 0 {
+            // ZPICO_ERR_BUFFER for an entry longer than this stack buffer.
+            // Skipped rather than truncated: a partial keyexpr names a
+            // different, plausible entity.
+            continue;
+        }
+        // SAFETY: the C side wrote `n` bytes plus a NUL.
+        let bytes = unsafe { core::slice::from_raw_parts(key.as_ptr() as *const u8, n as usize) };
+        let Ok(text) = core::str::from_utf8(bytes) else {
+            continue;
+        };
+        if dump {
+            #[cfg(feature = "std")]
+            log::warn!("GRAPH_RAW[{label}] {text}");
+        }
+        // `parse` refuses anything it does not recognise, so an unknown shape
+        // is dropped here rather than reported as a plausible entity.
+        let Some(entity) = Ros2Liveliness::parse(text) else {
+            if dump {
+                #[cfg(feature = "std")]
+                log::warn!("GRAPH_REFUSED[{label}] {text}");
+            }
+            continue;
+        };
+        if !f(&entity) {
+            break;
+        }
+    }
+    Ok(dropped)
+}
+
 /// Which standing query a drain is reading — phase-381 W3.
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum GraphQuery {
@@ -232,7 +319,6 @@ enum GraphQuery {
 }
 
 /// Which standing query a diagnostic line came from (issue 0903).
-#[cfg(feature = "std")]
 fn which_label(which: GraphQuery) -> &'static str {
     match which {
         GraphQuery::Nodes => "nodes",
@@ -665,75 +751,7 @@ impl ZenohSession {
         // arrive through the same subscriber, and callers already filter by
         // `EntityKind`. It survives only to label the diagnostics.
         self.ensure_graph_cache()?;
-
-        let mut dropped: u32 = 0;
-        let count =
-            unsafe { zpico_sys::zpico_graph_entry_count(self.context.handle(), &mut dropped) };
-        if count < 0 {
-            return Err(TransportError::Unsupported);
-        }
-        let count = count as u32;
-
-        #[cfg(feature = "std")]
-        if std::env::var_os("NROS_GRAPH_DUMP").is_some() {
-            log::warn!(
-                "GRAPH_COUNTS[{:?}] cached={} dropped={}",
-                which_label(which),
-                count,
-                dropped
-            );
-        }
-
-        for index in 0..count {
-            let mut key = [0i8; GRAPH_KEYEXPR_MAX];
-            let n = unsafe {
-                zpico_sys::zpico_graph_entry_at(
-                    self.context.handle(),
-                    index,
-                    key.as_mut_ptr() as *mut core::ffi::c_char,
-                    key.len(),
-                )
-            };
-            if n <= 0 {
-                // ZPICO_ERR_BUFFER for an entry longer than this stack buffer.
-                // Skipped rather than truncated: a partial keyexpr names a
-                // different, plausible entity.
-                continue;
-            }
-            // SAFETY: the C side wrote `n` bytes plus a NUL.
-            let bytes =
-                unsafe { core::slice::from_raw_parts(key.as_ptr() as *const u8, n as usize) };
-            let Ok(text) = core::str::from_utf8(bytes) else {
-                continue;
-            };
-            // Opt-in wire diagnostic (issue 0903). Committed rather than
-            // patched in when needed: the first time this was wanted it lived
-            // in the distrobox tree and a re-sync destroyed it, so the next
-            // person re-derived it. `NROS_GRAPH_DUMP=1` prints what the wire
-            // ACTUALLY carries and what the parser made of it — the two
-            // questions any "the graph is empty" report has to separate.
-            #[cfg(feature = "std")]
-            let dump = std::env::var_os("NROS_GRAPH_DUMP").is_some();
-            #[cfg(not(feature = "std"))]
-            let dump = false;
-            if dump {
-                #[cfg(feature = "std")]
-                log::warn!("GRAPH_RAW[{:?}] {}", which_label(which), text);
-            }
-            // `parse` refuses anything it does not recognise, so an unknown
-            // shape is dropped here rather than reported as a plausible entity.
-            let Some(entity) = Ros2Liveliness::parse(text) else {
-                if dump {
-                    #[cfg(feature = "std")]
-                    log::warn!("GRAPH_REFUSED[{:?}] {}", which_label(which), text);
-                }
-                continue;
-            };
-            if !f(&entity) {
-                break;
-            }
-        }
-        Ok(())
+        graph_cache_for_each(self.context.handle(), which_label(which), f).map(|_dropped| ())
     }
 
     /// Declare the standing liveliness subscriber, once.
@@ -1120,6 +1138,17 @@ impl Session for ZenohSession {
                     })
                 })
             });
+        // phase-428 W13 — the matched-server set `service_is_ready` answers
+        // from IS the graph cache, so it must be running before the first
+        // question. Started here, once per session (idempotent), rather than
+        // per client: one standing liveliness subscriber feeds every client.
+        // A refusal is not fatal to the client — `service_is_ready` then
+        // reports `Err(Unsupported)`, which every wait loop reads as "cannot
+        // say" and waits on, rather than as "no".
+        if let Err(_e) = self.ensure_graph_cache() {
+            #[cfg(feature = "std")]
+            log::warn!("graph cache unavailable; service_is_ready will report Unsupported: {_e:?}");
+        }
         ZenohServiceClient::new(&self.context, service, liveliness_token)
     }
 

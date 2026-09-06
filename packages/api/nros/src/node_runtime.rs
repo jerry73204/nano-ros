@@ -1945,6 +1945,21 @@ impl ClientDispatch for RuntimeClientDispatch<'_> {
         Err(NodeDeclError::Runtime)
     }
 
+    fn service_is_ready(&self, service_entity: &str) -> NodeResult<bool> {
+        use crate::ClientTrait;
+        let hid = self.service(service_entity)?;
+        let executor = unsafe { &mut *self.executor };
+        let entry =
+            unsafe { executor.service_client_entry_mut(hid.0) }.ok_or(NodeDeclError::Runtime)?;
+        // `Err` here is the backend's "cannot say" (XRCE has no discovery
+        // channel); it is folded into the same `Runtime` the trait default
+        // returns, so a caller has ONE branch for "did not get an answer".
+        entry
+            .handle
+            .service_is_ready()
+            .map_err(|_| NodeDeclError::Runtime)
+    }
+
     fn send_goal_raw(&mut self, action_entity: &str, goal_cdr: &[u8]) -> NodeResult<GoalId> {
         let entry_index = self.action_entry(action_entity)?;
         let executor = unsafe { &mut *self.executor };

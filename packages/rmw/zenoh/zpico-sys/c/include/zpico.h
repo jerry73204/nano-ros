@@ -293,6 +293,15 @@ typedef void (*ZpicoQueryCallback)(const char *keyexpr,
  * the NUL, or a negative `ZPICO_ERR_*`.
  */
 /**
+ * phase-428 W13 — the PURE half of the graph-cache sample handler: apply
+ * one liveliness sample to a NUL-separated token set in a caller buffer.
+ * PUT inserts once (a duplicate is a no-op), DELETE removes and closes the
+ * gap, a PUT that does not fit is counted in `dropped` and never truncated.
+ * Returns 1 if the set changed, 0 if not, `ZPICO_ERR_INVALID` for NULL.
+ * Reachable without a session so the set semantics are testable against
+ * the real C code.
+ */
+/**
  * The PURE half of `zpico_liveliness_entry`: index into a NUL-separated
  * run. Reachable without a live session, which is why the graph cache
  * reuses it to walk its snapshot instead of growing a second walk.
@@ -863,6 +872,24 @@ int32_t zpico_graph_entry_at(struct zpico_session_t *_session,
                              uint32_t _index,
                              char *_out,
                              size_t _cap);
+
+/**
+ * phase-428 W13 — the PURE half of the graph-cache sample handler: apply
+ * one liveliness sample (PUT inserts once, DELETE removes and closes the
+ * gap, a PUT that does not fit is COUNTED in `dropped`) to a
+ * NUL-separated token set in a caller buffer. Split out like
+ * `zpico_entry_at` so the set `service_is_ready` answers from is testable
+ * without a session. Returns 1 if the set changed, 0 if not,
+ * `ZPICO_ERR_INVALID` for a NULL argument.
+ */
+int32_t zpico_graph_set_apply(uint8_t *_buf,
+                              size_t _cap,
+                              size_t *_len,
+                              uint32_t *_count,
+                              uint32_t *_dropped,
+                              const char *_key,
+                              size_t _klen,
+                              bool _remove);
 
 /**
  * The PURE half of `zpico_liveliness_entry`: index into a NUL-separated

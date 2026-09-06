@@ -2117,6 +2117,24 @@ pub trait ClientDispatch {
     /// the goal-accept response). Result + feedback streams arrive via
     /// callback dispatch — not this method.
     fn send_goal_raw(&mut self, action_entity: &str, goal_cdr: &[u8]) -> NodeResult<GoalId>;
+
+    /// Whether a server for the service client `service_entity` is CURRENTLY
+    /// discoverable — `rclcpp::ClientBase::service_is_ready`, for a tick.
+    ///
+    /// phase-428 W13. Three answers: `Ok(true)`, `Ok(false)`, or `Err` when
+    /// the backend cannot say (no discovery channel, or the entity is
+    /// unknown). A tick that gates its first `call_raw` on `Ok(true)` and
+    /// treats `Err` as "call anyway" keeps the request-is-the-probe behaviour
+    /// on backends without discovery and stops sending into the void on the
+    /// ones with it.
+    ///
+    /// Default `Err(NodeDeclError::Runtime)` — "cannot say" — so an
+    /// implementor that predates this method (the orchestration codegen's
+    /// dispatch) keeps its shape.
+    fn service_is_ready(&self, service_entity: &str) -> NodeResult<bool> {
+        let _ = service_entity;
+        Err(NodeDeclError::Runtime)
+    }
 }
 
 /// Context handed to [`ExecutableNode::tick`] (W.5.6 + M-F.4): the per-spin
@@ -2318,6 +2336,24 @@ impl<'a> TickCtx<'a> {
     ) -> NodeResult<usize> {
         self.clients
             .call_raw(service.as_str(), request_cdr, response_buf)
+    }
+
+    /// Whether a server for the service client `service` is CURRENTLY
+    /// discoverable (M-F.4 — tick-only). Mirrors
+    /// `rclcpp::ClientBase::service_is_ready`; see
+    /// [`ClientDispatch::service_is_ready`] for the three answers. There is no
+    /// blocking `wait_for_service` here because a tick must not block the
+    /// executor that drives it — check once per tick and return, which is the
+    /// rclcpp `while (!wait_for_service(1s)) { "waiting again..." }` idiom
+    /// with the timer as the cadence (phase-428 W13).
+    #[doc(hidden)]
+    pub fn service_is_ready(&self, service: EntityId<'_>) -> NodeResult<bool> {
+        self.clients.service_is_ready(service.as_str())
+    }
+
+    /// [`Self::service_is_ready`] through the entity synthesized from `name`.
+    pub fn service_is_ready_for_name(&self, name: &str) -> NodeResult<bool> {
+        self.service_is_ready(EntityId::new(name))
     }
 
     /// Issue a raw service-client request through the entity synthesized

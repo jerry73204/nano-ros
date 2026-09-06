@@ -98,12 +98,6 @@ pub mod format_check;
 /// Phase 212.K.7.6.b — runtime cyclonedds type-descriptor registry hook.
 pub mod rmw_type_registry;
 
-/// Server-discovery probe cadence (issue #224 — one shared constant; was
-/// independently defined at four call sites across nros-node and nros-c).
-/// One probe per second balances "see freshly-declared tokens quickly"
-/// against "burn fewer FFI round-trips on a healthy network"; the outer
-/// wall-clock budget is the caller's.
-pub const SERVER_DISCOVERY_PROBE_TIMEOUT_MS: u32 = 1000;
 pub mod executor;
 pub mod lifecycle;
 pub mod limits;
