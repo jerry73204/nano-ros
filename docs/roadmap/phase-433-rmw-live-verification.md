@@ -46,53 +46,68 @@ not work. No unit test could see any of it.
 Every check that passed tested our code against our own builders, our own
 parser and our own vtable.
 
-## The blocker: the live-peer tests run, skip, and read as green (issue 1127)
+## The blocker, measured twice and wrong twice before this (issues 1136, 1127)
 
-`nros_tests::interop::CELLS` is the intent list for live-peer work — 18 rows,
-17 `Runtime`, across 11 test binaries.
+`interop::CELLS` is 18 rows, 17 `Runtime`, across 11 test binaries. They are
+**wired into a lane**: root `just test-all` (`justfile:2172`) is `cargo nextest
+--workspace` with no exclude filter, `just ci tier1` includes it, and
+`host-tests.yml:266` runs `just ci tier1` on every push to `main`. That lane
+**has ROS** — both jobs run in `container:
+ghcr.io/newslabntu/nano-ros-ci:humble`, which is why grepping the workflow for
+`ros-humble` or `setup-ros` finds nothing.
 
-**They are invoked on every push to `main`.** The root `just test-all`
-(`justfile:2172`) runs `cargo nextest --workspace` with **no exclude filter**;
-`just ci tier1` is preconditions + check + `rust-rtos-link-check` + `test-all`;
-`host-tests.yml` runs `just ci tier1` on push to `main`.
+**And it never reaches the tests.** Last 30 runs, measured 2026-09-06: **0
+success, 10 failure, 18 cancelled.** The last five failures die at the same
+step, `Build workspace fixtures`:
 
-**And every one of them skips.** That runner has no ROS — the workflow installs
-none, and its own `on:` comment says "This lane needs ROS on the runner and its
-two jobs failed on every pull request". So each cell resolves to
-`nros_tests::skip!`, the junit rewrite converts it to a skip, and the lane is
-green.
+```
+CMake Error at cmake/NanoRosEntry.cmake:426 (add_executable):
+  Cannot find source file:
 
-**A skip is not a verdict, and nothing tells one apart from a pass.** No
-mechanism distinguishes "skipped on every host since it was written" from
-"covered". Same absorbing-verdict class as issue 0445, where a STALE fixture
-replaces whatever the runtime would have done with a message explaining itself,
-and issue 0444 hid behind it for exactly that long.
+    LAUNCH_ARGS
+```
 
-`matrix_fixture_coverage.rs` G1 is the gate closest to this, and its doc
-comment claims exactly this ("A Runtime cell nothing runs … fails here"). What
-it asserts is `tests_dir.join(format!("{}.rs", c.test)).is_file()` — the FILE
-exists. Five gates surround a cell (G1–G5) and **not one asks whether the cell
-has ever produced a result.** They are all statements about declarations.
+Phase-405 W1 removed `LAUNCH_ARGS` from `nano_ros_entry`'s parse list; the CLI
+still emits it (`cmake_root.rs:347`, with a unit test asserting the emission).
+That is **issue 1136**, it is high severity, and it is the reason nothing in
+this phase can be observed in CI today. **It is now W0.**
 
-**A second, smaller problem: no focused runner.** `--workspace` reaches a
-binary but cannot run *one cell against a live peer*, which is what verifying
-any of this requires. Three of the 11 binaries have a focused recipe —
-`interop_e2e` (`just native test-ros2`, `just native test-ros2-lifecycle`),
-`params` (`just native test-ros2-params`), `xrce_ros2_interop` (`just xrce
-test-ros2`). The other eight have none. (`just native test-all` aggregates the
-three and is itself called by nothing. `just native test` is a different lane
-and does exclude the ros2 groups — correctly; misreading that exclusion as the
-root sweep's produced the first version of this analysis.)
+The removal's own comment names the mistake it made: the keywords had "zero
+authored users in the tree (*generated CMakeLists excluded, since those are
+tool output rather than a caller's choice*)". The generator is the only caller
+that runs in CI, so the sweep was scoped past the users that existed.
 
-**And this host has no ROS either**, so the work is box-resident by
-construction (issue 0759: a box in play means every job in the box, on its own
-tree). Verified 2026-09-06: the `ros2` box is fully provisioned — 290
+**The second failure outlives 1136's fix**, and it is issue 1127's: when the
+lane does reach the cells, each reports a pass, a failure or a `skip!`, and
+**nothing distinguishes a cell that has skipped on every host since it was
+written from one that is covered.** Same absorbing-verdict class as issue 0445.
+Five gates surround an interop cell (G1–G5) and not one asks whether it has
+ever produced a result — they are all statements about declarations.
+
+**Third: no focused runner.** `--workspace` reaches a binary but cannot run
+*one cell against a live peer*, which is what verifying any of this requires.
+Three of 11 binaries have a focused recipe (`interop_e2e`, `params`,
+`xrce_ros2_interop`); eight have none. W4 gates that.
+
+**And this host has no ROS**, so hand-verification is box-resident (issue
+0759). Verified 2026-09-06: the `ros2` box is fully provisioned — 290
 `ros-humble-*` packages, `rmw_zenoh_cpp` 0.1.9, `rmw_cyclonedds_cpp` 1.3.4,
-`rmw_fastrtps_cpp` 6.2.10, and box-owned `just` / `cargo-nextest` / `nros` /
-`bindgen` under `~/.local-box/bin`. **Nothing about the environment is
-missing.** The mirror at `/mnt/wd/data/projects/nano-ros-box` was 323 commits
-behind and is being refreshed; a stray `nano-ros-box-box` beside it is debris
-from a sync started inside the box tree.
+`rmw_fastrtps_cpp` 6.2.10, box-owned `just`/`cargo-nextest`/`nros`/`bindgen`
+under `~/.local-box/bin`. **Nothing about the environment is missing.** Source
+`activate.sh` FIRST and `ros2-box-env.sh` SECOND: box-env prepends
+`CARGO_INSTALL_ROOT/bin` last, and activate.sh otherwise re-shadows `just` with
+the host's glibc-2.39 build, which dies in the box.
+
+### W0 — unblock the lane (issue 1136)
+
+Make the CLI's emitted `nano_ros_entry` keywords and the function's parsed
+keywords agree, and gate the agreement — both sides are literals in the tree,
+so it is a static check. Not by dropping the emission: `system.toml` says
+`native_entry_robot1` and `_robot2` differ ONLY in `LAUNCH_ARGS host=`, so
+dropping it makes two images the same program, silently. Then confirm
+`host-tests.yml`'s integration job reaches `just ci tier1`.
+
+*Acceptance:* one green `host-tests` run, and a gate on the keyword sets.
 
 ## Coverage map — what a live peer has actually seen
 
@@ -150,7 +165,7 @@ Ordered so that each one's output is usable before the next starts. The
 principle throughout, from CLAUDE.md: **a uniformly-red lane has no signal
 capacity** — do not wire tests into a lane before knowing which pass.
 
-### W1 — one cell, end to end, in the box
+### W1 — one cell, end to end, in the box (in progress)
 
 Refresh the box mirror (`scripts/dev/ros2-box-sync.sh`, currently 323 commits
 behind) and run **`graph_interop` alone**, by hand, inside the box. Nothing

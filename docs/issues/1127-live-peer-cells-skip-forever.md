@@ -1,40 +1,64 @@
 ---
 id: 1127
-title: "the 17 live-peer cells run on every push to main and SKIP on every one — a skip is not a verdict, and nothing tells 'skipped forever' apart from 'covered'"
+title: "no live-peer cell has ever produced a verdict: the lane that carries them has not finished in 30 runs (issue 1136), and nothing would tell a permanent skip from a pass if it did"
 status: open
 type: bug
 area: testing, rmw
 severity: high
 found: 2026-09-06
-related: [0352, 0445, 0759, 0791, 0903, 1055]
+related: [0352, 0445, 0759, 0791, 0903, 1055, 1136]
 ---
 
-# They run. They skip. Forever.
+# Reached by a lane, and the lane never gets there
 
 `nros_tests::interop::CELLS` is the intent list for every test whose subject is
 a LIVE ROS 2 peer (RFC-0051, phase-324). It has 18 rows, 17 of them `Runtime`
 (one is a declared carve-out with no test), across 11 test binaries.
 
-**They are invoked, routinely.** The root `just test-all` (`justfile:2172`)
-runs `cargo nextest --workspace` with **no exclude filter**, so all 11 are in
-it; `just ci tier1` is preconditions + check + `rust-rtos-link-check` +
-`test-all`; and `host-tests.yml` runs `just ci tier1` on **every push to
-`main`**.
+**They are wired into a lane.** The root `just test-all` (`justfile:2172`) runs
+`cargo nextest --workspace` with **no exclude filter**, so all 11 are in it;
+`just ci tier1` is preconditions + check + `rust-rtos-link-check` + `test-all`;
+and `host-tests.yml` runs `just ci tier1` (line 266) on every push to `main`.
 
-**And they skip, every time.** That runner has no ROS. `host-tests.yml`
-installs none — no `ros-humble` package, no `setup-ros` action, no
-`ROS_DISTRO` — and the workflow's own `on:` comment says so out loud:
+**That lane has ROS.** Both its jobs run in
+`container: ghcr.io/newslabntu/nano-ros-ci:humble`, so the distro comes from the
+image and a grep for `ros-humble` / `setup-ros` / `ROS_DISTRO` in the workflow
+finds nothing. (This issue asserted the opposite in its second revision. It was
+wrong; the container line is at `host-tests.yml:75` and `:138`.)
 
-> This lane needs ROS on the runner and its two jobs failed on every pull
-> request; a red that is STRUCTURAL is not a gate, it is the noise that
-> teaches people to ignore CI.
+**And the lane never reaches the tests.** Measured over its last 30 runs on
+2026-09-06: **0 success, 10 failure, 18 cancelled.** The last five failures die
+at the same step, `Build workspace fixtures`, with
 
-So every one of the seventeen resolves to `nros_tests::skip!`, the junit
-rewrite turns that into a skip, and the lane is green. **A skip is not a
-verdict.** Nothing in the system distinguishes "skipped on every host since the
-day it was written" from "covered" — which is exactly the absorbing-verdict
-class of issue 0445 (a STALE verdict replaces whatever the fixture would have
-done at runtime with a message explaining itself), one lane over.
+```
+CMake Error at cmake/NanoRosEntry.cmake:426 (add_executable):
+  Cannot find source file:
+
+    LAUNCH_ARGS
+```
+
+— the CLI emits a keyword `nano_ros_entry` stopped parsing. That is **issue
+1136**, and it is the mechanism: `just ci tier1` never starts, so no interop
+cell has produced a result in CI, ever.
+
+## Two failures, and only one of them is fixed by 1136
+
+**The first is 1136's**: today the cells cannot run. Fix that and the lane
+reaches them.
+
+**The second is this issue's, and it outlives the fix.** When the lane does
+reach them, each cell will report a pass, a failure, or a `skip!` — and
+**nothing distinguishes a cell that has skipped on every host since the day it
+was written from one that is covered.** A skip is not a verdict. This is issue
+0445's absorbing-verdict class one lane over: there a STALE fixture replaces
+whatever the runtime would have done with a message explaining itself, and 0444
+hid behind it for exactly that long. Here a green tick does the same job.
+
+`matrix_fixture_coverage.rs` G1 is the gate closest to it, and its doc comment
+claims exactly this ("A Runtime cell nothing runs … fails here"). What it
+asserts is `tests_dir.join(format!("{}.rs", c.test)).is_file()` — the FILE
+exists. Five gates surround a cell (G1–G5) and **not one asks whether the cell
+has ever produced a result.** They are all statements about declarations.
 
 ## The second problem: no focused runner for most of them
 
@@ -57,9 +81,12 @@ three are named by a recipe:
 | `bridge_zenoh_to_cyclonedds` | 1 | **none** |
 
 `just native test-all` aggregates the three, and is itself called by nothing.
-`just native test` (a different lane) *does* exclude the ros2 groups — that
-exclusion is correct on its own terms and is not the problem here; misreading
-it as the root sweep's is what produced the first version of this issue.
+`just native test` and `just test-integration` (different lanes) *do* exclude
+the ros2 groups — correctly, on their own terms; misreading that exclusion as
+the root sweep's produced the first version of this issue. Note also that
+`host-tests.yml`'s own header comment still describes the integration job as
+running `just test-integration`, which is the excluding recipe, while line 266
+runs `just ci tier1`, which is not.
 
 ## Why nobody noticed
 
@@ -133,6 +160,8 @@ Not "wire the tests in" — they are already wired in, and that is the point.
 Nor a red lane, which has no signal capacity (the failure mode CLAUDE.md
 names). The order that works:
 
+0. **Fix issue 1136** — until `build-workspace-fixtures` configures, nothing
+   below can be observed in CI at all.
 1. A box-resident recipe that runs ONE cell end to end and reports honestly.
 2. Run each cell once, by hand, and record the verdict per cell — a cell that
    fails is a finding, not a blocker.
