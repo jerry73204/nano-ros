@@ -92,14 +92,14 @@ fn node_paths_for(model: &SystemModel, fqn: &str, wcet: Option<&WcetProfile>) ->
             exec_ms: wcet.and_then(|w| w.exec_ms(path_ref)),
             inputs: pc.input.clone(),
             outputs: pc.output.clone(),
-            // Issue 0951's pin bump (rlm v0.1.11 -> v0.1.21) added these two.
-            // `None` is the correct value rather than a placeholder: nano-ros
-            // authors neither a jitter budget nor a weakly-hard miss tolerance
-            // today, and rlm treats `None` as UNDECLARED and says so — the same
-            // rule `exec_ms` above already follows. Inventing a zero would
-            // assert a bound nobody wrote.
-            max_jitter_ms: None,
-            miss: None,
+            // play_launch phase 68 W5 / nano-ros phase 434 — both crossed the
+            // model boundary so THIS side could read them, and until now it
+            // did not: rlm's `MapperPath` carried the bound, the model carried
+            // it, and the copy built here filled in `None`. Read straight
+            // through; `None` still means undeclared, and only when the
+            // contract declared nothing.
+            max_jitter_ms: pc.max_jitter_ms,
+            miss: pc.miss.clone(),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -128,11 +128,24 @@ pub fn mapper_input_from_model_with_wcet(
     let mut nodes = Vec::with_capacity(model.structure.nodes.len());
     for (fqn, node) in &model.structure.nodes {
         let criticality = node.criticality.as_deref().and_then(parse_criticality);
+        // The exclusion relation (play_launch phase 67/68). PRESENCE in
+        // `node_concurrency` is the declaration: no entry means every path
+        // of the node serialises — what rclcpp's implicit callback group
+        // does, and what `default_cbg_type` here does too — while an entry
+        // is the author claiming MORE concurrency than that. That claim is
+        // what makes a per-thread reservation unsound and a summed chain
+        // latency optimistic, so it has to reach the mapper. Until phase 434
+        // it stopped at the model, and the two toolchains scheduled the same
+        // system from opposite defaults.
+        let claims_concurrency = model.contracts.node_concurrency.get(fqn).is_some_and(|c| {
+            c.exclusive.iter().flatten().count() < node_paths_for(model, fqn, None).len()
+        });
         nodes.push(MapperNode {
             name: fqn.clone(),
             scope: node.scope.clone(),
             criticality,
             paths: node_paths_for(model, fqn, wcet),
+            claims_concurrency,
             ..Default::default()
         });
     }
@@ -346,6 +359,65 @@ mod tests {
             execution: Execution::default(),
             ..Default::default()
         }
+    }
+
+    /// Phase 434 — the three fields play_launch carried across the model
+    /// boundary for this crate reach the mapper. Before this they stopped at
+    /// the model: `max_jitter_ms`/`miss` were filled `None` here, and the
+    /// concurrency relation was never read at all, so an author's claim that
+    /// two callbacks may run at once — which is what makes a summed chain
+    /// latency optimistic and a per-thread reservation unsound — was invisible
+    /// on this side.
+    #[test]
+    fn contract_seams_reach_the_mapper() {
+        use ros_launch_manifest_sched::{ConcurrencyContract, MapperMiss};
+        let mut model = model_with_two_nodes();
+        model
+            .contracts
+            .node_paths
+            .get_mut("/planner/plan")
+            .unwrap()
+            .max_jitter_ms = Some(4.0);
+        model
+            .contracts
+            .node_paths
+            .get_mut("/planner/plan")
+            .unwrap()
+            .miss = Some(MapperMiss {
+            tolerate_n: Some(1),
+            ..Default::default()
+        });
+        // /planner has two paths; declaring `exclusive: [[plan]]` leaves the
+        // other free to run concurrently — a claim of MORE concurrency.
+        model.contracts.node_paths.insert(
+            "/planner/telemetry".to_string(),
+            PathContract {
+                input: vec![],
+                output: vec!["/planner/stats".to_string()],
+                ..Default::default()
+            },
+        );
+        model.contracts.node_concurrency.insert(
+            "/planner".to_string(),
+            ConcurrencyContract {
+                exclusive: vec![vec!["plan".to_string()]],
+            },
+        );
+
+        let input = mapper_input_from_model(&model);
+        let planner = input.nodes.iter().find(|n| n.name == "/planner").unwrap();
+        let plan = planner.paths.iter().find(|p| p.name == "plan").unwrap();
+        assert_eq!(plan.max_jitter_ms, Some(4.0));
+        assert_eq!(plan.miss.as_ref().and_then(|m| m.tolerate_n), Some(1));
+        assert!(
+            planner.claims_concurrency,
+            "a declared exclusion that leaves a path out claims concurrency"
+        );
+        let sensor = input.nodes.iter().find(|n| n.name == "/sensor").unwrap();
+        assert!(
+            !sensor.claims_concurrency,
+            "no declaration means everything serialises"
+        );
     }
 
     #[test]
