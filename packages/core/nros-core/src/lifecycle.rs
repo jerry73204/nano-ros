@@ -57,25 +57,61 @@ impl LifecycleState {
 ///
 /// Each transition has a specific source state. Shutdown has three variants
 /// because it can originate from Unconfigured, Inactive, or Active.
+///
+/// # The discriminants ARE `lifecycle_msgs/msg/Transition` (issue 1099)
+///
+/// These numbers are not ours to choose. They cross the C ABI as
+/// `NROS_LIFECYCLE_TRANSITION_*`, they are what
+/// `nros::LifecycleNode::trigger_transition(uint8_t)` accepts, and they are
+/// what a `ChangeState` request carries on the wire — so a caller reaching any
+/// one of those surfaces with a literal must get the transition ROS 2 would
+/// give them.
+///
+/// They did not, until issue 1099: `Activate`/`Deactivate`/`Cleanup` were
+/// `2`/`3`/`4` where upstream is `3`/`4`/`2`, so a ported
+/// `trigger_transition(2)` on an Inactive node ACTIVATED it and returned OK
+/// where ROS 2 cleans it up. Four of eight ids disagreed, and only the wire
+/// path translated — the C and C++ paths passed the raw byte through.
+///
+/// The one id with no upstream counterpart is [`Self::ErrorRecovery`]: upstream
+/// `8` is `TRANSITION_DESTROY`, which we do not implement (nothing is
+/// deallocated in a fixed arena), and upstream models error recovery as the
+/// IMPLICIT `TRANSITION_ON_ERROR_SUCCESS = 60`. So `ErrorRecovery` is `60` —
+/// the id `transition_wire()` in `nros-node` already put on the wire for it —
+/// and `8` is now rejected rather than silently meaning error recovery.
+///
+/// Do not renumber these. `nros_c::lifecycle` re-asserts every one against its
+/// `NROS_LIFECYCLE_TRANSITION_*` literal (issue 0792), and `nros-node`'s
+/// `transition_wire` / `from_msg_transition_id` are now identity functions that
+/// a test pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum LifecycleTransition {
     /// Unconfigured -> (configuring) -> Inactive
+    /// (`lifecycle_msgs` `TRANSITION_CONFIGURE`)
     Configure = 1,
-    /// Inactive -> (activating) -> Active
-    Activate = 2,
-    /// Active -> (deactivating) -> Inactive
-    Deactivate = 3,
     /// Inactive -> (cleaning up) -> Unconfigured
-    Cleanup = 4,
+    /// (`lifecycle_msgs` `TRANSITION_CLEANUP`)
+    Cleanup = 2,
+    /// Inactive -> (activating) -> Active
+    /// (`lifecycle_msgs` `TRANSITION_ACTIVATE`)
+    Activate = 3,
+    /// Active -> (deactivating) -> Inactive
+    /// (`lifecycle_msgs` `TRANSITION_DEACTIVATE`)
+    Deactivate = 4,
     /// Unconfigured -> (shutting down) -> Finalized
+    /// (`lifecycle_msgs` `TRANSITION_UNCONFIGURED_SHUTDOWN`)
     ShutdownUnconfigured = 5,
     /// Inactive -> (shutting down) -> Finalized
+    /// (`lifecycle_msgs` `TRANSITION_INACTIVE_SHUTDOWN`)
     ShutdownInactive = 6,
     /// Active -> (shutting down) -> Finalized
+    /// (`lifecycle_msgs` `TRANSITION_ACTIVE_SHUTDOWN`)
     ShutdownActive = 7,
     /// ErrorProcessing -> (error recovery) -> Unconfigured
-    ErrorRecovery = 8,
+    /// (`lifecycle_msgs` `TRANSITION_ON_ERROR_SUCCESS`; see the type doc for
+    /// why this is 60 and not 8 — 8 is upstream's `TRANSITION_DESTROY`.)
+    ErrorRecovery = 60,
 }
 
 impl LifecycleTransition {
@@ -100,17 +136,22 @@ impl LifecycleTransition {
         }
     }
 
-    /// Try to convert from a u8 value.
+    /// Try to convert from a `lifecycle_msgs/msg/Transition` id.
+    ///
+    /// `0` (`TRANSITION_CREATE`) and `8` (`TRANSITION_DESTROY`) are upstream
+    /// ids we deliberately do not implement — construction and deallocation are
+    /// not transitions in a fixed arena — so both are `None` rather than
+    /// aliases for something else (issue 1099).
     pub const fn from_u8(value: u8) -> Option<Self> {
         match value {
             1 => Some(Self::Configure),
-            2 => Some(Self::Activate),
-            3 => Some(Self::Deactivate),
-            4 => Some(Self::Cleanup),
+            2 => Some(Self::Cleanup),
+            3 => Some(Self::Activate),
+            4 => Some(Self::Deactivate),
             5 => Some(Self::ShutdownUnconfigured),
             6 => Some(Self::ShutdownInactive),
             7 => Some(Self::ShutdownActive),
-            8 => Some(Self::ErrorRecovery),
+            60 => Some(Self::ErrorRecovery),
             _ => None,
         }
     }
@@ -252,18 +293,91 @@ mod tests {
         assert_eq!(LifecycleState::from_u8(6), None);
     }
 
+    /// Issue 1099 — the discriminants ARE `lifecycle_msgs/msg/Transition`.
+    ///
+    /// The table below is transcribed from
+    /// `/opt/ros/humble/share/lifecycle_msgs/msg/Transition.msg`; it is the
+    /// contract every id-taking surface inherits (`NROS_LIFECYCLE_TRANSITION_*`,
+    /// `nros::LifecycleNode::trigger_transition`, `ChangeState.transition.id`).
+    ///
+    /// Before the fix this failed on FOUR of eight rows: `2` was `Activate`,
+    /// `3` was `Deactivate`, `4` was `Cleanup`, `8` was `ErrorRecovery`. The
+    /// `(2, Cleanup)` row is the dangerous one — `trigger_transition(2)` on an
+    /// Inactive node ACTIVATED it and returned OK.
     #[test]
-    fn test_transition_from_u8() {
-        assert_eq!(
-            LifecycleTransition::from_u8(1),
-            Some(LifecycleTransition::Configure)
-        );
-        assert_eq!(
-            LifecycleTransition::from_u8(8),
-            Some(LifecycleTransition::ErrorRecovery)
-        );
+    fn transition_discriminants_are_lifecycle_msgs_ids() {
+        // (upstream id, upstream constant name, our variant)
+        let table = [
+            (1u8, "TRANSITION_CONFIGURE", LifecycleTransition::Configure),
+            (2, "TRANSITION_CLEANUP", LifecycleTransition::Cleanup),
+            (3, "TRANSITION_ACTIVATE", LifecycleTransition::Activate),
+            (4, "TRANSITION_DEACTIVATE", LifecycleTransition::Deactivate),
+            (
+                5,
+                "TRANSITION_UNCONFIGURED_SHUTDOWN",
+                LifecycleTransition::ShutdownUnconfigured,
+            ),
+            (
+                6,
+                "TRANSITION_INACTIVE_SHUTDOWN",
+                LifecycleTransition::ShutdownInactive,
+            ),
+            (
+                7,
+                "TRANSITION_ACTIVE_SHUTDOWN",
+                LifecycleTransition::ShutdownActive,
+            ),
+            (
+                60,
+                "TRANSITION_ON_ERROR_SUCCESS",
+                LifecycleTransition::ErrorRecovery,
+            ),
+        ];
+        for (id, name, variant) in table {
+            assert_eq!(
+                variant as u8, id,
+                "{variant:?} must be lifecycle_msgs::{name} = {id}"
+            );
+            assert_eq!(
+                LifecycleTransition::from_u8(id),
+                Some(variant),
+                "lifecycle_msgs::{name} = {id} must decode to {variant:?}"
+            );
+        }
+    }
+
+    /// The two upstream ids we deliberately do not implement must be REJECTED,
+    /// not silently aliased onto a transition we do have (issue 1099).
+    #[test]
+    fn unimplemented_upstream_transition_ids_are_rejected() {
+        // TRANSITION_CREATE = 0 and TRANSITION_DESTROY = 8: construction and
+        // deallocation are not transitions in a fixed arena. `8` used to mean
+        // `ErrorRecovery` here.
         assert_eq!(LifecycleTransition::from_u8(0), None);
+        assert_eq!(LifecycleTransition::from_u8(8), None);
+        // Not an id at all.
         assert_eq!(LifecycleTransition::from_u8(9), None);
+    }
+
+    /// Every transition round-trips through its id, and no two share one.
+    #[test]
+    fn transition_ids_are_injective_and_round_trip() {
+        let all = [
+            LifecycleTransition::Configure,
+            LifecycleTransition::Cleanup,
+            LifecycleTransition::Activate,
+            LifecycleTransition::Deactivate,
+            LifecycleTransition::ShutdownUnconfigured,
+            LifecycleTransition::ShutdownInactive,
+            LifecycleTransition::ShutdownActive,
+            LifecycleTransition::ErrorRecovery,
+        ];
+        for (i, a) in all.iter().enumerate() {
+            assert_eq!(LifecycleTransition::from_u8(*a as u8), Some(*a));
+            for b in &all[i + 1..] {
+                assert_ne!(*a as u8, *b as u8, "{a:?} and {b:?} share an id");
+            }
+        }
     }
 
     #[test]

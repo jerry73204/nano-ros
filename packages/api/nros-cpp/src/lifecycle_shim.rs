@@ -51,8 +51,15 @@ pub unsafe extern "C" fn nros_cpp_register_lifecycle_services(
 
 /// Trigger a lifecycle transition on the C++ executor's state machine.
 ///
-/// `transition_id` follows the REP-2002 numbering: Configure=1, Activate=2,
-/// Deactivate=3, Cleanup=4, Shutdown=5, ErrorProcessed=6.
+/// `transition_id` is a `lifecycle_msgs/msg/Transition` id — the SAME numbering
+/// rclcpp uses (issue 1099): Configure=1, Cleanup=2, Activate=3, Deactivate=4,
+/// UnconfiguredShutdown=5, InactiveShutdown=6, ActiveShutdown=7,
+/// ErrorRecovery=60. `0` (CREATE) and `8` (DESTROY) are not implemented and
+/// return `INVALID_ARGUMENT`.
+///
+/// (This comment used to read "Configure=1, Activate=2, Deactivate=3,
+/// Cleanup=4, Shutdown=5, ErrorProcessed=6" — three of those were nano-ros's
+/// own numbering and `ErrorProcessed=6` was never a transition at all.)
 ///
 /// # Safety
 /// `executor` must be a valid, live `CppContext*`. Any registered transition
@@ -62,6 +69,9 @@ pub unsafe extern "C" fn nros_cpp_register_lifecycle_services(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nros_cpp_lifecycle_change_state(
     executor: *mut c_void,
+    // `transition_id` is a `lifecycle_msgs/msg/Transition` id (issue 1099) —
+    // the same number rclcpp means. Unimplemented ids (`0` CREATE, `8`
+    // DESTROY) fall out of `from_u8` as `INVALID_ARGUMENT`.
     transition_id: u8,
 ) -> nros_cpp_ret_t {
     let Some(ctx) = (unsafe { cpp_ctx_checked(executor) }) else {
@@ -84,9 +94,13 @@ pub unsafe extern "C" fn nros_cpp_lifecycle_change_state(
 
 /// Get the current REP-2002 lifecycle state of the C++ executor's state machine.
 ///
-/// Returns `0` (`Unconfigured`) if the executor is null or lifecycle services are
-/// not registered yet. State numbering: `Unconfigured = 0`, `Inactive = 1`,
-/// `Active = 2`, `Finalized = 3`.
+/// Returns `0` if the executor is null or lifecycle services are not registered
+/// yet — that is the `Unknown` sentinel (`nros::LifecycleState::Unknown`), NOT
+/// `Unconfigured`. State numbering is `lifecycle_msgs/msg/State`'s:
+/// `Unconfigured = 1`, `Inactive = 2`, `Active = 3`, `Finalized = 4`, plus
+/// `ErrorProcessing = 5` (upstream numbers that one 15; see
+/// `nros_core::lifecycle`). This comment previously documented a 0-based
+/// numbering that has never been what the function returns.
 ///
 /// # Safety
 /// `executor` must be a valid, live `CppContext*` produced by `nros_cpp_init`.
@@ -230,16 +244,23 @@ pub unsafe extern "C" fn nros_cpp_lifecycle_autostart(
         return ret;
     }
     // autostart_code: 1 = configure, 2 = configure + activate.
+    //
+    // Issue 1099 — spelled through the enum, not as literals. These WERE `1`
+    // and `2`; `2` is `lifecycle_msgs`' CLEANUP, so once the ids became
+    // upstream's, an autostart-to-Active would have configured the node and
+    // then immediately cleaned it back up.
     if autostart_code >= 1 {
-        // Configure (transition_id = 1).
-        let ret = unsafe { nros_cpp_lifecycle_change_state(executor, 1) };
+        let ret = unsafe {
+            nros_cpp_lifecycle_change_state(executor, LifecycleTransition::Configure as u8)
+        };
         if ret != NROS_CPP_RET_OK {
             return ret;
         }
     }
     if autostart_code >= 2 {
-        // Activate (transition_id = 2).
-        let ret = unsafe { nros_cpp_lifecycle_change_state(executor, 2) };
+        let ret = unsafe {
+            nros_cpp_lifecycle_change_state(executor, LifecycleTransition::Activate as u8)
+        };
         if ret != NROS_CPP_RET_OK {
             return ret;
         }

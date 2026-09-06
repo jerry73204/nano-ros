@@ -62,7 +62,15 @@ pub mod state_id {
 }
 
 /// Publicly invocable transition IDs from `lifecycle_msgs/Transition`.
+///
+/// Issue 1099 — since `nros_core::lifecycle::LifecycleTransition` carries these
+/// same numbers as its discriminants, this module is no longer a TRANSLATION
+/// table: `transition_wire` and `from_msg_transition_id` are identity, and
+/// `transition_ids_match_enum_discriminants` below pins that. Keep the
+/// constants anyway; they are the names the wire code reads by, and they are
+/// what makes the two ids we do NOT implement (`CREATE`, `DESTROY`) visible.
 pub mod transition_id {
+    /// Not implemented: a node is constructed by the arena, not by a transition.
     pub const CREATE: u8 = 0;
     pub const CONFIGURE: u8 = 1;
     pub const CLEANUP: u8 = 2;
@@ -71,7 +79,12 @@ pub mod transition_id {
     pub const UNCONFIGURED_SHUTDOWN: u8 = 5;
     pub const INACTIVE_SHUTDOWN: u8 = 6;
     pub const ACTIVE_SHUTDOWN: u8 = 7;
+    /// Not implemented: nothing is deallocated in a fixed arena.
     pub const DESTROY: u8 = 8;
+    /// `TRANSITION_ON_ERROR_SUCCESS` — upstream's implicit
+    /// `ErrorProcessing -> Unconfigured` edge, which is what our explicit
+    /// `ErrorRecovery` is.
+    pub const ERROR_RECOVERY: u8 = 60;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -109,9 +122,11 @@ pub(crate) fn transition_wire(t: InternalTransition) -> (u8, &'static str) {
         }
         InternalTransition::ShutdownInactive => (transition_id::INACTIVE_SHUTDOWN, "shutdown"),
         InternalTransition::ShutdownActive => (transition_id::ACTIVE_SHUTDOWN, "shutdown"),
-        // ErrorRecovery is an implicit transition in rclcpp_lifecycle — map
-        // it to a reserved internal ID so it's still round-trippable.
-        InternalTransition::ErrorRecovery => (60, "error_recovery"),
+        // ErrorRecovery is an implicit transition in rclcpp_lifecycle; 60 is
+        // upstream's `TRANSITION_ON_ERROR_SUCCESS`. Since issue 1099 that is
+        // also the enum's own discriminant, so this row is identity like the
+        // rest — `transition_id::ERROR_RECOVERY` names it.
+        InternalTransition::ErrorRecovery => (transition_id::ERROR_RECOVERY, "error_recovery"),
     }
 }
 
@@ -157,22 +172,19 @@ pub fn to_msg_transition(t: InternalTransition) -> MsgTransition {
 /// Map a wire `Transition.id` back to an internal transition, given the
 /// current state (needed to disambiguate the three shutdown variants).
 pub fn from_msg_transition_id(id: u8, current: InternalState) -> Option<InternalTransition> {
-    match id {
-        transition_id::CONFIGURE => Some(InternalTransition::Configure),
-        transition_id::CLEANUP => Some(InternalTransition::Cleanup),
-        transition_id::ACTIVATE => Some(InternalTransition::Activate),
-        transition_id::DEACTIVATE => Some(InternalTransition::Deactivate),
-        transition_id::UNCONFIGURED_SHUTDOWN => Some(InternalTransition::ShutdownUnconfigured),
-        transition_id::INACTIVE_SHUTDOWN => Some(InternalTransition::ShutdownInactive),
-        transition_id::ACTIVE_SHUTDOWN => Some(InternalTransition::ShutdownActive),
-        // The catch-all "shutdown" id (UNCONFIGURED_SHUTDOWN == 5) is handled
-        // above; rclcpp additionally accepts a generic `shutdown` matched by
-        // label. With label-free requests, fall back to the current state.
-        _ => match (id, current) {
-            (transition_id::DESTROY, _) => None, // destroy is not supported here
-            _ => None,
-        },
-    }
+    // `current` is unused: every id in `lifecycle_msgs/Transition` names its own
+    // source state, so nothing here is ambiguous. Only the generic `"shutdown"`
+    // LABEL is, and that is `from_msg_transition_label`'s job. The parameter
+    // stays for symmetry with that function and for callers that pass both.
+    let _ = current;
+    // Issue 1099 — this is now exactly `LifecycleTransition::from_u8`, because
+    // the enum's discriminants ARE these ids. Delegating rather than
+    // re-listing them means the wire path cannot drift from the C/C++/Rust
+    // paths again, which is how the ids came to disagree in the first place:
+    // this function translated and nothing else did.
+    //
+    // `CREATE` (0) and `DESTROY` (8) are unimplemented and fall out as `None`.
+    InternalTransition::from_u8(id)
 }
 
 /// Map a wire `Transition.label` back to an internal transition. `"shutdown"`
@@ -709,6 +721,67 @@ mod tests {
             from_msg_transition_id(msg.id, InternalState::Unconfigured),
             Some(InternalTransition::Configure)
         );
+    }
+
+    /// Issue 1099 — the wire ids and the ENUM DISCRIMINANTS are the same
+    /// numbers, so `transition_wire` is identity.
+    ///
+    /// This is the invariant that was missing. `transition_wire` translated
+    /// between two id spaces, so `ros2 lifecycle set` behaved correctly while
+    /// the C and C++ APIs — which pass the byte straight through — did not,
+    /// about the same node. A translation table that exists is a translation
+    /// table that can be the only thing correct.
+    ///
+    /// Fails on the pre-fix enum at `Cleanup`, `Activate`, `Deactivate` and
+    /// `ErrorRecovery`.
+    #[test]
+    fn transition_ids_match_enum_discriminants() {
+        for t in ALL_TRANSITIONS {
+            let (wire_id, _) = transition_wire(t);
+            assert_eq!(
+                wire_id, t as u8,
+                "{t:?}: wire id {wire_id} != discriminant {}. The C/C++ APIs pass \
+                 the discriminant straight to the state machine, so any gap here is \
+                 a transition that means one thing on the wire and another in-process.",
+                t as u8
+            );
+            // ...and the decode is the same function the FFI entry points use.
+            assert_eq!(
+                from_msg_transition_id(wire_id, transition_start_state(t)),
+                Some(t)
+            );
+            assert_eq!(InternalTransition::from_u8(wire_id), Some(t));
+        }
+    }
+
+    /// The two upstream ids nano-ros does not implement must decode to
+    /// `None` on the wire, not onto some transition we do have (issue 1099 —
+    /// `DESTROY` used to be our `ErrorRecovery`).
+    #[test]
+    fn unimplemented_wire_ids_are_rejected() {
+        for state in ALL_STATES {
+            assert_eq!(from_msg_transition_id(transition_id::CREATE, state), None);
+            assert_eq!(from_msg_transition_id(transition_id::DESTROY, state), None);
+        }
+    }
+
+    /// The states are NOT identity, and that is deliberate: upstream numbers
+    /// `ErrorProcessing` 15 while ours is 5. Unlike the transition ids, `5` is
+    /// UNASSIGNED in `lifecycle_msgs/msg/State`, so it can never silently name
+    /// a different state — which is why issue 1099 renumbered the transitions
+    /// and left the states alone. `state_wire` is the one place that bridges.
+    #[test]
+    fn state_wire_bridges_the_one_deliberate_divergence() {
+        for s in ALL_STATES {
+            let (wire_id, _) = state_wire(s);
+            if s == InternalState::ErrorProcessing {
+                assert_eq!(wire_id, state_id::TRANSITION_STATE_ERRORPROCESSING);
+                assert_eq!(wire_id, 15);
+                assert_eq!(s as u8, 5);
+            } else {
+                assert_eq!(wire_id, s as u8, "{s:?} is a primary state; ids match");
+            }
+        }
     }
 
     #[test]

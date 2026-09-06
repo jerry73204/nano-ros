@@ -430,6 +430,29 @@ cpp: cpp-fmt
         -Ipackages/api/nros-c/include \
         -Ipackages/platform/nros-platform-api/include \
         packages/api/nros-cpp/tests/compile/graph_query_entry_points.cpp
+    echo "  - lifecycle transition ids ARE lifecycle_msgs, in BOTH languages (issue 1099)"
+    # `nros::LifecycleNode::trigger_transition(uint8_t)` has rclcpp's exact
+    # signature, so its id space must be rclcpp's. It was not: four of eight
+    # ids disagreed with `lifecycle_msgs/msg/Transition`, and a ported
+    # `trigger_transition(2)` on an Inactive node ACTIVATED it and returned OK
+    # where ROS 2 cleans it up. Nothing could catch it -- `correlate.py` never
+    # compares enum VALUES, only names and arities.
+    #
+    # The TU also pins the C++ enum against the C `NROS_LIFECYCLE_TRANSITION_*`
+    # macros: one id space per image, so a mixed C/C++ node cannot hold two.
+    # And it pins `shutdown()` resolving from the CURRENT state -- it hardcoded
+    # 5, whose only legal source state is Unconfigured.
+    test -f packages/api/nros-cpp/tests/compile/lifecycle_transition_ids.cpp || { \
+        echo "ERROR: lifecycle_transition_ids.cpp is MISSING -- issue 1099 is unpinned." >&2; \
+        exit 1; \
+    }
+    c++ -fsyntax-only -std=c++14 -fno-exceptions -fno-rtti \
+        -Itarget/nros-cpp-generated \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-cpp/include \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-cpp/tests/compile/lifecycle_transition_ids.cpp
     echo "  - a module can NAME the backend it means (issue 1050 defect 3)"
     # `nros::init()` opens whichever backend registered FIRST, and on a hosted
     # target that order is decided before `main` by `.init_array` ctors. A PX4

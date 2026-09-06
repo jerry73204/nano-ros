@@ -154,44 +154,51 @@ struct nros_goal_uuid_t;
 #define NROS_LIFECYCLE_STATE_ERROR_PROCESSING 5
 
 /**
- * Lifecycle transition: Configure
+ * Lifecycle transition: Configure (`lifecycle_msgs` `TRANSITION_CONFIGURE`)
  */
 #define NROS_LIFECYCLE_TRANSITION_CONFIGURE 1
 
 /**
- * Lifecycle transition: Activate
+ * Lifecycle transition: Cleanup (`lifecycle_msgs` `TRANSITION_CLEANUP`)
  */
-#define NROS_LIFECYCLE_TRANSITION_ACTIVATE 2
+#define NROS_LIFECYCLE_TRANSITION_CLEANUP 2
 
 /**
- * Lifecycle transition: Deactivate
+ * Lifecycle transition: Activate (`lifecycle_msgs` `TRANSITION_ACTIVATE`)
  */
-#define NROS_LIFECYCLE_TRANSITION_DEACTIVATE 3
+#define NROS_LIFECYCLE_TRANSITION_ACTIVATE 3
 
 /**
- * Lifecycle transition: Cleanup
+ * Lifecycle transition: Deactivate (`lifecycle_msgs` `TRANSITION_DEACTIVATE`)
  */
-#define NROS_LIFECYCLE_TRANSITION_CLEANUP 4
+#define NROS_LIFECYCLE_TRANSITION_DEACTIVATE 4
 
 /**
  * Lifecycle transition: Shutdown (from Unconfigured)
+ * (`lifecycle_msgs` `TRANSITION_UNCONFIGURED_SHUTDOWN`)
  */
 #define NROS_LIFECYCLE_TRANSITION_SHUTDOWN_UNCONFIGURED 5
 
 /**
  * Lifecycle transition: Shutdown (from Inactive)
+ * (`lifecycle_msgs` `TRANSITION_INACTIVE_SHUTDOWN`)
  */
 #define NROS_LIFECYCLE_TRANSITION_SHUTDOWN_INACTIVE 6
 
 /**
  * Lifecycle transition: Shutdown (from Active)
+ * (`lifecycle_msgs` `TRANSITION_ACTIVE_SHUTDOWN`)
  */
 #define NROS_LIFECYCLE_TRANSITION_SHUTDOWN_ACTIVE 7
 
 /**
  * Lifecycle transition: Error Recovery
+ * (`lifecycle_msgs` `TRANSITION_ON_ERROR_SUCCESS`). Upstream `8` is
+ * `TRANSITION_DESTROY`, which nano-ros does not implement, and upstream models
+ * error recovery as an implicit transition — `60` is upstream's id for its
+ * success edge and is what nano-ros already put on the wire for it.
  */
-#define NROS_LIFECYCLE_TRANSITION_ERROR_RECOVERY 8
+#define NROS_LIFECYCLE_TRANSITION_ERROR_RECOVERY 60
 
 /**
  * Transition result: Success

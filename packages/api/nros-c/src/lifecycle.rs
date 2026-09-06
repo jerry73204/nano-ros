@@ -40,22 +40,38 @@ pub const NROS_LIFECYCLE_STATE_FINALIZED: u8 = 4;
 /// Lifecycle state: ErrorProcessing
 pub const NROS_LIFECYCLE_STATE_ERROR_PROCESSING: u8 = 5;
 
-/// Lifecycle transition: Configure
+// Issue 1099 — the transition ids below ARE `lifecycle_msgs/msg/Transition`.
+// They are the ids `nros_lifecycle_change_state` and
+// `nros::LifecycleNode::trigger_transition` accept and the ids a `ChangeState`
+// request carries, so a caller who writes the number instead of the name must
+// still get the transition ROS 2 would give them. Four of these used to
+// disagree with upstream (2/3/4 were Activate/Deactivate/Cleanup, 8 was Error
+// Recovery), which made `trigger_transition(2)` ACTIVATE an Inactive node
+// where ROS 2 cleans it up.
+
+/// Lifecycle transition: Configure (`lifecycle_msgs` `TRANSITION_CONFIGURE`)
 pub const NROS_LIFECYCLE_TRANSITION_CONFIGURE: u8 = 1;
-/// Lifecycle transition: Activate
-pub const NROS_LIFECYCLE_TRANSITION_ACTIVATE: u8 = 2;
-/// Lifecycle transition: Deactivate
-pub const NROS_LIFECYCLE_TRANSITION_DEACTIVATE: u8 = 3;
-/// Lifecycle transition: Cleanup
-pub const NROS_LIFECYCLE_TRANSITION_CLEANUP: u8 = 4;
+/// Lifecycle transition: Cleanup (`lifecycle_msgs` `TRANSITION_CLEANUP`)
+pub const NROS_LIFECYCLE_TRANSITION_CLEANUP: u8 = 2;
+/// Lifecycle transition: Activate (`lifecycle_msgs` `TRANSITION_ACTIVATE`)
+pub const NROS_LIFECYCLE_TRANSITION_ACTIVATE: u8 = 3;
+/// Lifecycle transition: Deactivate (`lifecycle_msgs` `TRANSITION_DEACTIVATE`)
+pub const NROS_LIFECYCLE_TRANSITION_DEACTIVATE: u8 = 4;
 /// Lifecycle transition: Shutdown (from Unconfigured)
+/// (`lifecycle_msgs` `TRANSITION_UNCONFIGURED_SHUTDOWN`)
 pub const NROS_LIFECYCLE_TRANSITION_SHUTDOWN_UNCONFIGURED: u8 = 5;
 /// Lifecycle transition: Shutdown (from Inactive)
+/// (`lifecycle_msgs` `TRANSITION_INACTIVE_SHUTDOWN`)
 pub const NROS_LIFECYCLE_TRANSITION_SHUTDOWN_INACTIVE: u8 = 6;
 /// Lifecycle transition: Shutdown (from Active)
+/// (`lifecycle_msgs` `TRANSITION_ACTIVE_SHUTDOWN`)
 pub const NROS_LIFECYCLE_TRANSITION_SHUTDOWN_ACTIVE: u8 = 7;
 /// Lifecycle transition: Error Recovery
-pub const NROS_LIFECYCLE_TRANSITION_ERROR_RECOVERY: u8 = 8;
+/// (`lifecycle_msgs` `TRANSITION_ON_ERROR_SUCCESS`). Upstream `8` is
+/// `TRANSITION_DESTROY`, which nano-ros does not implement, and upstream models
+/// error recovery as an implicit transition — `60` is upstream's id for its
+/// success edge and is what nano-ros already put on the wire for it.
+pub const NROS_LIFECYCLE_TRANSITION_ERROR_RECOVERY: u8 = 60;
 
 /// Transition result: Success
 pub const NROS_LIFECYCLE_RET_OK: u8 = 0;
@@ -74,9 +90,9 @@ const _: () = {
     assert!(NROS_LIFECYCLE_STATE_ERROR_PROCESSING == LifecycleState::ErrorProcessing as u8);
 
     assert!(NROS_LIFECYCLE_TRANSITION_CONFIGURE == LifecycleTransition::Configure as u8);
+    assert!(NROS_LIFECYCLE_TRANSITION_CLEANUP == LifecycleTransition::Cleanup as u8);
     assert!(NROS_LIFECYCLE_TRANSITION_ACTIVATE == LifecycleTransition::Activate as u8);
     assert!(NROS_LIFECYCLE_TRANSITION_DEACTIVATE == LifecycleTransition::Deactivate as u8);
-    assert!(NROS_LIFECYCLE_TRANSITION_CLEANUP == LifecycleTransition::Cleanup as u8);
     assert!(
         NROS_LIFECYCLE_TRANSITION_SHUTDOWN_UNCONFIGURED
             == LifecycleTransition::ShutdownUnconfigured as u8
@@ -90,6 +106,32 @@ const _: () = {
     assert!(NROS_LIFECYCLE_RET_OK == TransitionResult::Success as u8);
     assert!(NROS_LIFECYCLE_RET_FAILURE == TransitionResult::Failure as u8);
     assert!(NROS_LIFECYCLE_RET_ERROR == TransitionResult::Error as u8);
+};
+
+/// Issue 1099 — the 0792 block above proves the header agrees with our enum;
+/// it cannot catch the two being wrong TOGETHER, which is exactly what
+/// happened. These literals are transcribed from
+/// `lifecycle_msgs/msg/Transition.msg` and are what a ported ROS 2 caller
+/// means by the number.
+const _: () = {
+    assert!(NROS_LIFECYCLE_TRANSITION_CONFIGURE == 1); // TRANSITION_CONFIGURE
+    assert!(NROS_LIFECYCLE_TRANSITION_CLEANUP == 2); // TRANSITION_CLEANUP
+    assert!(NROS_LIFECYCLE_TRANSITION_ACTIVATE == 3); // TRANSITION_ACTIVATE
+    assert!(NROS_LIFECYCLE_TRANSITION_DEACTIVATE == 4); // TRANSITION_DEACTIVATE
+    assert!(NROS_LIFECYCLE_TRANSITION_SHUTDOWN_UNCONFIGURED == 5); // ..._UNCONFIGURED_SHUTDOWN
+    assert!(NROS_LIFECYCLE_TRANSITION_SHUTDOWN_INACTIVE == 6); // ..._INACTIVE_SHUTDOWN
+    assert!(NROS_LIFECYCLE_TRANSITION_SHUTDOWN_ACTIVE == 7); // ..._ACTIVE_SHUTDOWN
+    assert!(NROS_LIFECYCLE_TRANSITION_ERROR_RECOVERY == 60); // TRANSITION_ON_ERROR_SUCCESS
+
+    // The primary states already match `lifecycle_msgs/msg/State.msg`.
+    // `NROS_LIFECYCLE_STATE_ERROR_PROCESSING` deliberately does NOT: upstream
+    // spells it `TRANSITION_STATE_ERRORPROCESSING = 15`. `5` is UNASSIGNED
+    // upstream, so unlike the transition ids it can never silently mean a
+    // different state; `state_wire()` in `nros-node` maps it to 15 on the wire.
+    assert!(NROS_LIFECYCLE_STATE_UNCONFIGURED == 1);
+    assert!(NROS_LIFECYCLE_STATE_INACTIVE == 2);
+    assert!(NROS_LIFECYCLE_STATE_ACTIVE == 3);
+    assert!(NROS_LIFECYCLE_STATE_FINALIZED == 4);
 };
 
 // ============================================================================
