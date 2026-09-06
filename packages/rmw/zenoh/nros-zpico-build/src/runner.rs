@@ -283,8 +283,10 @@ fn queryable_default_from(declared: Option<&str>, infra: Option<&str>, hosted: b
         // the application half, which is the normal case and not a broken
         // channel: `ros-launch-manifest` models service wiring, but the
         // resolver only emits it when the launch inputs describe endpoints,
-        // and a plain `<node>` element does not. All 115 resolved models in
-        // this tree are that shape. `nros ws entity-facts` therefore ABSTAINS
+        // and a plain `<node>` element does not — wiring comes from an AUTHORED
+        // `<stem>.contract.yaml` beside the launch file (issue 0973). Measured
+        // 2026-09-06: 109 of the tree's 114 resolvable models are that shape,
+        // the other 5 having a contract. `nros ws entity-facts` therefore ABSTAINS
         // rather than reporting a zero it cannot support — reporting 0 for a
         // node called `add_server` would size the table to the infrastructure
         // alone and exhaust it at registration.

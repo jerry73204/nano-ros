@@ -773,7 +773,9 @@ mod executor_capacity_tests {
 
     #[test]
     fn wiring_free_model_is_never_checked() {
-        // The pre-0257 bake for every in-tree example.
+        // The pre-0257 bake for every in-tree example that authors no
+        // `<stem>.contract.yaml` beside its launch file — 109 of 114 on
+        // 2026-09-06 (issue 0973).
         check_executor_capacity(
             &SystemModel::default(),
             Some("zephyr"),

@@ -17,9 +17,10 @@
 # =============================================================================
 #
 # It knows EVERY TYPE'S SIZE. It does not know WHICH ENTITIES AN IMAGE CREATES.
-# W4 established that: 0 of the 115 resolved SystemModels in the tree carry any
-# topic wiring, and the RFC-0043 C++ components register in their constructors
-# at runtime. So:
+# W4 established that: a resolved SystemModel carries topic wiring only where
+# somebody authored a `<stem>.contract.yaml` beside the launch file (issue
+# 0973 -- measured 2026-09-06, 5 of the tree's 114 resolvable models do), and
+# the RFC-0043 C++ components register in their constructors at runtime. So:
 #
 #   DERIVABLE HERE -- a question about sizes:
 #     NROS_SUBSCRIBER_BUFFER_SIZE     the small payload class

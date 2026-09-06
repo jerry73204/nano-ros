@@ -216,26 +216,79 @@ directly, so the proc-macro path stays light.
 ## Endpoint wiring is AUTHORED, not derived (issue 0973)
 
 A resolved `SystemModel`'s `structure` carries `scopes` and `nodes` from the
-launch tree. It carries `topics`, `services` and `actions` ONLY when a
-`<stem>.contract.yaml` sits beside the launch file: `model_builder` fills those
-three from a `ManifestIndex`, and `manifest_loader` builds that index by reading
-contract files. Nothing derives endpoints from launch XML, because a launch file
-names nodes and does not say what they publish or serve.
+launch tree. It carries `topics`, `services` and `actions` ONLY when a contract
+resolves for that scope: `model_builder` fills those three from a
+`ManifestIndex`, and `manifest_loader` builds that index from two channels — the
+**provider sidecar** `<stem>.contract.yaml` beside `<stem>.launch.xml` (on by
+default; `--no-provider-contracts` disables it) and an **overlay** root
+(`--contracts <dir>`). Nothing derives endpoints from launch XML, because a
+launch file names nodes and does not say what they publish or serve.
 
-Measured in this repo: **93 `*.launch.xml`, 0 `*.contract.yaml`.** So every
-resolved model here describes no wiring, and a consumer asking "how many service
-servers does this system have?" gets an ABSTENTION — which is the designed
-answer, not a failure.
+**So the input a user authors to make a model describe wiring is
+`<bringup>/launch/<stem>.contract.yaml`, and there is no other one.** Absent it,
+a consumer asking "how many service servers does this system have?" gets an
+ABSTENTION, and that is the designed answer rather than a failure. Absent it,
+"the model does not say" and "the system has none" are the same silence, which
+is why every consumer of these maps must abstain rather than report a zero.
 
 This is written down because the empty maps read exactly like a resolver bug,
 and one instance genuinely was (the loader silently dropped `actions:`, fixed by
-R1-P2). Anyone who finds them empty again should check for contract files before
-searching the resolver.
+R1-P2). Anyone who finds them empty again should check for a contract file
+before searching the resolver.
 
-Consumers that need per-image entity counts without asking users to author 93
-contract files should use the component SIDECAR instead, which records the
-entities a component declares — including action and service clients. That is
-the route issue 0900 took.
+### The measurement, and why it is dated rather than quoted as a constant
+
+Re-measured 2026-09-06 by resolving every launch file in the tree
+(`nros-launch-resolve <launch-file> -o <model>`, then testing whether any of
+`structure.{topics,services,actions}` is non-empty — the same test
+`entity_facts::describes_wiring` applies):
+
+```
+*.launch.xml                     : 122
+*.contract.yaml                  :   5
+launch files that resolve alone  : 114   (8 need a sourced/built workspace)
+  models that DESCRIBE wiring    :   5
+  models that describe none      : 109
+```
+
+The 5 are exactly the 5 with a contract beside them, all under
+`examples/workspaces/cpp/src/demo_bringup/launch/`. Resolving one of those with
+`--no-provider-contracts` returns it to `topics=0 services=0 actions=0`, which
+is the control that makes the count mean something: a probe that can only report
+zero would be indistinguishable from this one on the other 109.
+
+**The count is not the design; the correspondence is.** It read `0 of 119` when
+issue 0973 was filed and answered (2026-09-01 / 09-03) and moved the day
+phase-412 landed. What does not move is *wiring ⟺ an authored contract*. Quote
+the invariant; re-measure the count.
+
+### phase-412: the contract sidecar is the ONLY route, not an alternative
+
+The earlier text here recommended a per-component route instead — the
+`nano_ros_node_register(... ENTITIES ...)` list, which issue 0900 used because
+it needed no contract file. **That route is retired.** phase-412 made `ENTITIES`
+a `FATAL_ERROR` naming this file, for the reason a per-component list could not
+fix: it is hand-maintained beside the code with nothing comparing the two, and
+on the safety island it drifted (six subscriptions declared for a node that
+creates seven — every derived pool short by one, failing at boot as
+`Backend("rmw_ret error")`).
+
+So the two artifacts a reader might expect to find under this name are one
+artifact. `<stem>.contract.yaml` is simultaneously the resolver's wiring input
+and the per-system replacement for `ENTITIES`; `nros ws entity-inventory
+--model` reads the same file through the model. A consumer that wants per-image
+entity counts authors a contract — there is no second source to fall back to,
+and an image with none keeps its configured `NROS_EXECUTOR_MAX_CBS` exactly as
+it did before phase-403.
+
+One asymmetry to know before writing a consumer: **a timer lives outside
+`structure`.** The contract spells it `paths: … trigger: { timer: { rate_hz: N
+} }`, which the resolver flattens to a `contracts.node_paths` entry with no
+`input`, and `EntityInventory::from_model` counts it from there. A predicate
+that looks only at `structure.{topics,services,actions}` — which is what
+`entity_facts::describes_wiring` does — therefore reads a timer-only contract as
+"nothing authored". The two predicates disagree by exactly that case; issue 1140
+carries it.
 
 ## Invariants to preserve
 

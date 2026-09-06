@@ -186,7 +186,16 @@ function(nros_entity_facts_env _target)
         list(APPEND _env "NROS_DECLARED_SERVICE_SERVERS=${_max}")
         set(_app "${_max} declared service server(s)")
     else()
-        set(_app "application count undeclared (no model here describes wiring)")
+        # issue 0973 — say what a reader can DO about it. "No model here
+        # describes wiring" is true and unactionable: it reads as a resolver
+        # fault, and three consumers were written against it on that reading.
+        # Endpoint wiring is AUTHORED, so the line names the file that would
+        # answer the question. One spelling: this is the existing status line
+        # extended, not a second diagnostic beside it.
+        set(_app "application count undeclared — no model here describes wiring")
+        string(APPEND _app "; to declare it, author")
+        string(APPEND _app " <bringup>/launch/<stem>.contract.yaml beside")
+        string(APPEND _app " <stem>.launch.xml (RFC-0060)")
     endif()
 
     if(NOT COMMAND corrosion_set_env_vars)

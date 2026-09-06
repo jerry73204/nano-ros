@@ -1377,7 +1377,9 @@ fn build_main(mut args: MainArgs) -> MacroResult<proc_macro2::TokenStream> {
     // none. Explicit metadata always wins (the user may know about timers the
     // model cannot see); a derived value only replaces the build default when
     // it is bigger, so every entry whose model has no wiring — i.e. every
-    // in-tree example today — emits exactly what it emitted before.
+    // in-tree example that authors no `<stem>.contract.yaml` beside its launch
+    // file, which is 109 of 114 as of 2026-09-06 (issue 0973) — emits exactly
+    // what it emitted before.
     // issue 0460 — CAPABILITY services consume callback slots too, and the
     // model does not count them: `[lifecycle]` registers five REP-2002 services
     // and `[param_services]` six, so a system declaring both needs eleven slots
@@ -3580,8 +3582,9 @@ mod derived_sizing_tests {
 
     #[test]
     fn no_model_wiring_keeps_the_build_default() {
-        // Every in-tree example model today: no wiring ⇒ nothing to derive ⇒
-        // the pre-0257 unsized `run_with_deploy` emit.
+        // Any in-tree example model with no contract beside its launch file
+        // (109 of 114 on 2026-09-06, issue 0973): no wiring ⇒ nothing to
+        // derive ⇒ the pre-0257 unsized `run_with_deploy` emit.
         assert_eq!(
             executor_sizing_for(None, 0).unwrap(),
             EntrySizing::BuildDefault
