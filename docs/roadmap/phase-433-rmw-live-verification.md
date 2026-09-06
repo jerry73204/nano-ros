@@ -49,12 +49,17 @@ parser and our own vtable.
 ## The blocker: nothing runs the live-peer tests (issue 1127)
 
 `nros_tests::interop::CELLS` is the intent list for live-peer work — 18 rows,
-17 `Runtime`. Of the eleven distinct test binaries they name, **two are
-reachable from a recipe** (`interop_e2e` via `just test-ros2` and
-`just test-ros2-lifecycle`; `xrce_ros2_interop` via `just/xrce.just`). The
-other nine are named by no recipe and no workflow. `just test-all` does not
-close the hole — it excludes `group(=ros2-interop)` outright, correctly, and
-nothing picks the group up elsewhere.
+17 `Runtime`. Of the eleven distinct test binaries they name, **three are
+reachable if a human types the recipe** — `interop_e2e` (`just native
+test-ros2`, `just native test-ros2-lifecycle`), `params` (`just native
+test-ros2-params`) and `xrce_ros2_interop` (`just xrce test-ros2`), eight cells
+between them. The other eight binaries, nine cells, are named by no recipe and
+no workflow.
+
+**No sweep reaches any of the seventeen.** The repo-root `just test-all`
+excludes `group(=ros2-interop)` outright, correctly, and nothing picks the
+group up elsewhere. `just native test-all` does aggregate the three hand-run
+recipes — and is itself called by no recipe and no workflow.
 
 `matrix_fixture_coverage.rs` G1 is the gate for exactly this and its doc
 comment claims exactly this ("A Runtime cell nothing runs … fails here"). What
@@ -146,11 +151,13 @@ holds nothing unique and remove it.
 *Acceptance:* `graph_interop` produces a pass or a real failure (not a skip),
 and the box procedure is written down in `docs/development/`.
 
-### W2 — run the other nine unreachable cells once each, by hand
+### W2 — run every remaining cell once, by hand
 
-`qos_override_e2e`, `params`, `rust_multi_node_per_node_graph`,
-`cpp_multi_node_entry`, `qos_zephyr_ros2_interop_e2e`, the two declarative
-bridges, the imperative bridge, and the Cyclone half of `graph_interop`.
+`qos_override_e2e`, `rust_multi_node_per_node_graph`, `cpp_multi_node_entry`,
+`qos_zephyr_ros2_interop_e2e`, the two declarative bridges, the imperative
+bridge, and the Cyclone half of `graph_interop`. Then the three that a recipe
+does reach but no sweep does — `interop_e2e`, `params`, `xrce_ros2_interop` —
+since "a recipe exists" is not a verdict either.
 
 Record a verdict per cell in a table in this doc. **A failing cell is a
 finding, not a blocker** — file it and move to the next. Expect several: none

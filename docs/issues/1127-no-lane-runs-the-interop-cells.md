@@ -1,6 +1,6 @@
 ---
 id: 1127
-title: "`interop::CELLS` declares 17 runnable live-peer cells and no recipe reaches 10 of them — G1 checks the test FILE exists, not that anything invokes it"
+title: "`interop::CELLS` declares 17 runnable live-peer cells, no SWEEP runs any of them, and 9 are named by no recipe at all — G1 checks the test FILE exists, not that anything invokes it"
 status: open
 type: bug
 area: testing, rmw
@@ -9,7 +9,7 @@ found: 2026-09-06
 related: [0352, 0791, 0903, 0759, 1055]
 ---
 
-# Seventeen runnable cells, seven reachable
+# Seventeen runnable cells, eight reachable by hand, none by a sweep
 
 `nros_tests::interop::CELLS` is the intent list for every test whose subject is
 a LIVE ROS 2 peer (RFC-0051, phase-324). It has 18 rows, 17 of them `Runtime`
@@ -18,17 +18,21 @@ a LIVE ROS 2 peer (RFC-0051, phase-324). It has 18 rows, 17 of them `Runtime`
 
 | test binary | cells | runnable by |
 | --- | --- | --- |
-| `interop_e2e` | 5 | `just test-ros2`, `just test-ros2-lifecycle` |
-| `xrce_ros2_interop` | 2 | `just/xrce.just` |
+| `interop_e2e` | 5 | `just native test-ros2`, `just native test-ros2-lifecycle` |
+| `xrce_ros2_interop` | 2 | `just xrce test-ros2` |
+| `params` | 1 | `just native test-ros2-params` |
 | `graph_interop` | 2 | **nothing** |
 | `qos_zephyr_ros2_interop_e2e` | 1 | **nothing** |
 | `qos_override_e2e` | 1 | **nothing** |
-| `params` | 1 | **nothing** |
 | `rust_multi_node_per_node_graph` | 1 | **nothing** |
 | `cpp_multi_node_entry` | 1 | **nothing** |
 | `declarative_bridge_zenoh_to_cyclonedds` | 1 | **nothing** |
 | `declarative_bridge_zenoh_to_xrce` | 1 | **nothing** |
 | `bridge_zenoh_to_cyclonedds` | 1 | **nothing** |
+
+`just native test-all` aggregates the first three (`test-ros2`,
+`test-ros2-params`, `test-ros2-lifecycle`). **It is called by nothing** — no
+recipe, no workflow. It is a hand-run convenience, not a lane.
 
 `just test-all` does not close the hole — it explicitly EXCLUDES them:
 
@@ -37,8 +41,9 @@ a LIVE ROS 2 peer (RFC-0051, phase-324). It has 18 rows, 17 of them `Runtime`
 ```
 
 which is correct on its own terms (they need a ROS 2 CLI and serialise on the
-daemon), but no other recipe picks them up. Seven cells are reachable by hand,
-ten by nothing at all, and no sweep reaches any of the seventeen.
+daemon), but no other recipe picks them up. Eight cells are reachable if a
+human types the recipe, nine by nothing at all, and **no sweep reaches any of
+the seventeen.**
 
 ## Why nobody noticed
 
