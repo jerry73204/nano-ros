@@ -1256,8 +1256,18 @@ config NROS_EXECUTOR_ARENA_SIZE
     help
       Explicit executor arena size. 0 means let nros-node build.rs derive it,
       which budgets EVERY callback slot at action-client size (~18 KiB) --
-      correct, but an order of magnitude over for a pub/sub-only image, which
-      needs about max_cbs * (3 * NROS_SUBSCRIPTION_BUFFER_SIZE + 512) + 2048.
+      correct, but several times over for a pub/sub-only image, which needs
+      about max_cbs * ((depth + 1) * (NROS_SUBSCRIPTION_BUFFER_SIZE + 8) + 1024)
+      + 2048.
+
+      MIND THE DEPTH (issue 1190). A subscription's arena claim scales with its
+      QoS history: KEEP_LAST(N > 1) is a ring of N + 1 slots plus a length
+      beside each, and the ROS default is KEEP_LAST(10), so one ordinary
+      subscription at the default buffer size costs 12 KiB and not 3.5 KiB.
+      This help said "3 * NROS_SUBSCRIPTION_BUFFER_SIZE + 512" until the
+      derivation itself did, and an image sized from that arithmetic dies at
+      entity creation with NodeError::BufferTooSmall.
+
       Set it only with that arithmetic in hand; too small fails at runtime,
       not at link.
 

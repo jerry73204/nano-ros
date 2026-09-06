@@ -91,7 +91,9 @@ measured from `target/nros-cpp-generated/nros/nros_cpp_config_generated.h`
 # is conservative and correct whichever handle is larger. The size ORDERING is
 # recorded as suggestive, not as the justification.
 
-against a pub/sub entry budgeted at `3 * rx_buf + 512` = 3,584 B. So an action
+against a pub/sub entry budgeted at 12,376 B — `11 * (rx_buf + 8) + 1024` at the
+ROS default KEEP_LAST(10); it read `3 * rx_buf + 512` = 3,584 until issue 1190
+found that the model had priced a triple buffer nothing creates. So an action
 SERVER also needs a slot a pub/sub budget cannot hold, and telling an
 action-server image to set `NROS_EXECUTOR_ACTION_CLIENTS=0` would trade this
 gate's advisory for the exact runtime `BufferTooSmall` it exists to prevent. An

@@ -424,6 +424,15 @@ impl BufferStrategy {
     }
 }
 
+/// The QoS depth an action client's FEEDBACK stream registers with.
+///
+/// Issue 1190 — was an `8u16` literal at
+/// `NodeHandle::create_action_client_with_callbacks_sized`'s one call site.
+/// Named because `nros-node/build.rs` restates it to price the action-client
+/// arena slot, and a literal is a restatement nothing can be held to; see
+/// [`arena_model_tests`].
+pub const DEFAULT_ACTION_FEEDBACK_DEPTH: u16 = 8;
+
 /// Compute the number of buffer slots and trailing region size for a given
 /// QoS depth and per-slot buffer size.
 ///
@@ -573,9 +582,12 @@ static ARENA_ADVISORY_DONE: portable_atomic::AtomicBool = portable_atomic::Atomi
 /// Report an arena that is far larger than the entities registered in it.
 ///
 /// `ARENA_SIZE` is derived by budgeting EVERY slot at the ActionClient worst
-/// case (`nros-node/build.rs`), so an image with no action client carries
-/// several times what it can use — 74,240 bytes against ~16 KiB for a
-/// pub/sub-only workload at the defaults. The arena is a BUMP allocator, so
+/// case (`nros-node/build.rs`) unless the image declares its entities, so an
+/// image with no action client carries several times what it can use — 74,240
+/// bytes against ~51 KiB for four default-QoS subscriptions. (That comparison
+/// read "~16 KiB" until issue 1190: the pub/sub figure it named came from a
+/// model that priced a subscription's history at three slots when the ROS
+/// default is eleven.) The arena is a BUMP allocator, so
 /// `arena_used` is the exact claimed total rather than a reservation, and the
 /// allocator has therefore always known the right answer and never said it.
 ///
@@ -693,10 +705,14 @@ static ARENA_EXHAUSTED_REPORTED: portable_atomic::AtomicBool =
 
 /// Is this arena grossly larger than what registered in it?
 ///
-/// Half is the threshold because the derivation's own error is a factor of
-/// ~4.5 at the defaults (74,240 bytes budgeted against ~16 KiB for a
-/// pub/sub-only image), so "under half" is unambiguous rather than a rounding
-/// artifact, and an image that genuinely uses most of its arena stays quiet.
+/// Half is the threshold because the derivation's own over-provision at the
+/// defaults is larger than that (74,240 bytes budgeted against ~51 KiB for four
+/// default-QoS subscriptions, and against a few hundred bytes for a timer-only
+/// image), so "under half" is unambiguous rather than a rounding artifact, and
+/// an image that genuinely uses most of its arena stays quiet. Issue 1190 moved
+/// the pub/sub half of that comparison from ~16 KiB to ~51 KiB, which
+/// deliberately takes a four-subscription image OUT of the advisory: it is not
+/// over-provisioned, it was mis-priced.
 ///
 /// A zero capacity is NOT over-provisioned: that is the sentinel bug issue 0460
 /// produced on Zephyr (a literal `0` forwarded instead of the derivation), and
@@ -710,10 +726,181 @@ pub(crate) const fn arena_is_over_provisioned(used: usize, capacity: usize) -> b
     capacity != 0 && used.saturating_mul(2) <= capacity
 }
 
+// ============================================================================
+// Issue 1190 — the arena model is an UPPER BOUND, asserted where the sizes are
+// ============================================================================
+//
+// `nros-node/build.rs` sums a per-kind cost model into `ARENA_SIZE` and says of
+// itself that subscription and service entries are "strictly smaller" than the
+// action-client slot it budgets at. That sentence was false for four phases:
+// the pub/sub term charged `3 * rx_buf + 512`, which is a `TripleBuffer` (the
+// `depth <= 1` case) plus an entry allowance smaller than any entry this crate
+// defines, while an ordinary `KEEP_LAST(10)` subscription claims
+// `size_of(entry) + (depth + 1) * (slot + 8)`. Measured live: 12,144 bytes into
+// an 8,192-byte arena, dying at `Node::register` with `BufferTooSmall`.
+//
+// A build script cannot check this. It has no `size_of`, and the dominant term
+// is the BACKEND's handle — 584 bytes of `CffiSubscription`, most of it two
+// 256-byte name buffers — which is a fact of the linked backend, not of the
+// build script's environment. So the model is emitted (`config::arena_model`)
+// and bounded HERE, per image, per backend, at compile time.
+//
+// Gated on `rmw-cffi` because that is the configuration a real image is built
+// in. The unit-test configuration substitutes `MockSubscriber`, whose 8-deep
+// queue of 256-byte canned takes makes it ~2.1 KiB — a test fixture, not a
+// handle any image links, and sizing the model to cover it would spend 1.4 KiB
+// of every slot on a mock. The depth half of the model is backend-independent
+// and is checked in the unit tests below, which do run in that configuration.
+#[cfg(feature = "rmw-cffi")]
+const _: () = {
+    use crate::config::arena_model as model;
+
+    // The buffered subscription entries. `<(), ()>` and the C entries carry no
+    // user closure, so this bounds the STRUCT the crate owns plus the backend
+    // handle; a caller's own callback is captured by value on top of it and is
+    // the one part no static bound can reach (`PUBSUB_STRUCT` is sized to leave
+    // room for the declarative runtime's, which is the largest in this tree).
+    assert!(
+        core::mem::size_of::<SubBufferedEntry<(), ()>>() <= model::PUBSUB_STRUCT,
+        "arena model: PUBSUB_STRUCT is below size_of::<SubBufferedEntry>() for \
+         this backend — the derived arena would under-size every subscription \
+         (issue 1190). Raise PUBSUB_ENTRY_STRUCT in nros-node/build.rs."
+    );
+    assert!(
+        core::mem::size_of::<SubBufferedRawEntry<()>>() <= model::PUBSUB_STRUCT,
+        "arena model: PUBSUB_STRUCT is below size_of::<SubBufferedRawEntry>() \
+         for this backend (issue 1190)."
+    );
+    assert!(
+        core::mem::size_of::<SubBufferedRawCEntry>() <= model::PUBSUB_STRUCT,
+        "arena model: PUBSUB_STRUCT is below size_of::<SubBufferedRawCEntry>() \
+         for this backend (issue 1190)."
+    );
+    assert!(
+        core::mem::size_of::<SubBufferedTypedCEntry>() <= model::PUBSUB_STRUCT,
+        "arena model: PUBSUB_STRUCT is below \
+         size_of::<SubBufferedTypedCEntry>() for this backend (issue 1190)."
+    );
+    assert!(
+        core::mem::size_of::<SubBufferedRawInfoCEntry>() <= model::PUBSUB_STRUCT,
+        "arena model: PUBSUB_STRUCT is below \
+         size_of::<SubBufferedRawInfoCEntry>() for this backend (issue 1190)."
+    );
+
+    // A service server has NO trailing region: both buffers are inline and it
+    // reaches the arena through `arena_alloc`. So the whole entry is bounded.
+    assert!(
+        core::mem::size_of::<
+            SrvRawEntry<
+                { crate::config::DEFAULT_RX_BUF_SIZE },
+                { crate::config::DEFAULT_RX_BUF_SIZE },
+            >,
+        >() <= model::SERVICE_ENTRY,
+        "arena model: SERVICE_ENTRY is below size_of::<SrvRawEntry>() for this \
+         backend (issue 1190)."
+    );
+
+    // A timer has no buffer at all.
+    assert!(
+        core::mem::size_of::<TimerEntry<()>>() <= model::TIMER_ENTRY,
+        "arena model: TIMER_ENTRY is below size_of::<TimerEntry>() (issue 1190)."
+    );
+};
+
+#[cfg(test)]
+mod arena_model_tests {
+    use crate::config::{DEFAULT_RX_BUF_SIZE, arena_model as model};
+    use nros_rmw::QoSProfile;
+
+    /// Issue 1190, the failure itself. The derivation's pub/sub term must cover
+    /// the buffered region an ORDINARY subscription claims — the one created
+    /// with no QoS argument, which is `QoSProfile::default()`, which is
+    /// `rmw_qos_profile_default`, which is `KEEP_LAST(10)`.
+    ///
+    /// This is the assertion the old model fails: it charged
+    /// `3 * DEFAULT_RX_BUF_SIZE` = 3,072 bytes, a `TripleBuffer`, where the
+    /// allocator claims `11 * (1024 + 8)` = 11,352 — short by 8,280 per
+    /// subscription, on top of a 280-byte shortfall in the entry allowance. An
+    /// image with one declared subscription therefore derived an 8,192-byte
+    /// arena for a 12,144-byte registration.
+    ///
+    /// Deliberately measured through `buffered_region_size`, the function the
+    /// allocator itself calls, and not through a second copy of its arithmetic.
+    #[test]
+    fn the_modelled_pubsub_region_covers_a_default_qos_subscription() {
+        let (slots, region) =
+            super::buffered_region_size(QoSProfile::default().depth, DEFAULT_RX_BUF_SIZE);
+        assert!(
+            model::PUBSUB_REGION >= region,
+            "the arena derivation budgets {} bytes for a subscription's \
+             buffered region and the allocator claims {region} for it \
+             ({slots} slots of {DEFAULT_RX_BUF_SIZE} at the default \
+             KEEP_LAST({}) ) — every image that derives its arena from a \
+             declared subscription count is short by {} bytes per \
+             subscription (issue 1190)",
+            model::PUBSUB_REGION,
+            QoSProfile::default().depth,
+            region.saturating_sub(model::PUBSUB_REGION),
+        );
+    }
+
+    /// The depth the derivation restates must be the depth the runtime uses. A
+    /// build script cannot read `QOS_PROFILE_DEFAULT`, so the number is
+    /// retyped there; this is what stops the two drifting, which is exactly how
+    /// the term came to model a depth nothing creates.
+    #[test]
+    fn the_modelled_qos_depth_is_the_runtime_default() {
+        assert_eq!(
+            model::QOS_DEPTH,
+            QoSProfile::default().depth,
+            "nros-node/build.rs budgets a subscription at KEEP_LAST({}) while \
+             `QoSProfile::default()` is KEEP_LAST({}) (issue 1190)",
+            model::QOS_DEPTH,
+            QoSProfile::default().depth,
+        );
+    }
+
+    /// Same, for the action client's feedback stream.
+    #[test]
+    fn the_modelled_action_feedback_depth_is_what_an_action_client_registers() {
+        assert_eq!(
+            model::ACTION_FEEDBACK_DEPTH,
+            super::DEFAULT_ACTION_FEEDBACK_DEPTH,
+            "nros-node/build.rs prices the action-client slot at feedback \
+             depth {} while the registration uses {} (issue 1190)",
+            model::ACTION_FEEDBACK_DEPTH,
+            super::DEFAULT_ACTION_FEEDBACK_DEPTH,
+        );
+    }
+
+    /// The action-client term is left depth-blind on purpose (see
+    /// `build.rs`), and that is only defensible while it stays an upper bound.
+    /// Its feedback region is real and depth-scaled even though the model does
+    /// not spell it that way, so the region alone must fit inside the term with
+    /// the entry struct still to pay for.
+    #[test]
+    fn the_modelled_action_client_entry_covers_its_feedback_region() {
+        let (_slots, region) = super::buffered_region_size(
+            super::DEFAULT_ACTION_FEEDBACK_DEPTH as u32,
+            DEFAULT_RX_BUF_SIZE,
+        );
+        assert!(
+            model::ACTION_CLIENT_ENTRY > region,
+            "the action-client slot is budgeted at {} bytes and its feedback \
+             region alone claims {region} — the margin that hid issue 1190 has \
+             closed and the term now needs the same treatment the pub/sub one \
+             got",
+            model::ACTION_CLIENT_ENTRY,
+        );
+    }
+}
+
 #[cfg(test)]
 mod arena_headroom_tests {
     use super::arena_is_over_provisioned;
-    use crate::config::{ARENA_ACTION_CLIENTS, ARENA_SIZE, DEFAULT_RX_BUF_SIZE, MAX_CBS};
+    use crate::config::{
+        ARENA_ACTION_CLIENTS, ARENA_SIZE, DEFAULT_RX_BUF_SIZE, MAX_CBS, arena_model as model,
+    };
 
     /// issue 0900 — the per-kind derivation must reproduce the OLD
     /// `max_cbs * action_client_entry + base` arithmetic byte for byte when
@@ -733,22 +920,37 @@ mod arena_headroom_tests {
                  against MAX_CBS {MAX_CBS}"
             );
         }
-        const ACTION_CLIENT_PER_SERVICE: usize = 4096 + 384;
-        const ACTION_CLIENT_SERVICES: usize = 3;
-        const ACTION_CLIENT_FEEDBACK_SUBS: usize = 3;
-        const ACTION_CLIENT_SUB_OVERHEAD: usize = 1536;
-        const ARENA_BASE_OVERHEAD: usize = 2048;
-        const ARENA_FLOOR: usize = 8192;
-
-        let per_entry = ACTION_CLIENT_SERVICES * ACTION_CLIENT_PER_SERVICE
-            + ACTION_CLIENT_FEEDBACK_SUBS * DEFAULT_RX_BUF_SIZE
-            + ACTION_CLIENT_SUB_OVERHEAD;
-        let want = (MAX_CBS * per_entry + ARENA_BASE_OVERHEAD).max(ARENA_FLOOR);
+        // Issue 1190 — these six constants used to be RETYPED here, which is a
+        // second copy of the model that agrees with the first until one of them
+        // moves. They come from `config::arena_model` now, which is what
+        // `build.rs` actually summed.
+        let want = (MAX_CBS * model::ACTION_CLIENT_ENTRY + model::BASE_OVERHEAD).max(model::FLOOR);
         assert_eq!(
             ARENA_SIZE, want,
             "the per-kind derivation moved the default arena; every image's \
-             task-stack frame moves with it (issue 0900)"
+             executor backing moves with it (issue 0900)"
         );
+        // And the shipped number itself, because reading it out of the model
+        // proves the SHAPE and not the size: with both sides emitted from one
+        // build script, a term could move and the identity above would still
+        // hold. 74,240 is what 1,524 of the 1,547 built configs in this tree
+        // carry; issue 1190's fix is required to leave it exactly there,
+        // because the pub/sub term it corrects multiplies
+        // `MAX_CBS - ARENA_ACTION_CLIENTS`, which is zero at the defaults.
+        //
+        // Only when the INPUTS are the shipped ones. A test build that raised
+        // `NROS_EXECUTOR_MAX_CBS` or the buffer size derives a different number
+        // legitimately, and asserting a literal at it would be this file's own
+        // "second copy" mistake wearing a different hat.
+        if MAX_CBS == 4 && DEFAULT_RX_BUF_SIZE == 1024 {
+            assert_eq!(
+                ARENA_SIZE, 74_240,
+                "the shipped default arena moved. That is not forbidden, but \
+                 it is a change to every image built without an entity \
+                 declaration and it has to be a decision, not a side effect \
+                 (issues 0900, 1190)"
+            );
+        }
     }
 
     /// The advisory must actually fire for the shipped defaults — otherwise W1

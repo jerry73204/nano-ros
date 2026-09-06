@@ -6,7 +6,7 @@ title: "The executor arena is sized at MAX_CBS x sizeof(ActionClient) whatever t
 status: open
 type: tech-debt
 area: core
-related: [phase-392, phase-390]
+related: [phase-392, phase-390, phase-403, 0900, 1190]
 ---
 
 ## Problem
@@ -58,6 +58,25 @@ The thing that knows the real entries is a *different stage*:
 script and cannot see it. So precise sizing means the entry generator emits the
 requirement and build.rs consumes it, rather than deriving a bound it has no
 information for.
+
+## The worst case was not a worst case (issue 1190, 2026-09-07)
+
+The comment quoted above — *"Subscription / service entries are strictly
+smaller"* — was FALSE, and the correction is the opposite direction from this
+issue's. A subscription's arena claim scales with its QoS history, and the model
+priced that history at three slots (the `depth <= 1` triple buffer) when the ROS
+default is KEEP_LAST(10) = eleven slots plus a length array. One ordinary
+subscription costs 12,144 bytes, not 3,584. The action-client term's slack —
+18,048 modelled against 14,600 measured — absorbed it on every image that
+budgets every slot at it, so this issue's over-provision was also what kept that
+under-provision invisible.
+
+So the two are one mechanism: a model nobody could check against the allocator.
+1190 landed the checkable half — the model is emitted as `config::arena_model`
+and each term is asserted to be an upper bound on the entry types it stands for,
+in `executor/arena.rs`, where `size_of` and the linked backend's handle are
+visible. What remains open here is the other half, sizing DOWN from what the
+image really registers.
 
 ## Not covered by this issue
 
