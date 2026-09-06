@@ -76,6 +76,30 @@ c: c-fmt
         -Ipackages/api/nros-c/include \
         -include packages/api/nros-c/include/nros/nros.h \
         -x c /dev/null
+    echo "  - RFC-0033 borrow views: stream alignment + checked count (issues 1148/1149)"
+    # The one COMPILE+LINK+RUN TU in this lane. The defects it pins are
+    # invisible to a syntax check: `nros_cdr_borrow_le_slice_*` returned 0 on
+    # every 8-byte sequence while handing back padding as data, and a wire
+    # count of 0x40000000 wrapped `(size_t)cnt * sizeof` to 0 on every 32-bit
+    # target. The binary links the `libnros_c.a` the build above just produced
+    # (so `nros_cdr_align` is the Rust reader's own alignment, not a C copy of
+    # it) and exercises the 32-bit wrap through `nros_cdr_seq_byte_len`'s
+    # explicit limit, because this host's `size_t` cannot. `test -f` first —
+    # a missing TU must not read as a pass (issue 0196's class).
+    test -f packages/api/nros-c/tests/run/cdr_borrow_le_slice.c || { \
+        echo "ERROR: cdr_borrow_le_slice.c is MISSING -- this check passes on absence." >&2; exit 1; }
+    mkdir -p tmp
+    # profile-literal-ok: unprofiled: the archive is from the plain `cargo build`
+    # at the top of this recipe, so `target/debug/` IS its derived output dir.
+    nros_c_lib=target/debug/libnros_c.a
+    cc -std=c11 -Wall -Wextra \
+        -Itarget/nros-c-generated \
+        -Ipackages/api/nros-c/include \
+        -Ipackages/platform/nros-platform-api/include \
+        packages/api/nros-c/tests/run/cdr_borrow_le_slice.c \
+        "$nros_c_lib" -lpthread -ldl -lm \
+        -o tmp/cdr_borrow_le_slice
+    ./tmp/cdr_borrow_le_slice
     echo "  - executor verb spelling + deprecated aliases (issue 0338)"
     # The entity-registration family is `nros_executor_add_*` (rclc's spelling);
     # the old `register_*` names survive one release as macro aliases. The probe

@@ -35,7 +35,7 @@
 ///
 /// Gated by `check-codegen-version-surface`, which fails when the surface
 /// generated code names changes and this constant does not.
-pub const NROS_CODEGEN_VERSION: u32 = 2;
+pub const NROS_CODEGEN_VERSION: u32 = 3;
 
 /// The oldest codegen version this runtime still accepts.
 ///
@@ -55,6 +55,14 @@ pub const NROS_CODEGEN_VERSION: u32 = 2;
 /// `#include <nros/action.h>` continue to compile. Nothing a version-1 tree
 /// names was withdrawn, so this is the window the doc above describes rather
 /// than a migration.
+///
+/// Still 2 while [`NROS_CODEGEN_VERSION`] moved to 3 (issues 1148/1149). That
+/// move is one ADDED runtime entry point, `nros_cdr_align`, which the
+/// header-only `nros_cdr_borrow_le_slice_*` now call so an 8-byte borrowed
+/// sequence starts on its stream boundary. A version-2 tree names nothing that
+/// was withdrawn: it compiles against the corrected `nros/view.h` and picks the
+/// fix up for free, because the view helpers are `static inline` in the header
+/// rather than symbols the generated code defines.
 ///
 /// The range `[NROS_CODEGEN_VERSION_MIN, NROS_CODEGEN_VERSION]` is expressed to
 /// C and C++ as a SET OF DEFINED SYMBOLS rather than as a comparison — see

@@ -768,10 +768,21 @@ impl<'a> CdrReader<'a> {
     /// decodes each element on access via `from_le_bytes`. Reads the 4-byte
     /// length prefix, aligns the reader to `T` within the CDR stream, then
     /// returns a view over `len * size_of::<T>()` bytes.
+    ///
+    /// The alignment is taken only when there IS a first element to align:
+    /// the writer pads before each primitive it writes and never for an empty
+    /// sequence, so an unconditional `align` here consumed padding that was
+    /// never emitted and desynced any 1-byte field (or the end of the buffer)
+    /// that followed an empty `float64[]`. `len` is wire data, so the byte
+    /// length is a checked product — on a 32-bit target `u32::MAX * 8` wraps
+    /// to a length the bounds check accepts (issues 1148/1149, whose C
+    /// counterpart `nros_cdr_borrow_le_slice_*` had both defects).
     pub fn read_le_slice<T: LeDecode>(&mut self) -> Result<LeSliceView<'a, T>, DeserError> {
         let len = self.read_u32()? as usize;
-        self.align(T::SIZE)?;
-        let byte_len = len * T::SIZE;
+        let byte_len = len.checked_mul(T::SIZE).ok_or(DeserError::InvalidData)?;
+        if len > 0 {
+            self.align(T::SIZE)?;
+        }
         let bytes = self.read_bytes(byte_len)?;
         Ok(LeSliceView::new(bytes))
     }
@@ -1083,6 +1094,56 @@ mod tests {
         for (i, v) in vals.iter().enumerate() {
             assert_eq!(view.get(i).unwrap(), *v);
         }
+    }
+
+    #[test]
+    fn read_le_slice_consumes_stream_padding_before_8_byte_elements() {
+        // `uint32 a; uint32 b; float64[] xs; uint32 tail` — the count lands at
+        // stream offset 8, so the first element sits at 16 behind 4 bytes of
+        // padding. The view must start AT the element and leave the cursor
+        // where `tail` is (issue 1148's C symptom: values read as garbage and
+        // every following field misparsed).
+        let vals = [1111.0f64, 2222.0];
+        let mut buf = [0u8; 64];
+        let written = {
+            let mut w = CdrWriter::new_with_header(&mut buf).unwrap();
+            w.write_u32(7).unwrap();
+            w.write_u32(9).unwrap();
+            w.write_sequence_len(vals.len()).unwrap();
+            for v in &vals {
+                w.write_f64(*v).unwrap();
+            }
+            w.write_u32(0xCAFE).unwrap();
+            w.position()
+        };
+        let mut r = CdrReader::new_with_header(&buf[..written]).unwrap();
+        assert_eq!(r.read_u32().unwrap(), 7);
+        assert_eq!(r.read_u32().unwrap(), 9);
+        let view = r.read_le_slice::<f64>().unwrap();
+        assert_eq!(view.len(), 2);
+        assert_eq!(view.get(0), Some(1111.0));
+        assert_eq!(view.get(1), Some(2222.0));
+        assert_eq!(r.read_u32().unwrap(), 0xCAFE);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn read_le_slice_of_zero_elements_takes_no_padding() {
+        // `float64[] xs` (empty) then `uint8 flag`. The writer emits no
+        // padding for a sequence with no first element, so a reader that
+        // aligns unconditionally reads `flag` four bytes late.
+        let mut buf = [0u8; 32];
+        let written = {
+            let mut w = CdrWriter::new_with_header(&mut buf).unwrap();
+            w.write_sequence_len(0).unwrap();
+            w.write_u8(0xAB).unwrap();
+            w.position()
+        };
+        let mut r = CdrReader::new_with_header(&buf[..written]).unwrap();
+        let view = r.read_le_slice::<f64>().unwrap();
+        assert!(view.is_empty());
+        assert_eq!(r.read_u8().unwrap(), 0xAB);
+        assert!(r.is_empty());
     }
 
     #[test]
