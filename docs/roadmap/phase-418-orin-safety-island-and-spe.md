@@ -1,7 +1,11 @@
 # Phase 418 — NVIDIA Orin: what "safety island" actually means, and what nano-ros needs to run there
 
-**Status (2026-09-04). Planning; §2a records a survey of the vendor BSP.** No
-work item started. This doc is the study
+**Status (2026-09-06). 418.3 landed. 418.1 measured — it does not fit at
+defaults, by ~2.3×; 418.2's premise was wrong and its scope is narrower than
+filed.** §2a records a survey of the vendor BSP, and three of its findings have
+since been confirmed against the vendor tree or this one rather than against the
+survey — including its float-ABI reading, which 418.3's own acceptance sentence
+contradicted. This doc is the study
 NVIDIA's Orin safety architecture asked for, plus the gap list between it and the
 tree as it stands at `bed98e8ef`. It supersedes nothing; it re-opens the ground
 that archived [phase-100](archived/phase-100-orin-spe-infra.md) covered and that
@@ -70,7 +74,7 @@ target, because they were scaffolds with zero matrix cells. What survives at
 
 | Piece | Location | State |
 |---|---|---|
-| Tegra IVC driver, `fsp` + `unix-mock` + inert stub backends | `packages/drivers/ipc/nvidia-ivc/` | Present, **`workspace.exclude`d** |
+| Tegra IVC driver, `fsp` + `unix-mock` + inert stub backends | `packages/drivers/ipc/nvidia-ivc/` | Present, a **workspace MEMBER** (corrected 2026-09-06 — see 418.2) |
 | `PlatformIvc` trait | `packages/platform/nros-platform-api/src/lib.rs:971` | Present |
 | zenoh-pico IVC link forwarders (`_z_open_ivc`, `_z_ivc_*`) | `packages/rmw/zenoh/zpico-link-ivc/` | Present |
 | `link-ivc` feature → `Z_FEATURE_LINK_IVC` | `zpico-sys/Cargo.toml:90`, `nros-zpico-build/src/lib.rs:346` | Present |
@@ -114,10 +118,18 @@ Deleted or never built:
   `PlatformId` variant, no `examples/orin-spe/`, no `fixtures.toml` row, no
   `matrix::CELLS` or `interop::CELLS` entry. Per RFC-0064 the board is therefore
   not even tier 3 — it does not exist.
-- **A `nvidia-ivc` CI lane.** The crate is workspace-excluded, so no `just check`
-  lane compiles it. The `unix-mock` path is exercised only indirectly, via the
-  `nros-tests` dependency at `packages/testing/nros-tests/Cargo.toml:77`; the
-  `fsp` and default-stub configurations are compiled by nothing.
+- **A `nvidia-ivc` CI lane — PARTLY, and this bullet was wrong.** Corrected
+  2026-09-06 by reading the tree: the crate is NOT workspace-excluded, it is a
+  member (`Cargo.toml` `[workspace] members`), and `just check
+  required-features-tests` compiles it directly —
+  `-p nvidia-ivc --features std,unix-mock` at `just/check/lanes.just:1156`,
+  landed by issue 0652's sweep of targets that were in no lane. Its comment
+  records that `nvidia-ivc` was the ONLY one of that set whose crate said so,
+  via a `compile_error!` naming the missing feature.
+
+  What is genuinely uncovered is narrower than "no lane compiles it": the
+  DEFAULT-stub configuration, the `fsp` configuration, and the vendored
+  `ivc.c` behind `link-ivc`.
 
 Unresolved technical questions, in the order they will bite:
 
@@ -194,25 +206,115 @@ second one.
 
 ## 3. Work items
 
-- [ ] **418.1 — Measure before building.** `just mem-report` a FreeRTOS +
-      zenoh-pico image at the smallest viable entity count, and record the number
-      against the SPE's 256 KB TCM. Establish from the R36.x FSP whether SPE code
-      and data can live in a DRAM carveout. **Acceptance:** a table in this doc
-      giving image size, static RAM, arena size and the resulting verdict
-      (fits / needs a carveout / does not fit), with the command that produced it.
+- [~] **418.1 — Measure before building.** MEASURED 2026-09-06; the DRAM-carveout
+      half is still open. **Verdict: does not fit at defaults, and the gap is not
+      close.**
 
-- [ ] **418.2 — Compile what already exists.** Put `nvidia-ivc` on a `check` lane
-      in all three configurations (default stub, `unix-mock`, and `fsp` when
-      `NV_SPE_FSP_DIR` is set), and compile the fork's `ivc.c` by enabling
-      `link-ivc` in that lane. **Acceptance:** `just check` fails if either the
+      The subject is the first out-of-tree consumer,
+      [`orin-spe-heartbeat`](https://github.com/jerry73204/orin-spe-heartbeat) —
+      one C++ node, one publisher, one timer, no subscriptions, no services.
+      Image `freertos`, board `mps2-an385-freertos`, rmw zenoh, entity inventory
+      `derived`:
+
+      ```sh
+      # in the consumer workspace, pinned toolchain FIRST on PATH
+      export PATH="$HOME/.nros/sdk/arm-none-eabi-gcc/13.2-nros4/bin:$PATH"
+      nros sync  --nano-ros-path <nano-ros>
+      nros build freertos --nano-ros-path <nano-ros>
+      arm-none-eabi-size build/freertos-mps2-an385-freertos/cmake/freertos_entry
+      arm-none-eabi-nm --size-sort -S  …/freertos_entry   # attribution below
+      ```
+
+      ```
+         text     data      bss      dec
+       503,924    3,172  3,596,144  4,103,240
+      ```
+
+      | where the RAM goes (bss attributed to symbols: 3,499,289) | bytes |
+      | --- | ---: |
+      | `ucHeap` — the board's FreeRTOS heap, a board config | 3,145,728 |
+      | lwIP + LAN9118 — **the SPE has no Ethernet**, so this would not exist there | 80,846 |
+      | **nano-ros + app** | **272,715** |
+      | SPE budget: 256 KB BTCM less NVIDIA's ~142 KB demo floor | **~116,736** |
+
+      So the part that is ours is **~2.3× the whole budget**, before any heap,
+      and the single largest item is `LARGE_PAYLOADS` at **131,072 B** — 112 % of
+      the budget on a node that subscribes to nothing.
+
+      **The headroom is real and already computed.** Issue 1122 measured that
+      cmake DERIVES the right pool sizes on this image
+      (`NROS_DERIVED_MAX_LARGE_SUBSCRIBERS 0`, status `derived`, basis
+      `subscribed`) and never delivers them off Zephyr: `nros_resolve_knobs()`
+      has one call site in the tree, `zephyr/CMakeLists.txt`. Applying by hand
+      every value cmake had already derived is **−324,416 B**. That is the first
+      thing to fix, and it is not an SPE change.
+
+      **Read this as indicative, not as the answer.** mps2-an385 is Cortex-M3
+      (Thumb-2) against the SPE's ARMv7-R, and 418.3 is what makes the number
+      final. The arena question the acceptance asks about is also not answered
+      here: `ucHeap` is the BOARD's, and the SPE board does not exist yet
+      (418.6).
+
+      Still open from this item: whether an AST window onto a DRAM carveout can
+      host SPE code or heap. That decides whether "does not fit" is fatal or
+      merely expensive, and nothing in §2a settles it.
+
+- [ ] **418.2 — Compile what already exists.** SCOPE CORRECTED 2026-09-06:
+      `unix-mock` is already on a lane (`required-features-tests`, issue 0652),
+      so what remains is the DEFAULT-stub and `fsp` configurations plus the
+      fork's `ivc.c` behind `link-ivc`. The original text said no lane compiled
+      the crate at all, which was never true after 0652. **Acceptance:** `just check` fails if either the
       driver or the vendored IVC link stops compiling. This is the cheapest item
       and it is the one that stops phase-415 from silently breaking §2 Q4.
 
-- [ ] **418.3 — `cortex-r5` arch profile.** Add the `[arch.cortex-r5]` block to
+- [x] **418.3 — `cortex-r5` arch profile.** (landed 2026-09-06) Added to
       `nros-platform-freertos/nros-platform.toml`, settling the float ABI in the
-      profile rather than per board. **Acceptance:** the profile resolves cflags
-      for `armv7r-none-eabihf` the way `cortex-r52` does for ARMv8-R, and a
-      `check` gate covers it as phase-385 W1's fix did.
+      profile rather than per board.
+
+      **Acceptance, CORRECTED — the original sentence named the wrong triple.**
+      It read "resolves cflags for `armv7r-none-eabihf`", which contradicts §2a
+      written later from the BSP. Verified from the vendor tree rather than from
+      either: `rt-aux-cpu-demo-fsp/Makefile:157-159` compiles
+      `-mcpu=cortex-r5 -mthumb-interwork … -mfloat-abi=softfp -mfpu=vfpv3-d16`,
+      and `Makefile:206` makes `LDFLAGS := $(CFLAGS)`, so the same set decides
+      the link. The acceptance is therefore:
+
+      > the profile resolves cflags for `armv7r-none-eabi` — the soft-float-ABI
+      > triple the FSP's `-mfloat-abi=softfp` forces, with the FPU supplied as a
+      > Rust target feature — the way `cortex-r52` does for ARMv8-R, and it must
+      > NOT claim `armv7r-none-eabihf`; a `check` gate covers it as phase-385
+      > W1's fix did.
+
+      Met: `armv7r-none-eabi` resolves to
+      `[-mcpu=cortex-r5, -mthumb-interwork, -mfloat-abi=softfp, -mfpu=vfpv3-d16]`
+      and `armv7r-none-eabihf` resolves to nothing, through the real resolver
+      (`nros_board_common::arch_flags::cflags_for_target`, three new tests).
+      `check-arch-profile-resolution` is the gate.
+
+      **The mismatch is NOT silent, which corrects a claim made while doing
+      this.** Measured: a softfp C object plus a hard-float Rust staticlib is
+      refused by `ld` via `Tag_ABI_VFP_args` — `uses VFP register arguments,
+      bad.elf does not`. The cost is distance from the cause: the error lands at
+      the end of a long cross build naming a mangled `rcgu.o` inside an rlib and
+      says nothing about the profile that chose the flags — the same distance
+      phase-385 W1's panic had.
+
+      The `armv7r-none-eabihf` triple is NOT dead and must not be deleted:
+      `zephyr/cmake/nros_cargo_build.cmake:82` selects it for Cortex-R with
+      `CONFIG_FPU`, and `cmake/toolchain/arm-freertos-armcr52.cmake` documents
+      it as the R52 fallback.
+
+      Still not done, and it needs 418.6: **no nano-ros image has been LINKED
+      for `armv7r-none-eabi`.** `cargo build -p nros-core --target
+      armv7r-none-eabi` finishes clean, and the flags are proven ABI-compatible
+      against the real toolchain, but a profile that resolves is not an image
+      that boots.
+
+      Three defects surfaced on the way, filed rather than folded in: issues
+      1153 (the target gate is blind to two declaration sites, which is why
+      `armv7r-none-eabi` had no row at all), 1154 (`config/bare-metal` repeats
+      phase-385 W1's defect twice more) and 1155 (the `arch_flags` tests run in
+      no lane).
 
 - [ ] **418.4 — SPE FSP provisioning.** An `nros-sdk-index.toml` entry plus a
       `just` verb that fetches the BSP — a plain scripted download, per §2a, not
