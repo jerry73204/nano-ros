@@ -1,0 +1,86 @@
+# phase-433 W5 — does what worked against a live ROS 2 peer STILL work?
+#
+# Membership is `.config/interop-verdicts.toml`, not a list in this file: a cell
+# joins only after a human ran it live and `--record` wrote the verdict from a
+# real junit. So this lane is GREEN on its first run by construction, and a red
+# means a cell that demonstrably worked has stopped working.
+#
+# That is the whole reason it is separate from `host-tests.yml`'s `just ci
+# tier1`. Tier 1 carries the entire compile tier, so any unrelated red stops the
+# run before `test-all` and the cells produce no verdict at all — measured on
+# 2026-09-06, when tier1 finally cleared issue 1136's fixture break and then
+# died in `check-build` on an unrelated latch test. Verification must not be
+# hostage to everything else being green (CLAUDE.md: a uniformly-red lane has no
+# signal capacity).
+#
+# SCHEDULE + DISPATCH ONLY. Never on `pull_request`: it needs a live bus, it is
+# slow, and a required check that cannot pass everywhere is how two PRs
+# deadlocked on 2026-08-28.
+name: live-peer regression
+
+on:
+  schedule:
+    # 04:00 UTC, clear of the 05:00 platform sweep and the nightly report.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: live-peer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    name: cells with a recorded live PASS
+    runs-on: ubuntu-22.04
+    # The distro comes from the image, which is why grepping this file for
+    # `ros-humble` finds nothing (that reading cost issue 1127 a wrong revision).
+    container:
+      image: ghcr.io/newslabntu/nano-ros-ci:humble
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the nros CLI
+        run: |
+          git submodule update --init --depth 1 packages/cli/third-party/play_launch
+          cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+          # phase-429 W5 — ASSERT the binary matches the checkout rather than
+          # hoping. A stale CLI re-stales every fixture keyed on its source
+          # stamp, so this lane would report a fixture problem for a CLI one.
+          "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
+
+      - name: Report what the ledger claims, before running anything
+        run: |
+          source ./activate.sh
+          just interop-verdicts
+
+      - name: Build the fixtures those cells resolve
+        run: |
+          source ./activate.sh
+          # Order is load-bearing: the CLI first (above), then anything that runs
+          # `nros sync` — it rewrites `generated/` and re-stales every row
+          # fixture built before it — then the rows. Building rows first cost a
+          # whole box batch on 2026-09-06.
+          NROS_CARGO_FLAGS= just native build-workspace-fixtures
+          bash scripts/build/fixtures-build.sh linux rust zenoh
+          bash scripts/build/fixtures-build.sh linux rust cyclonedds
+
+      - name: Run the cells with a recorded PASS
+        run: |
+          source ./activate.sh
+          just native test-live-peer-regression
+
+      - name: Ledger after the run
+        if: always()
+        run: |
+          source ./activate.sh
+          just interop-verdicts || true

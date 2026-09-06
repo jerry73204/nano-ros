@@ -3,7 +3,7 @@ id: 1137
 title: "Cyclone's graph reader saw only itself against a live stock talker — the
   harness pinned the PEER's bus to loopback and not ours, and nine of the twelve
   `Unsupported` slots were never a defect"
-status: open
+status: resolved
 type: bug
 area: rmw, testing
 severity: high
@@ -11,12 +11,54 @@ found: 2026-09-06
 related: [0791, 0903, 0927, 1009, 1127]
 ---
 
-> **State: root cause identified and a fix landed; OPEN until a live run
-> confirms it.** The fix is in the harness, not in `graph.cpp`, and the only
-> thing that can close this issue is the same measurement that opened it — a
-> `graph_interop` cyclone run against a live peer, which needs the `ros2`
-> distrobox. Marking it resolved on a reasoned diagnosis is what issues
-> 0859–0862 did. See "What remains unverified".
+> **State: RESOLVED 2026-09-07 by the measurement this issue asked for.**
+> `graph_interop`'s cyclone case now PASSES live. Controlled before/after in
+> the `ros2` distrobox, same machine, same fixtures rebuilt each side, only the
+> tree differing:
+>
+> | tree | result |
+> | --- | --- |
+> | `91f3ce7c9` (pre-fix) | FAIL after 20 s, `GRAPH_PROBE_NODE_COUNT 1` |
+> | `605d667eb` (with PR #659) | **PASS in 4.6 s** |
+>
+> Three other families moved with it, all previously unmeasured since the pin
+> landed on 2026-09-04: `interop_e2e`'s `case_7_cyclone_pubsub_ros2_to_nano`
+> and `case_8_cyclone_service_nano_server` (FAIL after 3 retries each → PASS),
+> `declarative_bridge_zenoh_to_cyclonedds` (2/3 → 3/3) and
+> `bridge_zenoh_to_cyclonedds` (3/4 → 4/4). The zenoh-only control
+> `rust_multi_node_per_node_graph` stayed 2/2, which is what makes this a
+> measurement rather than a coincidence.
+>
+> Recorded in `.config/interop-verdicts.toml` as
+> `native-graph-rust-cyclone-r2n = pass`, written by `--record` from the junit.
+
+# What this issue got wrong, and it was filed by the same person who fixed it
+
+The original filing asserted three things. **All three were false**, and they
+are kept here rather than edited away because the pattern is the point.
+
+1. **"9 of 12 graph slots answer `Unsupported`" — intended, not a defect.**
+   `vtable.cpp` fills `get_node_names` and leaves eleven graph slots explicitly
+   `nullptr`. Phase-381 W5's scope was one slot, and three places in the tree
+   said so already: the phase status line, `bins/graph-probe/src/main.rs:194`,
+   and `graph_interop.rs:155`.
+2. **"`get_node_names` returning only self is a reader defect" — it was the
+   bus.** Issue 1009 pinned the ROS peer to loopback via a `source setup.bash
+   && export …` string, which reaches a host `ros2` process; our side is a bare
+   `std::process::Command` and got nothing. A loopback/no-multicast participant
+   and a default-interface/multicast one cannot discover each other.
+3. **"`Transport(Unsupported)` contradicts its `produced` classification" — it
+   does not.** `check-rmw-slot-producers` answers "does ANY backend fill this
+   slot", says so in its docstring, and never made a per-backend claim.
+
+The dating was available before any of that was written: the cell PASSED live
+on 2026-08-30 (issue 0927), `graph.cpp` has not changed since, and issue 1009
+landed on 09-04. A regression bracketed by two dates was diagnosed as a
+long-standing defect in code that had not moved.
+
+**The one thing the original filing did right** was refuse to treat the nine
+`Unsupported` as nine bugs without first establishing intent — that hedge is
+why no wrong fix was written.
 
 # The first live run of `graph_interop`, and Cyclone fails it
 

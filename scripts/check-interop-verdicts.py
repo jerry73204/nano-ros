@@ -804,6 +804,19 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--evidence", default="")
     ap.add_argument("--issue", default="")
     ap.add_argument("--ledger", default=None, help="override (self-test / demos)")
+    ap.add_argument(
+        "--list-passing",
+        action="store_true",
+        help="cell ids with a recorded PASS, one per line — the membership of "
+        "phase-433 W5's regression lane, which is the ledger and not a "
+        "hand-kept list",
+    )
+    ap.add_argument(
+        "--by-binary",
+        action="store_true",
+        help="with --list-passing, emit the distinct TEST BINARIES those cells "
+        "live in instead of the cell ids (several cells share one binary)",
+    )
     args = ap.parse_args(argv)
 
     if args.self_test:
@@ -843,6 +856,28 @@ def main(argv: list[str]) -> int:
             entries = []
         for line in after_run(Path(args.after_run), cells, sources, entries):
             print(line)
+        return 0
+
+    if args.list_passing:
+        try:
+            entries = load_ledger(text)
+        except LedgerError as e:
+            print(f"check-interop-verdicts: {e}", file=sys.stderr)
+            return 1
+        passing = sorted(
+            e["cell"] for e in entries if e.get("verdict") == "pass"
+        )
+        if args.by_binary:
+            by_id = {c["id"]: c for c in cells}
+            # A cell whose id is no longer in CELLS is the ledger gate's problem,
+            # not this lane's — skip it here rather than crash the run that is
+            # supposed to detect regressions.
+            bins = sorted(
+                {by_id[c]["test"] for c in passing if c in by_id and by_id[c].get("test")}
+            )
+            print("\n".join(bins))
+        else:
+            print("\n".join(passing))
         return 0
 
     if args.report:

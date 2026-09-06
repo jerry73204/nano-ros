@@ -1058,3 +1058,77 @@ zenohd:
     set -e
     source scripts/dev/zenohd.sh
     nros_router_exec "${ZENOH_LOCATOR:-tcp/127.0.0.1:7447}"
+
+# ── phase-433 W5 — the live-peer REGRESSION lane ────────────────────────────
+#
+# Runs exactly the interop cells that have a RECORDED PASS in
+# `.config/interop-verdicts.toml`, and nothing else.
+#
+# Membership is the ledger, not a hand-kept list, and that is the whole design.
+# CLAUDE.md's rule is that a uniformly-red lane has no signal capacity — a
+# regression landing in it looks exactly like yesterday's failure, which is how
+# issue 0876 rode in. So this lane starts GREEN by construction: a cell only
+# joins after a human has run it live and `--record` has written the verdict
+# from a real junit. A red here means a cell that DID work stopped working.
+#
+# It is deliberately NOT `just ci tier1`. That lane carries the whole compile
+# tier, so an unrelated red anywhere in it (a `check-build` gate, a unit test)
+# stops the run before `test-all` and the cells produce no verdict at all —
+# measured on 2026-09-06, when tier1 finally got past issue 1136's fixture
+# break and then died in `check-build` on an unrelated latch test. Verification
+# must not be hostage to everything else being green.
+#
+# The complement of `just interop-verdicts` (what has EVER produced a verdict)
+# and of `check-interop-verdict-ledger` (is the ledger honest). This is "do the
+# ones that worked still work".
+#
+# Needs ROS 2 and a live bus: run it in the `ros2` distrobox on the box tree
+# (issue 0759), or on a runner whose image carries the distro.
+[group("debug")]
+test-live-peer-regression verbose="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cells=$(python3 scripts/check-interop-verdicts.py --list-passing)
+    if [ -z "$cells" ]; then
+        echo "test-live-peer-regression: the ledger records no passing cell, so"
+        echo "  there is nothing whose regression this lane could detect."
+        echo "  Run a cell live and record it: see \`just interop-verdicts\`."
+        exit 0
+    fi
+    echo "== live-peer regression lane — cells with a recorded PASS =="
+    echo "$cells" | sed 's/^/  /'
+    bins=$(python3 scripts/check-interop-verdicts.py --list-passing --by-binary)
+    failed=0
+    broken=0
+    for b in $bins; do
+        echo "== $b =="
+        set +e
+        just _test-focused "binary(=$b)" {{verbose}}
+        rc=$?
+        set -e
+        # A run that could not START is not a verdict. `just` answers 1 for a
+        # missing recipe and nextest answers 1 for a filter it cannot parse
+        # (issue 0743), and calling either "a regression" is the mislabel this
+        # whole phase kept tripping over — a `[SKIPPED] fixture not built`
+        # rendered as FAIL, a `ros2` usage error rendered as a discovery
+        # timeout. 100 is nextest's "tests ran and some failed".
+        case "$rc" in
+            0)   ;;
+            100) failed=1 ;;
+            *)   broken=1; echo "  (exit $rc — the RUN did not happen; not a verdict)" ;;
+        esac
+    done
+    if [ "$broken" -ne 0 ]; then
+        echo ""
+        echo "This lane could not run. That is a harness fault, NOT a regression"
+        echo "verdict — fix the invocation and re-run before believing anything"
+        echo "about the cells."
+        exit 2
+    fi
+    if [ "$failed" -ne 0 ]; then
+        echo ""
+        echo "A cell with a RECORDED PASS did not pass. That is a regression, not"
+        echo "a new finding: this lane's membership is exactly what a human has"
+        echo "already measured working against a live peer."
+        exit 1
+    fi
