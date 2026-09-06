@@ -5723,6 +5723,15 @@ nros_ret_t nros_get_fully_qualified_name(const char *node_name,
  * As [`nros_get_fully_qualified_name`], plus `NROS_RET_NOT_INIT` when the node
  * is not initialised.
  *
+ * The composition is NOT written here. It is `nros_node::names::
+ * fully_qualified_name`, which is `expand_name` with the private-name source
+ * `~` — the same seam every entity name on this node goes through
+ * (`Executor::resolve_entity_name_for`), so a node's FQN and its entities'
+ * FQNs can never disagree about namespace normalisation. A second
+ * `push(namespace); push('/'); push(name)` in the C layer is exactly
+ * RFC-0020's violation class 4, name construction in a wrapper, and it is
+ * what the four sibling implementations of this already spelled differently.
+ *
  * # Safety
  * * `node` must be a valid pointer to an initialised node
  * * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
@@ -5834,38 +5843,6 @@ NROS_PUBLIC bool rcl_node_is_valid(const struct nros_node_t *node);
  * * `domain_id` must be NULL or writable.
  */
 NROS_PUBLIC nros_ret_t nros_node_get_domain_id(const struct nros_node_t *node, uint32_t *domain_id);
-
-/**
- * The node's namespace and name as one string — `/ns/name`, the form that
- * appears on the wire.
- *
- * rcl's `rcl_node_get_fully_qualified_name`. Gap
- * `c:node_get_fully_qualified_name` records that we exposed
- * `rcl_node_get_name` and `rcl_node_get_namespace` separately and never
- * their composition.
- *
- * The composition is NOT written here. It is `nros_node::names::expand_name`
- * with the private-name source `~`, which is by definition
- * `/<ns>/<node>` — the same seam every entity name on this node goes
- * through (`Executor::resolve_entity_name_for`), so a node's FQN and its
- * entities' FQNs can never disagree about namespace normalisation. A second
- * `push(namespace); push('/'); push(name)` in the C layer is exactly
- * RFC-0020's violation class 4 (name construction in a wrapper), and it is
- * what the four sibling implementations of this already spelled differently.
- *
- * **Divergence from rcl, deliberate:** rcl returns `const char *` into
- * node-owned storage. We have no allocator and the node struct holds no
- * composed buffer, so the caller supplies one. `NROS_RET_FULL` when it is
- * too small — a truncated FQN names a different node.
- *
- * # Safety
- * * `node` must be NULL or point to a valid `nros_node_t`.
- * * `output_name` must be NULL or writable for `output_size` bytes.
- */
-NROS_PUBLIC
-nros_ret_t nros_node_get_fully_qualified_name(const struct nros_node_t *node,
-                                              char *output_name,
-                                              size_t output_size);
 
 /**
  * Expand `input_name` against this node's namespace and apply its remap

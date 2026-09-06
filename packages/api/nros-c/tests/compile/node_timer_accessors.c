@@ -48,8 +48,14 @@ int main(void) {
     nros_ret_t (*p_domain)(const struct nros_node_t*, uint32_t*) = nros_node_get_domain_id;
 
     /* Caller-owned buffer, not rcl's `const char *` return: we have no
-     * allocator and the node struct holds no composed FQN. */
-    nros_ret_t (*p_fqn)(const struct nros_node_t*, char*, size_t) =
+     * allocator and the node struct holds no composed FQN. The trailing
+     * `size_t *out_len` is the retry size — a caller that gets NROS_RET_FULL
+     * learns how large a buffer would have worked instead of doubling blindly.
+     * This assertion previously named a THREE-argument form, which is how
+     * issue 1162 (the symbol defined twice, with two signatures) stayed
+     * invisible to every merge-gating lane: `check-build` is the only lane
+     * that compiles this file, and it runs on schedule only. */
+    nros_ret_t (*p_fqn)(const struct nros_node_t*, char*, size_t, size_t*) =
         nros_node_get_fully_qualified_name;
 
     /* `only_expand` is rcl's own parameter and keeps rcl's meaning. rcl's
