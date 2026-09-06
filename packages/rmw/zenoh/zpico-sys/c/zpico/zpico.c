@@ -382,18 +382,19 @@ typedef struct {
 #if ZPICO_MAX_PENDING_REPLIES < 1
 #error "ZPICO_MAX_PENDING_REPLIES must be >= 1: it sizes a fixed C array (issue 1015)"
 #endif
-#if ZPICO_MAX_SESSIONS < 1
-#error "ZPICO_MAX_SESSIONS must be >= 1: it sizes a fixed C array (issue 1015)"
-#endif
 #if ZPICO_GET_REPLY_BUF_SIZE < 1
 #error "ZPICO_GET_REPLY_BUF_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
 #endif
 #if ZPICO_GRAPH_CACHE_SIZE < 1
 #error "ZPICO_GRAPH_CACHE_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
 #endif
-#if ZPICO_ZID_SIZE < 1
-#error "ZPICO_ZID_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
-#endif
+/* ZPICO_ZID_SIZE is NOT guarded, deliberately. `zpico.h:28` defines it
+ * UNCONDITIONALLY -- no `#ifndef` -- so no build can set it to 0 and a
+ * `#if ... < 1` there can never fire. Measured: `-DZPICO_ZID_SIZE=0`
+ * produces no diagnostic, because the header redefines it first. A
+ * guard that cannot fire reads as coverage and is not, which is the
+ * shape this whole family of gates exists to remove. Make it settable
+ * first if a guard is ever wanted. */
 #if ZPICO_MAX_SUBSCRIBERS < 1
 #error "ZPICO_MAX_SUBSCRIBERS must be >= 1: it sizes a C array (issue 1015)"
 #endif
@@ -483,6 +484,19 @@ typedef void (*zpico_waker_fn)(int32_t session_index, int32_t slot);
 
 #ifndef ZPICO_MAX_SESSIONS
 #define ZPICO_MAX_SESSIONS 1 // single-session targets keep TODAY's footprint
+#endif
+
+/* Guarded HERE, and AFTER the `#endif` above rather than beside the
+ * other extents: `ZPICO_MAX_SESSIONS` is defined further down the file
+ * than they are, and an `#if` that precedes a `#define` reads the macro
+ * as UNDEFINED — which the preprocessor evaluates as 0, so the guard
+ * fires on every build instead of on a zero. It shipped that way and
+ * broke `just setup tier2`; the mutation test that missed it drove an
+ * EXTRACTED block with `-D` for every knob, so it defined what the real
+ * translation unit does not. Inside the `#ifndef` is wrong for the
+ * mirror-image reason: a `-D` skips the block and the guard with it. */
+#if ZPICO_MAX_SESSIONS < 1
+#error "ZPICO_MAX_SESSIONS must be >= 1: it sizes a fixed C array (issue 1015)"
 #endif
 
 struct zpico_session {
