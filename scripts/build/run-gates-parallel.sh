@@ -188,8 +188,10 @@ run_one() {
 }
 export -f run_one
 
+_lane_start=$(date +%s%N)
 grep -vE '^\s*(#|$)' "$list" \
     | xargs -P "$jobs" -I{} bash -c 'run_one "$@"' _ {} "$out_dir"
+_lane_wall_ms=$(( ($(date +%s%N) - _lane_start) / 1000000 ))
 
 failed=0
 while IFS=$'\t' read -r gate rc ms; do
@@ -200,12 +202,39 @@ while IFS=$'\t' read -r gate rc ms; do
     fi
 done <"$out_dir/results.tsv"
 
+# THE PROFILE. `results.tsv` has held a per-gate duration since this runner was
+# written and the summary read ONE line out of it — the slowest — before the
+# `trap` deleted the file. So every run measured the full distribution of the
+# repo's slowest lane and discarded it, which is why "where does `just check`
+# spend its time" could only be answered by re-running gates by hand.
+#
+# The last line is the one worth having. `busy` is the sum of the gates' own
+# durations; `wall` is how long the fan-out actually took. Their ratio is the
+# parallelism this lane ACHIEVED, which is not `-P$jobs` and can be far below
+# it: most gates in the `build` lane invoke cargo, cargo takes an exclusive lock
+# on the target directory, and a gate blocked on that lock still occupies one of
+# the `xargs` slots. A ratio near 1 on a lane running at -P4 means the fan-out
+# is queueing, not overlapping — and no amount of raising `-P` fixes that,
+# because the contended resource is the lock and not the CPU.
+#
+# Printed always rather than behind a flag: the number is free (the file is
+# already written), and a diagnostic nobody turns on is one nobody reads.
+_busy_ms=$(awk -F'\t' '{s += $3} END {print s + 0}' "$out_dir/results.tsv")
+printf '\ncheck-%s: slowest gates (ms)\n' "$label"
+sort -k3 -rn "$out_dir/results.tsv" | head -10 \
+    | awk -F'\t' -v busy="$_busy_ms" \
+        '{printf "  %8d  %5.1f%%  %s\n", $3, (busy ? 100 * $3 / busy : 0), $1}'
+printf '  busy %ds over wall %ds at -P%s => %.1fx effective parallelism\n' \
+    "$((_busy_ms / 1000))" "$((_lane_wall_ms / 1000))" "$jobs" \
+    "$(awk -v b="$_busy_ms" -v w="$_lane_wall_ms" 'BEGIN {printf "%.1f", (w ? b / w : 0)}')"
+
 total=$(wc -l <"$out_dir/results.tsv")
 slowest=$(sort -k3 -rn "$out_dir/results.tsv" | head -1)
 if [ "$failed" -gt 0 ]; then
     printf '\ncheck-%s (parallel): %d of %d gate(s) FAILED\n' "$label" "$failed" "$total"
     exit 1
 fi
+
 # QUALIFY the success line by the gates that did not run.
 #
 # The serial path closes with `nros_check_skip_report`, which refuses to say
