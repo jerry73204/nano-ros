@@ -114,7 +114,8 @@ pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
     };
     Err(format!(
         "in-tree nros CLI is STALE — its sources changed since it was built\n\
-         (source stamp {BUILT_STAMP} != {current}) for '{}'.\n\
+         (source stamp {BUILT_STAMP} != {current}) for '{}',\n\
+         whose checkout is '{}'.\n\
          {detail}\n\
          A stale CLI silently breaks workspace planning + codegen: its hardcoded\n\
          crate→path table can name locations that no longer exist, and a dropped\n\
@@ -123,7 +124,13 @@ pub fn refuse_if_stale(command_name: &str) -> Result<(), String> {
          Rebuild it (not auto-done — compiling at build/test time is forbidden):\n\
          \x20   ./scripts/bootstrap.sh      (contributors: just setup-cli)\n\
          Override for a deliberate experiment: NROS_SKIP_STALE_CHECK=1",
-        exe.display()
+        exe.display(),
+        // Issue 1133 — name the CHECKOUT, not only the binary. With several
+        // worktrees in play the first question is "is this even my tree?", and
+        // the exe path answers it only if you already know where each tree's
+        // target dir lives. A `PATH`-resolved binary from ANOTHER checkout is
+        // the common cause, and no number of rebuilds here can refresh it.
+        root.display()
     ))
 }
 

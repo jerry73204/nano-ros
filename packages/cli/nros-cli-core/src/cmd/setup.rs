@@ -599,6 +599,40 @@ fn run_board(args: BoardSetupArgs) -> Result<()> {
         }
     }
 
+    // (a2) The board's index tools — for the FVP board, the simulator itself.
+    //
+    // This step did not exist while the FVP was `[gated.arm-fvp]`: a gated
+    // entry is declared and never fetched, so `nros setup board
+    // fvp-aemv8r-smp` provisioned a Zephyr tree for a board whose model the
+    // user still had to install by hand. The model turned out not to be gated
+    // (a public Arm CDN permalink with a pinned digest — measured 2026-09-06,
+    // and the same URL `autoware-safety-island` downloads in CI), so the step
+    // that was impossible is now just a step.
+    if !meta.tools.is_empty() {
+        let tools_index_path = if args.index.is_absolute() {
+            args.index.clone()
+        } else {
+            root.join(&args.index)
+        };
+        eprintln!("  (a2) board tools: {}", meta.tools.join(", "));
+        for tool in &meta.tools {
+            if args.dry_run {
+                eprintln!("      nros setup --tool {tool}  (--dry-run: skipped)");
+                continue;
+            }
+            let index = SdkIndex::load(&tools_index_path)
+                .wrap_err_with(|| format!("load SDK index from {}", tools_index_path.display()))?;
+            // A tool with no dist for this host is a WARNING, not a failure:
+            // the Arm FVP is x86_64-Linux-only, and an aarch64 developer can
+            // still provision the rest of the tree and build the image — they
+            // just cannot run it here. Failing would deny them the build too.
+            if let Err(e) = install_single_tool(&index, tool, None, false, false) {
+                eprintln!("      WARNING: {tool} not installed: {e}");
+                eprintln!("      The board's other provisioning steps continue.");
+            }
+        }
+    }
+
     // (b) Apply the zephyr-line patch set to the CONSUMER's tree. The patch
     //     scripts already take the workspace dir as $1.
     let patch_script = root

@@ -204,18 +204,25 @@ fn check_license_gates(workspace: Option<&Path>, board: Option<&str>) -> Result<
 
     eprintln!("nros doctor: license-gated SDKs ({})", index_path.display());
     let mut problems = 0usize;
+
+    // The Arm FVP is NOT license-gated and stopped being `[gated.arm-fvp]` on
+    // 2026-09-06 (a public CDN permalink with a pinned digest — measured, not
+    // assumed). It is still reported HERE, because this is where a user looks
+    // for "do I have the simulator", and because its discovery is special
+    // whatever section it lives in: Zephyr's `armfvp.cmake` does
+    // `find_program(... PATHS ENV ARMFVP_BIN_PATH)`, so the question is about a
+    // BINARY on a path, not an env var pointing at an install root.
+    if index.tool.contains_key("arm-fvp")
+        && board_filter
+            .as_ref()
+            .is_none_or(|allow| allow.iter().any(|p| p == "arm-fvp"))
+    {
+        check_arm_fvp(&index.tool["arm-fvp"].version);
+    }
     for (name, g) in &index.gated {
         if let Some(allow) = &board_filter
             && !allow.iter().any(|p| p == name)
         {
-            continue;
-        }
-        // Special-case ARM FVP: binary discovery (Zephyr's armfvp.cmake calls
-        // `find_program(... PATHS ENV ARMFVP_BIN_PATH)`), and `[gated.arm-fvp]`
-        // is the only gate that maps a binary name. All other gates fall
-        // through to the env-var check.
-        if name == "arm-fvp" {
-            check_arm_fvp(g);
             continue;
         }
         let via = g
@@ -257,7 +264,7 @@ fn check_license_gates(workspace: Option<&Path>, board: Option<&str>) -> Result<
 /// `~/.nros/sdks/arm-fvp/current/<bin>` (installer landing). Prints PASS /
 /// WARN to stderr but never increments the problem counter — gated tool, so
 /// a missing FVP must not fail an unrelated `nros doctor` run.
-fn check_arm_fvp(g: &crate::orchestration::sdk_index::GatedPackage) {
+fn check_arm_fvp(version: &str) {
     const BIN: &str = "FVP_BaseR_AEMv8R";
     let landing = std::env::var_os("HOME")
         .map(|h| PathBuf::from(h).join(".nros/sdks/arm-fvp/current"))
@@ -269,7 +276,7 @@ fn check_arm_fvp(g: &crate::orchestration::sdk_index::GatedPackage) {
         if dir.join(BIN).is_file() {
             eprintln!(
                 "  [OK] arm-fvp {}: $ARMFVP_BIN_PATH = {}",
-                g.version,
+                version,
                 dir.display()
             );
             return;
@@ -277,13 +284,11 @@ fn check_arm_fvp(g: &crate::orchestration::sdk_index::GatedPackage) {
     }
     // 2. ARM_FVP_DIR — sdk-index env. Look for `models/Linux64_GCC-*/<BIN>`
     //    OR `<BIN>` directly under the root.
-    if let Some(v) = std::env::var_os(&g.env) {
+    if let Some(v) = std::env::var_os("ARM_FVP_DIR") {
         let root = PathBuf::from(&v);
         if let Some(hit) = find_fvp_under(&root, BIN) {
             eprintln!(
-                "  [OK] arm-fvp {}: ${} = {} (binary at {})",
-                g.version,
-                g.env,
+                "  [OK] arm-fvp {version}: $ARM_FVP_DIR = {} (binary at {})",
                 root.display(),
                 hit.display()
             );
@@ -292,25 +297,26 @@ fn check_arm_fvp(g: &crate::orchestration::sdk_index::GatedPackage) {
     }
     // 3. PATH fallback.
     if which(BIN).is_ok() {
-        eprintln!("  [OK] arm-fvp {}: {BIN} on PATH", g.version);
+        eprintln!("  [OK] arm-fvp {}: {BIN} on PATH", version);
         return;
     }
     // 4. Installer landing symlink.
     if !landing.as_os_str().is_empty() && landing.join(BIN).is_file() {
         eprintln!(
             "  [OK] arm-fvp {}: {} (installer landing)",
-            g.version,
+            version,
             landing.display()
         );
         return;
     }
     // Miss — WARN only (gated, never a hard fail).
     eprintln!(
-        "  [WARN] arm-fvp {}: {BIN} not found — set $ARMFVP_BIN_PATH or ${}, \
-         or run scripts/installers/arm-fvp-installer.sh after extracting the \
-         Arm FVP tarball (EULA: https://developer.arm.com/downloads/-/arm-ecosystem-fvps). \
-         Never auto-fetched.",
-        g.version, g.env
+        "  [WARN] arm-fvp {version}: {BIN} not found — run `nros setup --tool \
+         arm-fvp` (x86_64 Linux only), or point $ARMFVP_BIN_PATH / $ARM_FVP_DIR \
+         at an install you already have.\n\
+         \x20        This used to say \"never auto-fetched\"; it is fetched now — \
+         the model is a public Arm CDN permalink with a pinned digest, not a \
+         licence wall."
     );
 }
 
