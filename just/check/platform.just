@@ -517,3 +517,16 @@ zephyr-knob-agreement:
 [private]
 west-leaf-vocabulary:
     @python3 scripts/check-west-leaf-vocabulary.py
+
+# Issue 1117 — a cross build must SAY which compiler it picked and where from.
+# The pin is `[tool.arm-none-eabi-gcc] upstream = "13.2.rel1"`; a host whose SDK
+# store had never been provisioned built with Ubuntu's /usr/bin 10.3.1 and said
+# nothing, and the resulting compile error was diagnosed twice as a codegen bug
+# (issue 1113, retracted). The system-toolchain fallback stays — activate.sh
+# documents it on purpose — but it is now recorded, the way issue 0500 made
+# `Corrosion <ver> via <origin>` the evidence. Self-testing: the mutants that
+# matter keep the SHAPE valid (report() naming a different tool than resolve()
+# configures still prints a provenance line, about the wrong compiler).
+[group("check")]
+cross-toolchain-provenance:
+    @python3 scripts/check-cross-toolchain-provenance.py
