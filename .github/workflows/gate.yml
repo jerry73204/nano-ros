@@ -759,6 +759,64 @@ jobs:
           source ./activate.sh
           just check cli-tests
 
+      # issue 1059 — `node-std-tests` on BOTH merge-gating events, for the same
+      # reason `cli-tests` is above it, and with the same evidence behind it.
+      #
+      # It lived only in `check-build`, which is `schedule` / `workflow_dispatch`
+      # only, so nothing on the path to `main` ran it. `main` then carried a
+      # compile error for a day: phase-421 W1-W3 reverted an associated type
+      # across 142 impls and left NINE behind, and
+      #
+      #     error[E0437]: type `Format` is not a member of trait
+      #                   `nros_serdes::schema::Message`
+      #
+      # is not a subtle red. It hid because all nine survivors are
+      # `#[cfg(test)]`: `cargo check -p nros-node --lib --features std` PASSES,
+      # because test cfg is not compiled. Only a test BUILD reaches them, and no
+      # merge-gating lane did one. Third red to reach `main` that way in a single
+      # session, after `board_facts`' `items_after_test_module`.
+      #
+      # It belongs here rather than in the build tier by the
+      # `check-lane-contracts` rule: it resolves NO fixture, needs no SDK, no
+      # cross toolchain, no QEMU and no ROS — three `cargo test --lib` runs over
+      # `nros-node`, `nros` and `nros-core`.
+      #
+      # MEASURED in a pristine worktree on this machine, both cache states,
+      # because a single number is what made earlier estimates wrong here:
+      #
+      #   cold (no target dir):  20.6 s
+      #   warm:                   2.4 s
+      #
+      # The warm figure is what the queue mostly pays, since `check fast` two
+      # steps up has already compiled the workspace.
+      - name: just check node-std-tests
+        if: >-
+          ${{ contains(fromJSON('["pull_request","merge_group"]'), github.event_name)
+              && !cancelled() }}
+        run: |
+          source ./activate.sh
+          just check node-std-tests
+
+      # `check-api-parity` is NOT here yet, and the reason is a prerequisite
+      # rather than a cost.
+      #
+      # It is today the only `just ci gate` step that NO workflow runs, on any
+      # event — not the build tier, not the nightly, nothing. That is how
+      # phase-421's `node_get_serialization_format` accessors landed UNLEDGERED
+      # and stayed that way until someone ran the full local tier.
+      #
+      # It cannot run in this container yet. `api_parity/extract_cxx.py` shells
+      # out to `clang -Xclang -ast-dump=json` and the image installed no
+      # `clang` (only the separately-pinned `clang-format`, which is a different
+      # binary). That is fixed in `ci/docker/ci-base/Dockerfile` in this same
+      # change — but the image publishes on PUSH TO MAIN, so the step can only
+      # be added once `ghcr.io/newslabntu/nano-ros-ci:humble` has been rebuilt
+      # with it. Adding it here in the same commit would make the gate red for
+      # a reason that says nothing about API parity.
+      #
+      # Cost, measured the same way: 29.3 s, and it leaves no target dir — the
+      # rustdoc extraction writes into a temp CARGO_TARGET_DIR.
+
       # phase-396 W1 — the build tier is NOT on the merge group.
       #
       # It was (phase-395, `197eef4fa`, "PR cheap, batch thorough"), and the
