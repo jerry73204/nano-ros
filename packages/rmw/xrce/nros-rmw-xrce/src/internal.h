@@ -440,6 +440,57 @@ void xrce_dds_reply_type(const char* type_name, char* out, size_t out_cap);
 /* QoS mapping. */
 uxrQoS_t xrce_map_qos(const rmw_qos_profile_t* qos);
 
+/* ---- Capacity diagnostics (issue 1033) ------------------------------- */
+
+/* Severity for `nros_platform_log_write`, which takes `nros_log::Severity`'s
+ * `as_u8()`: 0 Trace, 1 Debug, 2 Info, 3 Warn, 4 Error, 5 Fatal. Spelled here
+ * rather than included from `nros/log.h`: that header belongs to `nros-c`, the
+ * layer ABOVE this one, and an RMW backend must not depend upward. */
+#define XRCE_LOG_ERROR 4
+
+/* Report that this image was BUILT with fewer `kind` slots than it has just
+ * been asked to create, then let the caller return
+ * `NROS_RMW_RET_INVALID_CONFIG`.
+ *
+ * issue 1033. Until the entity caps joined the derivable ladder, exhausting one
+ * meant creating a ninth subscriber on an image budgeted for eight — rare, and
+ * arguably the caller's problem. Now the cap is DERIVED from what the image
+ * DECLARED (`nano_ros_node_register(... ENTITIES ...)`), so it is exactly the
+ * declared count, and the ordinary way to hit it is to create an entity that
+ * was never declared. The remedy is a rebuild, and the reader needs to be told
+ * WHICH knob and WHY it is the number it is — a bare `NROS_RMW_RET_ERROR`, the
+ * code these paths used to return, says none of that and is the same value a
+ * NULL `backend_data` returns three lines up.
+ *
+ * `NROS_RMW_RET_INVALID_CONFIG` is issue 0468's code, added for precisely this
+ * on the zenoh side: "a COMPILE-TIME capacity or configuration made the call
+ * impossible ... the remedy is a rebuild, never a different argument". This is
+ * the same failure one backend over, so it gets the same code rather than a
+ * second spelling of it.
+ *
+ * Delivery is `nros_platform_log_write` — the "platform's printk-equivalent"
+ * `nros/rmw_ret.h` already names as where backends log at the failure site. It
+ * reaches every platform including Zephyr native_sim, where Rust `std` stdio is
+ * fatal (issue 0589).
+ *
+ * `kind` names the entity ("subscriber"), `name` the topic or service it was
+ * for, `cap` the compile-time maximum and `knob` the Kconfig symbol that moves
+ * it. */
+void xrce_report_capacity_exhausted(const char* kind, const char* name, unsigned cap,
+                                    const char* knob);
+
+/* Report that the ONE per-session allocation could not be served, with the size
+ * that was asked for and the knobs that decide it.
+ *
+ * issue 1033 — `sizeof(xrce_session_state_t)` is decided entirely at build time
+ * and dominated by `subscriber_slots`, and the whole struct is a single
+ * request. When it fails the caller gets `NROS_RMW_RET_BAD_ALLOC` and nothing
+ * else, which is how a 309,696-byte request against a 65,536-byte Zephyr heap
+ * presented as an anonymous boot failure for as long as issue 0968 was open.
+ * The number is knowable at the failure site; printing it is the difference
+ * between a nine-step bisect and one line. */
+void xrce_report_session_alloc_failed(size_t bytes);
+
 /* ---- session.c ---- */
 rmw_ret_t xrce_session_create(const char* locator, uint8_t mode, uint32_t domain_id,
                               const char* node_name, const rmw_session_options_t* options,

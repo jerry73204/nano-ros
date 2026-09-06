@@ -976,6 +976,39 @@ config NROS_XRCE_MAX_SERVICE_CLIENTS
       Maximum number of concurrent XRCE service clients.
       Maps to XRCE_MAX_SERVICE_CLIENTS.
 
+config NROS_XRCE_SUBSCRIBER_RING_DEPTH
+    int "Queued samples per subscriber"
+    default 32
+    range 1 1024
+    help
+      How many samples one subscriber slot buffers before the topic
+      callback drops the newest. Maps to XRCE_SUBSCRIBER_RING_DEPTH.
+
+      This is the OTHER multiplier of a subscriber slot: a slot costs
+      NROS_XRCE_SUBSCRIBER_RING_DEPTH x NROS_XRCE_BUFFER_SIZE (32 x 1024
+      by default) plus bookkeeping. Issue 1033 derived the slot COUNT
+      from the image's declared entities; this is the per-slot DEPTH,
+      and it is deliberately NOT derivable -- no inventory knows how
+      deep a burst a subscriber must survive. It is a policy, so it is
+      stated.
+
+      Issue 1033 also found it DEAD on Zephyr. `nros-rmw-xrce-cffi`'s
+      build.rs has read NROS_XRCE_SUBSCRIBER_RING_DEPTH since phase-207
+      and the book documented it, but there was no Kconfig symbol and
+      no `_nros_resolve_knob` line, and a Zephyr cargo build sees ONLY
+      the knobs that resolver forwards -- shell exports do not survive
+      it (issue 0460). So a Zephyr image could not change the depth by
+      any means, and setting it looked like it had worked. 32 is the
+      value every Zephyr XRCE image has always compiled; this makes it
+      reachable without moving it.
+
+      Depth 32 exists because the Agent batches a whole publish burst
+      onto the input stream inside one `uxr_run_session_time` call, so
+      the listener cannot drain between callbacks -- see the comment on
+      XRCE_SUBSCRIBER_RING_DEPTH in nros-rmw-xrce/src/internal.h before
+      lowering it. A node that publishes only, or reads a slow topic,
+      can drop it to 1 and save 31/32 of every subscriber slot.
+
 config NROS_XRCE_BUFFER_SIZE
     int "Per-slot static buffer size"
     default 1024

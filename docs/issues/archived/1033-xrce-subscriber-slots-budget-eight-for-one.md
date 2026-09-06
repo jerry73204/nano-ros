@@ -1,7 +1,7 @@
 ---
 id: 1033
 title: "The XRCE session budgets eight 32-deep subscriber rings, so a one-subscriber image pays 266,368 bytes for seven it will never use"
-status: open
+status: resolved
 area: rmw, memory
 severity: high
 found: 2026-09-04
@@ -75,7 +75,7 @@ ladder beside the zenoh ones.
 ## Do not just raise the heap
 
 Raising `NROS_ZEPHYR_HEAP_SIZE` past 310 KB would make the three cells in
-[issue 0968](0968-tier2-runtime-failures-unreproduced.md) pass while leaving an
+[issue 0968](../0968-tier2-runtime-failures-unreproduced.md) pass while leaving an
 image that reserves 86% of its session struct for entities it does not create.
 That is the shape this campaign exists to remove, and the boot failure is
 currently the only thing making it visible.
@@ -236,3 +236,135 @@ as user input, so changing a Kconfig DEFAULT does not reach a configured build
 dir. The first attempt at this read `CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS=4`
 from a `.config` written before the sentinel existed and looked like the
 derivation had failed. `west build -p always` is what proves it.
+
+
+## Closed (2026-09-06) — the two things the derivation left open
+
+The saving above is real and shipped. Two things were still wrong once it
+landed, and both are fixed here.
+
+### 1. The other factor of a slot was a DEAD KNOB on Zephyr
+
+A slot is `XRCE_SUBSCRIBER_RING_DEPTH x XRCE_BUFFER_SIZE`. The derivation moved
+the slot COUNT; `BUFFER_SIZE` was already forwarded; `RING_DEPTH` — the `32` in
+`32 x 1024` — was not settable on Zephyr **by any means**, which is what this
+issue's opening section suspected and nobody had confirmed.
+
+Confirmed now, and the mechanism is issue 0460's, in the direction its gate does
+not look:
+
+* `nros-rmw-xrce-cffi/build.rs` has read `NROS_XRCE_SUBSCRIBER_RING_DEPTH` since
+  phase-207, `book/src/reference/environment-variables.md` documented it with a
+  default and a minimum, and `internal.h` invites `-DXRCE_SUBSCRIBER_RING_DEPTH`
+  — so it read as live from three directions;
+* there was **no `config NROS_XRCE_SUBSCRIBER_RING_DEPTH`** in `zephyr/Kconfig`
+  and **no `_nros_resolve_knob`** line in `nros_cargo_build.cmake`;
+* the reader's `$DOTCONFIG` fallback keys on `CONFIG_<name>`, so with no symbol
+  it finds nothing, and the curated cargo environment forwards only what the
+  resolver resolved (`NROS_RESOLVED_KNOBS` -> `_nros_knob_env`) — a shell export
+  does not survive it;
+* it also has no RFC-0049 rung: `XRCE_KNOBS` in
+  `nros-platform-config/src/platform_config.rs` is `custom_transport_mtu` and
+  `stream_history` only, so the descriptor was not a second carrier either.
+
+Fixed: a Kconfig symbol (default **32**, the value every Zephyr XRCE image has
+always compiled, so no image moves) plus the `_nros_resolve_knob` line.
+Deliberately NOT on the derivable ladder — the count is a fact about the image,
+the depth is a policy about bursts, and no entity inventory knows the second.
+
+**The class was swept and is larger than this issue.** A read-side inventory
+across the seven build scripts `check-kconfig-knob-forwarding` names finds ~10
+more sizing knobs the resolver never forwards — `NROS_MAX_PARAM_NAME_LEN`,
+`NROS_MAX_ARRAY_LEN`, `NROS_MAX_STRING_VALUE_LEN`, `NROS_MAX_BYTE_ARRAY_LEN`,
+`NROS_RMW_MAX_BACKENDS`, `NROS_RMW_MAX_NODES`, `NROS_RMW_MESSAGE_INFO_SLOTS`,
+`NROS_KEYEXPR_STRING_SIZE`, `NROS_SERVICE_TIMEOUT_MS`. **That is a lead, not a
+verdict**: several of them have a second carrier (the params ones read RFC-0049
+`rungs`, as `NROS_XRCE_CUSTOM_TRANSPORT_MTU` does), and which are genuinely
+unreachable was not established here. It is not filed as an issue for exactly
+that reason — a confident wrong root cause is worse than no filing (0859-0862).
+Whoever takes it should re-run the sweep and check each knob's rung before
+claiming any of them is dead:
+
+```
+python3 - <<'PY'
+import re
+cmake = open('zephyr/cmake/nros_cargo_build.cmake').read()
+fwd = set(re.findall(r'_nros_resolve(?:_derivable)?_knob\(\s*([A-Z0-9_]+)', cmake))
+kc  = set(re.findall(r'^config\s+([A-Z0-9_]+)', open('zephyr/Kconfig').read(), re.M))
+for f in ['packages/rmw/zenoh/nros-zpico-build/src/runner.rs',
+          'packages/rmw/zenoh/nros-rmw-zenoh/build.rs',
+          'packages/core/nros-node/build.rs',
+          'packages/rmw/xrce/nros-rmw-xrce-cffi/build.rs',
+          'packages/core/nros-params/build.rs',
+          'packages/rmw/cffi/build.rs',
+          'packages/platform/nros-platform/build.rs']:
+    for k in sorted(set(re.findall(r'"(NROS_[A-Z0-9_]+)"', open(f).read()))):
+        if k not in fwd:
+            print(('KCONFIG' if k in kc else '   -   '), k, f)
+PY
+```
+
+`check-kconfig-knob-forwarding` asks whether every FORWARDED knob has a reader.
+Nothing asks whether every READ knob is forwarded, which is why this hid.
+
+### 2. Exceeding a derived cap was not LOUD
+
+Before the derivation, exhausting a cap meant creating a ninth subscriber on an
+image budgeted for eight. Now the cap IS the declared count, so the ordinary way
+to hit it is to create an entity that was never declared — and all three
+exhaustion sites returned a bare `NROS_RMW_RET_ERROR`, the same value a NULL
+`backend_data` returns three lines up, with nothing logged. A correct
+derivation had made its own failure mode common and left it undiagnosable.
+
+Not silent truncation — it did fail the create — but nothing named the cap, the
+knob, or the declaration the number came from.
+
+Fixed, one shared spelling (`xrce_report_capacity_exhausted`, `session.c`):
+
+* the code is **`NROS_RMW_RET_INVALID_CONFIG`**, issue 0468's, added for exactly
+  this on the zenoh side — "a COMPILE-TIME capacity or configuration made the
+  call impossible ... the remedy is a rebuild, never a different argument". Same
+  failure one backend over, so the same code rather than a second spelling. It
+  round-trips to `TransportError::InvalidConfig`;
+* the diagnostic names the entity, its name, the cap, the knob, and *that the
+  default is derived from the declaration* — which is the sentence a reader
+  needs and could not have guessed;
+* delivery is `nros_platform_log_write`, the "platform's printk-equivalent"
+  `nros/rmw_ret.h` already names as where a backend logs at the failure site. It
+  reaches every platform, native_sim included, where Rust `std` stdio is fatal
+  (issue 0589).
+
+The session allocation gained the same treatment: `xrce_report_session_alloc_failed`
+prints `sizeof(xrce_session_state_t)` and the knobs that decide it. That is the
+one request this whole issue is about, and for as long as issue 0968 was open it
+presented as an anonymous boot failure because the number was never printed.
+
+### The ring depth's saving, and how it was measured
+
+`sizeof` on the host, with `xrce_subscriber_ring_entry` and
+`xrce_subscriber_slot` copied VERBATIM out of `internal.h` by a script (no
+retyping), at three depths:
+
+| `XRCE_SUBSCRIBER_RING_DEPTH` | one slot | vs default |
+| ---: | ---: | ---: |
+| 32 (default) | 33,296 | — |
+| 4 | 4,176 | -29,120 |
+| 1 | 1,056 | -32,240 |
+
+The depth-32 row reproduces this issue's DWARF measurement (33,296) exactly,
+which is what makes the other two trustworthy. Carried onto the listener's
+59,088-byte session: **29,968 at depth 4, 26,848 at depth 1** — computed by
+subtraction from that measured total, not re-measured on a target ELF.
+
+**The default does not move**, so no shipped image changes size today. What
+changed is that a Zephyr image can now claim that saving at all.
+
+### Not done
+
+* The ~10 swept sibling knobs above — a lead, not a verdict; see the caveat.
+* A gate for "every knob a build script reads is forwarded or has a rung".
+  Writing one means adjudicating each of those ~10, which is the work above.
+* No target build. The C changes compile clean under `cc-rs` with
+  `nros_cc_flags::strict_decls` (`cargo check -p nros-rmw-xrce-cffi`, both new
+  strings verified present in `libnros_rmw_xrce_c_inline.a`); the Zephyr image
+  was not rebuilt on this host.

@@ -256,11 +256,12 @@ you receive, in the [book](../../book/src/getting-started/zephyr.md) and
 | `CONFIG_NROS_XRCE_AGENT_ADDR` | string | `"127.0.0.1"` | Agent IP address |
 | `CONFIG_NROS_XRCE_AGENT_PORT` | int | 2018 | Agent UDP port |
 | `CONFIG_NROS_XRCE_TRANSPORT_MTU` | int | 512 | Transport MTU |
-| `CONFIG_NROS_XRCE_MAX_SUBSCRIBERS` | int | 8 | Max concurrent subscribers |
-| `CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS` | int | 4 | Max service servers |
+| `CONFIG_NROS_XRCE_MAX_SUBSCRIBERS` | int | -1 (derive) | Max concurrent subscribers |
+| `CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS` | int | -1 (derive) | Max service servers |
 | `CONFIG_NROS_XRCE_MAX_SERVICE_CLIENTS` | int | 4 | Max service clients |
+| `CONFIG_NROS_XRCE_SUBSCRIBER_RING_DEPTH` | int | 32 | Queued samples per subscriber |
 | `CONFIG_NROS_XRCE_BUFFER_SIZE` | int | 1024 | Per-slot buffer size |
-| `CONFIG_NROS_XRCE_STREAM_HISTORY` | int | 4 | Reliable stream depth (2–16) |
+| `CONFIG_NROS_XRCE_STREAM_HISTORY` | int | 16 | Reliable stream depth (2–16) |
 
 ### C API Options (visible when `CONFIG_NROS_C_API=y`)
 
