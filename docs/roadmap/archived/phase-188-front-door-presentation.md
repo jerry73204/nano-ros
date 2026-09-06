@@ -7,9 +7,20 @@ land a strong first impression in the first 30 seconds — *show*, not just
 phase reworks the landing page (`introduction.md`) and the architecture
 entry point.
 
-**Status.** 188.A + 188.C DONE (2026-05-28); `mdbook build book` clean
-(mermaid renders, no broken links). Workstream B (visual identity) scoped
-but deferred (needs a logo decision).
+**Status. CLOSED 2026-09-06.** 188.A + 188.C DONE (2026-05-28);
+`mdbook build book` clean (mermaid renders, no broken links). Workstream B
+(visual identity) was scoped but deferred pending a logo decision, and in the
+three and a half months since, that decision has not been made.
+
+It is rehomed as **issue 1141** rather than kept here. What remained was two
+theming files — a favicon/logo and an accent stylesheet — blocked on a DESIGN
+choice, not on engineering: the `[output.html]` / `additional-css` wiring they
+need already has a working precedent in the same `book.toml` (the mermaid
+preprocessor). A phase held open by a favicon reads, to anyone scanning the
+roadmap, as an engineering workstream in progress; it is not one.
+
+The stale-source-comment follow-up noted under 188.A is carried into 1141 too,
+so closing this loses nothing.
 
 **Priority.** P2 — presentation / adoption. No product capability depends
 on it, but the book is the public front door and the GitHub-Pages site is
