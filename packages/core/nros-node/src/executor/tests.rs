@@ -3247,6 +3247,36 @@ static TYPED_CB_VALUE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI
 static TYPED_CB_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static TYPED_CB_CTX_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Orders the two tests that share the `TYPED_CB_*` statics above.
+///
+/// Same shape, and the same reason, as `SimTimeGuard`: the four statics are
+/// PROCESS-global while `#[test]`s run concurrently, so
+/// `typed_c_subscription_delivers_into_caller_storage` — whose callback DOES
+/// fire — could land its `fetch_add` between the refused-decode test's
+/// `store(0)` and its `load`. The refused-decode test then read 1 and reported
+/// "a refused decode reached the callback", naming a delivery bug that had not
+/// happened. Measured at 7 failures in 15 runs with `--test-threads=2`, and 0
+/// in 15 solo or with `--test-threads=1`.
+///
+/// The counter is the reason a lock is the right tool rather than
+/// per-test statics: both tests assert on the SAME question ("did the callback
+/// fire, and how often"), so what they need is to not overlap, which is
+/// exactly what the lock says.
+struct TypedProbeGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl TypedProbeGuard {
+    fn acquire() -> Self {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        // A poisoned lock means the sibling panicked while holding it. That is a
+        // failure being reported elsewhere, not a reason to fail here too.
+        Self {
+            _lock: LOCK.lock().unwrap_or_else(|e| e.into_inner()),
+        }
+    }
+}
+
 /// The ported-rclc callback body: it reads FIELDS, and never CDR bytes.
 unsafe extern "C" fn typed_probe_callback(
     msg: *const core::ffi::c_void,
@@ -3261,6 +3291,7 @@ unsafe extern "C" fn typed_probe_callback(
 
 #[test]
 fn typed_c_subscription_delivers_into_caller_storage() {
+    let _typed_probe = TypedProbeGuard::acquire();
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
@@ -3334,6 +3365,7 @@ fn typed_c_subscription_delivers_into_caller_storage() {
 
 #[test]
 fn typed_c_subscription_refused_decode_is_loud_and_undelivered() {
+    let _typed_probe = TypedProbeGuard::acquire();
     let session = MockSession::new();
     let mut executor: Executor = executor_with_clock(session);
 
