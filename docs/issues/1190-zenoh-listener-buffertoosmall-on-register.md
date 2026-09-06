@@ -36,19 +36,51 @@ subscriber's keyexpr or its liveliness token, and the failure surfaces four
 collapses away as an opaque `NodeRegister(…)` — the collapse
 `packages/api/nros/src/node.rs:53` already documents.
 
-## What is NOT established
+## Root cause — measured (PR #692)
 
-**Whether this is a regression.** The before/after comparison this run existed
-to make cannot answer it: the baseline capture was `tail -50`, which truncated
-nextest's summary line, and the two visible failures were reported as `(9/10)`
-and `(10/10)` — nextest COMPLETION counters, not case numbers. So the baseline
-does not say whether `case_2` passed on `91f3ce7c9`.
+| | bytes |
+| --- | ---: |
+| modelled per pub/sub entry, `3 * rx_buf + 512` | 3,584 |
+| **real** | **12,144** |
 
-That is a harness mistake worth recording on its own: truncating a baseline
-costs exactly the comparison the baseline was for. Capture full output when the
-run's purpose is a diff.
+It decomposes exactly, and the total is `8192 + 3952` — the shortfall this
+issue opened with:
 
-To settle it, run `case_2` against `91f3ce7c9` in the box and compare.
+    size_of::<SubBufferedRawEntry<F>>() with a ZST callback      640
+    the declarative runtime's closure (heapless::String<128>)    152
+    buffered_region_size(10, 1024) = 11 * 1024 + 11 * 8       11,352
+                                                             ------
+                                                             12,144
+
+**`PUBSUB_SUB_BUFS = 3` is `TripleBuffer::SLOT_COUNT`, and the allocator uses a
+triple buffer only for `depth <= 1`.** Deeper is an `SpscRing` — `depth + 1`
+slots plus a `usize` beside each. The ROS default is `rmw_qos_profile_default`,
+KEEP_LAST(**10**). The model carried **no depth term at all**:
+`grep -c depth build.rs` returns 0.
+
+phase-403 step 2 added declared depths for exactly this; step 3 shipped without
+reading them, and its own design doc calls defaulting to 1 "the unsafe
+direction".
+
+## IT IS A REGRESSION — established, contrary to this issue's first revision
+
+`fac0c8173`, phase-403 step 3, **2026-09-03**. No baseline run was needed. The
+first revision said the question was open because a truncated `tail -50` had
+destroyed the before/after comparison — and the answer was in the history the
+whole time. Losing the baseline was careless; concluding "unknowable" from it
+was the larger error.
+
+## Two things this issue got wrong about its own cause
+
+1. **"The floor hides it" — no.** `ARENA_FLOOR`'s `.max()` only raises,
+   5,632 → 8,192: the right direction, still 3,952 short. What hid it is the
+   **action-client term's margin** — 18,048 modelled against 14,600 measured,
+   3,448 B of slack per slot, absorbing a pub/sub term short by 8,560 on any
+   4-slot image, and every image budgets every slot at the action-client worst
+   case. The floor stays 8,192; raising it to one entry would tax timer-only
+   and publisher-only images 6,232 B for a guarantee they cannot use.
+2. **"The arena is too small" — the MODEL was wrong**, which points at a
+   different fix. A floor is safe exactly when the per-entry model is right.
 
 ## Why the interesting suspects are probably not it
 
