@@ -799,6 +799,29 @@ filter = "binary(params)"
 test-group = "ros2-interop"
 slow-timeout = { period = "60s", terminate-after = 2 }
 
+# phase-433 W6 — the QoS status-event interop lane. `ros2-interop` and not
+# `host-dds-ros2-interop`: the peer is `rmw_zenoh_cpp` against a `start_unique`
+# router, so it joins no RTPS domain, but it does start `ros2 run
+# demo_nodes_cpp talker` and therefore touches the singleton ROS 2 daemon like
+# every other zenoh cell in that group.
+#
+# 120s because the budget is additive and visible: the probe alone spins for
+# `QOS_EVENT_PROBE_TIMEOUT_MS` = 25s before it will admit it saw nothing, and
+# the router start, the talker start and zenoh discovery sit in front of that.
+# The default 30s would kill it mid-probe and report a TIMEOUT — the failure
+# mode PR #627 found on `ros2_action_e2e`, where an unset override turned a
+# verdict into no verdict.
+#
+# No retries, deliberately, and this is the one lane where that matters: the
+# question it answers is whether a `produced` slot fires at all. A retry would
+# convert "fired on the second attempt" — which is what an unreliable
+# `liveliness_get` looks like (issue 1165) — into a green, which is exactly the
+# reading this lane exists to refuse.
+[[profile.default.overrides]]
+filter = "binary(qos_event_interop)"
+test-group = "ros2-interop"
+slow-timeout = { period = "120s", terminate-after = 3 }
+
 # Phase 177.8.d — three under-provisioned heavy tests TIMED OUT (not failed)
 # under full `test-all` load. Root causes differ:
 #

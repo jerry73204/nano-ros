@@ -998,6 +998,33 @@ pub const SIMCLOCK_PUB_STOPPED: &str = "SIMCLOCK_PUB_STOPPED";
 
 pub const GRAPH_PROBE_SAW: &str = "GRAPH_PROBE_SAW";
 
+/// phase-433 W6 — `qos-event-probe` delivered one QoS status event to an
+/// application callback.
+///
+/// A PREFIX, not a whole line: the probe prints the four
+/// `LivelinessChangedStatus` fields after it and the test reads the deltas, so
+/// a marker matching only the line would pass on a callback that fired with
+/// every counter zero — which is what a poll that finds nothing also produces.
+pub const QOS_EVENT_LIVELINESS_CHANGED: &str = "QOS_EVENT LIVELINESS_CHANGED";
+
+/// phase-433 W6 — the probe registered the callback, spun its whole budget and
+/// observed nothing. Distinct from [`QOS_EVENT_PROBE_UNSUPPORTED`] on purpose:
+/// "the backend declined" and "the backend accepted and never fired" are
+/// different defects and the second is the one `produced` cannot see.
+pub const QOS_EVENT_PROBE_NONE: &str = "QOS_EVENT_PROBE_NONE";
+
+/// phase-433 W6 — the backend refused the event kind. The honest answer from a
+/// backend whose `subscription_event_init` slot is NULL.
+pub const QOS_EVENT_PROBE_UNSUPPORTED: &str = "QOS_EVENT_PROBE_UNSUPPORTED";
+
+/// phase-433 W6 — the probe's capability line, printed BEFORE the outcome so a
+/// failure can name which half broke.
+pub const QOS_EVENT_SUPPORTS: &str = "QOS_EVENT_SUPPORTS";
+
+/// phase-433 W6 — the probe has its subscription and its callback and is
+/// spinning. The peer may start.
+pub const QOS_EVENT_PROBE_READY: &str = "QOS_EVENT_PROBE_READY";
+
 /// phase-381 verification — the probe exercised ALL ELEVEN graph slots against
 /// a live peer and every one answered.
 ///

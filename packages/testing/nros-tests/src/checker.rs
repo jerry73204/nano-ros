@@ -61,6 +61,9 @@ pub fn delivery_marker(workload: Workload) -> &'static str {
         // Also a verdict rather than delivery: a discovery workload proves it
         // SAW the peer, which no message count can express.
         Workload::Graph => output::GRAPH_PROBE_SAW,
+        // Also a verdict: the evidence is that a status event reached an
+        // application callback at all, which no message count can express.
+        Workload::QosEvents => output::QOS_EVENT_LIVELINESS_CHANGED,
     }
 }
 

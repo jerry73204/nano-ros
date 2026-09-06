@@ -3667,6 +3667,34 @@ pub fn build_graph_probe_rmw(rmw: Rmw) -> TestResult<&'static Path> {
     .map(|p| p.as_path())
 }
 
+/// phase-433 W6 — resolve the prebuilt `qos-event-probe` fixture (cached).
+///
+/// Registers `on_liveliness_changed` on a raw `/chatter` subscription and
+/// prints every QoS status event it observes, so `qos_event_interop.rs` can
+/// assert one FIRED against a stock `demo_nodes_cpp` talker.
+///
+/// Zenoh only, and no `_rmw` sibling — unlike `build_graph_probe_rmw`, which is
+/// per-backend because both backends fill the graph slots. Here they do not:
+/// cyclonedds leaves `subscription_event_init` / `publisher_event_init` NULL,
+/// and the `*_take_event` pair it does implement has no caller in the tree
+/// outside its own C++ unit test. A Cyclone build of this probe would exit 3
+/// ("backend declined") on every host, which is a fact about the vtable that a
+/// live peer adds nothing to. It is recorded as a `CarveOut` cell in
+/// `interop::CELLS` instead.
+pub fn build_qos_event_probe() -> TestResult<&'static Path> {
+    static BIN: OnceCell<PathBuf> = OnceCell::new();
+    BIN.get_or_try_init(|| {
+        let row = crate::fixtures::groups::select_row(
+            "packages/testing/nros-tests/bins/qos-event-probe",
+            &crate::fixtures::groups::FixtureVariant::rmw(Rmw::Zenoh),
+        )?;
+        let profile = cargo_target_profile_dir();
+        let rel = PathBuf::from(format!("{profile}/qos-event-probe"));
+        require_prebuilt_row_binary_fresh(row, &rel)
+    })
+    .map(|p| p.as_path())
+}
+
 pub fn build_int32_sink_rmw(rmw: Rmw) -> TestResult<&'static Path> {
     static ZENOH_BIN: OnceCell<PathBuf> = OnceCell::new();
     static XRCE_BIN: OnceCell<PathBuf> = OnceCell::new();
