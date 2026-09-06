@@ -6,5 +6,6 @@
 # deleting the correct citation would be the wrong fix.
 #
 # Regenerate: python3 scripts/check-prose-issue-refs.py --write-baseline
-just/check.just:1039
-scripts/check-zenoh-platform-macros.py:1039
+docs/issues/1116-rustdoc-diagnostics-outside-the-published-crate-set.md:1110
+just/check/docs.just:1110
+scripts/build/rustdoc-set.sh:1110

@@ -107,6 +107,10 @@ def candidate_files():
             out.append(f)
     for root in SEARCH_ROOTS:
         base = os.path.join(ROOT, root)
+        # walk-ok: must see files added in the working tree but not yet
+        # committed (see module docstring, "WHAT IS EXEMPT" — an id and the
+        # doc citing it can land in one commit), so `git ls-files` is the
+        # wrong index here.
         for dirpath, dirnames, filenames in os.walk(base):
             rel = os.path.relpath(dirpath, ROOT)
             if any(rel == e or rel.startswith(e + os.sep) for e in EXEMPT_DIRS):
