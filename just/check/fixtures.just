@@ -230,6 +230,21 @@ lane-scope-consumers:
 interop-cell-runners:
     @python3 scripts/check-interop-cell-runners.py
 
+# phase-433 W5 / issue 1127 — the half that outlives W4's runner gate. A cell can
+# be aimed at and still never have met a peer: `skip!` becomes `<skipped>`, every
+# consumer counts that as not-a-failure, and a cell that has skipped on every host
+# since the day it was written is indistinguishable from one that passes. So what
+# a live peer has ANSWERED is written down (`.config/interop-verdicts.toml`) and
+# an absent entry means NEVER RUN — the default, so nothing here is satisfiable by
+# a cell that never runs. This gate checks the ledger's integrity only, which is
+# why it is green on a host with no ROS: real cell, required fields, cases that
+# still exist, an OPEN issue behind every `fail`, and no BINDING test cited as
+# evidence (`cases_bound_to_interop_cells` passes with no peer, forever — citing
+# one would put the defect inside the fix). Report: `just interop-verdicts`.
+[private]
+interop-verdict-ledger:
+    @python3 scripts/check-interop-verdicts.py
+
 # Issue 0743 fallout — a `binary()` in .config/nextest.toml naming a deleted test
 # target makes nextest refuse to PARSE the config, which kills every nextest run
 # in the repo, not just that lane. It went unnoticed behind a green `just check`
