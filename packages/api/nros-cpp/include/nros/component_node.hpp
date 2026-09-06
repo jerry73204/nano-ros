@@ -133,6 +133,17 @@ inline void operator delete[](void*, void*) noexcept {}
 #ifndef NROS_COMPONENT_MAX_TIMERS
 #define NROS_COMPONENT_MAX_TIMERS 8
 #endif
+/// Issue 1131 — `timers_[NROS_COMPONENT_MAX_TIMERS]` is a fixed inline pool, and
+/// zero is not a smaller one. `nros::Timer` is `void* + size_t + bool` (plus one
+/// `unique_ptr` under `NROS_CPP_STD`), so the step from 1 slot to 0 is 12-32
+/// bytes per component — against `Timer timers_[0]`, which ISO C++ does not have
+/// at all (GCC/Clang accept it only as the zero-length-array extension). A
+/// component that owns no timer sets 1 and pays those bytes once.
+/// Below the `#ifndef`, never above it: an undefined identifier reads as 0 in
+/// `#if`, so a guard above its own default fires on every build (issue 1167).
+#if NROS_COMPONENT_MAX_TIMERS < 1
+#error "NROS_COMPONENT_MAX_TIMERS must be >= 1: it sizes a C array (issue 1015)"
+#endif
 
 namespace nros {
 

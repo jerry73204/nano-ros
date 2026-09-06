@@ -742,7 +742,23 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   delivered faithfully. Floor at the pool (`c_array_pool_floor` /
   `_nros_c_array_pool_floor`), keep `#if X < 1 / #error` beside the array as the
   backstop that binds a producer neither reaches. Gate: `check-c-array-pool-floors`
-  (also refuses an unruled new one; the 15 still unruled are issue 1131).
+  (also refuses an unruled new one; the 2 still unruled are issue 1131 — the
+  other 13 were ruled there, 9 guarded and 4 already covered). **BOTH gates in
+  this family had a REACH narrower than the rule they enforce** (0196's shape),
+  and issue 1131 hit both at once. `check-c-array-pool-floors` required a knob's
+  `#ifndef` and `#define` on ADJACENT LINES, so the two knobs that document
+  themselves between the two were invisible — it reported 21 arrays over a tree
+  with 23, and one of them (`ZPICO_GRAPH_CACHE_SIZE`, 64 KiB) had carried a
+  correct guard for five weeks with no credit. Its build-tier twin
+  `check-c-array-guard-probe` — which asks the COMPILER whether a guard fires,
+  because 1167 proved a guard that exists is not a guard that fires — carried ONE
+  hardcoded zpico include set, so the first guard outside `zpico.c` made it red
+  for a reason that was about the probe, not the guard. It now has a per-file
+  `PROBE_CONTEXT`: a real compile where the headers exist, and otherwise a
+  preprocess with `#include`s stripped and every enclosing condition DECLARED by
+  name — with a guarded file in neither mode a hard failure, so no guard ships
+  unprobed. A guard's floor may be above 1 (`STRESS_SIZE` is 16: `build_payload`
+  writes 12 header bytes unchecked), which both gates now read.
 - **A service server IS a zenoh queryable** — `[param_services]` (6) + `[lifecycle]` (5) claim
   eleven slots before the app declares anything, against `ZPICO_MAX_QUERYABLES` = 8 embedded.
   Raise `CONFIG_NROS_MAX_QUERYABLES`; the table is a static array, so the default stays small.

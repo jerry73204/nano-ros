@@ -31,6 +31,16 @@ typedef struct {
 #ifndef NROS_THREADX_MAX_TIMERS
 #  define NROS_THREADX_MAX_TIMERS 32
 #endif
+/* Issue 1131 — the registry is how a `ULONG` expiration_input finds its
+ * wrapper, so a slot is the ONLY way a timer can exist on this port. At 0
+ * `registry_claim` can never succeed, so `nros_platform_timer_create` returns
+ * NULL for every timer the image asks for, forever — an image with no timers
+ * asks for none and pays nothing extra, so 0 saves 32 pointers and costs the
+ * whole timer ABI. Below the `#ifndef`, never above: an undefined identifier
+ * reads as 0 in `#if`, so a guard above its own default fires always (1167). */
+#if NROS_THREADX_MAX_TIMERS < 1
+#error "NROS_THREADX_MAX_TIMERS must be >= 1: it sizes a C array (issue 1015)"
+#endif
 static nros_threadx_timer_t *s_timer_registry[NROS_THREADX_MAX_TIMERS];
 
 /* Heap allocated by the application; expose via a setter so the

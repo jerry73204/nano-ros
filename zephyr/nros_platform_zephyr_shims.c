@@ -377,6 +377,18 @@ ssize_t nros_zephyr_sendto(int fd, const void* buf, size_t len, int flags,
 #ifndef NROS_ZEPHYR_MAX_THREADS
 #define NROS_ZEPHYR_MAX_THREADS 8
 #endif
+/* Issue 1131 — this is the platform's ENTIRE task pool: `nros_claim_thread_slot`
+ * is the only path to a thread here, so at 0 the image can create no task at
+ * all, zenoh-pico's read task included. That is issue 0839's failure with the
+ * wall at zero instead of four — the image comes up, declares, transmits, and
+ * never receives. The producer cannot reach 0 either
+ * (`zephyr/CMakeLists.txt` emits the define under `if(CONFIG_...)`, which CMake
+ * reads as false at 0, so the C default applies); this is the backstop for a
+ * bare `-D`. Below the `#ifndef`, never above: an undefined identifier reads as
+ * 0 in `#if`, so a guard above its own default fires on every build (1167). */
+#if NROS_ZEPHYR_MAX_THREADS < 1
+#error "NROS_ZEPHYR_MAX_THREADS must be >= 1: it sizes a C array (issue 1015)"
+#endif
 
 #ifndef NROS_ZEPHYR_STACK_SIZE
 #define NROS_ZEPHYR_STACK_SIZE CONFIG_MAIN_STACK_SIZE

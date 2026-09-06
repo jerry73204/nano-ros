@@ -37,6 +37,16 @@ extern "C" {
 #ifndef Z_TASK_STACK_SIZE
 #define Z_TASK_STACK_SIZE 8192
 #endif
+/* Issue 1131 — this sizes `_z_task_t::threadx_stack`, the actual stack every
+ * zenoh-pico task runs on, and a thread with no stack is not a smaller thread.
+ * `tx_thread_create` refuses anything under TX_MINIMUM_STACK with
+ * TX_SIZE_ERROR, so 0 buys nothing an image could use; a build that wants no
+ * zenoh tasks at all sets `Z_FEATURE_MULTI_THREAD=0`, which removes this whole
+ * block. Below the `#ifndef`, never above it: an undefined identifier reads as
+ * 0 in `#if`, so a guard above its own default fires on every build (1167). */
+#if Z_TASK_STACK_SIZE < 1
+#error "Z_TASK_STACK_SIZE must be >= 1: it sizes a C array (issue 1015)"
+#endif
 
 #ifndef Z_TASK_PRIORITY
 #define Z_TASK_PRIORITY 14

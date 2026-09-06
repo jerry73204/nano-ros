@@ -29,7 +29,11 @@ has to be DECIDED per knob rather than assumed in either direction. This gate
 does not decide it. It requires that somebody has, and that the decision is
 still true of the source:
 
-  GUARDED      the file carries `#if <KNOB> < 1` + `#error` beside the array.
+  GUARDED      the file carries `#if <KNOB> < N` + `#error` beside the array,
+               for some N >= 1. Usually 1; `STRESS_SIZE` is 16, because
+               `build_payload()` writes a 12-byte header with no bounds test,
+               so `< 1` there would state a minimum the code does not have.
+               `check-c-array-guard-probe` then proves the guard FIRES.
   ZERO_LEGAL   the decision is "0 is a legal size here", with the issue that
                measured it. Such a knob must NOT also carry a guard.
   UNCLASSIFIED the honest state of the rest: an array sized by a build-settable
@@ -79,7 +83,12 @@ SKIP = ("third-party/", "/generated/", "zenoh-pico/", "/tests/fixtures/", "/buil
 IFNDEF = re.compile(r"^\s*#\s*ifndef\s+([A-Z][A-Z0-9_]*)\s*$")
 DEFINE = re.compile(r"^\s*#\s*define\s+([A-Z][A-Z0-9_]*)\s+\S")
 ARRAY = re.compile(r"\[\s*([A-Z][A-Z0-9_]*)\s*\]")
-GUARD = re.compile(r"#\s*if\s+([A-Z][A-Z0-9_]*)\s*<\s*1\b")
+# `#if K < N` for any POSITIVE integer literal, not only `< 1`. The gate's
+# question is "what is the smallest legal value", and for several arrays the
+# honest answer is above one: `STRESS_SIZE` is 16 because `build_payload()`
+# writes a 12-byte header with no bounds test. `< 0` is still not a guard —
+# it is the disarm the selftest controls for, and `[1-9][0-9]*` excludes it.
+GUARD = re.compile(r"#\s*if\s+([A-Z][A-Z0-9_]*)\s*<\s*[1-9][0-9]*\b")
 ERROR = re.compile(r"^\s*#\s*error\b", re.M)
 
 
@@ -119,21 +128,34 @@ ZERO_LEGAL = {
 # stating a number, which is why the campaign's silent-zero failure has not
 # reproduced through them. That is a reason to rank them below the derived
 # knobs, not a reason to call them safe.
+#
+# Issue 1131 ruled the other eleven (nine guarded here, and two the widened scan
+# below turned out to have carried a guard all along). What is LEFT is left on
+# purpose: each of these two has a real argument that zero is the right answer,
+# and that argument needs a measurement nobody has taken. A guard would foreclose
+# the saving the way issue 1015's first fix foreclosed issue 1033's.
 UNCLASSIFIED = {
-    "NROS_COMPONENT_MAX_TIMERS": "packages/api/nros-cpp/include/nros/component_node.hpp",
-    "NROS_RMW_UORB_PX4_MAX_CALLBACKS": "packages/rmw/uorb/nros-rmw-uorb/src/px4_callback_glue.cpp",
-    "NROS_THREADX_MAX_TIMERS": "packages/platform/nros-platform-threadx/src/timer.c",
-    "NROS_ZEPHYR_MAX_THREADS": "zephyr/nros_platform_zephyr_shims.c",
+    # 16,384 bytes of stack a slot x 4 slots = 64 KiB of .noinit, present in
+    # EVERY Zephyr image whether or not the system declares a tier — nothing
+    # produces this knob, so 4 is what every image compiles. A tierless image
+    # setting 0 is the same shape as XRCE_MAX_SUBSCRIBERS=0, and the refusal is
+    # already loud (`entry_tiers.rs` prints "failed to spawn tier ... pool
+    # exhausted?" per tier). NEEDS: a Zephyr build at
+    # -DNROS_ZEPHYR_MAX_TIERS=0 proving K_THREAD_STACK_ARRAY_DEFINE accepts a
+    # count of 0, plus a `just mem-report` delta for the 64 KiB.
     "NROS_ZEPHYR_MAX_TIERS": "zephyr/nros_platform_zephyr_shims.c",
-    "STRESS_SIZE": "packages/testing/nros-bench/stress-zenoh-zephyr/src/main.c",
-    "XRCE_BUFFER_SIZE": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
-    "XRCE_MAX_PENDING_REPLIES": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
-    "XRCE_SERVICE_REQUEST_RING_DEPTH": "packages/rmw/xrce/nros-rmw-xrce/src/internal.h",
-    "Z_TASK_STACK_SIZE": "packages/rmw/zenoh/zpico-sys/c/platform/threadx/platform.h",
+    # `Slot g_pool[N]`, where a Slot is `alignas(CallbackAdapter) unsigned char
+    # storage[sizeof(CallbackAdapter)]` — a px4::WorkItem subclass — x 64. The
+    # exhaustion path is a DOCUMENTED FALLBACK ("Caller falls back to polling"),
+    # not a failure, which is exactly what makes 0 arguable: an image that wants
+    # polling only would reclaim the pool. NEEDS: the PX4 SDK, to size
+    # CallbackAdapter, and confirmation from the uORB caller that the polling
+    # fallback is a supported mode rather than a degradation nobody reports.
+    "NROS_RMW_UORB_PX4_MAX_CALLBACKS": "packages/rmw/uorb/nros-rmw-uorb/src/px4_callback_glue.cpp",
 }
 # The list may SHRINK. Raising this is a deliberate edit that says "one more
 # knob-sized array ships unruled on", beside the entry that says which.
-UNCLASSIFIED_CEILING = 10
+UNCLASSIFIED_CEILING = 2
 
 # --- the producer half -----------------------------------------------------
 
@@ -169,6 +191,38 @@ DERIVATION_START = "let n = |tag: &str|"
 DERIVATION_END = "let max_nodes ="
 
 
+def next_code_line(lines: list[str], i: int) -> int | None:
+    """Index of the first line after `i` that is neither blank nor a comment.
+
+    The `#ifndef` fallback and its `#define` are NOT always adjacent: the two
+    biggest knobs in the tree document themselves between the two lines, and
+    an adjacency test therefore could not see `XRCE_SUBSCRIBER_RING_DEPTH`
+    (whose Kconfig already says `range 1 1024`) or `ZPICO_GRAPH_CACHE_SIZE`
+    (65,536 bytes of .bss). Both sit in files whose SIBLING knobs this gate
+    already rules on, which is the issue-0196 shape: a gate whose coverage is
+    narrower than the rule it enforces, reporting OK over what it cannot see.
+    """
+    j = i + 1
+    in_block = False
+    while j < len(lines):
+        t = lines[j].strip()
+        if in_block:
+            if "*/" in t:
+                in_block = False
+            j += 1
+            continue
+        if not t or t.startswith("//"):
+            j += 1
+            continue
+        if t.startswith("/*"):
+            if "*/" not in t:
+                in_block = True
+            j += 1
+            continue
+        return j
+    return None
+
+
 def scan(files: dict[str, str]) -> dict[str, dict]:
     """macro -> {path, guarded} for every build knob that sizes an array.
 
@@ -181,8 +235,9 @@ def scan(files: dict[str, str]) -> dict[str, dict]:
         settable = {}
         for i, line in enumerate(lines):
             m = IFNDEF.match(line)
-            if m and i + 1 < len(lines):
-                d = DEFINE.match(lines[i + 1])
+            if m:
+                k = next_code_line(lines, i)
+                d = DEFINE.match(lines[k]) if k is not None else None
                 if d and d.group(1) == m.group(1):
                     # Remember where the fallback block ENDS. A guard is only
                     # reachable after it: before, the macro is undefined and the
@@ -463,6 +518,35 @@ GUARD_INSIDE_IFNDEF_C = """
 struct s { entry_t slots[POOL_MAX]; };
 """
 
+# The fallback documents itself BETWEEN the `#ifndef` and the `#define`, which
+# is what two of the tree's knobs do. An adjacency test sees no build knob here
+# at all and reports OK over an array it never looked at (issue 1131).
+DOCUMENTED_FALLBACK_C = """
+#ifndef POOL_MAX
+/* Why this number is what it is.
+ *
+ * Several lines of it, because the number is a decision. */
+#define POOL_MAX 8
+#endif
+#if POOL_MAX < 1
+#error "POOL_MAX must be >= 1: it sizes a C array (issue 1015)"
+#endif
+struct s { entry_t slots[POOL_MAX]; };
+"""
+
+# A floor ABOVE one. `STRESS_SIZE` is 16 because `build_payload()` writes a
+# 12-byte header with no bounds test, so `< 1` would be a guard that states a
+# minimum the code does not have.
+FLOOR_ABOVE_ONE_C = """
+#ifndef POOL_MAX
+#define POOL_MAX 64
+#endif
+#if POOL_MAX < 16
+#error "POOL_MAX must be >= 16: the header write is unbounded (issue 1015)"
+#endif
+struct s { entry_t slots[POOL_MAX]; };
+"""
+
 GOOD_CMAKE = """
 _nros_c_array_pool_floor(_a "${X}" ZPICO_MAX_PUBLISHERS)
 _nros_c_array_pool_floor(_b "${X}" ZPICO_MAX_SUBSCRIBERS)
@@ -504,6 +588,24 @@ def selftest() -> int:
     inside = scan({"a.c": GUARD_INSIDE_IFNDEF_C})["POOL_MAX"]
     assert inside["guarded"] and inside["reachable"] is False, inside
     assert check_arrays({"POOL_MAX": inside}), "a guard inside its #ifndef must FAIL"
+
+    # POSITIVE: the fallback documents itself, so the `#define` is not the next
+    # LINE. Two knobs in the tree are shaped this way, and the adjacency test
+    # this replaced saw neither — the gate reported OK over arrays it had never
+    # looked at, one of which was already guarded and got no credit (1131).
+    doc = scan({"a.c": DOCUMENTED_FALLBACK_C})
+    assert "POOL_MAX" in doc, "a documented #ifndef fallback must still be a knob"
+    assert doc["POOL_MAX"]["guarded"] and doc["POOL_MAX"]["reachable"], doc
+
+    # POSITIVE: a floor ABOVE one is a floor. The gate asks for the smallest
+    # LEGAL value, and for some arrays that is not 1.
+    above = scan({"a.c": FLOOR_ABOVE_ONE_C})["POOL_MAX"]
+    assert above["guarded"] and above["reachable"], above
+    unruled = [p for p in check_arrays({"POOL_MAX": above}) if "POOL_MAX" in p]
+    assert not unruled, unruled
+    # ...but `< 0` is still the disarm, not a floor: no value fails it.
+    disarmed = scan({"a.c": FLOOR_ABOVE_ONE_C.replace("< 16", "< 0")})["POOL_MAX"]
+    assert disarmed["guarded"] is False, disarmed
 
     # NEGATIVE 1 — the guard is gone. This is issue 1015 exactly.
     no_guard = GOOD_C.replace("#if POOL_MAX < 1", "#if POOL_MAX < 0")
