@@ -260,6 +260,45 @@ pub fn render(
         );
     }
 
+    // Issue 1111 — where a C++ package finds a WORKSPACE-LOCAL interface
+    // package.
+    //
+    // An interface package is deliberately NOT a subdir (see the loop above,
+    // issue 0862), so a component's `find_package(my_msgs REQUIRED)` resolves
+    // through the compat layer's Find-stub, which scans
+    // `NROS_INTERFACE_SEARCH_PATH`. The hand-written roots set it — the
+    // documented shape in `NanoRosGenerateInterfaces.cmake` is
+    // `set(NROS_INTERFACE_SEARCH_PATH "${CMAKE_SOURCE_DIR}/src")` — and this
+    // emitter did not, so a workspace whose C++ node consumes its own msg
+    // package configured fine with `nros ws env` sourced and failed with a raw
+    // cmake "Could not find a package configuration file provided by
+    // <pkg>" without it. The builder knows the workspace root (it writes
+    // WORKSPACE_ROOT below), so it can answer the question rather than leaving
+    // it to the caller's environment — which is also the rule the tree already
+    // follows for knobs: a value that arrives through a dependency edge cannot
+    // be poisoned by an ambient variable.
+    //
+    // MUST precede `find_package(nano_ros)`: the compat layer reads this while
+    // it is being included, and the ordering is the hand-written roots' own.
+    //
+    // Prepends rather than assigns, so a caller who HAS sourced
+    // `nros ws env` (or set it for an out-of-workspace package tree) keeps
+    // their entry and its precedence — earlier roots win the shadowing order.
+    let src_rel = super::paths::relative_or_err(manifest_dir, &spec.workspace.join("src"))?;
+    out.push_str(&format!(
+        "# Issue 1111 — the workspace's own interface packages. Prepended, so an\n\
+         # entry the caller already exported keeps its precedence.\n\
+         get_filename_component(_nros_ws_src \"{src_rel}\" ABSOLUTE)\n\
+         if(EXISTS \"${{_nros_ws_src}}\")\n\
+         \x20   if(DEFINED ENV{{NROS_INTERFACE_SEARCH_PATH}})\n\
+         \x20       set(NROS_INTERFACE_SEARCH_PATH\n\
+         \x20           \"${{_nros_ws_src}};$ENV{{NROS_INTERFACE_SEARCH_PATH}}\")\n\
+         \x20   else()\n\
+         \x20       set(NROS_INTERFACE_SEARCH_PATH \"${{_nros_ws_src}}\")\n\
+         \x20   endif()\n\
+         endif()\n\n"
+    ));
+
     out.push_str("find_package(nano_ros REQUIRED COMPONENTS workspace)\n");
     out.push('\n');
 
@@ -407,6 +446,51 @@ mod tests {
         let a = body.find("aaa_pkg").unwrap();
         let z = body.find("zzz_pkg").unwrap();
         assert!(a < z, "sorted: {body}");
+    }
+
+    #[test]
+    fn the_interface_search_path_precedes_find_package_nano_ros() {
+        // Issue 1111. An interface package is not a subdir, so a component's
+        // `find_package(my_msgs)` resolves through the compat layer's
+        // Find-stub, which reads `NROS_INTERFACE_SEARCH_PATH`. The layer reads
+        // it while it is being INCLUDED, so a value set after
+        // `find_package(nano_ros)` is a value nobody used — the same shape as
+        // the toolchain-after-project() bug below.
+        //
+        // Compares LINE positions among non-comment lines: the explanatory
+        // comment above the block names `find_package(nano_ros)`, and a naive
+        // substring search matches that first.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let d = discovered(vec![pkg(root, "a_pkg", true)]);
+        let body = render(&d, &root.join("build/posix"), &spec(root)).expect("renders");
+        let code: Vec<&str> = body
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect();
+        let set = code
+            .iter()
+            .position(|l| l.contains("set(NROS_INTERFACE_SEARCH_PATH"))
+            .unwrap_or_else(|| panic!("the root must set the search path: {body}"));
+        let fp = code
+            .iter()
+            .position(|l| l.contains("find_package(nano_ros"))
+            .unwrap_or_else(|| panic!("no find_package(nano_ros): {body}"));
+        assert!(
+            set < fp,
+            "NROS_INTERFACE_SEARCH_PATH must precede find_package(nano_ros): {body}"
+        );
+        // Workspace-relative, never absolute (W3.c) — the file must stay
+        // byte-identical across machines.
+        assert!(
+            !body.contains(root.to_str().unwrap()),
+            "no absolute path: {body}"
+        );
+        // An entry the caller already exported keeps its precedence.
+        assert!(
+            body.contains("$ENV{NROS_INTERFACE_SEARCH_PATH}"),
+            "must prepend to, not clobber, a caller's value: {body}"
+        );
     }
 
     #[test]
