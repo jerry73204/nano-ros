@@ -282,3 +282,52 @@ pub const fn subscription_buffer_ok<M: MessageForRmw>() -> bool {
 pub const fn subscription_buffer_ok<M: MessageForRmw>() -> bool {
     true
 }
+
+/// phase-392 W3c — the receive-buffer size a subscription to `M` gets WITHOUT
+/// asking, or `None` when there is nothing to derive from.
+///
+/// This is the inversion the wave is: before it, a subscription that named no
+/// number was charged `DEFAULT_RX_BUF_SIZE` per slot and the type's own bound
+/// reached the arena only if the consumer wrote
+/// [`rx_buffer_from_type`](crate::executor::node::TypedSubscriptionBuilder::rx_buffer_from_type)
+/// or `nros::rx_buffer_for!`. A consumer who did not know those exist got the
+/// global, silently — the same failure the derivation was written to prevent.
+/// Now the derivation is the default and `.rx_buffer::<N>()` is the opt-out.
+///
+/// # `None` is never a fallback, it is "no answer exists"
+///
+/// Two DIFFERENT facts both produce `None`, and neither may be turned into a
+/// number here (phase 380):
+///
+/// * **`M` has no bound.** An unbounded member means no bound EXISTS, and
+///   inventing one is the substitution that rule forbids. The opt-in spelling
+///   refuses to compile in this case ([`subscription_rx_bytes`] returns `None`
+///   and `rx_buffer_from_type`'s `const` assert reads it); the DEFAULT path
+///   cannot refuse, because that would make a bound mandatory for every message
+///   type in every image at once, so it keeps the caller's `RX_BUF` — which is
+///   exactly what it was charged before this wave, so no image moves.
+/// * **This backend's `MessageForRmw` carries no schema.** Only a backend that
+///   declares `type-descriptors` in its `nros-rmw.toml` (today: Cyclone) makes
+///   `MessageForRmw` require `nros_serdes::schema::Message`; the other arm
+///   deliberately does not, so a hand-written message type keeps working
+///   (phase-380 W4, `examples/native/rust/custom-msg`). Under that arm there is
+///   no bound to read at a type-erased registration site at ALL, so this returns
+///   `None` for every type and the default is unchanged. A consumer on such a
+///   backend reaches the derivation by NAMING the schema itself, which is what
+///   `.rx_buffer_from_type()` and `rx_buffer_for!` do.
+///
+/// Same two-arm shape, and the same reason for it, as [`subscription_rx_hint`]
+/// and [`subscription_buffer_ok`]: the branch on "does this backend have
+/// schemas" is spelled once, here, so no second spelling of it grows at a call
+/// site.
+#[cfg(rmw_needs_type_descriptors)]
+pub const fn default_subscription_rx_bytes<M: MessageForRmw>(rx_buf: usize) -> Option<usize> {
+    subscription_rx_bytes::<M>(rx_buf)
+}
+
+/// See the documented sibling — no schema on this backend, so no bound is
+/// reachable from a `MessageForRmw` bound alone and the default is unchanged.
+#[cfg(not(rmw_needs_type_descriptors))]
+pub const fn default_subscription_rx_bytes<M: MessageForRmw>(_rx_buf: usize) -> Option<usize> {
+    None
+}

@@ -4113,10 +4113,16 @@ impl<'s> Executor<'s> {
     /// .typed::<M>()` builder lowers here). Routes the typed subscription
     /// through the [`NodeId`]'s session + identity (rclcpp `add_node` pattern).
     ///
-    /// Phase 403 W2 -- `rx_bytes` overrides how many bytes each buffer slot
-    /// claims from the arena. `None` means `RX_BUF`, which is what every caller
-    /// did before the knob existed and is what every caller that does not opt in
-    /// still does: the default derivation is byte-for-byte unchanged.
+    /// Phase 403 W2 -- `rx_bytes` says how many bytes each buffer slot claims
+    /// from the arena.
+    ///
+    /// phase-392 W3c -- `Some(n)` is verbatim; **`None` now means DERIVE from
+    /// `M`**, falling back to `RX_BUF` only where no bound is reachable (an
+    /// unbounded type, or a backend whose `MessageForRmw` carries no schema).
+    /// It used to mean `RX_BUF` unconditionally, so a subscription that named no
+    /// number was charged the global for every slot and a consumer who did not
+    /// know `.rx_buffer_from_type()` existed paid it silently. The opt-out is
+    /// now the explicit one: `.rx_buffer::<N>()` passes `Some(N)`.
     ///
     /// It is a RUNTIME `usize` and not a second const generic because on THIS
     /// path `RX_BUF` was never an array length -- it reaches
@@ -4225,7 +4231,20 @@ impl<'s> Executor<'s> {
         // Phase 403 W2 -- one number for the whole allocation. The region size,
         // the strategy's slot size and the pointer arithmetic must agree, so
         // they read the same local rather than each spelling `RX_BUF`.
-        let slot_size = rx_bytes.unwrap_or(RX_BUF);
+        //
+        // phase-392 W3c -- and `None` no longer means `RX_BUF`, it means DERIVE.
+        // This is the one choke point every default registration funnels
+        // through, so putting the derivation here is what makes it the default
+        // at all four of them (`create_subscription`, `create_subscription_in`,
+        // the builder's `build()`, and the `/clock` time source) instead of at
+        // whichever one a wave happened to touch. An explicit `Some(n)` -- what
+        // `.rx_buffer::<N>()` and `.rx_buffer_from_type()` pass -- is still
+        // verbatim, so the opt-out and the opt-in both bypass this line.
+        let slot_size = match rx_bytes {
+            Some(n) => n,
+            None => crate::rmw_type_registry::default_subscription_rx_bytes::<M>(RX_BUF)
+                .unwrap_or(RX_BUF),
+        };
 
         let (_slot_count, trailing_bytes) = buffered_region_size(qos.depth, slot_size);
 

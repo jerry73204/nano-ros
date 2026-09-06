@@ -260,32 +260,74 @@ impl Deserialize for UnboundedTestMsg {
     }
 }
 
+/// How a `TestMsg` subscription asks for its receive buffer -- the three states
+/// phase-392 W3c makes distinguishable, and the reason this is an enum and not
+/// the `bool` it was: "did not ask" and "asked for a number" used to mean the
+/// same thing.
+#[derive(Clone, Copy)]
+enum RxAsk {
+    /// Name nothing. Derived from the type wherever the bound is reachable.
+    Default,
+    /// `.rx_buffer::<4096>()` -- the opt-out, exact, and deliberately ABOVE
+    /// the global so an opt-out that silently fell back is distinguishable.
+    Exact,
+    /// `.rx_buffer::<DEFAULT_RX_BUF_SIZE>()` -- the opt-out spelled with the
+    /// global. phase-392 W3c: this is what "the global" costs now that it is a
+    /// thing a consumer asks for rather than what everyone silently gets.
+    Global,
+    /// `.rx_buffer_from_type()` -- the explicit derivation, on every backend.
+    FromType,
+}
+
 /// Arena bytes one `TestMsg` subscription registration claims.
 fn arena_delta(
     executor: &mut Executor<'_>,
     nid: super::node_record::NodeId,
     topic: &str,
     qos: QoSProfile,
-    from_type: bool,
+    ask: RxAsk,
 ) -> usize {
     let before = executor.arena_used();
-    if from_type {
-        executor
-            .node_mut(nid)
-            .subscription(topic)
-            .typed::<TestMsg>()
-            .qos(qos)
-            .rx_buffer_from_type()
-            .build(|_: &TestMsg| {})
-            .unwrap();
-    } else {
-        executor
-            .node_mut(nid)
-            .subscription(topic)
-            .typed::<TestMsg>()
-            .qos(qos)
-            .build(|_: &TestMsg| {})
-            .unwrap();
+    match ask {
+        RxAsk::FromType => {
+            executor
+                .node_mut(nid)
+                .subscription(topic)
+                .typed::<TestMsg>()
+                .qos(qos)
+                .rx_buffer_from_type()
+                .build(|_: &TestMsg| {})
+                .unwrap();
+        }
+        RxAsk::Exact => {
+            executor
+                .node_mut(nid)
+                .subscription(topic)
+                .typed::<TestMsg>()
+                .qos(qos)
+                .rx_buffer::<4096>()
+                .build(|_: &TestMsg| {})
+                .unwrap();
+        }
+        RxAsk::Global => {
+            executor
+                .node_mut(nid)
+                .subscription(topic)
+                .typed::<TestMsg>()
+                .qos(qos)
+                .rx_buffer::<{ crate::config::DEFAULT_RX_BUF_SIZE }>()
+                .build(|_: &TestMsg| {})
+                .unwrap();
+        }
+        RxAsk::Default => {
+            executor
+                .node_mut(nid)
+                .subscription(topic)
+                .typed::<TestMsg>()
+                .qos(qos)
+                .build(|_: &TestMsg| {})
+                .unwrap();
+        }
     }
     executor.arena_used() - before
 }
@@ -297,34 +339,120 @@ fn qos_with_depth(depth: u32) -> QoSProfile {
     }
 }
 
-/// The compatibility gate, the sibling of issue 0900's
-/// `the_default_derivation_is_unchanged`: the knob exists so an image CAN
-/// shrink its receive buffers, not so every image silently does.
+/// phase-392 W3c -- what a subscription that names NO number is charged.
+///
+/// This test was `the_default_subscription_buffer_is_unchanged` and asserted the
+/// opposite: that a non-opted-in subscription still paid `DEFAULT_RX_BUF_SIZE`
+/// per slot. W3c is the decision to invert that -- `.rx_buffer_from_type()`'s
+/// own doc named it ("sizing every subscription from its type by default would
+/// move every image's arena occupancy at once, which is a decision, not a
+/// refactor") -- so the assertion moves with it rather than being deleted.
+///
+/// It is written against
+/// [`default_subscription_rx_bytes`](crate::rmw_type_registry::default_subscription_rx_bytes)
+/// rather than a literal because that function has TWO arms and both are
+/// correct: it derives where `MessageForRmw` carries a schema (a backend
+/// declaring `type-descriptors`) and answers `None` where it does not, and the
+/// wiring under test -- "the choke point charges exactly what the default
+/// derivation says" -- is the same claim either way. `arm_note` puts the arm in
+/// the failure message so a red is never ambiguous about which one ran.
 ///
 /// Two depths rather than one absolute number, because the entry STRUCT's size
 /// is a target detail this test has no business asserting while the SLOT size is
 /// exactly what it must pin. `region_size` is linear in the slot size with a
-/// depth-dependent slot count, so the difference between two depths isolates the
-/// slot size: it comes out right only if a non-opted-in subscription is still
-/// charged `DEFAULT_RX_BUF_SIZE` per slot. Sizing it from `TestMsg` (12 bytes)
-/// instead fails here by 8128 bytes.
+/// depth-dependent slot count, so the difference between two depths isolates it.
 #[test]
-fn the_default_subscription_buffer_is_unchanged() {
+fn the_default_subscription_buffer_is_derived_from_the_type() {
+    let default = crate::config::DEFAULT_RX_BUF_SIZE;
+    let derived = crate::rmw_type_registry::default_subscription_rx_bytes::<TestMsg>(default);
+
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let nid = executor.node_builder("default_sizing").build().unwrap();
+    let depth = qos_with_depth(2);
 
-    let shallow = arena_delta(&mut executor, nid, "/shallow", qos_with_depth(2), false);
-    let deep = arena_delta(&mut executor, nid, "/deep", qos_with_depth(10), false);
+    let named_nothing = arena_delta(&mut executor, nid, "/nothing", depth, RxAsk::Default);
+    let named_global = arena_delta(&mut executor, nid, "/global", depth, RxAsk::Global);
+    let named_type = arena_delta(&mut executor, nid, "/from_type", depth, RxAsk::FromType);
 
-    let default = crate::config::DEFAULT_RX_BUF_SIZE;
-    let (_s, shallow_region) = super::arena::buffered_region_size(2, default);
-    let (_d, deep_region) = super::arena::buffered_region_size(10, default);
+    // Costs are compared against a REGISTRATION rather than against
+    // `buffered_region_size`, because the arena aligns what it hands out and a
+    // 12-byte slot is not aligned: the raw region formula is off by the padding
+    // at small slot sizes and exact at 1024, which would make this pass on one
+    // arm for the wrong reason.
+    match derived {
+        Some(bound) => {
+            assert_eq!(
+                named_nothing, named_type,
+                "with a schema on `MessageForRmw`, naming nothing must cost \
+                 exactly what `.rx_buffer_from_type()` costs -- the derivation \
+                 IS the default (bound {bound})"
+            );
+            assert!(
+                named_nothing < named_global,
+                "and that must be a saving against the global: naming nothing \
+                 claimed {named_nothing} bytes, `.rx_buffer::<{default}>()` \
+                 claimed {named_global}"
+            );
+        }
+        None => {
+            assert_eq!(
+                named_nothing, named_global,
+                "without a schema on `MessageForRmw` there is no bound to read \
+                 at a type-erased registration site, so naming nothing must \
+                 still cost the global {default}"
+            );
+            assert!(
+                named_type < named_nothing,
+                "and `.rx_buffer_from_type()`, which names the schema itself, \
+                 must still be the cheaper answer on this arm \
+                 ({named_type} vs {named_nothing})"
+            );
+        }
+    }
+}
+
+/// phase-392 W3c -- `.rx_buffer::<N>()` is the OPT-OUT, and it is exact.
+///
+/// The consumer named a number, so the derivation is skipped and every slot
+/// costs `N` -- including when `N` is far larger than the type needs, which is
+/// the whole reason the opt-out exists (a peer that pads, a `.msg` bound looser
+/// than the traffic). Measured against `buffered_region_size(depth, N)` at two
+/// depths for the same reason as its sibling above.
+#[test]
+fn naming_a_receive_buffer_opts_out_of_the_derivation() {
+    const N: usize = 4096;
+    assert!(
+        N > crate::config::DEFAULT_RX_BUF_SIZE,
+        "the fixture is only meaningful while N is off the default, or an \
+         opt-out that silently fell back would still pass"
+    );
+
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    let nid = executor.node_builder("explicit_sizing").build().unwrap();
+
+    let shallow = arena_delta(
+        &mut executor,
+        nid,
+        "/shallow",
+        qos_with_depth(2),
+        RxAsk::Exact,
+    );
+    let deep = arena_delta(
+        &mut executor,
+        nid,
+        "/deep",
+        qos_with_depth(10),
+        RxAsk::Exact,
+    );
+
+    let (_s, shallow_region) = super::arena::buffered_region_size(2, N);
+    let (_d, deep_region) = super::arena::buffered_region_size(10, N);
 
     assert_eq!(
         deep - shallow,
         deep_region - shallow_region,
-        "a subscription that does not opt in must still be charged {default} \
-         bytes per slot; depth 2 claimed {shallow} and depth 10 claimed {deep}"
+        "`.rx_buffer::<{N}>()` must claim exactly {N} bytes per slot; depth 2 \
+         claimed {shallow} and depth 10 claimed {deep}"
     );
 }
 
@@ -335,6 +463,13 @@ fn the_default_subscription_buffer_is_unchanged() {
 /// `TestMsg`'s bound is 12 bytes, the buffer region falls 11352 -> 220, and the
 /// registration's total arena claim falls **13632 -> 2500 bytes**, i.e. 11132
 /// recovered -- 15% of the 74240-byte default arena, from one subscription.
+///
+/// phase-392 W3c -- the baseline is now `.rx_buffer::<DEFAULT_RX_BUF_SIZE>()`,
+/// the OPT-OUT, and not a subscription that names nothing: naming nothing
+/// derives too wherever the bound is reachable, so comparing against it would
+/// measure zero on exactly the arm the saving is real on. The number under test
+/// is unchanged -- this is the same 11132 bytes, priced against the global that
+/// a consumer now has to ask for.
 #[test]
 fn a_bounded_type_shrinks_its_own_receive_buffer() {
     let bound = nros_serdes::size::max_serialized_bound::<TestMsg>()
@@ -350,8 +485,20 @@ fn a_bounded_type_shrinks_its_own_receive_buffer() {
     let nid = executor.node_builder("bound_sizing").build().unwrap();
 
     let depth = QoSProfile::default().depth;
-    let default_delta = arena_delta(&mut executor, nid, "/plain", qos_with_depth(depth), false);
-    let bound_delta = arena_delta(&mut executor, nid, "/sized", qos_with_depth(depth), true);
+    let default_delta = arena_delta(
+        &mut executor,
+        nid,
+        "/plain",
+        qos_with_depth(depth),
+        RxAsk::Global,
+    );
+    let bound_delta = arena_delta(
+        &mut executor,
+        nid,
+        "/sized",
+        qos_with_depth(depth),
+        RxAsk::FromType,
+    );
 
     let (_s, default_region) =
         super::arena::buffered_region_size(depth, crate::config::DEFAULT_RX_BUF_SIZE);
@@ -6302,8 +6449,11 @@ fn an_unbounded_subscription_costs_more_than_a_bounded_one() {
         .node_builder("bounded_vs_not")
         .build()
         .expect("node");
-    let bounded = arena_delta(&mut executor, nid, "/b", qos_with_depth(1), true);
-    let unbounded = arena_delta(&mut executor, nid, "/u", qos_with_depth(1), false);
+    let bounded = arena_delta(&mut executor, nid, "/b", qos_with_depth(1), RxAsk::FromType);
+    // phase-392 W3c -- the fallback is now spelled `.rx_buffer::<GLOBAL>()`.
+    // A subscription that names nothing DERIVES where the bound is reachable,
+    // so it is no longer the fallback and would measure equal on that arm.
+    let unbounded = arena_delta(&mut executor, nid, "/u", qos_with_depth(1), RxAsk::Global);
     assert!(
         unbounded > bounded,
         "the unbounded fallback must cost MORE than a derived bound \
@@ -6350,9 +6500,9 @@ fn report_arena_costs() {
     let (d1, d10, unb) = {
         let mut e: Executor = executor_with_clock(MockSession::new());
         let nid = e.node_builder("arena_report").build().expect("node");
-        let a = arena_delta(&mut e, nid, "/r1", qos_with_depth(1), true);
-        let b = arena_delta(&mut e, nid, "/r10", qos_with_depth(10), true);
-        let c = arena_delta(&mut e, nid, "/ru", qos_with_depth(1), false);
+        let a = arena_delta(&mut e, nid, "/r1", qos_with_depth(1), RxAsk::FromType);
+        let b = arena_delta(&mut e, nid, "/r10", qos_with_depth(10), RxAsk::FromType);
+        let c = arena_delta(&mut e, nid, "/ru", qos_with_depth(1), RxAsk::Default);
         (a, b, c)
     };
     let svc = {
@@ -6396,8 +6546,20 @@ fn a_subscriptions_arena_cost_scales_with_declared_depth() {
     let mut executor: Executor = executor_with_clock(MockSession::new());
     let nid = executor.node_builder("arena_probe").build().expect("node");
 
-    let d1 = arena_delta(&mut executor, nid, "/d1", qos_with_depth(1), true);
-    let d10 = arena_delta(&mut executor, nid, "/d10", qos_with_depth(10), true);
+    let d1 = arena_delta(
+        &mut executor,
+        nid,
+        "/d1",
+        qos_with_depth(1),
+        RxAsk::FromType,
+    );
+    let d10 = arena_delta(
+        &mut executor,
+        nid,
+        "/d10",
+        qos_with_depth(10),
+        RxAsk::FromType,
+    );
 
     assert!(
         d10 > d1,
