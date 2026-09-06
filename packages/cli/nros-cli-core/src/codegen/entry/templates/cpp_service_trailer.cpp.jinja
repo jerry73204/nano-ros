@@ -14,7 +14,7 @@
   lines around it, so an empty trailer must contribute no bytes at all rather
   than a blank line inside a function.
 -#}
-{%- if param_services %}
+{%- if services.param_services %}
     /* Phase 269 (W1) — param-services: register the runtime get/set surface
      * (seeding: emit_declare_params, pre-construction — issue 0745). */
     {
@@ -34,13 +34,13 @@
 {%- endif %}
     }
 {%- endif %}
-{%- if lifecycle_code is not none %}
+{%- if services.lifecycle_code is not none %}
     /* Phase 269 (W2) — lifecycle-services: register + autostart. */
     {
 {%- if not tiered %}
         void* __exec = ::nros::global_handle();
         if (__exec == nullptr) return static_cast<int32_t>(::nros::ErrorCode::NotInitialized);
 {%- endif %}
-        nros_cpp_lifecycle_autostart({% if tiered %}executor{% else %}__exec{% endif %}, {{ lifecycle_code }}u);
+        nros_cpp_lifecycle_autostart({% if tiered %}executor{% else %}__exec{% endif %}, {{ services.lifecycle_code }}u);
     }
-{%- endif %}
+{%- endif -%}

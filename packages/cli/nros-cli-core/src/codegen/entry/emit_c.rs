@@ -10,8 +10,8 @@
 //! phase-257 Stage-3.
 
 use super::{
-    BootConfigView, DeclsView, Plan, QosRowView, TierView, boot_config_view, decls_view, qos_views,
-    sanitize_pkg,
+    BootConfigView, DeclsView, Plan, QosRowView, ServicesView, TierView, boot_config_view,
+    decls_view, qos_views, sanitize_pkg, services_view,
 };
 
 /// Phase 257 (W0-A) — a `lang == "c"` node is a `NROS_C_COMPONENT` typed
@@ -46,9 +46,9 @@ struct CEntryView {
     tiers: Option<CTiersView>,
     /// Single-executor path only; empty when `tiers` is set.
     setup_nodes: Vec<CNodeView>,
-    /// The param-services / lifecycle block that closes the single setup fn,
-    /// rendered from `c_service_trailer.c.jinja`.
-    trailer: String,
+    /// The param-services / lifecycle facts. The template includes
+    /// `c_service_trailer.c.jinja` where they belong.
+    services: ServicesView,
     boot_config: BootConfigView,
 }
 
@@ -68,7 +68,7 @@ struct CTierSetupView {
     nodes: Vec<CNodeView>,
     /// Only tier 0 registers param services and lifecycle — they are process
     /// facts, not per-tier ones.
-    trailer: String,
+    emits_services: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -97,36 +97,6 @@ fn node_view(n: &super::PlanNode, i: usize) -> CNodeView {
         decls: decls_view(n, "executor"),
         qos: qos_views(n),
     }
-}
-
-/// The block that closes a setup function, from its own template.
-///
-/// One definition rendered twice (the single setup fn, and tier 0), rather
-/// than the same C text written twice.
-fn setup_trailer(plan: &Plan) -> Result<String, String> {
-    #[derive(serde::Serialize)]
-    struct TrailerView {
-        param_services: bool,
-        lifecycle_code: Option<u8>,
-    }
-    // The template file ends with a newline and the environment keeps trailing
-    // newlines (the entry TUs need theirs), so an EMPTY trailer would render as
-    // a stray blank line inside a C function. The caller writes the lines
-    // around this block, so it must contribute exactly nothing when neither
-    // service is declared.
-    let rendered = crate::codegen::entry::render::render(
-        "c_service_trailer.c.jinja",
-        &TrailerView {
-            param_services: plan.param_services,
-            // "none" | "configure" | anything else (i.e. "active").
-            lifecycle_code: plan.lifecycle.as_deref().map(|a| match a {
-                "none" => 0u8,
-                "configure" => 1,
-                _ => 2,
-            }),
-        },
-    )?;
-    Ok(rendered.trim_end_matches('\n').to_string())
 }
 
 pub fn emit_typed(plan: &Plan) -> Result<String, String> {
@@ -190,7 +160,6 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
             .flat_map(|(ti, t)| t.members.iter().map(move |(node, _)| (node.clone(), ti)))
             .collect();
 
-        let tier0_trailer = setup_trailer(plan)?;
         let setups: Vec<CTierSetupView> = tiers
             .tiers
             .iter()
@@ -209,11 +178,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
                     })
                     .map(|(i, n)| node_view(n, i))
                     .collect(),
-                trailer: if ti == 0 {
-                    tier0_trailer.clone()
-                } else {
-                    String::new()
-                },
+                emits_services: ti == 0,
             })
             .collect();
 
@@ -258,11 +223,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
                 .map(|(i, n)| node_view(n, i))
                 .collect()
         },
-        trailer: if tiers_view.is_some() {
-            String::new()
-        } else {
-            setup_trailer(plan)?
-        },
+        services: services_view(plan),
         tiers: tiers_view,
         boot_config,
     };
