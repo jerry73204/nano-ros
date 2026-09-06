@@ -127,7 +127,22 @@ def main() -> int:
         + list(REPO.glob("zephyr/**/*.cmake"))
         + list(REPO.glob("integrations/**/*.cmake"))
     )
-    files = [f for f in files if "third-party" not in f.parts]
+    # RELATIVE to the repo. Against the ABSOLUTE path this skipped every file
+    # whenever the checkout itself lived under a directory called
+    # `third-party` -- which is how the safety island vendors this repo -- and
+    # the gate then reported "OK -- 0 cmake file(s)" while examining nothing.
+    files = [f for f in files if "third-party" not in f.relative_to(REPO).parts]
+    # A gate that scanned nothing must not read as a pass. This one had no such
+    # floor, so the vacuous state was indistinguishable from a clean one; its
+    # sibling `check-ret-code-citations` had the identical path bug AND a floor,
+    # went red instead of green, and is how the class was found at all.
+    if not files:
+        print(
+            "check-config-header-single-writer: scanned NO cmake files -- this "
+            "gate would pass vacuously.",
+            file=sys.stderr,
+        )
+        return 1
 
     hits = []
     for f in files:
