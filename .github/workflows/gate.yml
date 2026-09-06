@@ -239,9 +239,9 @@ jobs:
       #
       # `just setup-clang-format`, NOT a pip install with a literal version.
       #
-      # This step used to be `pip install "clang-format==17.0.5"` while
-      # `.clang-format-version` pinned 17.0.6 — two sources of truth for one
-      # version, already drifted. And they drifted INVISIBLY: the resolver
+      # This step used to be `pip install "clang-format==17.0.5"` while a
+      # `.clang-format-version` file pinned 17.0.6 — two sources of truth for
+      # one version, already drifted. And they drifted INVISIBLY: the resolver
       # (`scripts/dev/clang-format.sh`) prefers `build/clang-format/bin/`, which
       # only the recipe creates, so CI fell through to the PATH copy and printed
       # `WARN: clang-format 17.0.5 on PATH != pinned 17.0.6` to stderr in a lane
@@ -249,10 +249,11 @@ jobs:
       # differently, so CI was checking a different standard than every local
       # run.
       #
-      # The recipe reads the pin, installs project-locally into
-      # `build/clang-format/`, and no-ops when the right version is already
-      # there — so this is also the same command a contributor runs.
-      - name: Provision clang-format (pinned by .clang-format-version)
+      # phase-422 W2 finished the job: the version, the per-host wheel URL and
+      # its sha256 are `[tool.clang-format]` in `nros-sdk-index.toml`, the file
+      # is deleted, and the recipe is `nros setup --tool clang-format`. One
+      # home for the pin, and the same command a contributor runs.
+      - name: Provision clang-format (pinned by [tool.clang-format])
         run: |
           source ./activate.sh
           just setup-clang-format

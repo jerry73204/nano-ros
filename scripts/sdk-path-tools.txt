@@ -63,3 +63,19 @@ idlc
 # beside it in the same directory, and this list gates the DIRECTORY.
 make
 ninja
+
+# The cargo tools — phase-422 W2 (second half).
+#
+# `cargo nextest` is cargo finding `cargo-nextest` ON PATH: a cargo subcommand
+# is invoked by bare name by cargo itself, which is exactly what this list is
+# for. Before they were indexed these sat in `~/.cargo/bin`, which rustup puts
+# on PATH; installed into the versioned store they need this line instead, and
+# without it `just test` would report nextest missing on a host that had just
+# provisioned it.
+#
+# `rustfilt` is here for the same reason one level over: `just mem-report` and
+# the profiling scripts pipe through it by bare name.
+cargo-nextest
+cargo-llvm-cov
+cargo-asm
+rustfilt

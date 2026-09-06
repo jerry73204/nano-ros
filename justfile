@@ -3212,37 +3212,22 @@ format-cli:
         echo "             Rebuild before running codegen lanes:  just setup-cli" >&2
     fi
 
-# Provision the pinned clang-format (SSoT: `.clang-format-version`) as a
-# PROJECT-LOCAL binary at `build/clang-format/bin/clang-format` — exactly like
-# `build/qemu/bin/`. clang-format output drifts across major
-# versions, so pinning is the only way `just format` / `check-*-fmt` stay consistent
-# between machines + CI. We fetch the exact-version, cross-platform PyPI `clang-format`
-# WHEEL (a zip carrying a standalone `clang_format/data/bin/clang-format` binary) and
-# extract just that binary — NO venv, NO `pip install`, NOTHING user-wide (pip is used
-# only to *download* the right wheel for this host, with no cache footprint). Idempotent.
+# Provision the pinned clang-format — a thin `nros setup --tool` caller
+# (phase-422 W2, second half).
+#
+# It used to `pip download` the wheel and dig the binary out of it into
+# `build/clang-format/`, reading its version from `.clang-format-version`. Both
+# are gone: `[tool.clang-format]` in `nros-sdk-index.toml` carries the version,
+# the per-host wheel URL and its sha256, and unpacks the inner path through
+# `DistArtifact.install` — the same mechanism `[tool.ninja]` uses for a zip
+# holding a bare binary.
+#
+# The version now has ONE home. Two of them had already drifted invisibly:
+# gate.yml pinned 17.0.5 in a `pip install` while `.clang-format-version` said
+# 17.0.6, and the resolver's fallback order meant CI checked a different
+# formatting standard than every local run for as long as that stood.
 setup-clang-format:
-    #!/usr/bin/env bash
-    set -e
-    want="$(cat .clang-format-version)"
-    dest="build/clang-format"
-    bin="$dest/bin/clang-format"
-    if [ -x "$bin" ] && "$bin" --version 2>/dev/null | grep -q "$want"; then
-        echo "clang-format $want already provisioned: $bin"; exit 0
-    fi
-    echo "Provisioning clang-format $want into $dest (project-local binary; no install) ..."
-    mkdir -p "$dest/bin"
-    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-    # Download (NOT install) the platform wheel for THIS host — pip resolves the right
-    # manylinux/macos tag. --no-cache-dir → no ~/.cache/pip footprint.
-    python3 -m pip download --no-cache-dir --no-deps --only-binary=:all: \
-        -d "$tmp" "clang-format==$want" >/dev/null
-    whl="$(ls "$tmp"/clang_format-*.whl 2>/dev/null | head -1)"
-    [ -n "$whl" ] || { echo "ERROR: clang-format==$want wheel not found for this host" >&2; exit 1; }
-    # The wheel is a zip; the real standalone binary is clang_format/data/bin/clang-format.
-    python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$whl" "$tmp/x"
-    cp "$tmp/x/clang_format/data/bin/clang-format" "$bin"
-    chmod +x "$bin"
-    "$bin" --version
+    @nros setup --tool clang-format
 
 # Format C code (nros-c headers, zpico C, C examples) with the pinned clang-format
 [private]
@@ -4147,7 +4132,8 @@ setup target="" tier="" *extra:
     just _setup-common
     # phase-263 — pin clang-format (every tier): `just format` / `just ci`'s
     # check-{c,cpp}-fmt drift across clang-format major versions, so a consistent
-    # pinned binary (`.clang-format-version`) is part of base dev setup. Idempotent.
+    # pinned binary (`[tool.clang-format]` in the index) is part of base dev
+    # setup. Idempotent.
     just setup-clang-format || echo "  (clang-format provisioning skipped — python3 venv unavailable)"
     just _orchestrate setup "$chosen_tier"
     echo ""
@@ -4499,10 +4485,19 @@ _doctor-host:
         echo "         a distro kconfig-frontends-nox package."
     fi
     # clang-format pin (consistent C/C++ formatting across machines + CI).
-    want_cf="$(cat "{{justfile_directory()}}/.clang-format-version" 2>/dev/null || echo 17.0.6)"
-    pinned_cf="{{justfile_directory()}}/build/clang-format/bin/clang-format"
+    #
+    # Both the version and the path come from the ONE resolver the format
+    # recipes use (`scripts/dev/clang-format.sh`), which reads the version from
+    # `[tool.clang-format]` and the path from the SDK store. A doctor that
+    # re-derived either would be the second answer this pin has already been
+    # bitten by (phase-422 W2).
+    # shellcheck source=scripts/dev/clang-format.sh
+    . "{{justfile_directory()}}/scripts/dev/clang-format.sh"
+    want_cf="$(nros_clang_format_version)"
+    want_cf="${want_cf:-17.0.6}"
+    pinned_cf="${NROS_HOME:-$HOME/.nros}/sdk/clang-format/${want_cf}-nros1/bin/clang-format"
     if [ -x "$pinned_cf" ] && "$pinned_cf" --version 2>/dev/null | grep -q "$want_cf"; then
-        echo "  [OK] clang-format: $want_cf (pinned, build/clang-format)"
+        echo "  [OK] clang-format: $want_cf (pinned, SDK store)"
     elif command -v clang-format >/dev/null 2>&1; then
         have_cf="$(clang-format --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
         if [ "$have_cf" = "$want_cf" ]; then
