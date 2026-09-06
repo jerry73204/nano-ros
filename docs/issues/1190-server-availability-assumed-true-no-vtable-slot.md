@@ -1,5 +1,5 @@
 ---
-id: 1087
+id: 1190
 title: "`wait_for_service` still returns immediately on every C-ABI backend —
   issue 1008's sibling, in a method pair with NO vtable slot"
 status: open
