@@ -37,6 +37,39 @@ cd "$(dirname "$0")/../.."
 
 jobs="${NROS_GATE_JOBS:-$(nproc)}"
 
+# One CPU budget for the whole fan-out — the thing this runner did not have.
+#
+# Each gate is an independent `just` recipe, and the ones that run tests start
+# their own `cargo nextest`, which reads `test-threads` from
+# `.config/nextest.toml` and knows nothing about its siblings. So the demand
+# this script creates is `jobs` x that number, and the number is 25: on a
+# 12-core host, up to 300 test threads for 12 cores. The header above notes this
+# runner was measured on a 32-core machine, where the ratio hurt less and the
+# problem stayed invisible.
+#
+# What it costs is not throughput. It is that a test asserting a wall-clock RATE
+# stops measuring the code: `periodic_timer_fires_repeatedly` (5 ms period,
+# `count >= 4`) reported `got 2` twice in three runs at 2x oversubscription and
+# passed 3 of 3 idle, and `check-required-features-tests` went red on it inside
+# `check-build`. Those assertions are now deadline-based and no longer care, but
+# a budget nobody sets is a budget every future timing test rediscovers.
+#
+# `nros_nextest_cpu_budget_args` (scripts/build/cargo.sh) turns this into
+# `--test-threads`, clamped by the config's own value so it can only ever LOWER
+# it — that number is the Cyclone DOMAIN partition's slot count (issue 0838), a
+# correctness bound, not a performance one. Exported HERE and nowhere else, so
+# `just test-unit` and a bare `cargo nextest` are untouched: they own the
+# machine and the config's value is right for them.
+#
+# Build jobs are deliberately NOT throttled. Concurrent cargos sharing a
+# target-dir already serialize on cargo's build lock, and a compile is not
+# wall-clock-sensitive, so capping `-j` would trade a real slowdown for nothing:
+# `check-build` is ~587 s serial and the fan-out is what makes it affordable.
+_cpus="$(nproc 2>/dev/null || echo 4)"
+_share=$(( _cpus / jobs ))
+[ "$_share" -lt 1 ] && _share=1
+export NROS_GATE_CPU_SHARE="${NROS_GATE_CPU_SHARE:-$_share}"
+
 # The gates share one `.git/index`, and most reach it. Read-only git commands
 # still refresh the index opportunistically, which takes `.git/index.lock`.
 # GIT_OPTIONAL_LOCKS=0 tells git to skip anything that would take a lock, which
@@ -202,13 +235,13 @@ if [ -s "$skips" ]; then
 fi
 
 if [ "$skipped" -gt 0 ]; then
-    printf 'check-%s (parallel): %d gate(s) ran at -P%s, %d SKIPPED; slowest %s\n' "$label" \
-        "$((total - skipped))" "$jobs" "$skipped" \
+    printf 'check-%s (parallel): %d gate(s) ran at -P%s (%s test-thread(s)/gate), %d SKIPPED; slowest %s\n' "$label" \
+        "$((total - skipped))" "$jobs" "$NROS_GATE_CPU_SHARE" "$skipped" \
         "$(printf '%s' "$slowest" | awk '{print $1" "$3"ms"}')"
     while IFS=$'\t' read -r gate reason; do
         printf '  [SKIPPED] %s: %s\n' "$gate" "$reason"
     done <"$skips"
     exit 0
 fi
-printf 'check-%s (parallel): %d gate(s) OK at -P%s; slowest %s\n' "$label" \
-    "$total" "$jobs" "$(printf '%s' "$slowest" | awk '{print $1" "$3"ms"}')"
+printf 'check-%s (parallel): %d gate(s) OK at -P%s (%s test-thread(s)/gate); slowest %s\n' "$label" \
+    "$total" "$jobs" "$NROS_GATE_CPU_SHARE" "$(printf '%s' "$slowest" | awk '{print $1" "$3"ms"}')"

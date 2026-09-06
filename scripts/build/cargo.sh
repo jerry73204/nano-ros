@@ -66,10 +66,60 @@ nros_cargo_profile_args() {
     return 0
 }
 
+# The `test-threads` ceiling `.config/nextest.toml` declares.
+#
+# READ, never copied: that number is the DOMAIN partition's slot count (issue
+# 0838 — slot `s` owns Cyclone domains `[s*4, s*4+3]`), and
+# `domain_partition_matches_the_nextest_cap` in `nros-tests` already fails if it
+# drifts from the Rust constants. A second copy here would be a third place for
+# the same fact. Empty if the key is absent, which the caller treats as "no
+# ceiling to respect".
+nros_nextest_thread_ceiling() {
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    sed -n 's/^[[:space:]]*test-threads[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*/\1/p' \
+        "$root/.config/nextest.toml" 2>/dev/null | head -1
+}
+
+# This run's share of the machine, as `--test-threads`, or nothing.
+#
+# `run-gates-parallel.sh` fans out to `nproc` gates and each gate starts its own
+# `cargo nextest`, which takes its thread count from `.config/nextest.toml` and
+# knows nothing about its 11 siblings. On a 12-core host that is up to 12 x 25
+# test threads for 12 cores, and a test whose assertion is a wall-clock RATE
+# then measures the load instead of the code: `periodic_timer_fires_repeatedly`
+# reported `got 2` for a `>= 4` bound, twice in three runs, passing 3 of 3 idle.
+#
+# So the runner publishes each gate's share and this is where it lands. Two
+# properties matter:
+#
+#   * It only ever LOWERS. The ceiling above is a CORRECTNESS bound (domain
+#     blocks must stay disjoint), never a performance knob, so a share larger
+#     than the ceiling is clamped rather than honoured.
+#   * It applies only INSIDE a fan-out. `NROS_GATE_CPU_SHARE` is exported by the
+#     parallel runner and by nothing else, so `just test-unit`, `just test-all`
+#     and a bare `cargo nextest` are unchanged — they own the machine and the
+#     config's value is the right one for them.
+#
+# A caller that passes its own `--test-threads` still wins: these args are
+# spliced BEFORE the caller's, and nextest takes the last occurrence.
+nros_nextest_cpu_budget_args() {
+    local share ceiling
+    share="${NROS_GATE_CPU_SHARE:-}"
+    [ -n "$share" ] || return 0
+    [ "$share" -ge 1 ] 2>/dev/null || return 0
+    ceiling="$(nros_nextest_thread_ceiling)"
+    if [ -n "$ceiling" ] && [ "$share" -gt "$ceiling" ]; then
+        share="$ceiling"
+    fi
+    printf '%s\n' "--test-threads=$share"
+}
+
 nros_cargo_nextest_args() {
     local flags
     flags="$(_nros_profile_query args --nextest "$(nros_cargo_profile_name)")" || return 1
     [ -n "$flags" ] && printf '%s\n' $flags
+    nros_nextest_cpu_budget_args
     return 0
 }
 
