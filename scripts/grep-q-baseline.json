@@ -23,7 +23,6 @@
   "scripts/build/zephyr-fixture-run-one.sh": 1,
   "scripts/check-cli-fresh.sh": 1,
   "scripts/check-feature-set-ssot.sh": 2,
-  "scripts/check-image-paths-apply-policy.sh": 3,
   "scripts/check-zenoh-archive-symbols.sh": 1,
   "scripts/ci/scaffold-journey-check.sh": 1,
   "scripts/cyclonedds/ddsrt-port-inventory.sh": 1,

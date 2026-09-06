@@ -18,6 +18,11 @@
 set -o pipefail
 cd "$(dirname "$0")/.."
 
+# issue 1077 — `grep -q` on a pipeline can report a MATCH as a miss, and
+# `if ! … | grep -q` cannot tell a tool error from a non-match. One helper.
+# shellcheck source=lib/grep-q.sh
+source "$(dirname "$0")/lib/grep-q.sh"
+
 # A file "builds an image" if it creates an executable or registers an IDF
 # component AND links the nano-ros umbrella.
 mapfile -t candidates < <(
@@ -28,7 +33,14 @@ fail=0
 checked=0
 for f in "${candidates[@]}"; do
     body="$(grep -vE '^[[:space:]]*#' "$f")"
-    printf '%s' "$body" | grep -qE 'add_executable\(|idf_component_register\(' || continue
+    # The SELECTION above is a raw `git grep`, so a file that only NAMES the
+    # umbrella in a comment lands here. Re-ask against the stripped body: this
+    # gate's whole premise is that a mention in a comment is not a call, and
+    # the candidate step was the one place it did not apply its own rule. A
+    # comment reading "links no `NanoRos::NanoRosCpp`" pulled `nros-rmw-uorb`
+    # into the subject set and failed it for not calling `nano_ros_entry()`.
+    nros_grep_q 'NanoRos::NanoRos' <<<"$body" || continue
+    nros_grep_q -E 'add_executable\(|idf_component_register\(' <<<"$body" || continue
     # Infrastructure that DEFINES the umbrella or the verbs is not an image path.
     case "$f" in
         CMakeLists.txt|nano_rosConfig.cmake|cmake/NanoRos*.cmake) continue ;;
@@ -37,7 +49,7 @@ for f in "${candidates[@]}"; do
         packages/testing/*/fixtures/*) continue ;;  # compile-only smoke, never links
     esac
     checked=$((checked + 1))
-    if printf '%s' "$body" | grep -q 'nano_ros_entry(\|nano_ros_add_executable(\|nros_apply_panic_policy('; then
+    if nros_grep_q 'nano_ros_entry(\|nano_ros_add_executable(\|nros_apply_panic_policy(' <<<"$body"; then
         continue
     fi
     fail=1
@@ -50,9 +62,20 @@ done
 # broken grep that preceded it, so prove it still strips.
 probe="$(mktemp)"; trap 'rm -f "$probe"' EXIT
 printf '# nano_ros_entry() named only in a comment\nadd_executable(x)\ntarget_link_libraries(x NanoRos::NanoRos)\n' > "$probe"
-if grep -vE '^[[:space:]]*#' "$probe" | grep -q 'nano_ros_entry('; then
+if nros_grep_q 'nano_ros_entry(' <<<"$(grep -vE '^[[:space:]]*#' "$probe")"; then
     echo "check-image-paths-apply-policy: SELF-TEST FAILED — comment stripping is broken," >&2
     echo "  so this gate would pass files it never examined. Fix before trusting it." >&2
+    exit 1
+fi
+
+# Second half of the same rule, and the half that was missing: a file whose
+# ONLY mention of the umbrella is a comment must not be a subject at all. The
+# first probe proves a commented CALL is not counted; this proves a commented
+# LINK does not summon the file. Without it, prose could fail a gate.
+printf '# links no NanoRos::NanoRosCpp, deliberately\nadd_executable(x)\n' > "$probe"
+if nros_grep_q 'NanoRos::NanoRos' <<<"$(grep -vE '^[[:space:]]*#' "$probe")"; then
+    echo "check-image-paths-apply-policy: SELF-TEST FAILED — a file naming the umbrella" >&2
+    echo "  only in a comment is still being selected, so a comment can fail this gate." >&2
     exit 1
 fi
 
