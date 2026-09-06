@@ -113,13 +113,25 @@ def gate_scripts():
     honest one anyway, since the prefix was only ever a namespace worn as a
     name.
 
-    Deliberately just `just/check.just` and not the root: widening it to every
-    recipe in every justfile made this report 135 problems, most of them root
-    verbs like `bootstrap.sh` that assert nothing and were never gates.
+    Deliberately the `just/check.just` import closure and not the root: widening
+    it to every recipe in every justfile made this report 135 problems, most of
+    them root verbs like `bootstrap.sh` that assert nothing and were never
+    gates.
     """
+    # `just/check.just` AND the topic files it imports. The gates moved into
+    # `just/check/*.just`; reading only the index finds the seven lane recipes
+    # and no gate scripts at all, which would report every one of the 121
+    # baseline entries as "backs no `check-*` recipe any more" -- loud, but
+    # loud about the wrong thing.
     gate_file = os.path.join(ROOT, "just", "check.just")
     with open(gate_file, encoding="utf8") as fh:
-        lines = fh.read().split("\n")
+        text = fh.read()
+    for rel in re.findall(r"^import\s+'([^']+)'", text, re.MULTILINE):
+        imported = os.path.join(os.path.dirname(gate_file), rel)
+        if os.path.isfile(imported):
+            with open(imported, encoding="utf8") as fh:
+                text += "\n" + fh.read()
+    lines = text.split("\n")
     found, in_recipe = set(), False
     for line in lines:
         if re.match(r"^[a-z][a-z0-9-]*[ :]", line):

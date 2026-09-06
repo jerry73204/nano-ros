@@ -32,6 +32,10 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent / "lib"))
+from check_just_sources import check_just_sources
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -144,7 +148,15 @@ def declared_file_cfg_features() -> dict[str, list[str]]:
 
 def features_enabled_by_recipes() -> set[str]:
     enabled: set[str] = set()
+    # The gate recipes moved into `just/check/*.just`, and a non-recursive glob
+    # sees the index alone -- which reports every laned target as reachable
+    # from no recipe, a real-looking answer about the wrong file set.
+    #
+    # NOT `rglob`: that is a filesystem WALK, which `check-no-tracked-file-find`
+    # forbids for the reason it measured (7m36s -> 0.8s). The import closure is
+    # the right set anyway -- it is what `just` reads.
     files = [ROOT / "justfile"] + sorted((ROOT / "just").glob("*.just"))
+    files += [Path(p) for p in check_just_sources(str(ROOT)) if Path(p) not in files]
     for path in files:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")

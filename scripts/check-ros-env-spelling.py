@@ -94,6 +94,24 @@ SANCTIONED = {
 # line in a diff that says, in prose, why this site cannot go through `RosEnv`.
 # Two reasons recur and both are structural — the site is not Rust and so cannot
 # call a Rust trait, or the site is outside the `nros-tests` dependency graph.
+# Directory prefixes that carry an exemption, for the same reason as the
+# path-keyed entries below but WITHOUT breaking every time the files move.
+# Measured: they have moved twice — `justfile` -> `just/check.just`
+# (phase-399), then `just/check.just` -> `just/check/*.just` (the topic split)
+# — and each move silently dropped the exemption, turning a recipe that never
+# changed into a finding.
+ALLOWED_PREFIXES = {
+    "just/check/":
+        "the gate recipe layer, split into topic files. Same exemption as "
+        "`just/check.just` below, keyed on the directory so the next move of "
+        "these recipes does not drop it again",
+}
+
+
+def _allowed_prefix(path):
+    return any(path.startswith(p) for p in ALLOWED_PREFIXES)
+
+
 ALLOWLIST = {
     # --- CI job bootstrap: the OUTER environment the harness runs INSIDE ------
     # These source ROS before invoking `just`, so the Rust harness has an ament
@@ -314,7 +332,7 @@ def scan_text(path, text):
     The whole rule lives here so the self-test can drive it on synthetic input
     rather than on whatever the working tree happens to contain.
     """
-    if path in SANCTIONED or path in ALLOWLIST:
+    if path in SANCTIONED or path in ALLOWLIST or _allowed_prefix(path):
         return []
     style = comment_style(path)
     is_python = Path(path).suffix == ".py"

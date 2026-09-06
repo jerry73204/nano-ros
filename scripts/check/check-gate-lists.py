@@ -63,6 +63,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 JUSTFILE = REPO / "just" / "check.just"
+
 EXEMPT_FILE = REPO / ".config" / "gate-lane-exempt.txt"
 # phase-425/issue 1071 — the deletion ratchet's baseline. It survived the
 # 1072 rewrite unchanged in CONTENT: its 239 names are byte-identical to the
@@ -86,6 +87,33 @@ SENTINEL = "_gate-list-end"
 # A recipe header at column 0. Variables use `:=`, attributes start with `[`,
 # comments with `#`, and bodies are indented, so none of them match.
 RECIPE_RE = re.compile(r"^([a-z_][a-z0-9_-]*)([^:\n]*):(?!=)")
+
+def justfile_sources() -> list[Path]:
+    """`just/check.just` and every topic file it imports.
+
+    The gates live in `just/check/*.just` and are brought in with `import`,
+    which MERGES definitions -- so a recipe there is `just check <name>` just
+    like one written here. Reading only the index would derive a fast lane of
+    the seven lane recipes and silently drop 286 gates, which is the exact
+    shape of failure this file exists to prevent. Measured when the split
+    landed: the derived list went 231 -> 8 before this function existed.
+
+    Resolved relative to the importing file, and NOT globbed: the set is
+    whatever `check.just` actually imports, so a topic file that stops being
+    imported stops contributing gates here too, rather than counting from disk
+    while `just` cannot see it.
+    """
+    text = JUSTFILE.read_text(encoding="utf-8")
+    out = [JUSTFILE]
+    for m in re.finditer(r"^import\s+'([^']+)'", text, re.MULTILINE):
+        p = (JUSTFILE.parent / m.group(1)).resolve()
+        if p.is_file():
+            out.append(p)
+    return out
+
+
+def justfile_text() -> str:
+    return "\n".join(p.read_text(encoding="utf-8") for p in justfile_sources())
 
 
 def recipes(lines: list[str]) -> dict[str, bool]:
@@ -281,7 +309,7 @@ def classify(just_text: str, exempt_text: str) -> tuple[dict[str, list[str]], li
 
 def buckets() -> tuple[dict[str, list[str]], list[str]]:
     return classify(
-        JUSTFILE.read_text(encoding="utf-8"),
+        justfile_text(),
         EXEMPT_FILE.read_text(encoding="utf-8") if EXEMPT_FILE.is_file() else "",
     )
 

@@ -1,5 +1,5 @@
 {
-  "just/check.just": 1,
+  "just/check/lanes.just": 1,
   "just/esp32.just": 2,
   "just/native.just": 1,
   "just/nuttx.just": 1,
