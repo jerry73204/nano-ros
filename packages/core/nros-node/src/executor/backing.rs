@@ -49,15 +49,34 @@
 //! `max_callbacks` above `NROS_EXECUTOR_MAX_CBS` — keeps a static instead of
 //! falling back to the heap.
 //!
-//! **The Zephyr `CONFIG_` spelling is NOT wired yet.** `nros-node`'s build
-//! script resolves this through the same env → `$DOTCONFIG` reader every other
-//! executor knob uses, so `CONFIG_NROS_EXECUTOR_BACKING_U64S` would be honoured
-//! the moment `zephyr/Kconfig` declares it — but it does not, and a symbol no
-//! Kconfig declares never reaches the dotconfig. Declaring it belongs with the
-//! measurement that makes it necessary (issue 1145), not ahead of it: the
-//! natural `int … default 0` would mean "no static" on every Zephyr image the
-//! day it landed, which is the opposite of the default this chose. Until then
-//! the env knob is the whole interface.
+//! **The Zephyr `CONFIG_` spelling IS wired** (issue 1171; this paragraph said
+//! the opposite until then). `zephyr/Kconfig` declares
+//! `NROS_EXECUTOR_BACKING_U64S` with the tree's `-1` DERIVE sentinel as its
+//! default, and `nros-node`'s build script reaches it through the same env →
+//! `$DOTCONFIG` reader every other executor knob uses (issue 0460). `-1` does
+//! not parse as a `usize`, which is exactly how every other `-1 = derive` knob
+//! in this tree falls through to its crate default, so the shipped default is
+//! still the derived size and no Zephyr image moved the day it landed — a
+//! plain `default 0` would have meant "no static" on all of them, which is the
+//! opposite of the default this chose.
+//!
+//! # Why an image would STATE the size rather than derive it
+//!
+//! Because the derivation cannot be paired with anything. Issue 1145 lowered
+//! one leaf's `CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` by a size copied out of
+//! `nm` output, and that subtrahend is a function of the executor knobs: move
+//! `MAX_CBS`, the arena or the rx buffer and it is silently stale in whichever
+//! direction, with nothing to say so (issue 1171). It was also wrong on the
+//! second board the same conf builds for — the derived size is **87,256 B on
+//! `mps2_an385` and 88,328 B on `native_sim/native/64`**, because the carved
+//! tables hold pointers, so one number cannot pair both.
+//!
+//! Stating it inverts the dependency: the reservation is `8 * words` bytes on
+//! every target, the arena's lowering is arithmetic a gate can check
+//! (`check-executor-backing-arena-pairing`), and a stated size BELOW what the
+//! executor needs is the `const` assertion below — a compile error naming this
+//! knob, which is the direction that would otherwise re-create the double
+//! reservation in silence.
 //!
 //! # Why there is no `// nros-pool:` annotation
 //!

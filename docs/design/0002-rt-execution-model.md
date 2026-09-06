@@ -423,11 +423,20 @@ provide:
 `nros_node::executor::backing::EXECUTOR_BACKING` is that static.
 `NROS_EXECUTOR_BACKING_SECTION` places it in a named section (a `NOLOAD` one:
 the static is uninitialised) for parts with tightly-coupled memory;
-`NROS_EXECUTOR_BACKING_U64S` resizes it, or removes it entirely at `0`, because
-the RTOS half of the move — lowering the allocator arena by the same amount — is
-per-image and only its author can measure it (issue 1145). The heap arm remains
-for a second executor (tiered boot opens one per tier) and for an entry sized
-past the reservation.
+`NROS_EXECUTOR_BACKING_U64S` (Kconfig: `CONFIG_NROS_EXECUTOR_BACKING_U64S`,
+`-1` = derive) resizes it, or removes it entirely at `0`, because the RTOS half
+of the move — lowering the allocator arena by the same amount — is per-image
+(issue 1145). The heap arm remains for a second executor (tiered boot opens one
+per tier) and for an entry sized past the reservation.
+
+**An image that pays for the static out of the allocator arena STATES the size
+rather than measuring it** (issue 1171). The derived size is a function of the
+executor knobs AND of the target — 87,256 B on `mps2_an385` against 88,328 B on
+`native_sim/native/64` for one and the same conf — so a subtrahend copied out of
+`nm` is stale the next time a knob moves and was never right for both boards at
+once. A STATED size is `8 * words` everywhere, the arena's lowering becomes
+arithmetic a gate can check (`check-executor-backing-arena-pairing`), and a
+statement below what the executor needs is a compile error naming the knob.
 
 **What this does NOT buy, contrary to the original text.** It does not shrink a
 task stack. The claim that raising `NROS_SUBSCRIPTION_BUFFER_SIZE` "lands on

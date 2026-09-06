@@ -51,18 +51,15 @@ emits no static at all and restores the `Box::leak`. A non-zero value overrides
 the reservation's size. Read by `nros-node/build.rs` through the same
 env → `$DOTCONFIG` reader every other executor knob uses (issue 0460).
 
-**The Zephyr `CONFIG_` half is deliberately NOT declared yet, and declaring it
-is part of closing this.** The reader already looks for
-`CONFIG_NROS_EXECUTOR_BACKING_U64S` in the dotconfig, but `zephyr/Kconfig`
-declares no such symbol, and a symbol nothing declares never reaches the
-dotconfig — so on Zephyr today the env knob is the only interface. It was left
-out because the obvious declaration is wrong in an interesting way: an
-`int … default 0` would read as **"no static"** on every Zephyr image from the
-day it landed, silently reverting the change for the whole platform, and there
-is no other integer that spells "use the crate's default". Whoever does the
-measurement below decides the shape — most likely a `bool NROS_EXECUTOR_BACKING_STATIC`
-(`default y`) for the on/off decision plus the existing int for the size, one
-symbol per decision.
+**The Zephyr `CONFIG_` half is DECLARED now** — issue 1171 did it, because the
+hand-copied subtrahend this issue left behind could not be fixed without it.
+The concern recorded here was real and the resolution is not the `bool` this
+paragraph guessed at: `int … default -1`, the tree's DERIVE sentinel (issue
+0940), which `dotconfig_usize` already reads as "no value" and so leaves the
+crate's own sizing in place. `0` keeps its documented meaning of "no static".
+An image that lowers its arena STATES the word count, and the reservation is
+`8 x` it on every target — see issue 1171 for why a measured number could not
+be right for both boards this conf builds for.
 
 ## What closing this looks like
 
@@ -123,13 +120,18 @@ this issue's:
 ## Still open
 
 * **Every other Zephyr Rust leaf** (`listener`, `service-client`,
-  `service-server`, …) still reserves twice. Each needs its own measurement —
-  the backing is knob-derived per image, not a constant.
+  `service-server`, …) still reserves twice. **No longer a measurement each**:
+  issue 1171 (resolved) replaced the hand-copied subtrahend with a STATED
+  `CONFIG_NROS_EXECUTOR_BACKING_U64S`, so a leaf is three lines — the base it
+  lowered from, the word count, the arena — and a count too small for that leaf's
+  executor is a compile error naming the knob rather than a number someone has to
+  go and read out of `nm`.
 * **FreeRTOS, NuttX, ThreadX, ESP32** — untouched. One platform per commit, per
   the plan above, because the failure mode is a runtime allocation failure and a
-  six-platform diff makes it unattributable.
-* **The subtrahend is a hand-copied literal.** Move an executor knob and it is
-  stale with nothing to say so — [issue 1171](1171-arena-backing-pairing-is-hand-maintained.md).
+  six-platform diff makes it unattributable. The knob is Zephyr-only so far: the
+  other ports have no Kconfig, so their spelling is still the `NROS_*` build env.
+* ~~**The subtrahend is a hand-copied literal.**~~ RESOLVED —
+  [issue 1171](archived/1171-arena-backing-pairing-is-hand-maintained.md).
 
 ## Related
 

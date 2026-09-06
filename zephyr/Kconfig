@@ -1261,6 +1261,50 @@ config NROS_EXECUTOR_ARENA_SIZE
       Set it only with that arithmetic in hand; too small fails at runtime,
       not at link.
 
+config NROS_EXECUTOR_BACKING_U64S
+    int "Executor backing reservation in 64-bit words (-1 = derive, 0 = none)"
+    default -1
+    help
+      How many 64-bit words nros-node reserves in .bss for the executor's
+      per-entry storage -- the named static
+      nros_node::executor::backing::EXECUTOR_BACKING (phase-392 W6,
+      RFC-0002 SS 4.4b). The reservation is exactly 8 x this many bytes, on
+      every target.
+
+      -1 DERIVES it, from ExecutorSizing::DEFAULT: MAX_CBS, MAX_SC, MAX_NODES
+      and the arena. That is the right answer for an image that does not care
+      which budget the bytes come out of.
+
+      STATE A NUMBER when the image lowers CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE
+      to pay for the reservation (issue 1145). The Rust global allocator here is
+      picolibc malloc, whose arena is ITSELF a fixed static, and before W6 the
+      backing was a Box::leak out of it -- so leaving that arena where it was
+      reserves the same bytes twice. Lowering it by a number copied out of `nm`
+      pairs them once and then drifts the next time an executor knob moves,
+      in whichever direction, with nothing to say so (issue 1171).
+
+      Stating the size inverts that. The crate obeys this number, so the
+      pairing is exact by construction and identical on every board -- the
+      DERIVED size is target-dependent (87,256 B on mps2_an385 against
+      88,328 B on native_sim/native/64 for one and the same conf, which is how
+      1145's hand-paired leaf kept double-reserving 1,072 bytes on the second
+      board) and 8 x this is not. State it too SMALL and nros-node refuses to
+      compile naming this knob, which is the direction that would otherwise
+      silently re-create the double reservation.
+
+      A conf that states this must lower the arena by exactly 8 x this many
+      bytes and record what it lowered it FROM:
+
+          # nros-arena-base: 1048576
+          CONFIG_NROS_EXECUTOR_BACKING_U64S=11041
+          CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE=960248
+
+      check-executor-backing-arena-pairing holds every conf to that arithmetic.
+
+      0 declines the static entirely and restores the pre-W6 leak, for an image
+      that would rather keep the bytes in the allocator arena than have the
+      linker price them.
+
 config NROS_MAX_PARAMETERS
     int "Maximum declared parameters per image"
     default 32
