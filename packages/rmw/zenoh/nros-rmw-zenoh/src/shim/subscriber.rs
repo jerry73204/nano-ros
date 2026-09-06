@@ -381,7 +381,13 @@ pub struct SubscriberAllocReport {
     heap_capacity: AtomicU32,
 }
 
-/// `"SUBA"` -- subscriber alloc. Written LAST by [`record_alloc_ceilings`].
+/// `"SUBA"` -- subscriber alloc.
+///
+/// Written LAST by this module's private `record_alloc`, so a reader that finds
+/// the magic is looking at a fully populated record. Not a doc LINK: the writer
+/// is private, and rustdoc rejects a public item linking to one (which is how
+/// this line's previous target, a `record_alloc_ceilings` that no longer
+/// exists, went unnoticed -- see issue 1110).
 pub const SUBSCRIBER_ALLOC_MAGIC: u32 = 0x53554241;
 /// Layout version for [`SubscriberAllocReport`].
 pub const SUBSCRIBER_ALLOC_VERSION: u32 = 7;

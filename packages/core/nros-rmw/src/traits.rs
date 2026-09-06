@@ -2833,9 +2833,15 @@ pub trait ClientTrait {
     /// Returns `Ok(true)` if at least one matching server has been
     /// discovered, `Ok(false)` if none yet, or `Err(_)` if the
     /// backend cannot answer (e.g. XRCE — micro-XRCE-DDS-Client has
-    /// no participant enumeration). Distinct from
-    /// [`is_server_ready`](Self::is_server_ready), which collapses
-    /// "don't know" and "no server" into the same `false` answer.
+    /// no participant enumeration).
+    ///
+    /// Those are three answers, not two, and keeping them apart is the whole
+    /// point: `is_server_ready` used to sit beside this method collapsing
+    /// "don't know" and "no server" into one `false`, its trait default was
+    /// `true`, and only zenoh overrode it — so on every other image
+    /// `wait_for_service` returned success without probing anything. Issue
+    /// 1008 deleted it rather than fixing it, because a caller cannot recover
+    /// from an answer that does not distinguish the two.
     ///
     /// User-facing surface: `Client<S>::server_available()` in Rust,
     /// `nros_client_server_available()` in C/C++. Clients use this
