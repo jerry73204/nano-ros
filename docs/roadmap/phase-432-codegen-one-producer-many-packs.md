@@ -400,12 +400,50 @@ mislabel — so fix them WITH W3.1, not before.
 
 ## Also carried, from measuring this area
 
-- The tier table is initialised POSITIONALLY against
-  `nros_native_tier_spec_t`, a struct mirrored across **nine** files whose own
-  comment asks a human to keep them in sync — and `check-ffi-struct-mirrors`
-  does not cover it. A field inserted anywhere but the end silently
-  mis-assigns every generated entry (issue 0160's class, ungated). Designated
-  initialisers make it a compile error at the generated TU; extending the
-  mirror gate makes it loud at the point of edit. Both. It is byte-visible in
-  every generated entry, so it wants its own goldens diff rather than riding
-  W2.3.
+- ~~The tier table is initialised POSITIONALLY against
+  `nros_native_tier_spec_t`~~ — **DONE**, on its own branch after W2.3
+  (`fix/nros-native-tier-spec-designated-init`), with its own goldens diff as
+  planned.
+
+  **The count was NINE and it is EIGHT.** Measured: six DECLARATIONS —
+  `packages/api/nros-c/include/nros/main.h` (canonical
+  `nros_native_tier_spec_t`), `packages/api/nros-cpp/include/nros/main.hpp`
+  (`NativeTierSpec`), `packages/api/nros-cpp/src/lib.rs` (`NativeTierSpecC`,
+  `repr(C)`) and the THREE board `nros_tier_spec_t` mirrors
+  (`nros-board-{zephyr,nuttx-qemu,freertos}/c/*_run_tiers.c`) — plus two
+  INITIALISERS, `c_entry.c.jinja` and `cpp_entry.cpp.jinja`. main.h's own
+  comment said "the 4 board `nros_tier_spec_t` mirrors"; there are three, and
+  no fourth ever existed in this tree. `nros_platform::TierSpec`
+  (`packages/platform/nros-platform/src/board/tier.rs`) is NOT one of them —
+  it is a semantic sibling with different field names (`core`, `class`, an
+  extra `time_slice_us`) and no `repr(C)`, so counting it makes the set nine
+  and the ABI claim false.
+
+  Both halves landed. Designated initialisers in both packs; the mirror gate
+  now compares all eight sites against main.h — the C family by full
+  declaration (types included, the `nros_tier_setup_fn_t` typedef normalized),
+  C++/Rust by field-name ORDER, and the templates by the `.field` names they
+  emit. A template that goes back to positional is a named failure, not a
+  silent pass.
+
+  **C++ designated initialisers are C++20 and this tree pins C++14** — the
+  thing the item did not price. Measured accepted at `-std=c++14 -Wall
+  -Wextra` by g++ 11.4, clang++ 14, arm-none-eabi-g++ 13.2,
+  arm-zephyr-eabi-g++ 12.2 (Zephyr SDK 0.16.3) and riscv64-unknown-elf-g++
+  10.2 — every compiler this tree reaches, as a GNU/Clang extension. Only
+  `-Wpedantic` objects (`-Wc++20-extensions` on GCC 13+, `-Wpedantic` on GCC
+  ≤12, `-Wc++20-designator` on Clang), and nothing in-tree sets it on a
+  generated entry. The C pack is plain C99 and is `-Wpedantic`-clean. A
+  downstream `-Wpedantic -Werror` build of a generated C++ entry — PX4's flag
+  set, though PX4 compiles no generated entry — needs `-Wno-pedantic` on that
+  TU; that is written into the template's own header comment rather than
+  suppressed with a pragma, because the pragma spelling differs per compiler
+  and the warning is telling the truth.
+
+  Compile evidence: all eight tier-carrying goldens `-fsyntax-only` clean
+  against the REAL headers — the three C ones at `-std=c11 -Wall -Wextra
+  -Wpedantic`, the five C++ ones at `-std=c++14 -fno-exceptions -fno-rtti`
+  (the embedded profile `check cpp` uses) under both g++ and clang++.
+  Negative controls: a renamed field is `has no non-static data member named
+  'klass'`, and a reordered one is `designator order ... does not match
+  declaration order` — which is the property the change exists to buy.

@@ -124,7 +124,10 @@ extern void nros_platform_dealloc(void* ptr);
  *
  * Mirror of nros_native_tier_spec_t (nros/main.h). Layout MUST match: same
  * field order, same types, same ABI (verified by the C++ caller casting
- * NativeTierSpec* → nros_native_tier_spec_t* → this type). */
+ * NativeTierSpec* → nros_native_tier_spec_t* → this type). Gated by
+ * `check-ffi-struct-mirrors`, which compares this declaration to main.h's
+ * field by field (the `nros_tier_setup_fn_t` typedef being the one
+ * legitimate spelling difference). */
 typedef int32_t (*nros_tier_setup_fn_t)(void* executor);
 
 typedef struct {

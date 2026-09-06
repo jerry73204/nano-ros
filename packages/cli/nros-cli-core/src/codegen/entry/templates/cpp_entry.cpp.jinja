@@ -9,6 +9,24 @@
 
   What this template must NEVER do is decide a target fact — see `render.rs`.
 
+  The tier table uses DESIGNATED initialisers (RFC-0091 §5). `NativeTierSpec`
+  is one of six hand-written mirrors of the same C ABI struct, and a positional
+  row silently mis-assigns every field after an insertion — issue 0160's class.
+  `.field = value` makes a rename or a removal a compile error HERE, and an
+  insertion a zero rather than a shift. `check-ffi-struct-mirrors` reads these
+  `.field` names back and compares them to the canonical declaration order, so
+  the two halves cannot drift apart.
+
+  C++ designated initialisers are C++20, and this tree pins C++14 (Zephyr's
+  `CONFIG_STD_CPP14=y`, `-std=c++14` in three cross toolchains). MEASURED as
+  accepted at `-std=c++14 -Wall -Wextra` by g++ 11.4, clang++ 14,
+  arm-none-eabi-g++ 13.2, arm-zephyr-eabi-g++ 12.2 and riscv64-unknown-elf-g++
+  10.2 — every compiler this tree reaches. Only `-Wpedantic` objects
+  (`-Wc++20-extensions` on GCC 13+, `-Wc++20-designator` on Clang), and nothing
+  in-tree sets it on a generated entry. A downstream build that does will need
+  `-Wno-pedantic` on this TU; the C pack's initialisers are plain C99 and have
+  no such caveat.
+
   Whitespace is load-bearing: these bytes are compared against a golden and
   then handed to a compiler. Every control tag is written `{%- … %}` — strip
   what comes before, keep the newline after — so a blank line in the output is
@@ -100,7 +118,22 @@ static const char* __nros_tier_{{ t.index }}_groups[] = {{ "{" }}{% for g in t.g
 {%- endfor %}
 static const ::nros::board::NativeTierSpec __nros_tiers[{{ tiers.n }}] = {
 {%- for t in tiers.tiers %}
-    { "{{ t.name | c_str }}", {% if t.groups %}__nros_tier_{{ t.index }}_groups, {{ t.groups | length }}u{% else %}nullptr, 0u{% endif %}, {{ t.priority }}LL, {{ t.stack_bytes }}u, {{ t.spin_period_us }}ull, &__nros_entry_setup_tier_{{ t.index }}, {{ t.core_plus1 }}u, {{ t.preempt_threshold }}LL, {% if t.class %}"{{ t.class | c_str }}"{% else %}nullptr{% endif %}, {{ t.period_us }}ull, {{ t.budget_us }}ull, {{ t.deadline_us }}ull, {% if t.deadline_policy %}"{{ t.deadline_policy | c_str }}"{% else %}nullptr{% endif %} },
+    {
+        .name = "{{ t.name | c_str }}",
+        .groups = {% if t.groups %}__nros_tier_{{ t.index }}_groups{% else %}nullptr{% endif %},
+        .n_groups = {% if t.groups %}{{ t.groups | length }}u{% else %}0u{% endif %},
+        .priority = {{ t.priority }}LL,
+        .stack_bytes = {{ t.stack_bytes }}u,
+        .spin_period_us = {{ t.spin_period_us }}ull,
+        .setup = &__nros_entry_setup_tier_{{ t.index }},
+        .core_plus1 = {{ t.core_plus1 }}u,
+        .preempt_threshold = {{ t.preempt_threshold }}LL,
+        .tier_class = {% if t.class %}"{{ t.class | c_str }}"{% else %}nullptr{% endif %},
+        .period_us = {{ t.period_us }}ull,
+        .budget_us = {{ t.budget_us }}ull,
+        .deadline_us = {{ t.deadline_us }}ull,
+        .deadline_policy = {% if t.deadline_policy %}"{{ t.deadline_policy | c_str }}"{% else %}nullptr{% endif %},
+    },
 {%- endfor %}
 };
 
