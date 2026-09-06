@@ -1,6 +1,6 @@
 use super::common::{
     GeneratorError, PayloadLang, SchemaCaps, build_action_envelope_schemas, build_c_fields,
-    build_nros_fields, build_nros_schema_for_struct, determine_field_kind,
+    build_nros_fields, build_nros_schema_for_struct, build_rmw_fields, determine_field_kind,
     ensure_supported_storage_for_payload,
 };
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
     templates::{
         ActionCHeaderTemplate, ActionCSourceTemplate, ActionIdiomaticTemplate, ActionNrosTemplate,
         ActionRmwTemplate, BuildRsTemplate, CConstant, CargoNrosTomlTemplate, CargoTomlTemplate,
-        IdiomaticField, LibNrosRsTemplate, LibRsTemplate, MessageConstant, RmwField,
+        IdiomaticField, LibNrosRsTemplate, LibRsTemplate, MessageConstant,
     },
     types::{
         NrosCodegenMode, c_type_for_constant, constant_value_to_rust, escape_keyword,
@@ -75,22 +75,14 @@ pub fn generate_action_package(
     let lib_rs = crate::render::render("lib.rs", &lib_rs_template)
         .map_err(|e| GeneratorError::RenderError(e.to_string()))?;
 
-    // Helper functions to convert Message to field vectors
-    let message_to_rmw_fields = |msg: &Message| {
-        msg.fields
-            .iter()
-            .map(|f| RmwField {
-                name: escape_keyword(&f.name),
-                field_type: f.field_type.clone(),
-                current_package: package_name.to_string(),
-                default_value: f
-                    .default_value
-                    .as_ref()
-                    .map(constant_value_to_rust)
-                    .unwrap_or_default(),
-            })
-            .collect()
-    };
+    // phase-432 W2.5a — each part is lowered under its rosidl-convention member
+    // name (`<Action>_Goal` / `_Result` / `_Feedback`), the same keys the nros
+    // and C paths use, so all three name one member the same way.
+    let goal_member = format!("{action_name}_Goal");
+    let result_member = format!("{action_name}_Result");
+    let feedback_member = format!("{action_name}_Feedback");
+    let message_to_rmw_fields =
+        |member: &str, msg: &Message| build_rmw_fields(package_name, member, msg);
 
     let message_to_idiomatic_fields = |msg: &Message| {
         msg.fields
@@ -124,11 +116,11 @@ pub fn generate_action_package(
     let action_rmw_template = ActionRmwTemplate {
         package_name,
         action_name,
-        goal_fields: message_to_rmw_fields(&action.spec.goal),
+        goal_fields: message_to_rmw_fields(&goal_member, &action.spec.goal),
         goal_constants: message_to_constants(&action.spec.goal, true),
-        result_fields: message_to_rmw_fields(&action.spec.result),
+        result_fields: message_to_rmw_fields(&result_member, &action.spec.result),
         result_constants: message_to_constants(&action.spec.result, true),
-        feedback_fields: message_to_rmw_fields(&action.spec.feedback),
+        feedback_fields: message_to_rmw_fields(&feedback_member, &action.spec.feedback),
         feedback_constants: message_to_constants(&action.spec.feedback, true),
     };
     // RFC-0068 Stage 3 (phase-335 W3): rmw Rust action from the minijinja pack.
