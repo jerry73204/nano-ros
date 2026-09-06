@@ -51,7 +51,7 @@ static int32_t __nros_entry_setup_tier_{{ t.index }}(void* executor) {
     if (executor == NULL) return (int32_t)NROS_CPP_RET_NOT_INIT;
 {%- for n in t.nodes %}
     {
-        nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name_lit }}", "/", &__nros_node_{{ n.index }});
+        nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
 {{- n.decls }}
         void* self = __nros_c_component_{{ n.pkg }}_create();
@@ -65,13 +65,15 @@ static int32_t __nros_entry_setup_tier_{{ t.index }}(void* executor) {
 
 {% endfor -%}
 /* Phase 274.W2 — per-tier groups arrays + tier spec table. */
-{% for line in tiers.groups_arrays -%}
-{{ line }}
-{% endfor -%}
+{%- for t in tiers.tiers %}
+{%- if t.groups %}
+static const char* __nros_tier_{{ t.index }}_groups[] = {{ '{' }}{% for g in t.groups %}"{{ g|c_str }}", {% endfor %}};
+{%- endif %}
+{%- endfor %}
 static const nros_native_tier_spec_t __nros_tiers[{{ tiers.n }}] = {
-{% for row in tiers.spec_rows -%}
-{{ row }}
-{% endfor -%}
+{%- for t in tiers.tiers %}
+    { "{{ t.name|c_str }}", {% if t.groups %}__nros_tier_{{ t.index }}_groups, {{ t.groups|length }}u{% else %}NULL, 0u{% endif %}, {{ t.priority }}LL, {{ t.stack_bytes }}u, {{ t.spin_period_us }}ull, &__nros_entry_setup_tier_{{ t.index }}, {{ t.core_plus1 }}u, {{ t.preempt_threshold }}LL, {% if t.class is none %}NULL{% else %}"{{ t.class|c_str }}"{% endif %}, {{ t.period_us }}ull, {{ t.budget_us }}ull, {{ t.deadline_us }}ull, {% if t.deadline_policy is none %}NULL{% else %}"{{ t.deadline_policy|c_str }}"{% endif %} },
+{%- endfor %}
 };
 
 {{ boot_config }}
@@ -89,7 +91,7 @@ static int32_t __nros_entry_setup(void* executor) {
     }
 {%- for n in setup_nodes %}
     {
-        nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name_lit }}", "/", &__nros_node_{{ n.index }});
+        nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
 {{- n.decls }}
         void* self = __nros_c_component_{{ n.pkg }}_create();
