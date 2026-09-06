@@ -427,7 +427,30 @@ field group by field group; each group is a gate plus a mechanical edit.
       with different `entry_kind`; it stays authored), `local_aliases`
       (8 of 10 are `[platform_feature]`), `[board.entry] crate_name` (7 of 7 are
       `snake_case(board_crate)`), `[board.entry] signature` (4 of 7 identical).
-- [ ] **Decompose `cargo_config`** — a raw TOML blob in 8 of 12 rows, holding
+- [x] **`cargo_config` gets the schema check it was missing — NOT the
+      decomposition this box asked for, and the measurement is why.**
+
+      The wave said: promote `rustflags` / `runner` / `linker` out of the blob
+      into real fields. Measured across the seven blobs in the tree, they also
+      carry `[unstable]` (`build-std`), `[env]` (`CC_armv7a_nuttx_eabihf`,
+      `THREADX_PORT`, `NETX_CONFIG_DIR`, `ESP_LOG`) and `[patch.crates-io]`.
+      Four fields would cover part of every blob and the whole of none, so each
+      board would end up with BOTH fields and a blob — two places to look
+      instead of one, which is worse than the problem being solved.
+
+      What the box correctly identified is that the INNER document had no
+      schema check: a typo (`runnner`, `[targets.x]`, a `[build] target` naming
+      a triple the blob does not configure) travels into a generated
+      `.cargo/config.toml` where cargo silently ignores it, and the leaf then
+      builds for the wrong target or links without its flags. That is now
+      `check-board-cargo-config-shape`, which parses each blob and validates its
+      tables and its `[target.*]` keys.
+
+      Its own first draft matched table prefixes and let `[targets.x]` through,
+      because `"targets".startswith("target")` — the typo the gate exists to
+      catch, passing the check meant to catch it. The self-test caught that.
+
+      ~~Superseded wording: **Decompose `cargo_config`** — a raw TOML blob in 8 of 12 rows, holding
       `rustflags`/`runner`/`linker` as text with no schema check. Promote them to
       real fields; the CLI composes the leaf `.cargo/config.toml` from those
       instead of pasting the blob through.
