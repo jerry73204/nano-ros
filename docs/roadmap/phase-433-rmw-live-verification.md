@@ -475,6 +475,86 @@ which is the part that does not exist yet:
    acceptance and was never run.
 5. **`get_serialization_format`** — cheap, and it gates CDR compatibility.
 
+#### W6 jobs 3, 4 and 5 — LANDED as one cell
+
+`native-advertised-state-rust-cyclone-bidir`, run by
+`tests/advertised_state_interop.rs` and `just native test-ros2-advertised-state`.
+Three jobs in one cell because they share a probe, a peer bus and a build: the
+nano side is `packages/testing/nros-tests/bins/advertised-state-probe`, a
+Cyclone publisher and subscription held open while the test asks a stock ROS 2
+peer the same questions about the same entities.
+
+**Cyclone only, and that is a finding rather than a scoping choice.** Cyclone
+is the ONLY backend that fills any of these six slots. zenoh reaches the vtable
+through `RustBackendAdapter::VTABLE`, which ends `..EMPTY_VTABLE` and names
+none of them; `nros-rmw-xrce`'s designated initialiser stops at
+`get_serialization_format` and uORB's positional one does too. So "produced"
+here has always meant "one backend of four", and a zenoh cell would assert
+against NULL pointers.
+
+**The probe drives the C ABI directly, because there is nothing above it.**
+`publisher_count_matched_subscriptions`,
+`subscription_count_matched_publishers` and `get_gid_for_publisher` have NO
+consumer anywhere in the tree outside `nros-rmw-cyclonedds/tests/graph_counts.cpp`
+— no Rust method, no `nros_publisher_*` C entry, no dispatcher in
+`nros-rmw-cffi`. `publisher_get_actual_qos` has exactly one caller
+(`CffiSession::create_publisher`), which logs a downgrade warning and discards
+the profile; the subscription form and the four service/client halves have
+none. So the cell proves the SLOTS against a live peer, not an API path over
+them — there is no API path over them. That gap is worth its own item and is
+not this phase's (nothing here changes a signature).
+
+**Issue 0823's fix is REAL, measured 2026-09-06 by running the probe alone on
+this host** (no ROS needed for the read-back half):
+
+```
+ADV_QOS_REQUESTED   reliability=0 durability=0 history=0 depth=0 deadline_ms=0 lifespan_ms=0 liveliness_kind=0 liveliness_lease_ms=0
+ADV_QOS_PUB_GRANTED reliability=1 durability=2 history=1 depth=1 deadline_ms=4294967295 lifespan_ms=4294967295 liveliness_kind=1 liveliness_lease_ms=4294967295
+ADV_QOS_SUB_GRANTED reliability=1 durability=2 history=1 depth=1 deadline_ms=4294967295 lifespan_ms=0 liveliness_kind=1 liveliness_lease_ms=4294967295
+```
+
+`read_entity_qos` calls `dds_get_qos` and overwrites every field it can read;
+nothing is copied from the request. Eight fields go in as SYSTEM_DEFAULT/0 and
+six come back resolved — and the subscription's `lifespan_ms=0` is the
+contract working as documented rather than a bug: readers have no lifespan
+policy, `dds_qget_lifespan` returns false, and the field is left as it came in.
+
+**But the read is LOCAL, and the failure 0823 was filed about is still
+invisible to it.** `dds_get_qos` reports the entity Cyclone built; DDS never
+mutates a local entity's QoS as a result of matching — request-vs-offered
+either matches or raises `OFFERED/REQUESTED_INCOMPATIBLE_QOS`. So "a RELIABLE
+reader that matched a BEST_EFFORT writer" reads back RELIABLE and always will.
+The mechanism that answers it is `subscription_take_event`, which is **W6 job
+2**, and that job is now the one that closes 0823's headline case rather than
+a nice-to-have beside it. What this cell proves is the other half: the
+read-back reports what was BUILT rather than what was ASKED FOR, and a stock
+peer describes the same entity the same way.
+
+Two more measured facts, both from the same standalone run:
+
+* `get_serialization_format` answers `cdr` on the Cyclone vtable (a literal in
+  `vtable.cpp`, not read from the library). The peer-side half — that a stock
+  `rmw_cyclonedds_cpp` node DECODES our bytes — rides on the echo peer the
+  matched-count case already runs.
+* `get_gid_for_publisher` answers `01104401af499182c76a5e0b000002030000000000000000`
+  — 16 Cyclone GUID bytes, 8 zero pad, stable across reads. The peer half
+  compares the first 16 against `ros2 topic info --verbose`'s `GID:` line, and
+  **skips rather than asserting when a distro prints no such line**:
+  `ros2::topic_endpoints` deliberately keys on `Node name:` / `Endpoint type:`
+  only, because that line is distro-conditional, and a distro that declines to
+  answer has not disagreed with us.
+
+The matched-count state machine was also verified locally without ROS, by
+running a second probe with its topics swapped as the peer: both counts went
+`0 → 1 → 0` and both edges printed. That is not a substitute for the live run —
+it proves the edges move, not that a STOCK peer is what moves them — but it
+means a red in the box is about the peer, not about the probe.
+
+*Not verified here:* everything that needs a peer. This host has no ROS
+(`/opt/ros` absent), so all three live cases `skip!` and only the
+`interop::assert_test_bound` tripwire runs. The box is where the verdict comes
+from.
+
 ### W7 — one on-target cell that is not QoS
 
 An RTOS image against a stock peer, on a platform that is not Zephyr. This is

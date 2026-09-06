@@ -940,6 +940,18 @@ test-bridge-zenoh-to-cyclonedds-imperative verbose="":
 test-bridge-zenoh-to-xrce verbose="":
     @just _test-focused 'binary(=declarative_bridge_zenoh_to_xrce)' {{verbose}}
 
+# What a node ADVERTISES about itself, checked against what a live ROS 2 peer
+# reads for the same entities — phase-433 W6. Matched counts, the publisher
+# GID, the actual-QoS read-back (issue 0823's acceptance, never run) and
+# `get_serialization_format`: six slots that `check rmw-slot-producers` calls
+# `produced` and that no peer had ever touched. Cyclone only, because Cyclone is
+# the only backend that fills any of them — zenoh's vtable ends
+# `..EMPTY_VTABLE` and XRCE's initialiser stops before them.
+# Runs `advertised_state_interop`; needs ROS 2 + `rmw_cyclonedds_cpp` + the probe fixture.
+[group("debug")]
+test-ros2-advertised-state verbose="":
+    @just _test-focused 'binary(=advertised_state_interop)' {{verbose}}
+
 # Run ROS 2 interop tests (shell script)
 [group("debug")]
 test-ros2-shell:

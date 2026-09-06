@@ -1007,6 +1007,59 @@ pub const GRAPH_PROBE_SAW: &str = "GRAPH_PROBE_SAW";
 /// node. Issue 0903 was nine slots that had never been called at all sitting
 /// behind two that had.
 pub const GRAPH_PROBE_ALL_SLOTS_OK: &str = "GRAPH_PROBE_ALL_SLOTS_OK";
+
+// ---------------------------------------------------------------------------
+// phase-433 W6 — the ADVERTISED-STATE probe (`advertised-state-probe`).
+//
+// Four slot families that are `produced` and have never met a peer: matched
+// counts, the publisher GID, the actual-QoS read-back (issue 0823) and
+// `get_serialization_format`. The probe prints what OUR side says; the test
+// asks a stock ROS 2 peer the same questions about the same entities.
+// ---------------------------------------------------------------------------
+
+/// Every advertised-state slot the probe needs is non-NULL in this backend's
+/// vtable. Printed before any entity exists, so a backend that fills none of
+/// them (zenoh, XRCE, uORB) fails here rather than somewhere downstream.
+pub const ADV_PROBE_SLOTS_OK: &str = "ADV_PROBE_SLOTS_OK";
+
+/// The publisher and subscription are open and every read-back has been
+/// printed. The peer can be started once this appears.
+pub const ADV_PROBE_READY: &str = "ADV_PROBE_READY";
+
+/// `get_serialization_format`'s answer, verbatim.
+pub const ADV_FORMAT: &str = "ADV_FORMAT ";
+
+/// `get_gid_for_publisher`'s 24 bytes as 48 lowercase hex digits.
+pub const ADV_GID: &str = "ADV_GID ";
+
+/// The profile the probe ASKED for, as `key=value` pairs.
+///
+/// Printed alongside the granted one because the comparison between them is
+/// the point: issue 0823 found the runtime reporting the request AS the grant,
+/// and a probe that printed only the grant could not tell the two apart.
+pub const ADV_QOS_REQUESTED: &str = "ADV_QOS_REQUESTED ";
+
+/// `publisher_get_actual_qos`'s answer, same field order.
+pub const ADV_QOS_PUB_GRANTED: &str = "ADV_QOS_PUB_GRANTED ";
+
+/// `subscription_get_actual_qos`'s answer, same field order.
+pub const ADV_QOS_SUB_GRANTED: &str = "ADV_QOS_SUB_GRANTED ";
+
+/// `publisher_count_matched_subscriptions` reached ≥ 1 — a peer's SUBSCRIPTION
+/// matched our writer.
+pub const ADV_PUB_MATCHED_ROSE: &str = "ADV_PUB_MATCHED_ROSE";
+
+/// …and came back to 0 after that peer left. The second edge is the one a
+/// constant-returning stub cannot fake.
+pub const ADV_PUB_MATCHED_FELL: &str = "ADV_PUB_MATCHED_FELL";
+
+/// `subscription_count_matched_publishers` reached ≥ 1 — a peer's PUBLISHER
+/// matched our reader.
+pub const ADV_SUB_MATCHED_ROSE: &str = "ADV_SUB_MATCHED_ROSE";
+
+/// …and came back to 0 after that peer left.
+pub const ADV_SUB_MATCHED_FELL: &str = "ADV_SUB_MATCHED_FELL";
+
 pub const ERRNO_ISOLATION_FAIL: &str = "errno-isolation: verdict FAIL shared errno";
 pub const ERRNO_ISOLATION_SETUP: &str = "errno-isolation: verdict SETUP failed";
 

@@ -372,6 +372,18 @@ pub enum Workload {
     /// this one asks "can we see who is there", and the two fail for different
     /// reasons.
     Graph,
+    /// phase-433 W6 — what a node ADVERTISES about itself, cross-checked
+    /// against what a live ROS 2 peer reads for the same entities: matched
+    /// counts, the publisher GID, the actual-QoS read-back (issue 0823) and
+    /// `get_serialization_format`.
+    ///
+    /// Its own workload for the same reason [`Workload::Graph`] is: the
+    /// subject is neither delivery nor discovery but SELF-REPORT. Every slot
+    /// in it is one nobody can check from inside one process — a matched count
+    /// is a statement about a peer, a GID's whole purpose is that another
+    /// participant recognises it, and a granted QoS is only interesting where
+    /// it differs from the requested one.
+    AdvertisedState,
 }
 
 impl Workload {
@@ -398,6 +410,7 @@ impl Workload {
             // The offset only has to be unique within the band.
             Workload::Errno => 94,
             Workload::Graph => 95,
+            Workload::AdvertisedState => 96,
         }
     }
 

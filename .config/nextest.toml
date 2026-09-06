@@ -787,6 +787,27 @@ retries = 2
 filter = "binary(=ros2_action_e2e)"
 test-group = "host-dds-ros2-interop"
 slow-timeout = { period = "60s", terminate-after = 3 }
+# phase-433 W6 — the advertised-state cell. A real Cyclone participant on a
+# per-test `unique_ros_domain_id()`, so it belongs to the host-DDS group with
+# the other RTPS suites and NOT to `native-qos-discovery`, even though it does
+# read an endpoint's advertised profile out of `ros2 topic info --verbose`.
+# The two groups guard different resources: `native-qos-discovery` (max-threads
+# 1) exists because the ZENOH cells share one graph on the default domain and
+# concurrent pairs make the peer miss an endpoint (issues 0312 / 0747), while
+# this suite's isolation is the domain partition plus `dds_isolation`'s
+# loopback pin — the same reason `interop_e2e and test(cyclone)` above is here
+# rather than there. Bounding total concurrent host-DDS interop is the
+# constraint that applies.
+#
+# The budget is not the usual 60 s: the matched-count case waits out FOUR
+# bounded windows in one test — a rise edge, a 10 s echo peer's whole life, a
+# fall edge, then the same again for the subscription side — so a 30 s period
+# would kill it mid-sequence and report a discovery failure. PR #627 found
+# `ros2_action_e2e` in exactly that shape with no override at all.
+[[profile.default.overrides]]
+filter = "binary(=advertised_state_interop)"
+test-group = "host-dds-ros2-interop"
+slow-timeout = { period = "120s", terminate-after = 3 }
 retries = 2
 
 [[profile.default.overrides]]

@@ -36,7 +36,15 @@ use nros_tests::{
 /// backend. zenoh and Cyclone discover through entirely different mechanisms
 /// (`@ros2_lv` liveliness tokens versus the `ros_discovery_info` topic), so
 /// each needs its own live case; proving one says nothing about the other.
-const GRAPH_CELLS: [(
+///
+/// NOT named `*_CELLS`, and that is a fix rather than a style choice: this
+/// declaration used to carry that suffix, which `no_local_axis_tables` flags
+/// as a second axis table outside `matrix.rs` / `interop.rs` — so that gate
+/// was RED on `main` from the day this file landed. The name was the whole
+/// violation: what this holds is the coordinate set `assert_test_bound`
+/// compares AGAINST `interop::CELLS`, which is the mechanism that keeps there
+/// from being a second SSoT rather than an instance of one.
+const GRAPH_COORDS: [(
     nros_tests::matrix::PlatformId,
     nros_tests::matrix::Lang,
     nros_tests::matrix::Rmw,
@@ -71,7 +79,7 @@ fn nano_ros_enumerates_a_stock_ros2_node() {
     // every `interop::CELLS` row that names it, and this file carries the zenoh
     // and cyclone cases. Declaring only one made the check fail loudly rather
     // than let a cell drift uncovered — which is the point of it.
-    interop::assert_test_bound("graph_interop", &GRAPH_CELLS);
+    interop::assert_test_bound("graph_interop", &GRAPH_COORDS);
 
     if !require_ros2() {
         nros_tests::skip!("ROS 2 + rmw_zenoh_cpp not available");
@@ -165,7 +173,7 @@ fn cyclone_enumerates_a_stock_ros2_node() {
     // every `interop::CELLS` row that names it, and this file carries the zenoh
     // and cyclone cases. Declaring only one made the check fail loudly rather
     // than let a cell drift uncovered — which is the point of it.
-    interop::assert_test_bound("graph_interop", &GRAPH_CELLS);
+    interop::assert_test_bound("graph_interop", &GRAPH_COORDS);
 
     if !nros_tests::ros2::require_ros2_cyclonedds() {
         nros_tests::skip!("ROS 2 + rmw_cyclonedds_cpp not available");
