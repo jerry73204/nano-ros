@@ -270,7 +270,14 @@ BASELINE = {
     # reads `$NROS_ENTRY_SPIN_MS` — and both had been free-riding on `nros`'s
     # guards until issue 0669's follow-up correctly relaxed one of them.
     "nros-cpp": {"cfg": 3, "path": 2},
-    "nros-log": {"cfg": 1, "path": 0},
+    # 2026-09-06: cfg 1 -> 0. The one site was the crate attribute itself,
+    # `#![cfg_attr(not(feature = "std"), no_std)]`, and it bought nothing --
+    # this crate's `std` is `std = ["alloc"]` over `alloc = []`, so it enables
+    # no std functionality and the crate uses none. The conditional form only
+    # meant `std` compiled a DIFFERENT crate: a second configuration nobody
+    # wanted and no merge-gating lane built. Now `#![no_std]` unconditionally,
+    # held there by `check-core-crates-are-no-std`.
+    "nros-log": {"cfg": 0, "path": 0},
     # phase-361 W8.e: +1, the `signal-fd-wake` `compile_error!` guard — the
     # feature used to list `"std"` and now requires it by name.
     # Two changes met here and both are counted. `c3a16a529` (#607) raised

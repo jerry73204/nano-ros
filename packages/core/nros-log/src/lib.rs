@@ -32,7 +32,16 @@
 //! }
 //! ```
 
-#![cfg_attr(not(feature = "std"), no_std)]
+// UNCONDITIONAL. This was `cfg_attr(not(feature = "std"), no_std)`, which
+// bought nothing: this crate's `std` feature is `std = ["alloc"]` over
+// `alloc = []`, so it enables no std functionality and the crate uses none.
+// The conditional form only meant that building with `std` compiled a
+// DIFFERENT crate -- a second configuration nobody wanted and no lane checked.
+//
+// ARCHITECTURE section 2 / phase-359: the terminal state of a core crate is
+// `core` or `core+alloc`. `check-core-crates-are-no-std` holds every core
+// crate to this spelling.
+#![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 
