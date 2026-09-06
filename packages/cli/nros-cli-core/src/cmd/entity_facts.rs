@@ -91,37 +91,53 @@ pub fn facts_from_model(model: &SystemModel) -> BTreeMap<String, String> {
 
 /// Whether this model DESCRIBES the graph's wiring at all.
 ///
-/// MEASURED, and it corrects this wave twice over: `ros-launch-manifest` models
-/// service wiring (`structure.services` -> `ServiceWiring { server, .. }`), but
-/// ZERO of the 115 resolved models in this tree carry any layer-1 wiring —
-/// no `topics`, no `services`, no `actions`. A plain `<node>` launch file names
-/// a node; it does not say what that node serves, and nothing else in the
-/// resolver's inputs does either.
+/// **Abstaining here is the DESIGNED outcome, not a symptom (issue 0973).**
+/// Endpoint wiring is AUTHORED, never derived. A plain `<node>` launch file
+/// names a node; it does not say what that node publishes or serves, and
+/// nothing else in the resolver's inputs does either. `model_builder` fills
+/// `structure.{topics,services,actions}` from a `ManifestIndex`, and
+/// `manifest_loader` builds that index from a CONTRACT — the provider sidecar
+///
+/// ```text
+/// <bringup>/launch/<stem>.contract.yaml     beside <stem>.launch.xml
+/// ```
+///
+/// or an overlay root passed as `--contracts <dir>`. That file is the ONE input
+/// a user authors to make this function true, and naming it is the difference
+/// between "the model does not say" being actionable and being merely true.
 ///
 /// So an absent `services` map does NOT mean "this system has no service
-/// servers". `examples/workspaces/c`'s `service_server_model.yaml` describes a
-/// node called `add_server` and carries no `services` key at all. Reporting 0
-/// there would size the table to the infrastructure alone and exhaust it the
-/// moment the node registers — a confident wrong number, sized exactly, which
-/// is the failure shape this campaign keeps finding rather than a new one.
-///
-/// The discriminator is whether ANY wiring was described. If it was, an empty
+/// servers" — it means nobody stated the answer. Reporting 0 there would size
+/// the queryable table to the infrastructure alone and exhaust it the moment a
+/// node registers: a confident wrong number, sized exactly, which is the
+/// failure shape this campaign keeps finding rather than a new one. The
+/// discriminator is whether ANY wiring was described. If it was, an empty
 /// `services` map is a real zero. If nothing was, the question is unanswered
 /// and this verb says nothing rather than guessing.
 ///
-/// **Abstaining is the DESIGNED outcome here, not a symptom (issue 0973).**
-/// Endpoint wiring is AUTHORED, not derived: `model_builder` fills
-/// `structure.{topics,services,actions}` from a `ManifestIndex`, which
-/// `manifest_loader` builds by reading a `<stem>.contract.yaml` beside each
-/// launch file. This tree has 93 `*.launch.xml` and 0 `*.contract.yaml`, so the
-/// maps are empty everywhere and always will be until someone authors contracts.
+/// A caller must therefore not read the abstain as "the resolver lost
+/// something". Nothing is lost; the input does not exist. (There WAS one real
+/// instance of loss — the loader silently dropped `actions:` — and R1-P2 fixed
+/// it. Check for a contract file before searching the resolver again.)
 ///
-/// So a caller must not read the abstain as "the resolver lost something".
-/// Nothing is lost; the input does not exist. (There WAS one real instance of
-/// loss — the loader silently dropped `actions:` — and R1-P2 fixed it.) A
-/// consumer that wants per-image entity counts should use the component
-/// SIDECAR, which records action and service clients and needs no contract
-/// file; that is the route issue 0900 took.
+/// **Re-measured 2026-09-06, and the count moves — the correspondence does
+/// not.** Resolving every launch file in the tree: 122 `*.launch.xml`, 5
+/// `*.contract.yaml`, and of the 114 that resolve standalone exactly 5 describe
+/// wiring — the same 5, in `examples/workspaces/cpp/src/demo_bringup/launch/`.
+/// It read `0 of 119` when issue 0973 was answered on 2026-09-03 and changed
+/// the day phase-412 landed the first contracts. Quote the invariant (wiring
+/// <=> an authored contract), never the number.
+///
+/// A consumer wanting per-image entity counts writes a contract; there is no
+/// second source. The per-component `nano_ros_node_register(... ENTITIES ...)`
+/// route issue 0900 took is RETIRED (phase-412) — it is now a `FATAL_ERROR`
+/// naming this same file, because a list hand-maintained beside the code
+/// drifted from it on the safety island and every derived pool came out short.
+///
+/// Sibling predicate, and it is NOT identical: `EntityInventory::from_model`
+/// also accepts a non-empty `contracts.node_paths`, which is where a contract's
+/// timer paths land. A timer-only contract is therefore wiring to that
+/// consumer and silence to this one — issue 1140.
 fn describes_wiring(model: &SystemModel) -> bool {
     !model.structure.topics.is_empty()
         || !model.structure.services.is_empty()
@@ -221,8 +237,10 @@ mod tests {
 
     #[test]
     fn a_model_that_describes_no_wiring_abstains_on_the_app_count() {
-        // NOT zero. All 115 models in this tree are this shape, including one
-        // whose only node is called `add_server`.
+        // NOT zero. 109 of the tree's 114 resolvable models are this shape
+        // (measured 2026-09-06), including `examples/workspaces/c`'s, whose
+        // node is literally called `add_server` and whose model says nothing
+        // about services because that workspace authors no contract.
         let m = model(EMPTY);
         assert_eq!(declared_service_servers(&m), None);
         assert_eq!(declared_infra(&m), "none");

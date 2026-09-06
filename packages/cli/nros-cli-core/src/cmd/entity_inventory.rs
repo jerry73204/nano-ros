@@ -5,14 +5,21 @@
 //! resolution, one implementation. The DIFFERENCE is which question it answers
 //! and where the answer comes from.
 //!
-//! `entity-facts` reads the resolved SystemModel and abstains on all 115 of
-//! them, because a launch file names a node and never says what that node
-//! wires. This verb reads `nros-metadata.json` -- the file
-//! `nano_ros_node_register()` already writes, one row per component -- and the
-//! `ENTITIES` the register call states. That is the one place in the build
-//! where the wiring is both KNOWN and available before the sizes it feeds are
-//! compiled; see [`crate::entity_inventory`] for why a link-section manifest
-//! cannot be.
+//! `entity-facts` reads the resolved SystemModel and ABSTAINS unless somebody
+//! authored a `<stem>.contract.yaml` beside the launch file, because a launch
+//! file names a node and never says what that node wires (issue 0973 —
+//! measured 2026-09-06: 5 of the tree's 114 resolvable models describe wiring,
+//! and they are exactly the 5 with a contract). This verb reads
+//! `nros-metadata.json` -- the file `nano_ros_node_register()` already writes,
+//! one row per component -- and, with `--model`, the same contract through the
+//! resolved model. That is the one place in the build where the wiring is both
+//! KNOWN and available before the sizes it feeds are compiled; see
+//! [`crate::entity_inventory`] for why a link-section manifest cannot be.
+//!
+//! The `ENTITIES` argument that used to carry the per-component half is
+//! RETIRED (phase-412): it was hand-maintained beside the code with nothing
+//! comparing the two, and on the safety island it drifted. The contract file is
+//! now the single statement of what an image creates.
 //!
 //! Reading METADATA and not the C++ sources is the same decision
 //! `codegen::entry::metadata` makes for `class` / `class_header`: the register

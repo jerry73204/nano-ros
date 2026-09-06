@@ -1267,9 +1267,27 @@ under a different workspace root (issue 0616's shape: a `--target-dir` serves on
 root, and `-C metadata` keys a unit by the path it was reached by). Sizing one of
 six is not a shipped number, and no byte figure is claimed from it.
 
-**And the application half is still absent** — "application count undeclared (no
-model here describes wiring)" is issue 0973: `describes_wiring()` is false for
-every resolved model in the tree, so only the INFRA figure is ever delivered.
+**And the application half was absent** — "application count undeclared (no
+model here describes wiring)" is issue 0973: `describes_wiring()` was false for
+every resolved model in the tree, so only the INFRA figure was ever delivered.
+
+**It is no longer absent, as of phase-412 (2026-09-05).** Endpoint wiring is an
+AUTHORED artifact — a `<stem>.contract.yaml` beside the launch file — and
+phase-412 wrote the first five, in `examples/workspaces/cpp`. Measured
+2026-09-06 on freshly resolved models:
+
+```
+$ nros ws entity-facts --model .../service_server.launch.xml model
+NROS_DECLARED_INFRA_QUERYABLES=none
+NROS_DECLARED_SERVICE_SERVERS=1
+$ nros ws entity-facts --model .../action_server.launch.xml model
+NROS_DECLARED_SERVICE_SERVERS=3          # one action server is 3 queryables
+```
+
+So the application half now reaches a build wherever a contract exists, and
+abstains everywhere else — which is the designed behaviour, not the gap. 0973 is
+resolved on that basis; W5.f's "retire both headroom constants once every image
+declares" is still open, and now has a route rather than a wall.
 
 **So the honest state of W5:** the sizing logic, the exhaustion diagnostic and
 the checked override all landed and are unit-tested; the figure they consume now
