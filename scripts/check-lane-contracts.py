@@ -537,6 +537,44 @@ def _parse_one(lines, mod):
 # that verified nothing while printing OK.
 JUST_CALL = re.compile(r"^\s*@?just\s+((?:[a-z0-9_:-]+)(?:\s+[a-z0-9_:-]+)*)\s*$")
 
+# A lane that names its steps in a shell ARRAY and runs them indirectly:
+#
+#     steps=(check::cli-fresh check::fast check::build test-unit)
+#     ...
+#     if just "${steps[$i]}"; then ...
+#
+# `ci::gate` is written exactly that way. The literal invocation is
+# `just "${steps[$i]}"`, which JUST_CALL cannot resolve, so the closure came
+# back as the lane itself and this gate reported "0 test target(s)" over the
+# tier whose affordability claim CLAUDE.md publishes. That is the third time
+# this walk has gone blind to a change in how the lane spells its steps -- a
+# header-only walk (fixed), `just ci l1` as two words (fixed), and now an array
+# -- which is why the vacuity guard at the end of `main` matters more than any
+# one of these patterns.
+STEPS_ARRAY = re.compile(r"^\s*steps=\(\s*([^)]*?)\s*\)\s*$", re.M)
+
+# Lanes whose membership is DERIVED rather than written as `just` edges.
+# `check::fast` is `@bash scripts/build/run-gates-parallel.sh`, which computes
+# its own set (issue 1072 deleted the registry that used to spell it). Walking
+# `just` edges from there reaches nothing, so the derivation is asked directly
+# -- the same list the runner itself uses, from the one tool that owns it.
+DERIVED_LANES = {"check::fast": "fast-serial", "check::fast-serial": "fast-serial",
+                 "check::fast-parallel": "fast-serial", "check::build": "build-serial"}
+
+
+def _derived_members(lane):
+    """The gate names a derived lane runs, as `check::<name>`."""
+    import subprocess
+
+    tool = os.path.join(ROOT, "scripts", "check", "check-gate-lists.py")
+    if not os.path.isfile(tool):
+        return []
+    r = subprocess.run([sys.executable, tool, "--list", DERIVED_LANES[lane]],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    return [f"check::{n.strip()}" for n in r.stdout.split("\n") if n.strip()]
+
 
 def closure(recipes, root):
     seen, stack = set(), [root]
@@ -546,6 +584,10 @@ def closure(recipes, root):
             continue
         seen.add(r)
         stack.extend(recipes[r]["deps"])
+        if r in DERIVED_LANES:
+            stack.extend(_derived_members(r))
+        for m in STEPS_ARRAY.finditer("\n".join(recipes[r]["body"])):
+            stack.extend(m.group(1).split())
         for line in recipes[r]["body"]:
             m = JUST_CALL.match(line)
             if not m:
@@ -1150,6 +1192,44 @@ def main():
         for rec, _ev in {(a, tuple(sorted(b))) for a, b in r}
         if rec in ordered_now
     )
+    # A closure that reaches nothing reports the same OK as one that reaches
+    # everything. This gate has gone blind three times -- a header-only walk, a
+    # module rename read as two words, and a lane naming its steps in a shell
+    # array -- and each time the symptom was "0 test target(s)" sitting in a
+    # green summary that nobody reads. So make it the failure it always was.
+    #
+    # The bound is per LANE, not on the total: one healthy tier would otherwise
+    # cover for two dead ones, which is exactly how `ci::gate` and `check::fast`
+    # both walked to a closure of ONE while `ci::_matrix-build` looked fine.
+    blind = [lane for lane in LANES if len(closure(recipes_map, lane)) < 2]
+    if blind:
+        sys.stderr.write(
+            "check-lane-contracts: %d tier(s) resolve to a closure of ONE — the "
+            "walk cannot see their steps, so this gate is checking NOTHING for "
+            "them:\n" % len(blind)
+        )
+        for lane in blind:
+            sys.stderr.write(
+                f"  {lane}\n"
+                "      Its steps are reached by an edge this walk does not "
+                "follow. Past shapes: a bare dependency header, `just <mod> "
+                "<recipe>` as two words, `steps=(...)` run as `just \"${steps[i]}\"`, "
+                "and a lane whose membership a SCRIPT derives (see "
+                "DERIVED_LANES).\n"
+            )
+        sys.stderr.write(
+            "\nFix the walk, not this check: a tier whose closure is empty has "
+            "an affordability claim in CLAUDE.md that nothing verifies.\n"
+        )
+        return 1
+    if checked == 0:
+        sys.stderr.write(
+            "check-lane-contracts: examined 0 test target(s). Every lane's "
+            "closure is non-trivial, so the fixture scan itself found nothing "
+            "to check — fix the scan rather than accepting the green.\n"
+        )
+        return 1
+
     print(
         f"check-lane-contracts OK — {checked} test target(s) across "
         f"{len(LANES)} affordability tier(s) and {scanned} CI lane invocation(s) "
