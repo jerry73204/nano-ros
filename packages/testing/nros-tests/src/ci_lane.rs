@@ -38,8 +38,8 @@
 //! | lane | selection | cells | coords | cost |
 //! | --- | --- | --- | --- | --- |
 //! | [`CiLane::Tier1`] | host-exec, 1-wise p,w,k + pairwise l × r | 17 | 12 | 26 % |
-//! | [`CiLane::Tier2`] | 1-wise p, l, r, k | 13 | 14 | 28 % |
-//! | [`CiLane::Tier2Nightly`] | pairwise p × l × r × k | 37 | 37 | 74 % |
+//! | [`CiLane::Tier2`] | 1-wise p, l, r, k | 13 | 13 | 26 % |
+//! | [`CiLane::Tier2Nightly`] | pairwise p × l × r × k | 36 | 36 | 72 % |
 //! | tier 3 | everything | 194 | 50 | 100 % |
 //!
 //! **These numbers are GATED, not transcribed** — `documented_lane_table_is_live`
@@ -870,8 +870,8 @@ _tier-build:
         // (lane, cells, coords) exactly as the module docs above state them.
         let documented = [
             (CiLane::Tier1, 17, 12),
-            (CiLane::Tier2, 13, 14),
-            (CiLane::Tier2Nightly, 37, 37),
+            (CiLane::Tier2, 13, 13),
+            (CiLane::Tier2Nightly, 36, 36),
         ];
         for (lane, want_cells, want_coords) in documented {
             assert_eq!(
