@@ -852,31 +852,6 @@ impl Ros2Liveliness {
         key
     }
 
-    /// Format: `@ros2_lv/<domain_id>/*/*/*/SS/%/*/*/<service>/<type>/*/*`
-    /// — wildcards on zid, namespace, node, type_hash, and qos. Used by
-    /// `Client::wait_for_service` to discover any matching server before
-    /// the first request, mirroring `rclcpp::ClientBase::wait_for_service`.
-    pub fn service_server_keyexpr_wildcard<const N: usize>(
-        domain_id: u32,
-        service: &ServiceInfo,
-    ) -> heapless::String<N> {
-        let mut key = heapless::String::new();
-        let service_mangled = Self::mangle_topic_name::<MANGLED_NAME_SIZE>(service.name);
-        let _ = core::fmt::write(
-            &mut key,
-            format_args!(
-                "{}/{}/*/{}/{}/%/*/*/{}/{}/*/*",
-                LIVELINESS_PREFIX,
-                domain_id,
-                ENTITY_ANY,
-                ENTITY_SERVICE_SERVER,
-                service_mangled.as_str(),
-                crate::keyexpr::DdsTypeName(service.type_name),
-            ),
-        );
-        key
-    }
-
     /// Demangle a `%`-separated name back to a ROS name (`%demo` -> `/demo`).
     ///
     /// The inverse of `mangle_topic_name` (private), and deliberately written
@@ -1439,31 +1414,74 @@ mod tests {
         }
     }
 
-    /// The same property for the service-server wildcard, which
-    /// `Client::wait_for_service` polls.
+    /// phase-428 W13 — `parse` against REAL `rmw_zenoh_cpp` (humble, 0.1.9)
+    /// tokens, one of each shape a liveliness subscriber delivers: the node
+    /// token (9 chunks) and the service-server token (13 chunks) that
+    /// `service_is_ready` now matches on.
+    ///
+    /// The round-trip test above pins the parser to OUR builders; this one
+    /// pins it to what a stock `add_two_ints_server` actually declares —
+    /// `liveliness_utils.cpp:396-431` (`Entity::Entity`): enclave BEFORE
+    /// namespace (the header docstring at `liveliness_utils.hpp:88` omits it),
+    /// the DDS type spelling `pkg::srv::dds_::Type_` with the `Response_`
+    /// suffix stripped (`rmw_service_data.cpp:74-87`), the humble hash
+    /// constant (`rmw_service_data.cpp:89-91`), and a QoS string whose
+    /// default-valued fields are EMPTY (`qos_to_keyexpr`, `:237-298`).
     #[test]
-    fn service_server_wildcard_matches_any_entity_id() {
-        let zid = ZenohId::from_bytes([0u8; 16]);
-        let service = ServiceInfo::new(
-            "/add_two_ints",
-            "example_interfaces::srv::dds_::AddTwoInts_",
-            "RIHS01_svc",
+    fn parse_reads_real_rmw_zenoh_tokens() {
+        // A service server on `/add_two_ints`, node `/add_two_ints_server`,
+        // root namespace, default enclave, domain 0, services-default QoS
+        // (only `depth=10` differs from rmw_zenoh's defaults, so it is the one
+        // QoS field spelled out).
+        let ss = "@ros2_lv/0/3f8e0a1b2c3d4e5f/0/2/SS/%/%/add_two_ints_server/%add_two_ints/example_interfaces::srv::dds_::AddTwoInts_/TypeHashNotSupported/::,10:,:,:,,";
+        let e = Ros2Liveliness::parse(ss).expect("a real SS token parses");
+        assert_eq!(e.kind, EntityKind::ServiceServer);
+        assert_eq!(e.domain_id, 0);
+        assert_eq!(e.zid, "3f8e0a1b2c3d4e5f");
+        assert_eq!((e.node_id, e.entity_id), (0, 2));
+        assert_eq!(e.namespace, "%", "root namespace is mangled to `%`");
+        assert_eq!(e.node_name, "add_two_ints_server");
+        assert_eq!(
+            e.topic,
+            Some("%add_two_ints"),
+            "the plain service name, mangled"
         );
-        let qos = QoSProfile::QOS_PROFILE_SERVICES_DEFAULT;
-        let wildcard = Ros2Liveliness::service_server_keyexpr_wildcard::<256>(0, &service);
+        assert_eq!(
+            e.type_name,
+            Some("example_interfaces::srv::dds_::AddTwoInts_"),
+            "DDS spelling, `Response_` stripped"
+        );
+        assert_eq!(e.type_hash, Some("TypeHashNotSupported"));
+        assert_eq!(
+            e.qos,
+            Some("::,10:,:,:,,"),
+            "default-valued QoS fields are empty"
+        );
 
-        for entity_id in [1u32, 3, 11, 900] {
-            let declared = Ros2Liveliness::service_server_keyexpr::<256>(
-                0, &zid, entity_id, "/", "srv_node", &service, &qos,
-            );
-            assert!(
-                keyexpr_matches(wildcard.as_str(), declared.as_str()),
-                "wildcard {} must match a server declared with entity_id {}: {}",
-                wildcard.as_str(),
-                entity_id,
-                declared.as_str(),
-            );
-        }
+        // The same server's node token: no tail.
+        let nn = "@ros2_lv/0/3f8e0a1b2c3d4e5f/0/0/NN/%/%/add_two_ints_server";
+        let n = Ros2Liveliness::parse(nn).expect("a real NN token parses");
+        assert_eq!(n.kind, EntityKind::Node);
+        assert_eq!(n.node_name, "add_two_ints_server");
+        assert_eq!(
+            (n.topic, n.type_name, n.type_hash, n.qos),
+            (None, None, None, None)
+        );
+
+        // What `service_is_ready` keys on is reproducible from OUR side of the
+        // seam: the mangled service name and the DDS type name, rendered the
+        // way the token carries them.
+        let mangled = Ros2Liveliness::mangle_topic_name_pub::<64>("/add_two_ints");
+        assert_eq!(e.topic, Some(mangled.as_str()));
+        let mut dds = heapless::String::<128>::new();
+        let _ = core::fmt::write(
+            &mut dds,
+            format_args!(
+                "{}",
+                crate::keyexpr::DdsTypeName("example_interfaces/srv/AddTwoInts")
+            ),
+        );
+        assert_eq!(e.type_name, Some(dds.as_str()));
     }
 
     #[test]

@@ -10,8 +10,16 @@
 //! Output contract: the group body already emitted the success marker
 //! ("Result of add_two_ints: N"); the FAILURE marker was added to every group
 //! copy in this wave, because the silent `Err(_) => {}` arm made a client with
-//! no server indistinguishable from a healthy one — and `services.rs`'s
-//! client-without-server test asserts exactly that marker.
+//! no server indistinguishable from a healthy one.
+//!
+//! phase-428 W13 — the first request is GATED on `service_is_ready`, the way
+//! the official demo gates it on `wait_for_service`: with no server the client
+//! says "service not available, waiting again..." (rclcpp's exact wording) once
+//! per timer tick and sends nothing, so on a backend with discovery the failure
+//! marker is no longer how "no server" sounds — the waiting marker is, and
+//! `services.rs`'s client-without-server tests assert that one. On a backend
+//! that cannot answer the question (XRCE) the readiness check is `Err`, the
+//! request goes out as before, and the failure marker is still the evidence.
 
 #![no_std]
 
@@ -70,6 +78,15 @@ impl ExecutableNode for AddTwoIntsClient {
             return;
         }
         state.pending = false;
+        // rclcpp: `while (!client->wait_for_service(1s)) { RCLCPP_INFO(...,
+        // "service not available, waiting again..."); }`. A tick cannot block
+        // the executor that drives it, so the wait is one check per timer
+        // tick. `Err` is "the backend cannot say" — call anyway, the request
+        // is then the probe (as it always was on such backends).
+        if let Ok(false) = ctx.service_is_ready_for_name("/add_two_ints") {
+            log::info!("service not available, waiting again...");
+            return;
+        }
         let req = AddTwoIntsRequest { a: 2, b: 3 };
         // Stack-buf sizes: AddTwoInts request = 2 × i64 + CDR header = 24 B;
         // response = 1 × i64 + header = 16 B. 64 each is generous.

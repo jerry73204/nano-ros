@@ -1809,11 +1809,11 @@ nros_cpp_ret_t nros_cpp_service_client_server_available(void *storage, int32_t *
  * first request instead (three attempts, spin in between) to paper over slow
  * discovery. This is the primitive those loops were approximating.
  *
- * Mirrors `rclcpp::ClientBase::wait_for_service`, and re-probes for the same
- * reason `Client::wait_for_service` does
- * (`nros-node/src/executor/handles.rs`): a `liveliness_get` samples the
- * router's CURRENT token list and terminates, so a server that comes up after
- * we start waiting is only seen by a fresh probe.
+ * Mirrors `rclcpp::ClientBase::wait_for_service`: a spin on
+ * `service_is_ready`, the same shape as `Client::wait_for_service`
+ * (`nros-node/src/executor/handles.rs`) — each check is a synchronous read
+ * of the discovery state the backend maintains, nothing is latched, and a
+ * backend that cannot answer waits out the budget (phase-428 W13, issue 1087).
  *
  * # Returns
  * * `NROS_CPP_RET_OK` — server visible.
@@ -2306,10 +2306,10 @@ nros_cpp_ret_t nros_cpp_action_client_create(const struct nros_cpp_node_t *node,
  * so the C++ action-client examples hand-rolled a 3-attempt retry around
  * `send_goal`. Mirrors `rclcpp_action::Client::wait_for_action_server`.
  *
- * Probes the `send_goal` service-client liveliness keyexpr, which is the
- * load-bearing entity for the first `send_goal`; see
+ * Spins on the `send_goal` service client's readiness, which is the
+ * load-bearing entity for the first `send_goal`; the same shape as
  * `ActionClient::wait_for_action_server` in
- * `nros-node/src/executor/handles.rs` for the re-probe rationale.
+ * `nros-node/src/executor/handles.rs` (phase-428 W13).
  *
  * # Safety
  * `handle` must be a valid initialized `CppActionClient`.

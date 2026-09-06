@@ -2156,13 +2156,15 @@ impl<Svc: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
     /// `rclcpp::ClientBase::wait_for_service` and
     /// `rclpy.client.Client.wait_for_service`.
     ///
-    /// On the Zenoh backend this issues a `z_liveliness_get` against the
-    /// matching server's wildcarded liveliness keyexpr; the executor is
-    /// spun cooperatively while the query is in flight so other
-    /// subscribers / timers continue to make progress.
+    /// A spin on [`service_is_ready`](Self::service_is_ready): the executor
+    /// is spun cooperatively between checks so other subscribers / timers
+    /// continue to make progress, and the check itself is a synchronous read
+    /// of the discovery state the backend maintains (on zenoh, the
+    /// matched-server set fed by liveliness PUT/DELETE — phase-428 W13). No
+    /// query is issued at call time, which is also how upstream answers.
     ///
-    /// issue 1087 — a backend without liveliness discovery answers `Ok(None)`
-    /// ("cannot say"), NOT `Ok(true)`. It used to answer yes, so this returned
+    /// issue 1087 — a backend that cannot answer (`Err`, e.g. XRCE) is
+    /// "cannot say", NOT "yes". It used to be yes, so this returned
     /// immediately on cyclone, XRCE and uORB without probing anything. Such a
     /// backend now waits out the budget and reports `Ok(false)`: slower, and
     /// the direction that does not send a request into the void.
@@ -2177,55 +2179,31 @@ impl<Svc: RosService, const REQ_BUF: usize, const REPLY_BUF: usize>
     /// let mut promise = client.call(&request)?;
     /// ```
     ///
-    /// Once the server is observed, the result is latched: subsequent
-    /// `service_is_ready` checks return `true` without another round
-    /// trip. This matches `rclcpp`'s snapshot semantic — discovery isn't
-    /// re-proven on every call.
+    /// Nothing is latched. `service_is_ready` reads the CURRENT state, so a
+    /// server that goes away after this returned `true` reads unavailable
+    /// again — which is what `rclcpp` does too (`ClientBase::service_is_ready`
+    /// calls `rcl_service_server_is_available` on every invocation; there is
+    /// no snapshot semantic, whatever an earlier comment here claimed).
     pub fn wait_for_service(
         &mut self,
         executor: &mut super::Executor,
         timeout: core::time::Duration,
     ) -> Result<bool, NodeError> {
-        // Already proven once — don't re-query. `Ok(true)` ONLY: issue 1008.
-        //
-        // This read `is_server_ready()`, whose trait default is `true` and which
-        // only zenoh overrode — so on every cffi-backed image this fast path
-        // fired unconditionally and `wait_for_service` returned `Ok(true)`
-        // without waiting or probing. `Err` (backend cannot answer) and
-        // `Ok(false)` must both fall through to the wait loop, which is what the
-        // comment above always claimed.
+        // `Ok(true)` ONLY (issue 1008): `Err` (the backend cannot answer) and
+        // `Ok(false)` both keep waiting.
         if matches!(self.handle.service_is_ready(), Ok(true)) {
             return Ok(true);
         }
         let spin_interval = core::time::Duration::from_millis(DEFAULT_SPIN_INTERVAL_MS);
         let max_spins = (timeout.as_millis() as u64 / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
-        // Per-query budget. A liveliness_get is a single-shot probe of the
-        // router's current token list; if the server hasn't declared its
-        // token yet when our query arrives, the router replies "no
-        // matching tokens" and the query terminates. We loop, re-issuing
-        // shorter probes until either a matching token is observed or the
-        // outer wall-clock budget expires (issue #224 — shared cadence).
-        const PROBE_TIMEOUT_MS: u32 = crate::SERVER_DISCOVERY_PROBE_TIMEOUT_MS;
+        // phase-428 W13 — spin, then ask again. The liveliness subscriber that
+        // feeds the set runs on the executor's read path, so each `spin_once`
+        // is what lets a freshly declared token land in the set.
         loop {
-            self.handle
-                .start_server_discovery(PROBE_TIMEOUT_MS)
-                .map_err(|_| NodeError::ServiceRequestFailed)?;
-            // Drain this probe to completion (token reply or empty FINAL).
-            loop {
-                executor.spin_once(spin_interval);
-                match self
-                    .handle
-                    .poll_server_discovery()
-                    .map_err(|_| NodeError::ServiceRequestFailed)?
-                {
-                    Some(true) => return Ok(true),
-                    Some(false) => break, // probe finished empty — re-issue
-                    None => {}            // still in flight
-                }
-                if !budget.tick() {
-                    return Ok(false);
-                }
+            executor.spin_once(spin_interval);
+            if matches!(self.handle.service_is_ready(), Ok(true)) {
+                return Ok(true);
             }
             if !budget.tick() {
                 return Ok(false);
@@ -2841,8 +2819,8 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
     /// Returns `Ok(true)` on discovery, `Ok(false)` on timeout. Mirrors
     /// `rclcpp_action::Client::wait_for_action_server`.
     ///
-    /// Implementation: probes the action's `send_goal` service-server
-    /// liveliness keyexpr via the same primitive as
+    /// Implementation: spins on the `send_goal` service client's
+    /// `service_is_ready`, the same primitive as
     /// [`Client::wait_for_service`]. Once that service is reachable the
     /// remaining four action entities (cancel queryable + feedback /
     /// status / result publishers) are also reachable in practice — they
@@ -2859,32 +2837,11 @@ impl<A: RosAction, const GOAL_BUF: usize, const RESULT_BUF: usize, const FEEDBAC
         let spin_interval = core::time::Duration::from_millis(DEFAULT_SPIN_INTERVAL_MS);
         let max_spins = (timeout.as_millis() as u64 / DEFAULT_SPIN_INTERVAL_MS).max(1);
         let mut budget = WaitBudget::new(max_spins, timeout);
-        // See `Client::wait_for_service` for the re-probe rationale: a
-        // single liveliness_get samples the router's current token list
-        // and terminates; we loop with shorter per-probe timeouts so the
-        // outer budget covers servers that come up after we start
-        // waiting.
-        const PROBE_TIMEOUT_MS: u32 = crate::SERVER_DISCOVERY_PROBE_TIMEOUT_MS; // issue #224
+        // phase-428 W13 — spin, then ask again; see `wait_for_service`.
         loop {
-            self.core
-                .send_goal_client
-                .start_server_discovery(PROBE_TIMEOUT_MS)
-                .map_err(|_| NodeError::ServiceRequestFailed)?;
-            loop {
-                executor.spin_once(spin_interval);
-                match self
-                    .core
-                    .send_goal_client
-                    .poll_server_discovery()
-                    .map_err(|_| NodeError::ServiceRequestFailed)?
-                {
-                    Some(true) => return Ok(true),
-                    Some(false) => break,
-                    None => {}
-                }
-                if !budget.tick() {
-                    return Ok(false);
-                }
+            executor.spin_once(spin_interval);
+            if matches!(self.core.send_goal_client.service_is_ready(), Ok(true)) {
+                return Ok(true);
             }
             if !budget.tick() {
                 return Ok(false);

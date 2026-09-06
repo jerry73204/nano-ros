@@ -1645,14 +1645,12 @@ pub unsafe extern "C" fn nros_client_server_available(
 /// the underlying `Client::wait_for_service`.
 ///
 /// The client must already have been registered with the executor via
-/// `nros_executor_add_client`. Internally fires liveliness queries
-/// against the matching service-server's wildcard liveliness keyexpr
-/// and spins the executor cooperatively while the probe is in flight.
-/// 1-second per-probe timeout, looped until either a token reply lands
-/// or the outer wall-clock budget expires — see the runtime API for the
-/// rationale (a single liveliness_get samples the router's current
-/// token list and terminates, so a server that comes up after we
-/// start waiting needs to be re-probed).
+/// `nros_executor_add_client`. A spin on `nros_client_service_is_ready`'s
+/// query: the executor is spun cooperatively between checks, and each check
+/// is a synchronous read of the discovery state the backend maintains (on
+/// zenoh, the matched-server set fed by liveliness PUT/DELETE — phase-428
+/// W13). Nothing is latched; a backend that cannot answer waits out the
+/// budget and reports `NROS_RET_TIMEOUT` (issue 1087).
 ///
 /// # Returns
 /// * `NROS_RET_OK` — server is visible (proceed with `nros_client_call`).
@@ -1685,29 +1683,11 @@ pub unsafe extern "C" fn nros_client_wait_for_service(
         }
         let executor = exec_t as *mut nros_executor_t;
 
-        // Latched fast-path: if a previous wait already proved the
-        // server is reachable, don't re-probe.
-        {
-            let exec = crate::executor::get_executor(&mut exec_t._opaque);
-            let entry = match exec.service_client_entry_mut(internal.arena_entry_index as usize) {
-                Some(e) => e,
-                None => return NROS_RET_NOT_INIT,
-            };
-            // issue 1008 — `Ok(true)` only. `is_server_ready` defaulted to
-            // `true`, so this returned OK without waiting on every backend.
-            if matches!(entry.handle.service_is_ready(), Ok(true)) {
-                return NROS_RET_OK;
-            }
-        }
-
-        // Per-probe / outer budget. Mirrors `Client::wait_for_service` in
-        // packages/core/nros-node/src/executor/handles.rs.
-        const PROBE_TIMEOUT_MS: u32 = nros_node::SERVER_DISCOVERY_PROBE_TIMEOUT_MS; // issue #224
+        // phase-428 W13 — spin, then ask again. `Ok(true)` ONLY (issue 1008):
+        // `Err` (the backend cannot answer) and `Ok(false)` both keep waiting.
         let start_ns = crate::platform::get_time_ns();
         let timeout_ns: u64 = (timeout_ms as u64).saturating_mul(1_000_000);
         loop {
-            // Re-borrow each iteration to avoid holding `entry` across
-            // the executor spin (which itself touches the arena).
             {
                 let exec = crate::executor::get_executor(&mut exec_t._opaque);
                 let entry = match exec.service_client_entry_mut(internal.arena_entry_index as usize)
@@ -1715,42 +1695,15 @@ pub unsafe extern "C" fn nros_client_wait_for_service(
                     Some(e) => e,
                     None => return NROS_RET_NOT_INIT,
                 };
-                if entry
-                    .handle
-                    .start_server_discovery(PROBE_TIMEOUT_MS)
-                    .is_err()
-                {
-                    return NROS_RET_ERROR;
+                if matches!(entry.handle.service_is_ready(), Ok(true)) {
+                    return NROS_RET_OK;
                 }
             }
-
-            // Drain this probe to completion (token reply or empty FINAL).
-            loop {
-                crate::executor::rclc_executor_spin_some(executor, 10_000_000);
-
-                let exec = crate::executor::get_executor(&mut exec_t._opaque);
-                let entry = match exec.service_client_entry_mut(internal.arena_entry_index as usize)
-                {
-                    Some(e) => e,
-                    None => return NROS_RET_NOT_INIT,
-                };
-                match entry.handle.poll_server_discovery() {
-                    Ok(Some(true)) => return NROS_RET_OK,
-                    Ok(Some(false)) => break, // probe finished empty — re-issue
-                    Ok(None) => {}            // still in flight
-                    Err(_) => return NROS_RET_ERROR,
-                }
-
-                let elapsed_ns = crate::platform::get_time_ns().saturating_sub(start_ns);
-                if elapsed_ns >= timeout_ns {
-                    return NROS_RET_TIMEOUT;
-                }
-            }
-
             let elapsed_ns = crate::platform::get_time_ns().saturating_sub(start_ns);
             if elapsed_ns >= timeout_ns {
                 return NROS_RET_TIMEOUT;
             }
+            crate::executor::rclc_executor_spin_some(executor, 10_000_000);
         }
     }
 

@@ -3597,13 +3597,10 @@ nros_ret_t nros_action_client_set_result_callback(struct nros_action_client_t *c
  * on the network, or `timeout_ms` elapses.
  *
  * Mirrors `rclcpp_action::Client::wait_for_action_server` and the
- * the underlying `ActionClient::wait_for_action_server`. Internally
- * probes the action's `send_goal` service-server liveliness keyexpr
- * (the goal queryable is the load-bearing entity for the first
- * `nros_action_send_goal` call) via the same primitive as the
- * service-client equivalent. See
- * `packages/api/nros-c/src/service.rs::nros_client_wait_for_service`
- * for the re-probe rationale.
+ * underlying `ActionClient::wait_for_action_server`. Spins on the
+ * action's `send_goal` service client's readiness (the goal queryable is
+ * the load-bearing entity for the first `nros_action_send_goal` call) via
+ * the same primitive as `nros_client_wait_for_service` (phase-428 W13).
  *
  * # Returns
  * * `NROS_RET_OK` — server visible.
@@ -6657,14 +6654,12 @@ NROS_PUBLIC nros_ret_t nros_client_server_available(struct nros_client_t *client
  * the underlying `Client::wait_for_service`.
  *
  * The client must already have been registered with the executor via
- * `nros_executor_add_client`. Internally fires liveliness queries
- * against the matching service-server's wildcard liveliness keyexpr
- * and spins the executor cooperatively while the probe is in flight.
- * 1-second per-probe timeout, looped until either a token reply lands
- * or the outer wall-clock budget expires — see the runtime API for the
- * rationale (a single liveliness_get samples the router's current
- * token list and terminates, so a server that comes up after we
- * start waiting needs to be re-probed).
+ * `nros_executor_add_client`. A spin on `nros_client_service_is_ready`'s
+ * query: the executor is spun cooperatively between checks, and each check
+ * is a synchronous read of the discovery state the backend maintains (on
+ * zenoh, the matched-server set fed by liveliness PUT/DELETE — phase-428
+ * W13). Nothing is latched; a backend that cannot answer waits out the
+ * budget and reports `NROS_RET_TIMEOUT` (issue 1087).
  *
  * # Returns
  * * `NROS_RET_OK` — server is visible (proceed with `nros_client_call`).

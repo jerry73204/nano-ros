@@ -390,6 +390,24 @@ unsafe extern "C" {
         cap: usize,
     ) -> i32;
 
+    /// phase-428 W13 — the PURE half of the graph-cache sample handler: apply
+    /// one liveliness sample to a NUL-separated token set in a caller buffer.
+    /// PUT inserts once (a duplicate is a no-op), DELETE removes and closes the
+    /// gap, a PUT that does not fit is counted in `dropped` and never truncated.
+    /// Returns 1 if the set changed, 0 if not, `ZPICO_ERR_INVALID` for NULL.
+    /// Reachable without a session so the set semantics are testable against
+    /// the real C code.
+    pub fn zpico_graph_set_apply(
+        buf: *mut u8,
+        cap: usize,
+        len: *mut usize,
+        count: *mut u32,
+        dropped: *mut u32,
+        key: *const core::ffi::c_char,
+        klen: usize,
+        remove: bool,
+    ) -> i32;
+
     /// The PURE half of `zpico_liveliness_entry`: index into a NUL-separated
     /// run. Reachable without a live session, which is why the graph cache
     /// reuses it to walk its snapshot instead of growing a second walk.
@@ -550,6 +568,102 @@ mod tests {
             ZPICO_ERR_BUFFER,
             "a short buffer must be refused rather than truncated"
         );
+    }
+
+    /// phase-428 W13 — the matched set `service_is_ready` answers from, driven
+    /// through the REAL C set primitive with the two sample kinds a liveliness
+    /// subscriber delivers: PUT on declare, DELETE on undeclare.
+    ///
+    /// The property issue 1087 was about is the DELETE arm: a server that goes
+    /// away must leave the set, so the answer can go from true back to false.
+    /// The latch this replaces had no such arm.
+    #[test]
+    fn graph_set_put_then_delete_round_trips() {
+        unsafe extern "C" {
+            fn zpico_graph_set_apply(
+                buf: *mut u8,
+                cap: usize,
+                len: *mut usize,
+                count: *mut u32,
+                dropped: *mut u32,
+                key: *const core::ffi::c_char,
+                klen: usize,
+                remove: bool,
+            ) -> i32;
+        }
+        // Two real `rmw_zenoh_cpp` (humble, 0.1.9) service-server tokens for
+        // `/add_two_ints`, differing only in zid/eid — two servers, one service.
+        const A: &[u8] = b"@ros2_lv/0/3f8e0a1b2c3d4e5f/0/2/SS/%/%/add_two_ints_server/%add_two_ints/example_interfaces::srv::dds_::AddTwoInts_/TypeHashNotSupported/::,10:,:,:,,";
+        const B: &[u8] = b"@ros2_lv/0/aa11bb22cc33dd44/0/5/SS/%/%/add_two_ints_server/%add_two_ints/example_interfaces::srv::dds_::AddTwoInts_/TypeHashNotSupported/::,10:,:,:,,";
+
+        /// The set: a buffer plus the three counters the C handler keeps.
+        struct Set {
+            buf: [u8; 512],
+            len: usize,
+            count: u32,
+            dropped: u32,
+        }
+        impl Set {
+            fn apply(&mut self, key: &[u8], remove: bool) -> i32 {
+                unsafe {
+                    zpico_graph_set_apply(
+                        self.buf.as_mut_ptr(),
+                        self.buf.len(),
+                        &mut self.len,
+                        &mut self.count,
+                        &mut self.dropped,
+                        key.as_ptr().cast::<core::ffi::c_char>(),
+                        key.len(),
+                        remove,
+                    )
+                }
+            }
+        }
+        let mut s = Set {
+            buf: [0u8; 512],
+            len: 0,
+            count: 0,
+            dropped: 0,
+        };
+
+        assert_eq!(s.apply(A, false), 1, "PUT inserts");
+        assert_eq!(
+            s.apply(A, false),
+            0,
+            "a second PUT of the same token is a no-op"
+        );
+        assert_eq!(s.apply(B, false), 1, "a different token is a second entry");
+        assert_eq!((s.count, s.len), (2, A.len() + 1 + B.len() + 1));
+
+        assert_eq!(s.apply(A, true), 1, "DELETE removes");
+        assert_eq!(s.count, 1, "one server left");
+        assert_eq!(s.apply(A, true), 0, "DELETE of an absent token is a no-op");
+        // The run closed up: B is now entry 0, intact.
+        assert_eq!(&s.buf[..B.len()], B, "the survivor moved down, unbroken");
+        assert_eq!(s.len, B.len() + 1);
+
+        assert_eq!(s.apply(B, true), 1);
+        assert_eq!((s.count, s.len), (0, 0), "the set is empty again");
+        assert_eq!(s.dropped, 0, "nothing was refused on the way");
+
+        // A token that does not fit is COUNTED, never truncated.
+        let mut tiny = [0u8; 16];
+        let mut tlen = 0usize;
+        let mut tcount = 0u32;
+        let mut tdropped = 0u32;
+        let rc = unsafe {
+            zpico_graph_set_apply(
+                tiny.as_mut_ptr(),
+                tiny.len(),
+                &mut tlen,
+                &mut tcount,
+                &mut tdropped,
+                A.as_ptr().cast::<core::ffi::c_char>(),
+                A.len(),
+                false,
+            )
+        };
+        assert_eq!((rc, tcount, tlen, tdropped), (0, 0, 0, 1));
     }
 
     #[test]

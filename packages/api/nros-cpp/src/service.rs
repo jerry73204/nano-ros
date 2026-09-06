@@ -16,8 +16,8 @@ use nros_rmw::{ClientTrait, ServiceInfo, ServiceTrait, Session};
 
 use crate::{
     CppContext, NROS_CPP_RET_ERROR, NROS_CPP_RET_INVALID_ARGUMENT, NROS_CPP_RET_OK,
-    NROS_CPP_RET_TIMEOUT, NROS_CPP_RET_TRANSPORT_ERROR, NROS_CPP_RET_TRY_AGAIN, cpp_ctx_checked,
-    cstr_to_str, nros_cpp_node_t, nros_cpp_qos_t, nros_cpp_ret_t,
+    NROS_CPP_RET_TIMEOUT, NROS_CPP_RET_TRY_AGAIN, cpp_ctx_checked, cstr_to_str, nros_cpp_node_t,
+    nros_cpp_qos_t, nros_cpp_ret_t,
 };
 
 use core::{
@@ -783,11 +783,11 @@ pub unsafe extern "C" fn nros_cpp_service_client_server_available(
 /// first request instead (three attempts, spin in between) to paper over slow
 /// discovery. This is the primitive those loops were approximating.
 ///
-/// Mirrors `rclcpp::ClientBase::wait_for_service`, and re-probes for the same
-/// reason `Client::wait_for_service` does
-/// (`nros-node/src/executor/handles.rs`): a `liveliness_get` samples the
-/// router's CURRENT token list and terminates, so a server that comes up after
-/// we start waiting is only seen by a fresh probe.
+/// Mirrors `rclcpp::ClientBase::wait_for_service`: a spin on
+/// `service_is_ready`, the same shape as `Client::wait_for_service`
+/// (`nros-node/src/executor/handles.rs`) — each check is a synchronous read
+/// of the discovery state the backend maintains, nothing is latched, and a
+/// backend that cannot answer waits out the budget (phase-428 W13, issue 1087).
 ///
 /// # Returns
 /// * `NROS_CPP_RET_OK` — server visible.
@@ -814,41 +814,20 @@ pub unsafe extern "C" fn nros_cpp_service_client_wait_for_service(
     };
     let client = unsafe { &mut *(storage as *mut nros::internals::RmwServiceClient) };
 
-    // Latched: a previous wait already proved reachability.
-    // issue 1008 — `Ok(true)` only. The deleted `is_server_ready` defaulted to
-    // `true`, so this fast path fired on every backend that cannot answer.
-    if matches!(client.service_is_ready(), Ok(true)) {
-        return NROS_CPP_RET_OK;
-    }
-
+    // phase-428 W13 — spin, then ask again. `Ok(true)` ONLY (issue 1008):
+    // `Err` (the backend cannot answer) and `Ok(false)` both keep waiting.
     const SPIN_MS: u64 = 10;
-    const PROBE_TIMEOUT_MS: u32 = nros_node::SERVER_DISCOVERY_PROBE_TIMEOUT_MS;
     let deadline_ns = crate::nros_cpp_time_ns() + (timeout_ms as u64) * 1_000_000;
-
     loop {
-        if client.start_server_discovery(PROBE_TIMEOUT_MS).is_err() {
-            return NROS_CPP_RET_TRANSPORT_ERROR;
-        }
-        // Drain this probe: token reply, or empty FINAL and re-issue.
-        loop {
-            let _ = ctx
-                .executor
-                .spin_once(core::time::Duration::from_millis(SPIN_MS));
-            match client.poll_server_discovery() {
-                Ok(Some(true)) => return NROS_CPP_RET_OK,
-                Ok(Some(false)) => break,
-                Ok(None) => {}
-                // issue 0870 — a `TransportError` here really is transport, but
-                // WHICH one is the diagnosis; `-100` erases it.
-                Err(e) => return crate::transport_error_to_cpp_ret(e),
-            }
-            if crate::nros_cpp_time_ns() >= deadline_ns {
-                return NROS_CPP_RET_TIMEOUT;
-            }
+        if matches!(client.service_is_ready(), Ok(true)) {
+            return NROS_CPP_RET_OK;
         }
         if crate::nros_cpp_time_ns() >= deadline_ns {
             return NROS_CPP_RET_TIMEOUT;
         }
+        let _ = ctx
+            .executor
+            .spin_once(core::time::Duration::from_millis(SPIN_MS));
     }
 }
 

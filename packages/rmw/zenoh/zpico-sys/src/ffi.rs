@@ -858,6 +858,27 @@ mod cbindgen_stubs {
         -1 // stub: not available
     }
 
+    /// phase-428 W13 — the PURE half of the graph-cache sample handler: apply
+    /// one liveliness sample (PUT inserts once, DELETE removes and closes the
+    /// gap, a PUT that does not fit is COUNTED in `dropped`) to a
+    /// NUL-separated token set in a caller buffer. Split out like
+    /// `zpico_entry_at` so the set `service_is_ready` answers from is testable
+    /// without a session. Returns 1 if the set changed, 0 if not,
+    /// `ZPICO_ERR_INVALID` for a NULL argument.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn zpico_graph_set_apply(
+        _buf: *mut u8,
+        _cap: usize,
+        _len: *mut usize,
+        _count: *mut u32,
+        _dropped: *mut u32,
+        _key: *const c_char,
+        _klen: usize,
+        _remove: bool,
+    ) -> i32 {
+        -1 // stub: not available
+    }
+
     /// The PURE half of `zpico_liveliness_entry`: index into a NUL-separated
     /// run. Split out so the walk is testable WITHOUT a live session, because
     /// this is where an off-by-one costs a WRONG keyexpr rather than a missing

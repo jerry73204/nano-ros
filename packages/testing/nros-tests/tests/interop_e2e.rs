@@ -507,16 +507,45 @@ fn interop(#[case] cell: Cell) {
         Scenario::ZenohServiceRos2Server => {
             let router = start_zenoh_router();
             let locator = router.locator();
-            let mut ros2_server =
-                match Ros2Process::add_two_ints_server(&locator, DEFAULT_ROS_DISTRO) {
-                    Ok(p) => p,
-                    Err(e) => skip!("ROS 2 service server could not start: {e}"),
-                };
+            // phase-428 W13 / issue 1087 — the CLIENT starts first, with no
+            // server anywhere, so the cell observes `wait_for_service`'s two
+            // halves in order: it answers "no" while no server exists (the
+            // client prints rclcpp's "service not available, waiting again..."
+            // and sends nothing), and it answers "yes" once the ROS 2 server's
+            // `SS` liveliness token lands in the zenoh matched-server set
+            // (the client then calls and prints the result). Before W13 the
+            // second half was a `z_liveliness_get` and the first half did not
+            // exist — the zenoh client latched "seen once" forever, and every
+            // other backend answered yes without asking.
             let mut client = spawn_nano_zenoh(
                 &service_client_binary(),
                 "native-rs-service-client",
                 &locator,
             );
+            let waiting = client.collect_until(
+                output::SERVICE_NOT_AVAILABLE_MARKER,
+                Duration::from_secs(15),
+            );
+            assert!(
+                waiting.contains(output::SERVICE_NOT_AVAILABLE_MARKER),
+                "with no server running, `service_is_ready` must answer NO and the \
+                 client must say so (`{}`) rather than send into the void ({}).\n\
+                 nano output:\n{waiting}",
+                output::SERVICE_NOT_AVAILABLE_MARKER,
+                cell.note
+            );
+            assert_eq!(
+                count_pattern(&waiting, output::SERVICE_CALL_FAILED_MARKER),
+                0,
+                "the client sent a request while `service_is_ready` said no — the \
+                 gate is not gating.\nnano output:\n{waiting}"
+            );
+
+            let mut ros2_server =
+                match Ros2Process::add_two_ints_server(&locator, DEFAULT_ROS_DISTRO) {
+                    Ok(p) => p,
+                    Err(e) => skip!("ROS 2 service server could not start: {e}"),
+                };
             // issue 1026 — was `wait_for_all_output(15s)`, which KILLS at the
             // deadline: the SUT's whole life was the wait window, so the cell
             // could only ever mean "did it answer within 15 s of birth".
@@ -529,12 +558,22 @@ fn interop(#[case] cell: Cell) {
             // available to assert here. What this cell therefore cannot see is
             // whether the session survives past that first call; that is the
             // continuity question, and it belongs to a cell whose SUT keeps
-            // issuing requests.
-            let out = client.collect_until(output::SERVICE_RESULT_PREFIX, Duration::from_secs(15));
+            // issuing requests. Nor does it see the DELETE half of the set
+            // (server goes away -> unavailable again): the client is done by
+            // then. That half is pinned by `zpico-sys`'s
+            // `graph_set_put_then_delete_round_trips` against the C set.
+            let out = client.collect_until(output::SERVICE_RESULT_PREFIX, Duration::from_secs(20));
             ros2_server.kill();
 
             // The nano client prints the demo `Result of add_two_ints:` line.
             assert_delivery(Workload::Service, &out, 1);
+            // And it got there through the gate, not around it: the result
+            // follows the waiting line, and no attempt was made blind.
+            assert_eq!(
+                count_pattern(&out, output::SERVICE_CALL_FAILED_MARKER),
+                0,
+                "a request went out before the server was discoverable.\nnano output:\n{out}"
+            );
         }
 
         // ── cyclone pubsub: nano talker → ros2 topic echo ────────────────

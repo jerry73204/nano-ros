@@ -966,10 +966,10 @@ pub unsafe extern "C" fn nros_cpp_action_client_create(
 /// so the C++ action-client examples hand-rolled a 3-attempt retry around
 /// `send_goal`. Mirrors `rclcpp_action::Client::wait_for_action_server`.
 ///
-/// Probes the `send_goal` service-client liveliness keyexpr, which is the
-/// load-bearing entity for the first `send_goal`; see
+/// Spins on the `send_goal` service client's readiness, which is the
+/// load-bearing entity for the first `send_goal`; the same shape as
 /// `ActionClient::wait_for_action_server` in
-/// `nros-node/src/executor/handles.rs` for the re-probe rationale.
+/// `nros-node/src/executor/handles.rs` (phase-428 W13).
 ///
 /// # Safety
 /// `handle` must be a valid initialized `CppActionClient`.
@@ -988,21 +988,10 @@ pub unsafe extern "C" fn nros_cpp_action_client_wait_for_action_server(
     }
 
     const SPIN_MS: u64 = 10;
-    const PROBE_TIMEOUT_MS: u32 = nros_node::SERVER_DISCOVERY_PROBE_TIMEOUT_MS;
     let deadline_ns = crate::nros_cpp_time_ns() + (timeout_ms as u64) * 1_000_000;
 
-    // Latched fast-path first, re-borrowing the arena each time so the
-    // executor borrow below does not overlap.
-    {
-        let Some(core) = (unsafe { cpp_arena_core_mut(client.arena_entry_index, executor_ptr) })
-        else {
-            return NROS_CPP_RET_INVALID_ARGUMENT;
-        };
-        if core.is_server_ready() {
-            return NROS_CPP_RET_OK;
-        }
-    }
-
+    // phase-428 W13 — spin, then ask again, re-borrowing the arena each time
+    // so the executor borrow does not overlap.
     loop {
         {
             let Some(core) =
@@ -1010,37 +999,17 @@ pub unsafe extern "C" fn nros_cpp_action_client_wait_for_action_server(
             else {
                 return NROS_CPP_RET_INVALID_ARGUMENT;
             };
-            if core.start_server_discovery(PROBE_TIMEOUT_MS).is_err() {
-                return NROS_CPP_RET_TRANSPORT_ERROR;
-            }
-        }
-        loop {
-            {
-                let ctx = unsafe { &mut *(executor_ptr as *mut CppContext) };
-                let _ = ctx
-                    .executor
-                    .spin_once(core::time::Duration::from_millis(SPIN_MS));
-            }
-            let Some(core) =
-                (unsafe { cpp_arena_core_mut(client.arena_entry_index, executor_ptr) })
-            else {
-                return NROS_CPP_RET_INVALID_ARGUMENT;
-            };
-            match core.poll_server_discovery() {
-                Ok(Some(true)) => return NROS_CPP_RET_OK,
-                Ok(Some(false)) => break,
-                Ok(None) => {}
-                // issue 0870 — a `TransportError` here really is transport, but
-                // WHICH one is the diagnosis; `-100` erases it.
-                Err(e) => return crate::transport_error_to_cpp_ret(e),
-            }
-            if crate::nros_cpp_time_ns() >= deadline_ns {
-                return NROS_CPP_RET_TIMEOUT;
+            if core.is_server_ready() {
+                return NROS_CPP_RET_OK;
             }
         }
         if crate::nros_cpp_time_ns() >= deadline_ns {
             return NROS_CPP_RET_TIMEOUT;
         }
+        let ctx = unsafe { &mut *(executor_ptr as *mut CppContext) };
+        let _ = ctx
+            .executor
+            .spin_once(core::time::Duration::from_millis(SPIN_MS));
     }
 }
 
