@@ -60,6 +60,97 @@ pub const INVENTORY_JSON_NAME: &str = "nros_message_bounds.json";
 /// CMake projection of [`INVENTORY_JSON_NAME`], beside it.
 pub const INVENTORY_CMAKE_NAME: &str = "nros_message_bounds.cmake";
 
+/// The small/large payload-class split, in bytes: a type whose `rx` bound is
+/// STRICTLY GREATER than this is served from the zenoh backend's `large` class.
+///
+/// POLICY, not a derived fact -- it is `ZPICO_SUBSCRIBER_SIZE_THRESHOLD`'s
+/// shipped default, and a caller may pass another. It lives here because two
+/// derivations now classify against it and a second literal is how they come to
+/// disagree: `NROS_MESSAGE_BOUNDS_DEFAULT_SMALL_CEILING` in
+/// `cmake/NanoRosMessageBounds.cmake` for the CMake lane, and
+/// [`crate::bounds`]'s Rust consumer (`nros_cli_core::leaf_payload_classes`)
+/// for the cargo-leaf one. The cmake spelling cannot read a Rust const, so the
+/// two are held together by `check-payload-class-ceiling` rather than by
+/// sharing storage.
+pub const DEFAULT_SMALL_CLASS_CEILING: usize = 2048;
+
+/// Read the rows back out of an [`INVENTORY_JSON_NAME`] document.
+///
+/// The inverse of [`BoundInventory::to_json`], and it lives beside it so the
+/// schema has ONE reader and ONE writer in one file. A private parser in a
+/// consumer is how a producer's field rename becomes a silent miss.
+///
+/// Refuses (`Err`) rather than skipping on:
+///
+/// * an unrecognised `schema_version` -- the rule the module header states for
+///   every consumer of this artifact;
+/// * a row that says `bounded` and carries no numeric `rx_max_serialized_size`.
+///   A missing size read as zero would classify a large type small, which is
+///   the silent under-sizing the whole inventory exists to prevent.
+///
+/// A row whose `state` is `unbounded`/`unresolved` is returned as such: "this
+/// type has no bound" is an ANSWER a sizing consumer must refuse on, not a row
+/// to drop.
+pub fn bounds_from_json(doc: &str) -> Result<Vec<TypeBoundEntry>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(doc).map_err(|e| format!("not the bound inventory's JSON: {e}"))?;
+    let schema = v.get("schema_version").and_then(|s| s.as_u64());
+    if schema != Some(INVENTORY_SCHEMA_VERSION as u64) {
+        return Err(format!(
+            "bound inventory states schema_version {schema:?}; this reader understands \
+             {INVENTORY_SCHEMA_VERSION}. Regenerate the `generated/` tree with this \
+             checkout's codegen (`nros sync`)."
+        ));
+    }
+    let types = v
+        .get("types")
+        .and_then(|t| t.as_array())
+        .ok_or_else(|| "bound inventory has no `types` array".to_string())?;
+    let mut out = Vec::with_capacity(types.len());
+    for row in types {
+        let type_name = row
+            .get("type_name")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| "a bound-inventory row has no `type_name`".to_string())?
+            .to_string();
+        let state = row.get("state").and_then(|s| s.as_str()).unwrap_or("");
+        let reason = || {
+            row.get("reason")
+                .and_then(|s| s.as_str())
+                .unwrap_or("no reason recorded")
+                .to_string()
+        };
+        let bound = match state {
+            "bounded" => {
+                let num = |k: &str| row.get(k).and_then(|n| n.as_u64()).map(|n| n as usize);
+                let (Some(tx), Some(rx)) =
+                    (num("tx_max_serialized_size"), num("rx_max_serialized_size"))
+                else {
+                    return Err(format!(
+                        "{type_name} is `bounded` in the inventory and carries no numeric \
+                         rx/tx size. The artifact is malformed; regenerate it with `nros sync`."
+                    ));
+                };
+                BoundState::Bounded { tx, rx }
+            }
+            "unbounded" => BoundState::Unbounded { reason: reason() },
+            "unresolved" => BoundState::Unresolved { reason: reason() },
+            other => {
+                return Err(format!(
+                    "{type_name} carries an unknown bound state `{other}`"
+                ));
+            }
+        };
+        out.push(TypeBoundEntry {
+            type_name,
+            bound,
+            chains: Vec::new(),
+            budget: None,
+        });
+    }
+    Ok(out)
+}
+
 /// What codegen concluded about one type's serialized-size bound.
 ///
 /// The two encodings are kept apart because they genuinely differ: XCDR2 adds a
@@ -688,6 +779,73 @@ fn rust_string_literal_body(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod json_reader_tests {
+    use super::*;
+
+    fn doc(types: &str) -> String {
+        format!(
+            r#"{{"schema_version":{INVENTORY_SCHEMA_VERSION},"producer":"nros-codegen",
+               "package":"p","derivation":"d","types":[{types}]}}"#
+        )
+    }
+
+    /// The reader is the writer's inverse — checked against a document the
+    /// writer produced, not against one hand-written to match the reader.
+    #[test]
+    fn a_written_inventory_reads_back_with_the_same_bounds() {
+        let mut inv = BoundInventory::new("test_msgs");
+        inv.insert("test_msgs/msg/Small", BoundState::Bounded { tx: 5, rx: 12 });
+        inv.insert(
+            "test_msgs/msg/Open",
+            BoundState::Unbounded {
+                reason: "unbounded member: data (string)".into(),
+            },
+        );
+        let back = bounds_from_json(&inv.to_json()).expect("reads back");
+        assert_eq!(back.len(), 2);
+        let small = back
+            .iter()
+            .find(|e| e.type_name.ends_with("Small"))
+            .unwrap();
+        assert_eq!(small.bound, BoundState::Bounded { tx: 5, rx: 12 });
+        let open = back.iter().find(|e| e.type_name.ends_with("Open")).unwrap();
+        assert_eq!(open.bound.tag(), "unbounded");
+    }
+
+    /// The compact transport is the same document, so it reads too.
+    #[test]
+    fn the_compact_build_rs_transport_reads_the_same() {
+        let mut inv = BoundInventory::new("t");
+        inv.insert("t/msg/A", BoundState::Bounded { tx: 1, rx: 4 });
+        assert_eq!(
+            bounds_from_json(&inv.to_json_compact()).unwrap(),
+            bounds_from_json(&inv.to_json()).unwrap()
+        );
+    }
+
+    /// A version this reader does not understand REFUSES rather than guessing —
+    /// the rule the module header states for every consumer of this artifact.
+    #[test]
+    fn an_unrecognised_schema_version_refuses() {
+        let text = doc("").replace(
+            &format!("\"schema_version\":{INVENTORY_SCHEMA_VERSION}"),
+            "\"schema_version\":99",
+        );
+        let err = bounds_from_json(&text).expect_err("must refuse");
+        assert!(err.contains("99"), "{err}");
+    }
+
+    /// `bounded` with no size would classify a large type SMALL if read as
+    /// zero. It refuses, and names the type.
+    #[test]
+    fn a_bounded_row_with_no_size_refuses_and_names_the_type() {
+        let err = bounds_from_json(&doc(r#"{"type_name":"t/msg/Broken","state":"bounded"}"#))
+            .expect_err("must refuse");
+        assert!(err.contains("t/msg/Broken"), "{err}");
+    }
 }
 
 #[cfg(test)]

@@ -4525,7 +4525,22 @@ fn render_leaf_env_sidecar(leaf: &Path) -> Option<String> {
         return None;
     }
     match inv.derive() {
-        Derivation::Derived(knobs) => Some(render_env_sidecar(&knobs, &inv.source)),
+        Derivation::Derived(knobs) => {
+            // Issue 1125 — the payload classes need a SECOND inventory (the
+            // per-type bounds `nros sync` has already written into
+            // `generated/`), so they are computed here and refuse
+            // independently: an entity budget can derive while a subscribed
+            // type carries no bound, and the reverse cannot happen.
+            let payload = crate::leaf_payload_classes::payload_classes_for_leaf(leaf, &inv);
+            if let crate::leaf_payload_classes::PayloadClasses::Refused { reason } = &payload {
+                eprintln!(
+                    "sync: {}: payload classes not derived, so `LARGE_PAYLOADS` keeps the \
+                     crate default (issue 1125): {reason}",
+                    leaf.display()
+                );
+            }
+            Some(render_env_sidecar(&knobs, &payload, &inv.source))
+        }
         other => {
             eprintln!(
                 "sync: {}: pool budgets not derived ({}); crate defaults stay",

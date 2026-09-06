@@ -63,6 +63,20 @@ DERIVED_PAIRS = {
     # so a derived 880 delivered as 1496 for four consecutive island builds and
     # nothing said so -- over-sized, therefore silent.
     "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE": "NROS_RESOLVED_NROS_SUBSCRIBER_BUFFER_SIZE",
+    # Issues 1122 / 1125 — the other two thirds of the payload-class trio,
+    # omitted here since the trio landed. They resolve in the same
+    # `if(CONFIG_NROS_RMW_ZENOH)` block as the pair above and under the ZPICO_
+    # spelling, which is what the derivable resolver is called with; the
+    # `NROS_`-prefixed guess is the mismatch this map's third entry exists to
+    # record, so these are written from the call sites in
+    # `zephyr/cmake/nros_cargo_build.cmake` rather than derived from the name.
+    #
+    # `NROS_DERIVED_MAX_LARGE_SUBSCRIBERS` is the one whose derived answer is
+    # commonly ZERO, and a zero that fails to arrive is 131,072 bytes of
+    # `LARGE_PAYLOADS` in an image that subscribes to nothing (issue 1125,
+    # measured).
+    "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS": "NROS_RESOLVED_ZPICO_MAX_LARGE_SUBSCRIBERS",
+    "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE": "NROS_RESOLVED_ZPICO_SUBSCRIBER_LARGE_SIZE",
 }
 
 

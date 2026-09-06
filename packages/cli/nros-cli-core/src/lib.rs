@@ -34,6 +34,10 @@ pub mod entity_inventory;
 /// Issue 0827 — a cargo leaf derives its pool budgets from the metadata probe,
 /// through `entity_inventory`'s rules rather than a second copy of them.
 pub mod leaf_entity_env;
+/// Issue 1125 — the other half of that budget: the zenoh PAYLOAD CLASSES, which
+/// need the message-bound inventory as well as the entity one. The cargo-leaf
+/// twin of `_nros_bounds_join_subscribed` in `cmake/NanoRosMessageBounds.cmake`.
+pub mod leaf_payload_classes;
 // Issue 0363 — the freshness predicate, shared verbatim with `build.rs` via
 // `include!`. One implementation: the build embeds a stamp, the runtime
 // recomputes it. Replaces the mtime comparison that fired on every rebase.

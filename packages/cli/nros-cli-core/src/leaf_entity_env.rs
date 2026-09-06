@@ -353,6 +353,25 @@ pub const DERIVED_ENV_KEYS: &[&str] = &[
     "ZPICO_MAX_SUBSCRIBERS",
 ];
 
+/// Issue 1125 — the PAYLOAD-CLASS keys, which come from a second inventory.
+///
+/// Kept apart from [`DERIVED_ENV_KEYS`] because they empty independently and
+/// for different reasons: the entity budget needs only the probe, while these
+/// need the message-bound artifacts too and REFUSE when a subscribed type
+/// carries no bound. A leaf can legitimately get one group and not the other,
+/// so a single list would have to be "sometimes present", which is what makes
+/// an absent key unreadable.
+///
+/// `ZPICO_SUBSCRIBER_LARGE_SIZE` is here and is emitted only when the large
+/// count is non-zero — with zero blocks the pool is zero bytes whatever the
+/// size says, and naming a size for a class that does not exist would be
+/// inventing a number. Same rule as `_nros_bounds_publish_payload_classes`.
+pub const DERIVED_PAYLOAD_ENV_KEYS: &[&str] = &[
+    "NROS_SUBSCRIBER_BUFFER_SIZE",
+    "ZPICO_MAX_LARGE_SUBSCRIBERS",
+    "ZPICO_SUBSCRIBER_LARGE_SIZE",
+];
+
 /// `ZPICO_MAX_QUERYABLES` is DELIBERATELY NOT DERIVED.
 ///
 /// `DerivedEntityKnobs::max_queryables` says so itself: it counts service
@@ -376,6 +395,7 @@ const NOT_DERIVED_NEEDS_INFRA_COUNT: &str = "ZPICO_MAX_QUERYABLES";
 /// Render the gitignored `[env]` sidecar for a derived budget.
 pub fn render_env_sidecar(
     knobs: &crate::entity_inventory::DerivedEntityKnobs,
+    payload: &crate::leaf_payload_classes::PayloadClasses,
     source: &str,
 ) -> String {
     let mut s = String::new();
@@ -421,6 +441,54 @@ pub fn render_env_sidecar(
     ]);
     for (k, v) in &vals {
         s.push_str(&format!("{k} = \"{v}\"\n"));
+    }
+
+    // Issue 1125 — the payload classes, from the second inventory. Appended to
+    // the same `[env]` table rather than given their own: cargo merges nothing
+    // across tables, and a leaf reads one environment.
+    match payload {
+        crate::leaf_payload_classes::PayloadClasses::Derived(p) => {
+            s.push('\n');
+            s.push_str(&format!(
+                "# Payload classes, derived over the {} subscribing entit{} this leaf\n\
+                 # declares (issue 1125). `large_count = 0` is an ANSWER -- it says every\n\
+                 # type this leaf receives fits the small class, and `LARGE_PAYLOADS`\n\
+                 # becomes zero bytes instead of RING_DEPTH x LARGE_SIZE. It is NOT\n\
+                 # floored: `alloc_payload_block` bounds-checks the class index before it\n\
+                 # subscripts the pool, so a zero-length one is never indexed\n\
+                 # (phase-403 W4, and the reason issue 1015's floor does not apply here).\n",
+                p.subscribed,
+                if p.subscribed == 1 { "y" } else { "ies" }
+            ));
+            s.push_str(&format!(
+                "ZPICO_MAX_LARGE_SUBSCRIBERS = \"{}\"\n",
+                p.large_count
+            ));
+            // The small BLOCK moves with the count, and must: the shim routes
+            // on `min(threshold, SUBSCRIBER_BUFFER_SIZE)` (issue 0841), so a
+            // count derived against the 2048 split is only sound while the
+            // block is sized to hold what that split called small.
+            if p.small_max > 0 {
+                s.push_str(&format!(
+                    "NROS_SUBSCRIBER_BUFFER_SIZE = \"{}\"\n",
+                    p.small_max
+                ));
+            }
+            if p.large_count > 0 && p.large_max > 0 {
+                s.push_str(&format!(
+                    "ZPICO_SUBSCRIBER_LARGE_SIZE = \"{}\"\n",
+                    p.large_max
+                ));
+            }
+        }
+        crate::leaf_payload_classes::PayloadClasses::Refused { reason } => {
+            s.push_str("\n# Payload classes NOT derived (issue 1125); the crate defaults, which\n");
+            s.push_str("# are LARGE rather than wrong, stand. A pool short of what this leaf\n");
+            s.push_str("# receives is a SubscriberCreationFailed, not a smaller pool.\n");
+            for line in reason.lines() {
+                s.push_str(&format!("#   {line}\n"));
+            }
+        }
     }
     s
 }
@@ -544,7 +612,8 @@ mod tests {
         let Derivation::Derived(k) = inv.derive() else {
             panic!("expected a derivation from a stated declaration");
         };
-        let out = render_env_sidecar(&k, "test");
+        let payload = crate::leaf_payload_classes::PayloadClasses::Derived(Default::default());
+        let out = render_env_sidecar(&k, &payload, "test");
         // Whole rows, matched as text through `contains`, NOT through a local
         // `row(NAME)` helper: `config-knob-census` reads this file as a
         // build-time knob source and refuses an unknown callee taking a knob
@@ -662,7 +731,8 @@ entities = ["publisher:std_msgs/msg/String:/chatter", "timer", "sub*2"]
         let Derivation::Derived(k) = inv.derive() else {
             panic!()
         };
-        let out = render_env_sidecar(&k, "metadata/talker.json");
+        let payload = crate::leaf_payload_classes::PayloadClasses::Derived(Default::default());
+        let out = render_env_sidecar(&k, &payload, "metadata/talker.json");
         assert!(out.contains("[env]"));
         for key in DERIVED_ENV_KEYS {
             assert!(out.contains(key), "sidecar omits {key}:\n{out}");
@@ -681,5 +751,103 @@ entities = ["publisher:std_msgs/msg/String:/chatter", "timer", "sub*2"]
             !out.lines().any(|l| l.trim_start().starts_with("force")),
             "sidecar sets `force`, so a caller's own value would be overridden:\n{out}"
         );
+    }
+
+    /// Issue 1125 — the publisher-only leaf that opened the issue. The count is
+    /// stated as ZERO, which is the whole 131,072 B saving; the large SIZE is
+    /// not stated at all, because a class with no blocks has no size worth
+    /// naming.
+    #[test]
+    fn a_leaf_with_no_subscription_states_a_zero_large_count_and_no_large_size() {
+        let (pkg, comp, d) = declaration_from_probe(TALKER).unwrap();
+        let mut inv = EntityInventory::new("t");
+        inv.insert(ComponentEntities {
+            pkg,
+            component: comp.clone(),
+            class: comp,
+            declaration: d,
+        });
+        let Derivation::Derived(k) = inv.derive() else {
+            panic!()
+        };
+        let payload = crate::leaf_payload_classes::PayloadClasses::Derived(Default::default());
+        let out = render_env_sidecar(&k, &payload, "metadata/talker.json");
+        assert!(
+            out.contains("ZPICO_MAX_LARGE_SUBSCRIBERS = \"0\""),
+            "the derived zero must be STATED, not left to the crate default:\n{out}"
+        );
+        for k in ["ZPICO_SUBSCRIBER_LARGE_SIZE", "NROS_SUBSCRIBER_BUFFER_SIZE"] {
+            assert!(
+                !out.lines().any(|l| l.starts_with(k)),
+                "sidecar names {k} for a class it just declared empty:\n{out}"
+            );
+        }
+    }
+
+    /// A leaf that DOES subscribe large states all three, and the small block
+    /// is stated too — the count is only sound while the block holds what the
+    /// split called small (issue 0841).
+    #[test]
+    fn a_large_subscription_states_the_count_the_size_and_the_small_block() {
+        let (pkg, comp, d) = declaration_from_probe(TALKER).unwrap();
+        let mut inv = EntityInventory::new("t");
+        inv.insert(ComponentEntities {
+            pkg,
+            component: comp.clone(),
+            class: comp,
+            declaration: d,
+        });
+        let Derivation::Derived(k) = inv.derive() else {
+            panic!()
+        };
+        let payload = crate::leaf_payload_classes::PayloadClasses::Derived(
+            crate::leaf_payload_classes::DerivedPayloadClasses {
+                large_count: 2,
+                large_max: 40_000,
+                small_max: 1500,
+                subscribed: 3,
+            },
+        );
+        let out = render_env_sidecar(&k, &payload, "metadata/talker.json");
+        assert!(out.contains("ZPICO_MAX_LARGE_SUBSCRIBERS = \"2\""), "{out}");
+        assert!(
+            out.contains("ZPICO_SUBSCRIBER_LARGE_SIZE = \"40000\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("NROS_SUBSCRIBER_BUFFER_SIZE = \"1500\""),
+            "{out}"
+        );
+    }
+
+    /// A refusal states NO payload key at all — it explains itself in a comment
+    /// and leaves the crate defaults, which are large rather than wrong.
+    #[test]
+    fn a_refused_payload_join_states_no_payload_key() {
+        let (pkg, comp, d) = declaration_from_probe(TALKER).unwrap();
+        let mut inv = EntityInventory::new("t");
+        inv.insert(ComponentEntities {
+            pkg,
+            component: comp.clone(),
+            class: comp,
+            declaration: d,
+        });
+        let Derivation::Derived(k) = inv.derive() else {
+            panic!()
+        };
+        let payload = crate::leaf_payload_classes::PayloadClasses::Refused {
+            reason: "std_msgs/msg/String (unbounded)".into(),
+        };
+        let out = render_env_sidecar(&k, &payload, "metadata/talker.json");
+        for key in DERIVED_PAYLOAD_ENV_KEYS {
+            assert!(
+                !out.lines().any(|l| l.starts_with(key)),
+                "a refused join states {key}:\n{out}"
+            );
+        }
+        assert!(out.contains("# Payload classes NOT derived"), "{out}");
+        // The entity half still lands — the two inventories refuse
+        // independently, which is why they are two lists.
+        assert!(out.contains("ZPICO_MAX_SUBSCRIBERS = \"1\""), "{out}");
     }
 }

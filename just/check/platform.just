@@ -289,6 +289,21 @@ knob-fixpoint:
 c-array-pool-floors:
     @python3 scripts/check-c-array-pool-floors.py
 
+# issue 1125 — the small/large payload split is a number TWO derivations
+# classify against and a THIRD routes on, in three files no build reads
+# together. cmake cannot read a Rust `const`, so agreement is checked here
+# rather than made structural.
+#
+# A ceiling above the runtime's `min(threshold, SUBSCRIBER_BUFFER_SIZE)`
+# classifies a subscribed type `small` and routes it `large` — into a class the
+# derivation may have just declared empty, which `alloc_payload_block` refuses
+# at `create_subscription`. Issue 0841 one class up, and invisible to every
+# other knob gate: each number is derived correctly and delivered faithfully,
+# and they disagree about what they MEAN.
+[private]
+payload-class-ceiling:
+    @python3 scripts/check-payload-class-ceiling.py
+
 # issue 1167 — the guard 1015 added must come AFTER the knob's default. The C
 # preprocessor reads an UNDEFINED identifier in `#if` as 0, so a `#if KNOB < 1`
 # placed above the knob's `#ifndef`/`#define` does not protect the array: it
