@@ -1178,65 +1178,68 @@ function(nano_ros_node_register)
     endif()
     _nros_node_register_schedule_inventory()
 
-    # phase-403 step 2 carried a declared `@depth=` to the COMPILER from here,
-    # via `_nros_emit_declared_qos_header`. Its only producer was `ENTITIES`,
-    # which is retired, so the call is gone and no component gets a depth table.
-    # The function itself is still there and still tested; see the note above it
-    # for why, and issue 1084 for what a new producer costs.
+    # phase-403 step 2 / issue 1084 -- carry the declared QoS depth to the
+    # COMPILER. Two halves, and the SPLIT is what makes a model-driven producer
+    # possible at all: the include PATH is claimed here, in the scope that owns
+    # the target; the TABLE is rendered after `nano_ros_entry()` has resolved
+    # the model that states the depths. See `_nros_declared_qos_arm`.
+    _nros_declared_qos_arm("${_NRC_NAME}" "${_lib}" "${_nrc_lang}")
 endfunction()
 
-# _nros_emit_declared_qos_header(<component> <target> <lang>)
-#
-# phase-403 step 2 — render this component's declared QoS depths as a C++
-# header and put it on its own library's include path, so `NROS_SUBSCRIBE` can
-# NO PRODUCTION CALLER, and that is deliberate rather than an oversight.
-# `ENTITIES` was this function's only caller and it is retired (phase-412), so
-# nothing in a real configure renders a depth table today. The function and its
-# test (`tests/cmake-declared-qos-header-tests.sh`, a REAL configure) stay
-# because the mechanism is correct and the renderer behind it is still exercised
-# by `check-cpp`; what is missing is a producer, not the machinery.
-#
-# Restoring one means rendering from the model's
-# `contracts.sub_endpoints[*].qos.depth`, which `EntityInventory::from_model`
-# already reads. The obstacle is WHERE: this runs per component, before the
-# entry has resolved a model, and the table has to land on that component's own
-# include path. Issue 1084.
-#
-# static_assert the QoS at a call site against the `@depth=` the register call
-# beside it declared.
-#
 # =============================================================================
-# Why PER COMPONENT, and why HERE
+# _nros_declared_qos_arm(<component> <target> <lang>)   -- issue 1084
 # =============================================================================
 #
-# The knob half of this inventory is composed image-wide by `nano_ros_entry()`,
-# because `NROS_EXECUTOR_MAX_CBS` sizes ONE executor. The DEPTH table is not
-# that shape. It answers a question a single translation unit asks about its own
-# call sites, and there are two reasons that makes per-component the right unit:
+# The DECLARED QoS history depth of this component's subscriptions, on its own
+# include path, so `NROS_SUBSCRIBE` can static_assert the QoS at each call site
+# against what the system said beside it.
 #
-#   * ORDERING. `nano_ros_entry()` runs after every register call, which is
-#     after this target's include path is already set. A table written there
-#     would reach a component's TUs one configure late — the same lag the
-#     payload-class join lives with, but here it would mean a check that
-#     silently does not run on the configure that changed the declaration.
-#   * KEYS. The table is keyed `(type, topic)`. Two components in one image may
-#     legitimately subscribe to the same topic at different depths, and an
-#     image-wide table would have to pick one.
+# -----------------------------------------------------------------------------
+# Why this is TWO functions and not one
+# -----------------------------------------------------------------------------
 #
-# The CLI still owns the grammar and the rendering — `--component` narrows the
-# metadata that was just written to this one row. Nothing is parsed in cmake.
+# phase-403 step 2 did the whole thing here, in one `execute_process`, because
+# its producer was the `ENTITIES` argument of this very call. phase-412 retired
+# `ENTITIES` and the depth moved into the contract sidecar, which means the
+# depths now live in a SystemModel that only `nano_ros_entry()` resolves -- and
+# the entry runs AFTER every register call. Issue 1084 is that gap.
 #
-# =============================================================================
+# The gap closes once the two halves are separated, because they need different
+# moments and only one of them needs the model:
+#
+#   * the include PATH is a pure function of `(PROJECT_NAME, component)`. It is
+#     claimed HERE, eagerly, in the directory scope that created `${_target}` --
+#     `target_include_directories()` on a target from another directory is not
+#     something this module relies on anywhere else, and this is not the place
+#     to start.
+#   * the TABLE is rendered by a `cmake_language(DEFER DIRECTORY
+#     ${CMAKE_SOURCE_DIR})` call, which runs at the end of the TOP-LEVEL
+#     directory -- after every `add_subdirectory()`, and therefore after the
+#     entry. That is the same mechanism `_nros_node_register_schedule_inventory`
+#     already uses for the image-wide knobs (issue 1033).
+#
+# So the ORDERING objection this file used to record is answered without a
+# second configure pass: the directory exists and is on the include path before
+# generate, the header lands in it later in the SAME configure, and no compile
+# happens until configure is over. Nothing here arms `nros_reconfigure_on_change`
+# -- a generated header is an ordinary compile input that ninja tracks through
+# the depfile, so an edited table reaches the next COMPILE without a re-configure
+# (issue 1119: reconfigure passes are not free, and this one buys nothing).
+#
+# The KEYS objection is answered by `--component`: the table is rendered per
+# component from a narrowed inventory, so two components that subscribe to one
+# topic at different depths get two different tables.
+#
+# -----------------------------------------------------------------------------
 # ABSENT IS THE NORMAL CASE
-# =============================================================================
+# -----------------------------------------------------------------------------
 #
-# No `ENTITIES`, no CLI, a RUST or INTERFACE target, a component that declares
-# no depth: no header is written, `nros/declared_qos.hpp` finds none, the table
-# is empty and every call site compiles exactly as it did before. A missing
-# table means "nobody declared", never "declared zero" — which is why this
-# function is silent on every one of those paths rather than warning: an image
-# that has not opted in is not an image in error.
-function(_nros_emit_declared_qos_header _component _target _lang)
+# No contract, no CLI, a RUST or INTERFACE target, a component whose endpoints
+# state no depth: no header is written, `nros/declared_qos.hpp` finds none, the
+# table is empty and every call site compiles exactly as it did before. A
+# missing table means "nobody declared", never "declared zero" -- which is why
+# every one of those paths is silent rather than a warning.
+function(_nros_declared_qos_arm _component _target _lang)
     # A Rust component has no C++ call site to check, and a target that is not
     # a real library has no include path to put a header on.
     if(_lang STREQUAL "RUST")
@@ -1249,7 +1252,121 @@ function(_nros_emit_declared_qos_header _component _target _lang)
     if(_nrq_type STREQUAL "INTERFACE_LIBRARY")
         return()
     endif()
-    nros_resolve_cli(_nrq_cli OPTIONAL CONTEXT "nano_ros_node_register(ENTITIES @depth=)")
+
+    # One dir per component, and the `nros/` level is what makes the include
+    # spelling `<nros/nros_declared_qos_generated.h>` -- the same shape the
+    # per-build sizes headers use, so nothing here needs a new convention.
+    set(_nrq_dir "${CMAKE_CURRENT_BINARY_DIR}/nros-declared-qos/${_component}")
+    file(MAKE_DIRECTORY "${_nrq_dir}/nros")
+
+    # PRIVATE: this table describes THIS component's call sites. A consumer that
+    # links the component must not inherit it, or its own NROS_SUBSCRIBE calls
+    # would be checked against somebody else's declaration.
+    target_include_directories(${_target} PRIVATE "${_nrq_dir}")
+    # The single-node carriers (FreeRTOS / native TYPED, further up) compile the
+    # SAME `${_NRC_SOURCES}` into an executable of their own. Without this they
+    # would compile those TUs with every declared-depth assertion disabled while
+    # the coverage library next to them checks them -- one component, two answers.
+    if(TARGET ${PROJECT_NAME} AND NOT "${_target}" STREQUAL "${PROJECT_NAME}")
+        get_target_property(_nrq_carrier_type ${PROJECT_NAME} TYPE)
+        if(NOT _nrq_carrier_type STREQUAL "INTERFACE_LIBRARY")
+            target_include_directories(${PROJECT_NAME} PRIVATE "${_nrq_dir}")
+        endif()
+    endif()
+
+    # The work list travels by GLOBAL property and the deferred call takes NO
+    # ARGUMENTS, which is not a style choice: `cmake_language(DEFER ... CALL fn
+    # "${x}")` stores the argument UNEXPANDED and expands it when the call runs,
+    # in the deferred directory's scope -- where a function-local `${x}` is
+    # gone, so the callee silently receives an empty string. Measured on cmake
+    # 3.22. Same shape `_nros_node_register_schedule_inventory` uses, and for
+    # the same reason.
+    set_property(GLOBAL APPEND PROPERTY NROS_DECLARED_QOS_PENDING
+        "${PROJECT_NAME}|${_component}|${_nrq_dir}")
+    get_property(_nrq_scheduled GLOBAL PROPERTY NROS_DECLARED_QOS_SCHEDULED)
+    if(NOT _nrq_scheduled)
+        set_property(GLOBAL PROPERTY NROS_DECLARED_QOS_SCHEDULED TRUE)
+        cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}"
+            CALL _nros_emit_declared_qos_headers)
+    endif()
+endfunction()
+
+# _nros_emit_declared_qos_headers()  -- the deferred render, once per configure.
+#
+# Runs at the end of the TOP-LEVEL directory, which is after every
+# `add_subdirectory()` and therefore after `nano_ros_entry()` has recorded its
+# model. Walks the components that armed themselves above.
+function(_nros_emit_declared_qos_headers)
+    get_property(_nrq_pending GLOBAL PROPERTY NROS_DECLARED_QOS_PENDING)
+    foreach(_nrq_row IN LISTS _nrq_pending)
+        string(REPLACE "|" ";" _nrq_fields "${_nrq_row}")
+        list(LENGTH _nrq_fields _nrq_n)
+        if(NOT _nrq_n EQUAL 3)
+            continue()
+        endif()
+        list(GET _nrq_fields 0 _nrq_pkg)
+        list(GET _nrq_fields 1 _nrq_comp)
+        list(GET _nrq_fields 2 _nrq_out_dir)
+        _nros_emit_declared_qos_header("${_nrq_pkg}" "${_nrq_comp}" "${_nrq_out_dir}")
+    endforeach()
+endfunction()
+
+# _nros_declared_qos_record_model(<resolved system_model.yaml>)  -- issue 1084
+#
+# The entry's resolved SystemModel, remembered for the deferred renderer above.
+# A register call does not know which bringup its component belongs to, and the
+# entry that does runs later; this is the one wire between them.
+#
+# A LIST rather than a single value, because a configure may hold several
+# entries. Which one describes a given component is not decidable here, so more
+# than one DISTINCT model makes the renderer abstain rather than pick -- see
+# `_nros_emit_declared_qos_header`.
+function(_nros_declared_qos_record_model _model)
+    if(NOT _model OR NOT EXISTS "${_model}")
+        return()
+    endif()
+    file(REAL_PATH "${_model}" _nrq_model_real)
+    get_property(_nrq_models GLOBAL PROPERTY NROS_DECLARED_QOS_MODELS)
+    if("${_nrq_model_real}" IN_LIST _nrq_models)
+        return()
+    endif()
+    set_property(GLOBAL APPEND PROPERTY NROS_DECLARED_QOS_MODELS
+        "${_nrq_model_real}")
+endfunction()
+
+# _nros_emit_declared_qos_header(<pkg> <component> <dir>)
+#
+# Render one component's declared QoS depths into `<dir>/nros/`. Deferred to the
+# end of the top-level directory by `_nros_declared_qos_arm`, so by the time it
+# runs `nano_ros_entry()` has resolved the model and recorded it above.
+#
+# The CLI owns the grammar and the rendering -- `--component` narrows the
+# inventory to this one row, `--model` supplies the depths. Nothing is parsed in
+# cmake, and no depth is defaulted anywhere.
+function(_nros_emit_declared_qos_header _pkg _component _dir)
+    get_property(_nrq_models GLOBAL PROPERTY NROS_DECLARED_QOS_MODELS)
+    list(LENGTH _nrq_models _nrq_model_count)
+    if(_nrq_model_count EQUAL 0)
+        # No contract in this image. The depths have no other producer since
+        # phase-412, so there is nothing to render and nothing to say: an image
+        # that has not opted in is not an image in error.
+        return()
+    endif()
+    if(_nrq_model_count GREATER 1)
+        # Several entries, several models, and no rule here for which one
+        # describes this component. ABSTAIN and say so: a table picked from one
+        # of two candidate systems would assert against call sites the other one
+        # sizes, and a wrong table is worse than none.
+        message(STATUS
+            "nros: not rendering the declared QoS depths of ${_pkg}::${_component} -- "
+            "this configure resolved ${_nrq_model_count} SystemModels and nothing "
+            "says which one describes this component. Every declared-depth check "
+            "in it is OFF.")
+        return()
+    endif()
+    list(GET _nrq_models 0 _nrq_model)
+
+    nros_resolve_cli(_nrq_cli OPTIONAL CONTEXT "declared QoS depths (issue 1084)")
     if(NOT _nrq_cli OR NOT EXISTS "${_nrq_cli}")
         # Same rule the knob lane holds: no CLI is a refusal, never a guess.
         return()
@@ -1262,16 +1379,13 @@ function(_nros_emit_declared_qos_header _component _target _lang)
         return()
     endif()
 
-    # One dir per component, and the `nros/` level is what makes the include
-    # spelling `<nros/nros_declared_qos_generated.h>` — the same shape the
-    # per-build sizes headers use, so nothing here needs a new convention.
-    set(_nrq_dir "${CMAKE_CURRENT_BINARY_DIR}/nros-declared-qos/${_component}")
-    set(_nrq_hdr "${_nrq_dir}/nros/nros_declared_qos_generated.h")
-    file(MAKE_DIRECTORY "${_nrq_dir}/nros")
+    set(_nrq_hdr "${_dir}/nros/nros_declared_qos_generated.h")
+    file(MAKE_DIRECTORY "${_dir}/nros")
     execute_process(
         COMMAND "${_nrq_cli}" ws entity-inventory
                 --metadata "${_nrq_metadata}"
-                --component "${PROJECT_NAME}::${_component}"
+                --model "${_nrq_model}"
+                --component "${_pkg}::${_component}"
                 --output-header "${_nrq_hdr}"
         OUTPUT_VARIABLE _nrq_out
         ERROR_VARIABLE _nrq_err
@@ -1284,33 +1398,21 @@ function(_nros_emit_declared_qos_header _component _target _lang)
         # is wrong", and they license different actions.
         message(FATAL_ERROR
             "nros: could not render the declared QoS depths of "
-            "${PROJECT_NAME}::${_component}.\n"
+            "${_pkg}::${_component}.\n"
             "  ${_nrq_err}\n"
-            "  Usually the `ENTITIES` argument of that nano_ros_node_register() is "
-            "malformed -- an unknown kind, an unknown `@attr=`, a `@depth=0`.\n"
+            "  Usually the contract sidecar beside the launch file is wrong -- a "
+            "`qos: { depth: 0 }`, or a subscriber endpoint no topic wires up.\n"
             "  FATAL and not skipped on purpose: a component whose table is missing "
             "compiles with every declared-depth check disabled, which looks exactly "
             "like a component whose depths all agree.")
     endif()
-    if(NOT EXISTS "${_nrq_hdr}")
-        return()
-    endif()
-
-    # PRIVATE: this table describes THIS component's call sites. A consumer that
-    # links the component must not inherit it, or its own NROS_SUBSCRIBE calls
-    # would be checked against somebody else's declaration.
-    target_include_directories(${_target} PRIVATE "${_nrq_dir}")
-    # The CLI writes write-if-changed, so re-running it on every configure does
-    # not re-arm a rebuild; this edge is what makes an EDITED declaration reach
-    # the next compile.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_nrq_hdr}")
 endfunction()
 
 # (The 212.N.6 `nano_ros_application` and 213.B.1 `nano_ros_component_register`
-# deprecation shims were retired in 287-W8 — both caller sweeps completed long
+# deprecation shims were retired in 287-W8 -- both caller sweeps completed long
 # ago; zero callers remained.)
 
-# (`nano_ros_deploy` was retired post-287 — nothing consumed its
+# (`nano_ros_deploy` was retired post-287 -- nothing consumed its
 # deploy_targets JSON: the CLI's MetadataDoc reads only `components`, and the
 # per-package deploy/rmw tuple lives in package.xml `<export><nano_ros …/>`
 # since 287-W4. `nros_system_generate`'s self-pkg detection now keys on the

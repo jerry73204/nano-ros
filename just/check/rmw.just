@@ -66,8 +66,12 @@ cyclone-domain-not-pinned:
 # whose depths all agree. Six mechanisms in this campaign have been correct and
 # unreachable for precisely that reason.
 #
-# Drives `_nros_emit_declared_qos_header()` in a real configure with the real
-# CLI. Needs cmake, a C compiler and a built `nros` -- and SKIPS rather than
+# Drives the PRODUCTION seam in a real configure with the real CLI: the
+# register call's `_nros_declared_qos_arm()`, the entry's
+# `_nros_declared_qos_record_model()`, and the deferred render between them --
+# then COMPILES a disagreeing call site against the header that configure just
+# wrote and requires the build to fail (issue 1084's negative control). Needs
+# cmake, a C and a C++ compiler and a built `nros` -- and SKIPS rather than
 # passing when any is missing, because a gate that examined nothing must not
 # read as a pass.
 declared-qos-header:
@@ -77,6 +81,8 @@ declared-qos-header:
     command -v cmake >/dev/null 2>&1 || _missing="$_missing cmake"
     command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 \
         || _missing="$_missing cc"
+    command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 \
+        || _missing="$_missing c++"
     _cli="${NROS_CLI:-packages/cli/target/release/nros}"
     [ -x "$_cli" ] || _missing="$_missing nros(just setup-cli)"
     if [ -n "$_missing" ]; then

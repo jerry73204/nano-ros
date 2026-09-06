@@ -624,10 +624,12 @@ cpp: cpp-fmt
     # different preprocessor.
     #
     # The fixture dir carries `nros/nros_declared_qos_generated.h` — what
-    # `nros ws entity-inventory --output-header` renders from the
-    # `entities.json` beside it, and what `nano_ros_node_register()` puts on a
-    # real component's include path. Putting it on `-I` here exercises the same
-    # `__has_include` pickup. The header and its input are held together by
+    # `nros ws entity-inventory --output-header` renders, and the same bytes a
+    # real component's configure puts on its own include path (issue 1084: the
+    # register call claims the dir, a deferred render fills it from the
+    # contract's model). Putting it on `-I` here exercises the same
+    # `__has_include` pickup; `check-declared-qos-header` is the DELIVERY half
+    # and drives the real configure. The header and its input are held together by
     # `the_committed_compile_fixture_is_what_this_emitter_renders` in
     # nros-cli-core, so this fixture cannot drift into a table that matches
     # nothing (which would leave every assertion below vacuous and green).
@@ -736,7 +738,7 @@ cpp: cpp-fmt
     # A rejection is not enough: it must be OUR rejection, naming the topic and
     # BOTH depths. A typo or a missing header would also exit non-zero, and a
     # diagnostic the reader cannot act on is the same as no diagnostic.
-    for _want in '"/chatter"' 'declared_depth_agrees<1, 10>' 'nano_ros_node_register'; do \
+    for _want in '"/chatter"' 'declared_depth_agrees<1, 10>' 'contract.yaml'; do \
         case "$_dq_out" in \
             *"$_want"*) ;; \
             *) echo "ERROR: the declared-depth diagnostic does not contain: $_want" >&2; \

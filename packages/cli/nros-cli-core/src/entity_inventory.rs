@@ -810,6 +810,23 @@ impl EntityInventory {
     /// `0` -- a depth of zero is a QoS a subscriber cannot have, so it must
     /// never be the way "not declared" is spelled.
     ///
+    /// # `name` is the TOPIC, not the endpoint ref (issue 1084)
+    ///
+    /// A contract addresses an endpoint as `/ns/node/<local name>` and wires it
+    /// to an absolute topic under `structure.topics`. Those are two different
+    /// strings -- `/mrm_handler/emergency_stop_status` against
+    /// `/system/mrm/emergency_stop/status` -- and only the second one is what a
+    /// `NROS_SUBSCRIBE` call site writes.
+    ///
+    /// [`EntityDecl::name`] is documented as "the topic / service / action
+    /// name", and every consumer reads it that way: the declared-depth table is
+    /// keyed `(type, topic)` and looked up at compile time with the call site's
+    /// own literal. Recording the endpoint ref there produced a table that
+    /// matched no call site in any image, which is the silent shape this
+    /// campaign keeps paying for -- a check that is present, green and vacuous.
+    /// The endpoint ref is still what the depth is LOOKED UP by; it is just not
+    /// what the row is KEYED by.
+    ///
     /// Returns `None` when the model describes no wiring, so a caller cannot
     /// mistake "nobody authored a contract" for "this image creates nothing".
     /// That distinction is the one this module exists to preserve.
@@ -853,12 +870,12 @@ impl EntityInventory {
                 .and_then(|q| q.depth)
         };
 
-        for wiring in model.structure.topics.values() {
+        for (topic, wiring) in &model.structure.topics {
             for ep in &wiring.subscribers {
                 per_node.entry(node_of(ep)).or_default().push(EntityDecl {
                     kind: EntityKind::Subscription,
                     type_name: Some(wiring.msg_type.clone()),
-                    name: Some(ep.clone()),
+                    name: Some(topic.clone()),
                     depth: depth_of(ep),
                 });
             }
@@ -866,7 +883,7 @@ impl EntityInventory {
                 per_node.entry(node_of(ep)).or_default().push(EntityDecl {
                     kind: EntityKind::Publisher,
                     type_name: Some(wiring.msg_type.clone()),
-                    name: Some(ep.clone()),
+                    name: Some(topic.clone()),
                     depth: None,
                 });
             }
@@ -887,13 +904,16 @@ impl EntityInventory {
             ),
         ] {
             let (server_kind, client_kind) = kinds;
-            for wiring in wirings.values() {
+            for (service, wiring) in wirings {
                 for (kind, eps) in [(server_kind, &wiring.server), (client_kind, &wiring.client)] {
                     for ep in eps {
                         per_node.entry(node_of(ep)).or_default().push(EntityDecl {
                             kind,
                             type_name: Some(wiring.srv_type.clone()),
-                            name: Some(ep.clone()),
+                            // The SERVICE / ACTION name, for the same reason
+                            // the topic is used above: it is the string the
+                            // call site writes.
+                            name: Some(service.clone()),
                             depth: None,
                         });
                     }
@@ -2972,12 +2992,60 @@ contracts:
             .map(|e| (e.name.clone(), e.depth))
             .collect();
         by_name.sort();
+        // The row is keyed by the TOPIC, not the endpoint ref that carried the
+        // depth (issue 1084). `/listener/deep` is how the contract ADDRESSES
+        // the endpoint; `/deep` is what the subscribing call site writes, and a
+        // table keyed on the former matches nothing a compiler ever sees.
         assert_eq!(
             by_name,
             vec![
-                (Some("/listener/deep".to_string()), Some(20)),
-                (Some("/listener/plain".to_string()), None),
+                (Some("/deep".to_string()), Some(20)),
+                (Some("/plain".to_string()), None),
             ]
+        );
+    }
+
+    /// issue 1084 -- the depth table a contract produces is keyed on the string
+    /// a `NROS_SUBSCRIBE` call site writes, all the way through the renderer.
+    ///
+    /// The end-to-end assertion, because every link between the contract and
+    /// the compiler is a place the key can change: the contract says
+    /// `/mrm_handler/emergency_stop_status`, the code says
+    /// `/system/mrm/emergency_stop/status`, and only the second may reach the
+    /// generated header.
+    #[test]
+    fn the_rendered_header_is_keyed_on_the_topic_a_call_site_writes() {
+        let m = model_from_yaml(
+            r#"
+meta: { version: 1 }
+structure:
+  nodes:
+    /mrm_handler:
+      { scope: s.launch.xml, pkg: autoware_mrm_handler, exec: mrm_handler,
+        node_name: mrm_handler }
+  topics:
+    /system/mrm/emergency_stop/status:
+      type: tier4_system_msgs/msg/MrmBehaviorStatus
+      sub: [/mrm_handler/emergency_stop_status]
+contracts:
+  sub_endpoints:
+    /mrm_handler/emergency_stop_status:
+      qos: { depth: 1 }
+"#,
+        );
+        let inv = EntityInventory::from_model("test", &m).expect("model describes wiring");
+        let h = inv.to_declared_qos_header();
+        assert!(
+            h.contains(
+                "NROS_DECLARED_QOS_ROW(\"tier4_system_msgs::msg::dds_::MrmBehaviorStatus_\", \
+                 \"/system/mrm/emergency_stop/status\", 1)"
+            ),
+            "the table must be keyed on the topic the code subscribes to: {h}"
+        );
+        assert!(
+            !h.contains("/mrm_handler/emergency_stop_status"),
+            "the endpoint ref is how the contract ADDRESSES the endpoint; a row \
+             keyed on it matches no call site: {h}"
         );
     }
 

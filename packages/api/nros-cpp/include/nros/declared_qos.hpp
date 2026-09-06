@@ -4,7 +4,7 @@
 /**
  * @file declared_qos.hpp
  * @ingroup grp_qos
- * @brief phase-403 step 2 -- the `@depth=N` an image DECLARED, reaching the
+ * @brief phase-403 step 2 -- the QoS history depth an image DECLARED, reaching the
  *        compiler.
  *
  * # The problem
@@ -20,17 +20,27 @@
  * Defaulting is the worst option available. The ROS default IS 10, so assuming
  * it inflates an image that meant 1 by a factor of ten; assuming 1 UNDER-sizes
  * one that took the default, which is the unsafe direction. So the depth is
- * DECLARED, beside the component:
+ * DECLARED -- once per system, in the contract sidecar beside the launch file
+ * that runs the node (`<bringup>/launch/<stem>.contract.yaml`):
  *
- *     nano_ros_node_register(NAME listener CLASS demo::Listener
- *       ENTITIES sub:std_msgs/msg/Int32:/chatter@depth=1)
+ *     topics:
+ *       /chatter:
+ *         type: std_msgs/msg/Int32
+ *         sub: [/listener/chatter]
+ *     contracts:
+ *       sub_endpoints:
+ *         /listener/chatter:
+ *           qos: { depth: 1 }
+ *
+ * The row is keyed on the TOPIC, which is what a call site writes, and not on
+ * the endpoint ref the contract addresses it by (issue 1084).
  *
  * # Two authoring modes, and only one number
  *
- * | the code writes                            | the contract says   |
- * | ------------------------------------------ | ------------------- |
- * | `NROS_SUBSCRIBE(M, m, "/t", nros::QoS(1))` | `...@depth=1`       |
- * | `NROS_SUBSCRIBE(M, m, "/t")`               | `...@depth=1` fills in |
+ * | the code writes                            | the contract says        |
+ * | ------------------------------------------ | ------------------------ |
+ * | `NROS_SUBSCRIBE(M, m, "/t", nros::QoS(1))` | `qos: { depth: 1 }`      |
+ * | `NROS_SUBSCRIBE(M, m, "/t")`               | `qos: { depth: 1 }` fills in |
  *
  * Both are legal. What is not legal is the two stating DIFFERENT numbers, and
  * that is caught HERE, at compile time: the declaration is emitted as a
@@ -74,9 +84,10 @@
 // X-macro list plus a count -- so it can be included in any order and this
 // header owns the one definition of the table's TYPE.
 //
-// ABSENT IS THE NORMAL CASE. Every image built before phase-403 step 2, every
-// component that declares no `ENTITIES`, and every out-of-tree consumer of this
-// header has no such file, gets an empty table, and compiles exactly as before.
+// ABSENT IS THE NORMAL CASE. Every image with no contract sidecar, every
+// component whose endpoints state no `qos: { depth: }`, and every out-of-tree
+// consumer of this header has no such file, gets an empty table, and compiles
+// exactly as before.
 #if defined(__has_include)
 #if __has_include(<nros/nros_declared_qos_generated.h>)
 #include <nros/nros_declared_qos_generated.h>
@@ -159,12 +170,13 @@ constexpr int declared_qos_find(const ::nros::declared_qos::Entry* rows, size_t 
 /// so can only reach the message through macro stringification.
 template <int Declared, int Passed> struct declared_depth_agrees {
     static_assert(Declared == Passed,
-                  "nros: this subscription's QoS depth disagrees with the @depth= its "
-                  "component DECLARED in nano_ros_node_register(... ENTITIES ...). The two "
-                  "numbers are the template arguments of "
+                  "nros: this subscription's QoS depth disagrees with the depth its system "
+                  "DECLARED for that topic in the contract sidecar beside the launch file "
+                  "(<bringup>/launch/<stem>.contract.yaml, contracts.sub_endpoints.<ep>.qos). "
+                  "The two numbers are the template arguments of "
                   "nros::detail::declared_depth_agrees<declared, passed> named just above -- "
                   "declared first, passed second. The TOPIC is named by the assertion beside "
-                  "this one. Fix whichever is wrong: the ENTITIES row, or the QoS at the "
+                  "this one. Fix whichever is wrong: the contract row, or the QoS at the "
                   "call site. Depth is a multiplier on the arena, so the two must agree.");
     static constexpr bool value = (Declared == Passed);
 };
@@ -220,8 +232,8 @@ constexpr int declared_depth(const char* type, const char* topic) {
                           ::nros::DECLARED_DEPTH_UNDECLARED ||                                     \
                       ::nros::declared_depth((type_name), (topic_expr)) == (qos_expr).depth(),     \
                   "nros: the QoS depth passed for topic " topic_text                               \
-                  " disagrees with the @depth= declared for that topic in "                        \
-                  "nano_ros_node_register(... ENTITIES ...). Both numbers are in the "             \
+                  " disagrees with the depth declared for that topic in the contract "             \
+                  "sidecar (<stem>.contract.yaml). Both numbers are in the "                       \
                   "declared_depth_agrees<declared, passed> diagnostic beside this one.");          \
     (void)sizeof(::nros::detail::declared_depth_agrees<                                            \
                  ::nros::detail::declared_depth_or(                                                \

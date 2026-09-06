@@ -56,12 +56,14 @@
 #                                consumer must refuse on -- a table over the
 #                                endpoints that happened to be annotated sizes
 #                                an image from a subset of itself.
-#                                The same declaration also reaches the COMPILER:
-#                                `nano_ros_node_register()` renders it as
-#                                `<nros/nros_declared_qos_generated.h>` on the
-#                                component's own include path, and
-#                                `NROS_SUBSCRIBE` static_asserts the QoS at each
-#                                call site against it.
+#                                The same declaration also reaches the COMPILER,
+#                                in two halves (issue 1084):
+#                                `nano_ros_node_register()` claims the include
+#                                dir, and a deferred render -- after the entry
+#                                has resolved the model that states the depths --
+#                                writes `<nros/nros_declared_qos_generated.h>`
+#                                into it, so `NROS_SUBSCRIBE` static_asserts the
+#                                QoS at each call site against it.
 #
 #   NOT YET, and deliberately left alone:
 #     NROS_EXECUTOR_ARENA_SIZE   the type set and the depths are both necessary
