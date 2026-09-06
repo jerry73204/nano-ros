@@ -181,6 +181,24 @@ platform-provider-features:
 preconditions-provisioned:
     @python3 scripts/check-preconditions-provisioned.py
 
+# phase-422 W5 — an indexed tool has ONE producer: `nros setup --tool <name>`.
+#
+# W1 retired two second producers (`install-corrosion`,
+# `install-play-launch-parser`). Each downloaded into the same versioned prefix
+# the CLI writes, each kept its own stamp, and their pins were not even spelled
+# the same (`v0.6.1` vs `0.6.1-nros1`; a git SHA vs `0.1.0-nros1`). Two
+# producers for one prefix is issue 0500: the store accumulates, prefixes
+# resolve newest-first, and BOTH paths print success — so a stale Corrosion
+# shadowed the pin just installed and `mixed` could not link.
+#
+# Both are forwarders now, and nothing stopped the next one growing back. This
+# is that gate. It found `just workspace cargo-tools` still running
+# `cargo install espflash` beside `[tool.espflash]`, into a different prefix
+# with no pin.
+[group("checks")]
+one-producer-per-tool:
+    @python3 scripts/check-one-producer-per-tool.py
+
 [group("checks")]
 prereq-roles:
     @python3 scripts/check-prereq-roles.py
