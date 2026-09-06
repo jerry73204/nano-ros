@@ -148,7 +148,7 @@ compute one, and they never invent a quoting rule.
 
 ---
 
-## 5. Target facts — none, and representations are pinned
+## 5. Target facts — none; two kinds of agreement, one gated
 
 **Decision: retire `TargetProfile`.**
 
@@ -168,29 +168,85 @@ armv7a-nuttx, 4 on x86_64), and the C and Rust message packs emit **no `enum`
 at all**.
 
 **What replaces it.** Generated code is target-agnostic; the compiler resolves
-the target. Where two languages must agree on a representation, the source
-**pins** it — `uint8_t` against `#[repr(u8)]`, widths written down — rather than
-codegen modelling the target's default ABI. A pinned representation is
-target-agnostic by construction; a profile is a model of the toolchain, and a
-model can be wrong silently.
+the target. A profile is a model of the toolchain, and a model can be wrong
+silently.
 
-**The agreement is gated, not assumed.** The precedent is the sizes-header
-mirror (issues 0088 -> 0268): one side is authoritative and the other consumes,
-rather than both guessing. Its lesson is also its warning — a stale mirror was
-"silent memory corruption", 336 bytes short on freertos C. So: for a corpus of
-generated types, compile the C and the Rust for the SAME non-host target and
-compare `sizeof` against `size_of`. A representation that agrees only on the
-host is exactly what this design must not ship.
+### Two kinds of agreement, and the first draft conflated them
+
+Implementing W1.1 found that "where two languages must agree on a
+representation" describes **two different properties** in this tree, with
+different requirements and different gates. Saying it once, as the first draft
+did, produced a gate scoped at the wrong pair.
+
+| | **Wire agreement** | **Memory agreement** |
+| --- | --- | --- |
+| Mechanism | CDR | `repr(C)` |
+| Who | idiomatic types (`packs/rust`, `packs/nros`, `packs/c`) | FFI surfaces (`packs/rmw`, `packs/cpp`) |
+| Scope | across machines, across targets | ONE image, ONE target |
+| Target-dependent | **no** — CDR fixes it by specification | yes — it is the target's C ABI |
+| Needs a gate | no: the format is the contract | **yes** |
+
+The measurement that forced this: the **idiomatic generated Rust carries no
+`repr(C)` anywhere**. It and the generated C header share no memory and are
+under no obligation to agree on layout — what they share is CDR. A size gate on
+that pair would assert a property nobody needs and that a legitimate change
+could break.
+
+### What the memory-agreement gate is actually checking
+
+Not "does codegen model the target correctly" — nothing models the target any
+more. Both sides of an FFI surface render from the SAME `LoweredField` through
+their own type filters (`c_type`, `rust_type_rmw`). Rust's `repr(C)` follows
+the target's C ABI and the C compiler follows the same ABI, so the two agree
+**by construction** unless the two filters SPELL a field differently — `u32`
+against `uint16_t`, or an `enum` on one side and a fixed-width integer on the
+other.
+
+So the property is **pack consistency over one IR**, not target modelling. That
+is the unified-path principle applied to a gate: one lowered fact, two
+renderings, and the gate asserts they still denote the same thing.
+
+Comparing symbol sizes after cross-compiling both sides remains the right
+MECHANISM, because it needs neither side to know the other's spelling and it
+reads the answer from the compiler that will actually build the image. What
+changes is the scope — the `repr(C)` surfaces only — and the justification.
+
+The sizes-header mirror (issues 0088 -> 0268) is the precedent and the warning:
+one side authoritative, the other consuming, and a stale one was "silent memory
+corruption", 336 bytes short on freertos C.
 
 ---
 
-## 6. Stage 3 — language packs
+## 6. Stage 3 — packs, one per (language x surface)
 
-`packs/<language>/*.jinja` (messages) and `packs/entry/<language>/` (entry),
-registered in a `PACKS`-style table of `include_str!` rows. This mirrors the
-message side deliberately rather than inventing a second convention — that
-file's own comment already states the goal: *"Adding a language = adding rows
-here plus its `.jinja` files — no other Rust."*
+### A pack is a (language x SURFACE), not a language
+
+The first draft of this RFC — and the comment in `render.rs` it quoted —
+say "adding a language = adding a pack". Counting the packs says otherwise:
+
+| pack | language(s) | surface |
+| --- | --- | --- |
+| `c` | C | idiomatic C |
+| `rust` | Rust | idiomatic Rust |
+| `nros` | Rust | embedded-idiomatic (`no_std`) |
+| `rmw` | Rust | FFI / ABI (`repr(C)`) |
+| `cpp` | **C++ AND Rust** | bridge glue (`.hpp` + `repr(C)` `.rs`) |
+| `scaffold` | Rust | packaging (`Cargo.toml`, `build.rs`, `lib.rs`) |
+
+Rust has **four** packs. The `cpp` pack emits Rust. So the axis is not
+language, and a design that says "one pack per language" mis-predicts the work
+of adding one.
+
+What a language actually needs is a DECISION PER SURFACE: does it want an
+idiomatic surface, an embedded one, an FFI one, packaging? Zig would want
+idiomatic and FFI (it speaks the C ABI natively) and no cargo scaffold. That is
+a smaller and much more honest question than "write a pack", and stating it is
+most of what §8 owes a newcomer.
+
+The naming should follow: `packs/<surface>/` is what the directories already
+are, and the registry keys (`message.h`, `message.c`, `build.rs`) are already
+surface names rather than language names. The entry side should join that
+convention — `packs/entry/<surface>/` — rather than inventing a second one.
 
 Two entry renderers exist today (`rust_entry.rs.jinja`, `c_entry.c.jinja` +
 `c_service_trailer.c.jinja`) with 20 goldens proving byte-equivalence with the
@@ -258,6 +314,12 @@ together.
 
 ## 8. Adding a language — the whole procedure
 
+0. **Decide which SURFACES the language needs** — idiomatic, embedded-idiomatic,
+   FFI/ABI, bridge glue, packaging. This is the step the first draft omitted by
+   assuming one pack per language, and it is the step that sizes the work: Rust
+   has four packs, and the `cpp` pack emits Rust as well as C++. A language that
+   speaks the C ABI (most of them) needs an FFI surface and inherits the memory
+   agreement gate with it (§5).
 1. `packs/entry/<lang>/entry.<ext>.jinja` — over `LoweredEntry`. Boot shape,
    board path, tier rows, QoS codes and escaped literals arrive computed.
 2. One row in the pack registry (`include_str!`).
@@ -361,8 +423,12 @@ language first is what made the shortcut visible at all.
   third language must be renderable from it without a Stage 2 change (§8b).
 - Escaping is a per-pack filter in Rust, not a field of the IR.
 - `TargetProfile` is gone from `rosidl-lower`, and nothing replaces it.
-- A gate compiles the generated C and Rust for one non-host target and compares
-  `sizeof` against `size_of` over a type corpus.
+- A gate covers MEMORY agreement — the `repr(C)` surfaces (`packs/rmw`,
+  `packs/cpp`) against the C header — by cross-compiling both and comparing
+  symbol sizes. It does NOT gate the idiomatic pair, which shares CDR and not
+  memory (§5).
+- The surface axis is named as such: `packs/<surface>/`, and the procedure in
+  §8 starts by choosing surfaces rather than assuming one.
 - The proc-macro and the CLI share lowering; a gate compares the two Rust
   renderings.
 - The tier table uses designated initialisers, and the mirror gate covers
