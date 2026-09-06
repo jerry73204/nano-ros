@@ -66,7 +66,7 @@ build_sources = [
 version = "0.5.0-nros1"
 front = ["bin/nros"]
 smoke = [
-    { run = "bin/nros --codegen-version", expect = "1" },
+    { run = "bin/nros --codegen-version", expect = "2" },
 ]
 upstream = "32b0d2efe61ec66a1cb6c0ff4c780c0f0bc8f10c" # = source.ref
 [tool.nros.source]
