@@ -31,6 +31,11 @@
     "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
   },
+  "c:client_init": {
+    "verdict": "divergence",
+    "disposition": "absent",
+    "why": "phase-428 Q1 (2026-09-06) -- `rcl_client_init(client, node, type_support, service_name, options)`. No symbol answers to this key; the rclc spelling `rclc_client_init_default` does (`c:client_init_default`, `packages/api/nros-c/src/service.rs:1164`), and the options-shaped forms are `nros_client_init_with_qos` / `_with_options` / `_polling` (`packages/api/nros-c/include/nros/nros_generated.h:6448`, `:6470`, `:6519`). Same reasoning as `c:service_init`, one entity over."
+  },
   "c:client_init_best_effort": {
     "verdict": "divergence",
     "why": "rclc ships an entry point per QoS preset; ours takes a QoS value. See `c:publisher_init_best_effort`."
@@ -203,6 +208,11 @@
     "verdict": "declined",
     "disposition": "absent",
     "why": "rcl's pimpl; our handles carry their state inline. See `c:publisher_impl_t`."
+  },
+  "c:service_init": {
+    "verdict": "divergence",
+    "disposition": "absent",
+    "why": "phase-428 Q1 (2026-09-06) -- `rcl_service_init(service, node, type_support, service_name, options)`. No symbol answers to this key. The six-argument `nros_service_init` (callback and context in positions 5 and 6) was retired at phase-417 stage 6 step B (`packages/api/nros-c/src/service.rs:303-322`): the callback moved to registration, where rclc puts it (`nros_executor_add_service_raw` <-> `rclc_executor_add_service`). What remains is `rclc_service_init_default` at rclc's arity (`c:service_init_default`, adopt-bounded on the typesupport type) and `nros_service_init_with_qos` / `_with_options` / `_polling` (`packages/api/nros-c/include/nros/nros_generated.h:6194`, `:6246`, `:6293`) for the options-shaped and RFC-0022 polling forms.\n\nABSENT, not adopt-bounded: see `c:node_init` for why the label is the rcl-layer name's, not the rclc-layer name's."
   },
   "c:service_init_best_effort": {
     "verdict": "divergence",
