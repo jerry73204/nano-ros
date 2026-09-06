@@ -71,17 +71,32 @@ GENERATED_PATH_RE = re.compile(r'path\s*=\s*"([^"]*\bgenerated/[^"]*)"')
 # ...with ONE exception, and it is about the PRODUCER rather than the shape.
 # `generated/px4_msgs` is not written by `nros sync` — issue 0510 records that
 # px4_msgs is not an ament package, so only `nros generate-px4-msgs` can emit it,
-# from the PX4 `.msg` tree, and only `just px4 build-fixtures` runs that. That
-# lane SKIPS cleanly when the submodule is absent (`nros_lane_skip`), so on any
-# tree without PX4 provisioned these three leaves can never have the directory,
-# and no amount of `nros sync` will change it — this guard's remedy line would
-# be advice that cannot work.
+# from the PX4 `.msg` tree, and only `just px4 build-fixtures` runs that.
 #
-# So require it only when the producer could have run. Without the `.msg` tree
-# the leaves are REPORTED as not-required rather than dropped silently; with it,
-# a missing directory is real breakage and still fails. Same reasoning the
-# `packages/cli/testing_workspaces/**` exclusion above rests on: match the gate
-# to the leaves the rule covers.
+# ISSUE 1114 — the exemption's PREDICATE was wrong, not its existence. It read
+# "require it only when the producer COULD have run", keyed on the PX4 `.msg`
+# tree being present. That is a fact about the HOST, and the question is about
+# the LANE: on a machine with PX4 provisioned the exemption lifted and the guard
+# demanded `generated/px4_msgs` from every lane, including the ones that never
+# build a px4 leaf. px4 has ZERO rows in `examples/fixtures.toml` — it is in no
+# lane at all — so tier 2 died in `just build tier2` on three leaves it does not
+# build, and the scheduled `run-matrix` lane produced no verdict.
+#
+# That is CLAUDE.md's affordability rule ("a gate in an affordability tier may
+# only resolve artifacts the JOB ITSELF builds", `check-lane-contracts`) broken
+# one level down: the gate resolved an artifact whose producer is a lane the job
+# never invokes.
+#
+# So it is never REQUIRED here, and always REPORTED. The one lane that consumes
+# these leaves PRODUCES the directory first -- `just px4 build-fixtures`
+# generates into all three before it builds any of them -- so a lane that has
+# run the producer passes on the directory EXISTING, not on this guard's say-so,
+# and a lane that has not run it was never going to parse those manifests.
+# Reporting keeps the diagnosis: a bare `cargo metadata` over a px4 leaf still
+# gets cargo's raw manifest-parse error, and this note is what explains it.
+#
+# Same reasoning the `packages/cli/testing_workspaces/**` exclusion above rests
+# on: match the gate to the leaves the rule covers.
 PX4_PRODUCED_RE = re.compile(r"\bgenerated/px4_msgs\b")
 
 
@@ -147,7 +162,8 @@ def main() -> int:
             target = (man.parent / dep_path / "Cargo.toml").resolve()
             if target.is_file():
                 continue
-            if PX4_PRODUCED_RE.search(dep_path) and not px4_available:
+            if PX4_PRODUCED_RE.search(dep_path):
+                # Issue 1114 — reported, never required. See the note above.
                 gen_unprovisioned.append((rel, dep_path))
                 continue
             gen_missing.append((rel, dep_path))
@@ -157,11 +173,17 @@ def main() -> int:
         # to report the narrowing, or "OK" overstates what was checked.
         print(
             f"note: {len(gen_unprovisioned)} path dep(s) into `generated/px4_msgs` "
-            f"not required — no PX4 `.msg` tree at {px4_msg_tree()}."
+            f"not required by this lane (issue 1114)."
         )
         print("      They are produced by `just px4 build-fixtures` (via "
-              "`nros generate-px4-msgs`), not by `nros sync`.")
-        print("      Provision it with `just setup px4` if you need those leaves.")
+              "`nros generate-px4-msgs`), not by `nros sync`, and px4 has no "
+              "`examples/fixtures.toml` row — so no tier lane builds these leaves.")
+        if px4_available:
+            print("      PX4 IS provisioned here, so `just px4 build-fixtures` "
+                  "would produce them.")
+        else:
+            print(f"      No PX4 `.msg` tree at {px4_msg_tree()}; provision it "
+                  "with `just setup px4` if you need those leaves.")
 
     if not missing and not gen_missing:
         print(
