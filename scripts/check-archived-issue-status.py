@@ -54,20 +54,24 @@ OK_STATUS = ("resolved", "wontfix")
 # it. Not a general exemption -- a new archived issue cannot join this list
 # without someone editing it, which is the deliberate edit the gate is for.
 BASELINE = {
-    "0203-mixed-workspace-cpp-interface-overgeneration.md":
-        "archived while its frontmatter still says `open`, and nothing in the "
-        "file records a resolution. Either the defect was fixed and the record "
-        "was never updated, or it is still live and the file is in the wrong "
-        "directory. Needs its owner; do not guess a status for it.",
+    # EMPTY, and that is the intended end state. It held
+    # `0203-mixed-workspace-cpp-interface-overgeneration.md` for exactly one
+    # commit: the gate found it, `e2c413582` turned out to have closed it back
+    # on 2026-07-16 without flipping `status:`, and the file now says so. An
+    # entry here means "archived, and nobody has ruled on whether it is
+    # resolved" -- a state to remove, not to keep.
+    #
+    # The list may only SHRINK: a stale entry fails this gate, which is what
+    # made the 0203 fix land rather than sit behind an exemption.
 }
 
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 STATUS = re.compile(r"^status:\s*(\S+)", re.M)
 
 
-def verdict(name, text):
+def verdict(name, text, baseline=None):
     """None if fine, else the reason it is not."""
-    if name in BASELINE:
+    if name in (BASELINE if baseline is None else baseline):
         return None
     m = FRONTMATTER.match(text)
     if not m:
@@ -92,12 +96,15 @@ def self_test():
         ("x.md", open_, "not open"),
         ("x.md", nofm, "frontmatter"),
         ("x.md", nost, "status"),
-        # A baselined file passes whatever it says — that is what a ratchet is.
-        (next(iter(BASELINE)), open_, None),
+        # A baselined file passes whatever it says — that is what a ratchet
+        # is. Driven through a synthetic entry, because BASELINE is empty now
+        # and a self-test that skips when the list is empty proves nothing
+        # about the mechanism it is there to cover.
+        ("_synthetic_baselined_.md", open_, None),
     ]
     bad = 0
     for name, text, want in cases:
-        got = verdict(name, text)
+        got = verdict(name, text, {"_synthetic_baselined_.md": "self-test"})
         if (want is None) != (got is None) or (want and want not in got):
             print(f"  self-test FAIL: {name} {text!r} -> {got!r}, want {want!r}")
             bad += 1
