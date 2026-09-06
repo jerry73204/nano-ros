@@ -623,7 +623,7 @@ and verified.
 - **Rust edition 2024:** `unsafe extern "C" {}`, `#[unsafe(no_mangle)]`, explicit `unsafe {}` in `unsafe fn`. `nros-c` keeps `#![allow(unsafe_op_in_unsafe_fn)]`.
 - **No POSIX-style Rust ctor sections on Zephyr/native_sim/RTOS** — backend registration is an explicit call. A pure-Rust image needs the REAL backend dep (`rmw-zenoh = ["dep:nros-rmw-zenoh"]`) — and a direct reference, or rustc's staticlib DCE drops the dep's `#[no_mangle]` export (symbol in the rlib, absent from the `.a`).
 - **Domain ID:** compile-time on embedded (Kconfig / per-example `config.toml`), runtime env on native. `CONFIG_NROS_CYCLONE_DOMAIN_ID` defaults to `NROS_DOMAIN_ID` — never pin it to a literal in confs (the phase-180 split-brain silently ran every cyclone image on domain 0). Cyclone fixture pairs bake distinct domains (50–58) for parallel SPDP.
-- **FreeRTOS:** `APP_TASK_STACK` 64 KB → "Invalid mbox" otherwise; IP-seeded `srand()`; poll-task priority ≥ 4; manual action server needs `try_handle_get_result()`.
+- **FreeRTOS:** IP-seeded `srand()`; poll-task priority ≥ 4; manual action server needs `try_handle_get_result()`. `APP_TASK_STACK` was deleted in phase-76 — the live knob is `app_stack_bytes` (default 384 KiB, override `NROS_FREERTOS_APP_STACK_KB`), and the executor arena it was sized for has not been on that stack since phase-271. → platform-implementation-notes.md "FreeRTOS pitfalls".
 - **Zephyr POSIX:** raise `CONFIG_MAX_PTHREAD_MUTEX_COUNT` (zenoh-pico needs ~8+; default 5 fails with -80).
 - **Zephyr zsock serializes send/recv per-fd:** `Z_CONFIG_SOCKET_TIMEOUT` must stay 100 ms (5 s starves tx → lease death); intra-image pub→sub needs `Z_FEATURE_LOCAL_SUBSCRIBER=1`.
 - **NuttX spin uses `sem_timedwait`** (pthread condvar hangs).

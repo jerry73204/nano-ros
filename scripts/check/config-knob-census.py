@@ -84,6 +84,26 @@ KNOB_CLASS = {
     "NROS_XRCE_TRANSPORT_MTU": ("sizing", "transport MTU (UDP/TCP); numeric"),
     "ZPICO_MAX_LARGE_SUBSCRIBERS": ("derived", "pool cardinality; multiplies LARGE_PAYLOADS, phase-392"),
     "ZPICO_SERVICE_BUFFER_SIZE": ("derived", "SERVICE_BUFFERS is MAX_SESSIONS x MAX_QUERYABLES; phase-392"),
+    # --- phase-392 W6: the executor backing static ---
+    # NOT a ladder candidate, and the DECISION is the interesting part. A rung
+    # gives a global a per-platform default, which is exactly wrong here: the
+    # question this answers is "has the image's author lowered the allocator
+    # arena by the same amount?", which is per-IMAGE, not per-platform (issue
+    # 1145). It is also not `derived` — nothing is computing it, and claiming a
+    # campaign owns it would overstate the backlog. It is the escape hatch on a
+    # placement decision, so: infra.
+    "NROS_EXECUTOR_BACKING_U64S": (
+        "infra",
+        "opt-out/size override for the `.bss` executor backing (phase-392 W6). "
+        "Per-image, not per-platform: the RTOS half of the move is lowering "
+        "that image's allocator arena, which only its author can measure "
+        "(issue 1145)",
+    ),
+    "NROS_EXECUTOR_BACKING_SECTION": (
+        "infra",
+        "linker section name for the executor backing (phase-392 W6, amendment "
+        "A / issue 0880). A placement, not a size",
+    ),
     # --- infra: not knobs ---
     "NROS_ALLOW_UNRESOLVED_DEPS": ("infra", "policy flag"),
     # phase-422 W8 — its own flag, deliberately NOT reusing the one above.

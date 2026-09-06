@@ -335,7 +335,7 @@ This is the approach used by platforms with mature C networking stacks (lwIP on 
 ## Common pitfalls
 
 - **Poll-driven clocks.** If the clock only advances when you call a function, timeouts and keep-alives break silently. Use a free-running hardware timer.
-- **Stack overflow on RTOS.** The `Executor` has an inline arena on the task stack. Use at least 16384 words (64 KB) for the application task on action examples.
+- **Stack overflow on RTOS.** The application task's frame is dominated by the transport session open and by the `Executor` value the constructor builds and returns; size it by measuring an overflow, not by copying a number. (The executor's *arena* is no longer part of that frame — it is borrowed from caller-supplied backing, which is a `.bss` static on every in-tree entry.)
 - **Deterministic PRNG seeds.** Duplicate zenoh session IDs cause silent connection failures. Seed from a source that varies across instances.
 - **Missing recursive mutexes.** zenoh-pico re-enters the same mutex. Non-recursive mutexes deadlock.
 - **QEMU clock drift.** Use `-icount shift=auto` for QEMU targets so the virtual clock tracks wall time during WFI.

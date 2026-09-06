@@ -179,6 +179,21 @@ to the linker: `executor/arena.rs` (in `report_arena_headroom`) and
 `executor/spin.rs` (on `arena_capacity`). Both predate phase-271 and both should
 go with this wave; see the W5 note.
 
+> **DONE by phase-392 W6 (2026-09-06), and it was wider than two comments.** The
+> `arena.rs` one was not only a doc comment — the claim was in the RUNTIME
+> advisory STRING, so every over-provisioned image was told "the arena is INLINE
+> ON THE TASK STACK". Corrected there plus `nros-node/build.rs`,
+> `nros/src/metadata_mode.rs`, RFC-0002 § 4.4b, phase-392 § 1b,
+> `platform-implementation-notes.md`, `freertos-lan9118-debugging.md`,
+> `book/src/porting/custom-platform.md`, CLAUDE.md and AGENTS.md.
+> W6 also answered the placement question this section left open: the third
+> path, which the survey above missed, is the Rust `alloc` convenience
+> constructors — they `Box::leak`ed the backing, so on EVERY Rust board it was
+> on the HEAP and had no symbol at all. It is a named `.bss` static now
+> (`nros_node::executor::backing::EXECUTOR_BACKING`, measured 21,560 B on the
+> native talker), so a linker-symbol check for `NROS_ARENA_REQUIRED` now works
+> for the Rust path too, not only the C/C++ component path.
+
 ## Waves
 
 **W0 -- an unbounded type stops being sizeable (landed 2026-08-31).** The

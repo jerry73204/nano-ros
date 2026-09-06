@@ -27,6 +27,13 @@ pub mod action_core;
 pub(crate) mod activator;
 #[cfg(any(has_rmw, test))]
 mod arena;
+// phase-392 W6 — the named `.bss` static the `alloc` convenience constructors
+// serve their backing from. `alloc`-gated because it exists to replace a
+// `Box::leak`: a no-alloc entry already supplies its own `static` through
+// `open_in`, and reserving a second one there would be pure waste in exactly
+// the images this campaign is about.
+#[cfg(all(any(has_rmw, test), feature = "alloc"))]
+mod backing;
 // Phase 8 (autoware-safety-island `docs/design/callback_tracing.rst`) —
 // callback-level dispatch tracing. Same gating shape as `wake_probe`, for the
 // same reason: hot-path hooks that must vanish in production. The module ALSO

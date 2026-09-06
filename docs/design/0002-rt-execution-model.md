@@ -382,31 +382,60 @@ tier's spin period quantizes to the spin grid (33 ms on a 5 ms spin alternates
 so no rule fires — correctly — but the jitter is predictable at resolve time and
 would be better as a resolver warning than a surprise on target.
 
-### 4.4b Arena placement: a named static, not the caller's stack
+### 4.4b Arena placement: a named static, not an anonymous allocation
 
-**Decision.** The executor arena is a named static in `.bss`, not an inline
-`[MaybeUninit<u8>; ARENA_SIZE]` field of `Executor`.
+**Decision.** The executor's backing — and therefore the arena carved from it —
+is a **named static in `.bss`** on every entry path, so the largest single RAM
+reservation in an image has a symbol.
 
-Today it is the latter, so the arena lands on whichever task calls `spin`. Three
-consequences, all of them working against the properties this RFC exists to
+**Implemented 2026-09-06, phase-392 W6.** The section's original text said the
+arena was *"an inline `[MaybeUninit<u8>; ARENA_SIZE]` field of `Executor`"* that
+*"lands on whichever task calls `spin`"*. **That had not been true since
+phase-271 (issue 0110)**, and it mattered: it aimed the fix at the wrong memory.
+Corrected here with the measurement that settled it.
+
+`Executor` holds `arena: &'s mut [MaybeUninit<u8>]`, a slice carved by
+`executor::storage::carve` out of caller-supplied backing. **Placement is
+therefore the caller's**, and it decided everything:
+
+* **C** — all 34 in-tree `nros_executor_t` objects are file-scope statics, so
+  the backing is carved from `_opaque` in `.bss`.
+* **C++** — `Node::GlobalStorageHolder<0>::storage`, also `.bss`.
+* **Rust** — every board entry (linux, zephyr, freertos, nuttx, threadx,
+  esp32-qemu, mps2-an385) reached an `alloc` convenience constructor, which
+  `Box::leak`ed the backing. **A heap allocation has no symbol**, so this was the
+  invisible one, on every Rust image, on every platform.
+
+Two consequences, both working against the properties this RFC exists to
 provide:
 
-* **It is invisible to the tools that are supposed to bound it.** `mem-report`
-  reads symbols; a stack-resident arena has none. The largest single RAM
-  consumer in an image is the one thing the memory instrument cannot see.
-* **It pushes its cost onto a number nobody derives.** The FreeRTOS action
-  examples pin an 8192-byte arena and still need a 64 KB app-task stack — a
-  figure found by hitting `Invalid mbox` and working backwards (issues
-  0271/0739). A task stack sized by bisection is not an analysable bound.
-* **It scales with subscription buffers.** Each `SubInfoEntry` embeds
-  `buffer: [u8; RX_BUF]`, so raising `NROS_SUBSCRIPTION_BUFFER_SIZE` for one
-  large topic multiplies across every subscription and lands on that stack. An
-  image with five subscriptions at a 64 KiB default reserves ~320 KiB of
-  **stack** for ~20 KiB of actual need.
+* **It was invisible to the tools that are supposed to bound it.** `mem-report`
+  reads symbols. Measured on the native zenoh talker: the largest `nros_node`
+  RAM symbol in the whole ELF was **1 byte**, and the crate did not appear in
+  the by-crate table. After: `nros_node::executor::backing::EXECUTOR_BACKING`,
+  **21,560 bytes**, 5.1 % of the image's RAM, fourth-largest symbol.
+* **It charged the allocator instead of the linker.** On a hosted target that is
+  free — the OS heap has no fixed reservation. On an RTOS the allocator arena is
+  *itself* a fixed static (`CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` on Zephyr,
+  `configTOTAL_HEAP_SIZE` on FreeRTOS), sized to hold this backing, so the bytes
+  were reserved statically anyway — just under a name that says "heap".
 
-As a named static the same bytes are a linker-visible symbol: `mem-report` sees
-it, the map file bounds it, and the task stack no longer carries a term that
-depends on how many topics the application happens to subscribe to.
+`nros_node::executor::backing::EXECUTOR_BACKING` is that static.
+`NROS_EXECUTOR_BACKING_SECTION` places it in a named section (a `NOLOAD` one:
+the static is uninitialised) for parts with tightly-coupled memory;
+`NROS_EXECUTOR_BACKING_U64S` resizes it, or removes it entirely at `0`, because
+the RTOS half of the move — lowering the allocator arena by the same amount — is
+per-image and only its author can measure it (issue 1145). The heap arm remains
+for a second executor (tiered boot opens one per tier) and for an entry sized
+past the reservation.
+
+**What this does NOT buy, contrary to the original text.** It does not shrink a
+task stack. The claim that raising `NROS_SUBSCRIPTION_BUFFER_SIZE` "lands on
+that stack", and that a five-subscription image reserves ~320 KiB of *stack*,
+followed from the inline-field premise and went with it: phase-271 took the
+arena out of the caller's frame, so no task stack has carried a
+subscription-proportional term since. The FreeRTOS app-task stack is a separate
+number that has still never been derived (issue 1146).
 
 **Orthogonal, and deliberately not decided here: whether payload buffers
 themselves become heap-backed.** Phase 392 amendment B reopened that as a

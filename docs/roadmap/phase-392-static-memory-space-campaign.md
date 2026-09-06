@@ -74,30 +74,45 @@ Half the mechanism already exists: `MAX_LARGE_SUBSCRIBERS` /
 It is simply **decoupled from codegen**, so a human picks which subscribers are
 "large".
 
-### 1b. The arena is on the STACK, so none of lever 1 is visible
+### 1b. The arena is invisible to the instrument, so none of lever 1 is visible
 
-`Executor` holds `arena: [MaybeUninit<u8>; ARENA_SIZE]` inline, so the arena —
-and every `SubInfoEntry::buffer` inside it — lands on whichever task calls
-`spin`, not in `.bss`.
+> **Corrected 2026-09-06 by W6, which MEASURED it.** This section said
+> *"`Executor` holds `arena: [MaybeUninit<u8>; ARENA_SIZE]` inline, so the arena
+> lands on whichever task calls `spin`, not in `.bss`"*. **The mechanism was
+> wrong; the consequence was right.** `Executor` has held `arena: &'s mut
+> [MaybeUninit<u8>]` — a slice borrowed from caller-supplied backing — since
+> phase-271 (issue 0110), five phases before this section was written. Placement
+> is therefore the CALLER's, and the tree answered it three ways: C statics
+> (`.bss`), the C++ `Node::GlobalStorageHolder` (`.bss`), and — on **every Rust
+> board** — a `Box::leak` in the `alloc` convenience constructors, which is the
+> one that has no symbol. So the arena was invisible because it was on the HEAP,
+> not because it was on a stack, and the fix was not "move it off the stack" but
+> "give the backing a name". Everything below about *what that costs the
+> campaign* stands unchanged; the stack arithmetic does not. The measurement is
+> in W6.
+
+The arena — and every `SubInfoEntry::buffer` inside it — was reserved somewhere
+the symbol table could not describe.
 
 That defeats this campaign's own instrument. W1 exists to price every pool by
-reading symbols; a stack-resident arena has no symbol, so **the largest single
-RAM consumer in an image is the one thing `mem-report` cannot see**. It is also
-why the FreeRTOS action examples pin an 8192-byte arena and still need a 64 KB
-app-task stack — a number found by hitting `Invalid mbox` and working backwards
-(issues 0271/0739).
-
-And it makes lever 1 land in the worst place: raising
-`SUBSCRIPTION_BUFFER_SIZE` for one large topic multiplies across every
-subscription and lands on a *stack*. A five-subscription image at the 64 KiB
-default reserves ~320 KiB of stack for ~20 KiB of real need.
+reading symbols; a heap allocation has no symbol, so **the largest single RAM
+consumer in a Rust image was the one thing `mem-report` could not see**.
+Measured on the native zenoh talker before W6: the largest `nros_node` RAM
+symbol in the whole ELF was **1 byte**, and `nros_node` did not appear in the
+by-crate table at all.
 
 Moving it to a named static changes no allocation strategy — the same bytes,
-reserved the same way — and buys three things this campaign is otherwise
-paying for: a symbol `mem-report` can price, a map-file bound, and a task stack
-that no longer carries a term proportional to the subscription graph. Decision
-recorded in [RFC-0002 § 4.4b](../design/0002-rt-execution-model.md); wave W6
-below.
+reserved for the same lifetime — and buys two things this campaign is otherwise
+paying for: a symbol `mem-report` can price, and a map-file bound. It also takes
+the term out of the image's allocator arena, which on an RTOS is itself a fixed
+static (see W6 and issue 1145). Decision recorded in
+[RFC-0002 § 4.4b](../design/0002-rt-execution-model.md); wave W6 below.
+
+The third thing this section used to claim — a task stack that no longer carries
+a term proportional to the subscription graph — is **not** what W6 bought,
+because the stack never carried it: the same phase-271 change that made the
+arena a borrowed slice took it out of the frame. The FreeRTOS app-task stack is
+a separate, still-underived number, now issue 1146.
 
 ### 2. Component buffers — 1:1 with per-field storage mode
 
@@ -1062,37 +1077,143 @@ It is currently 1 everywhere, which is why it has never been the visible term.
 
 ### W6 — the executor arena becomes a named static
 
-**Why it is a wave and not a patch.** The move itself is small; what it touches
-is where every image's largest allocation is accounted. Do it after W1 so the
-instrument can show the before/after, and measure on a named image rather than
-asserting the saving.
+**LANDED 2026-09-06, on a premise that was half wrong.** Read the correction
+first: it changes what the wave did and what it could not do.
 
-Steps:
+#### The premise, verified before building on it
 
-1. Replace `Executor`'s inline `arena` field with a reference to a
-   platform-provided static. The arena is already bound to `Dispatcher` at
-   construction as a stable pointer (RFC-0002 § 4.4), so the ownership change
-   is confined to construction.
-2. Give the static a name the instrument can find, and a section a linker
-   script can place — TCM is a candidate on parts that have it (amendment A).
-3. `mem-report` gains a row it previously could not see. That row IS the
-   acceptance evidence.
-4. Re-derive one over-large task stack against the new figure. The FreeRTOS
-   action examples' 64 KB app task is the honest test: if it can drop, the
-   number was carrying the arena and the campaign can say so with a diff.
+Step 1 as written — *"replace `Executor`'s inline `arena` field with a
+reference to a platform-provided static"* — **was already done, five phases
+earlier.** phase-271 (issue 0110) moved the executor's sized tables off
+build-time consts, and `Executor` has held
 
-**Acceptance.** A named image shows the arena as a priced symbol in
-`mem-report`, and one task-stack knob is reduced by a measured amount rather
-than by bisection.
+```rust
+pub(crate) arena: &'s mut [MaybeUninit<u8>],
+```
 
-**Interaction with amendment B.** This does not decide whether payload buffers
-become heap-backed; it makes that question measurable, because the pools stop
-being invisible. If B later moves them, this wave is not wasted work — the
-arena still needs an address.
+ever since: a slice carved out of caller-supplied backing by
+`executor::storage::carve`. phase-403 had already caught the stale claim
+(2026-08-31) and listed the sites to fix; nothing had fixed them. RFC-0002 § 4.4's
+stable-pointer claim **does still hold** — `Dispatcher` binds the arena at
+construction, so the ownership change was confined to construction exactly as
+the wave predicted.
 
-**Non-goal.** Sizing each subscription to its type is W3a's job, not this
-wave's. The two compound (a static sized by type is both smaller and visible)
-but neither depends on the other.
+So the real defect was one layer down, in WHO SUPPLIES the backing. Surveyed
+exhaustively:
+
+| entry path | supplier | placement | visible to `mem-report`? |
+| --- | --- | --- | --- |
+| C (all 34 in-tree `nros_executor_t` objects) | file-scope `static struct { … } app;` | `.bss` | counted, mis-attributed (issue 1147) |
+| C++ / all six cmake entry templates | `Node::GlobalStorageHolder<0>::storage` | `.bss` | counted, mis-attributed (issue 1147) |
+| **Rust — every board**: linux, zephyr, freertos, nuttx, threadx, esp32-qemu, mps2-an385, RTIC, bridge codegen, scaffold | `Executor::open`/`open_sized`/`from_session` → `Box::leak` | **heap** | **no — no symbol at all** |
+| `heap-free-poc-mps2`, `large-msg-baremetal` | their own `static mut` + `open_in` | `.bss` | yes |
+
+**The arena was invisible because it was on the HEAP, not because it was on a
+stack.** Both the campaign's § 1b and RFC-0002 § 4.4b said stack; both were
+corrected with this wave, along with `platform-implementation-notes.md`,
+`freertos-lan9118-debugging.md`, `book/src/porting/custom-platform.md`,
+`nros-node/build.rs`'s comment and — the one that reached users — the RUNTIME
+advisory string in `report_arena_headroom`, which told every over-provisioned
+image that "the arena is INLINE ON THE TASK STACK".
+
+#### What landed
+
+`nros_node::executor::backing` — a named `.bss` static the `alloc` convenience
+constructors serve from, falling back to the old `Box::leak` when they cannot.
+One change, every Rust board.
+
+* **Named**: `nros_node::executor::backing::EXECUTOR_BACKING`, sized
+  `ExecutorSizing::DEFAULT.u64_len()`.
+* **Placeable**: `NROS_EXECUTOR_BACKING_SECTION=<name>` emits
+  `#[unsafe(link_section = "…")]` on it (amendment A / issue 0880's `DTCM`
+  pattern). The section must be `NOLOAD` — the static is uninitialised — and
+  must be reachable by every bus master touching the executor's buffers, which
+  TCM on Cortex-M7 typically is not. **Nothing places it yet**; the seam exists
+  and is compile-verified, the linker fragment is not written.
+* **Declinable**: `NROS_EXECUTOR_BACKING_U64S=0` (build-time env; the Zephyr
+  `CONFIG_` half is deliberately undeclared, see issue 1145 for why the obvious
+  `int … default 0` would silently disable it platform-wide)
+  emits no static at all. A non-zero value overrides its size, which is also how
+  a fat entry keeps a static instead of falling back to the heap.
+* The heap arm still runs, legitimately, in three cases: the opt-out, a SECOND
+  executor (tiered boot opens one per tier), and an entry sized past the
+  reservation.
+
+**No `// nros-pool:` annotation**, deliberately. The inventory evaluates a pool
+as a PRODUCT of knobs at literal defaults; this is a SUM (nine carved tables
+plus the arena, with alignment padding) whose largest term is itself derived.
+Same reasoning as the two existing deliberate non-annotations. `mem-report`
+prices the symbol from the ELF, which needs no formula and cannot drift.
+
+#### Acceptance evidence — MEASURED
+
+Image: `examples/native/rust/talker`, zenoh, built by
+`bash scripts/build/fixtures-build.sh linux rust --id native-rust-talker` →
+`build/cargo-fixtures/linux/nros-relwithdebinfo/talker`.
+
+```
+python3 scripts/nros-mem-report.py build/cargo-fixtures/linux/nros-relwithdebinfo/talker --json
+```
+
+| | before | after | delta |
+| --- | ---: | ---: | ---: |
+| `.bss` | 378,050 | 399,618 | **+21,568** |
+| RAM attributed to symbols | 383,112 | 404,673 | +21,561 |
+| by-crate `nros_node` | **6** | **21,567** | +21,561 |
+| `nros_node::executor::backing::EXECUTOR_BACKING` | *(absent)* | **21,560** | **NEW** |
+
+Every other RAM symbol is **+0**. The new row is 5.1 % of the image's RAM and is
+now the fourth-largest symbol in it; before the change the largest `nros_node`
+RAM symbol in the whole ELF was 1 byte. `nm` type letter is `b` — genuinely
+`.bss`, not `.data`, so it costs no flash.
+
+**The first before/after was thrown away, and saying why is the point.** It
+reported `−11,199` bytes. The two builds had run different configurations: the
+baseline was built before `nros sync`'s component probe had artifacts to read,
+so it took the crate-default pool budgets (`SMALL_PAYLOADS` 32,768) while the
+after build took the probed ones (4,096). That is W5's own retracted-claim
+failure, reproduced within this wave, and it was caught by checking that the
+unrelated symbols were unchanged. The table above is the re-run in which they
+are.
+
+**And it RUNS, not merely links.** With the ROS router up
+(`nros_router_exec tcp/127.0.0.1:7452`, ROS setup sourced so the paired
+`libzenohc.so` loads — issue 0774): session open, node + publisher registered,
+`Publishing: 'Hello World: 1..7'`. The corrected advisory appears in that run
+too: `arena over-provisioned: set NROS_EXECUTOR_ARENA_SIZE=1024 … 192/8192 bytes
+claimed at first spin` — no truncation, no false placement claim. Plus 328
+`nros-node` unit tests, which register entities into an arena carved from the
+static.
+
+#### What this wave did NOT do
+
+* **Half of the acceptance is not met.** *"One task-stack knob is reduced by a
+  measured amount"* did not happen, and the wave's own step 4 named a target
+  that does not exist: `APP_TASK_STACK` was deleted in phase-76, the live
+  default is `app_stack_bytes` = **384 KiB** (not 64 KB), nothing in the tree
+  sets the override, the C/C++ carrier mirrors a third number (512 KiB), and no
+  example pins `NROS_EXECUTOR_ARENA_SIZE=8192`. The wave's hypothesis — "the
+  stack is carrying the arena" — was already false when it was written, because
+  phase-271 had taken the arena out of that frame. Deriving that number needs a
+  FreeRTOS image and a stack high-water reading. → **issue 1146**.
+* **Only ONE platform was built and measured: native/linux.** No Zephyr,
+  FreeRTOS, NuttX, ThreadX, ESP32 or bare-metal image was built. The change
+  reaches them all by construction (one shared constructor), and on an RTOS the
+  move is *not* free the way it is on a host: the allocator arena those images
+  draw from is itself a fixed static and nothing lowers it, so they would
+  reserve the bytes twice. That is why the opt-out knob exists and why the
+  pairing is → **issue 1145**.
+* **The C/C++ arm is left mis-attributed.** It was never invisible — it is in
+  `.bss` — but `mem-report` files `nros::Node::GlobalStorageHolder<0>::storage`
+  under the Rust `nros` crate, and plain C's `app` struct under
+  `(C / asm / no path)`. → **issue 1147**.
+
+**Interaction with amendment B.** Unchanged: this does not decide whether
+payload buffers become heap-backed, it makes the question measurable. A `.bss`
+arena is the better starting point for that measurement.
+
+**Non-goal, respected.** Sizing each subscription to its type is W3a's; nothing
+here touches buffer sizing.
 
 ## Explicitly out of scope
 

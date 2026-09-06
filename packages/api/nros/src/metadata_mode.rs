@@ -232,8 +232,11 @@ mod tests {
     /// `record_entity` has always accepted `ActionClient`/`ServiceClient`, and
     /// the serializer dropped them: a sidecar described only what a component
     /// SERVES. The executor arena is sized from the client count, so the
-    /// omission had a size cost (74,240 vs 16,384 bytes, on the task stack) and
-    /// not merely a descriptive one.
+    /// omission had a size cost (74,240 vs 16,384 bytes) and not merely a
+    /// descriptive one. (phase-392 W6: this used to add "on the task stack",
+    /// which was inherited from 0900 and false since phase-271 — the arena is
+    /// borrowed from caller-supplied backing, a `.bss` static on every entry
+    /// path. The size cost is real; the placement claim was not.)
     #[test]
     fn client_entities_reach_the_sidecar() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

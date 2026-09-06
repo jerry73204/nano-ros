@@ -586,19 +586,27 @@ static ARENA_ADVISORY_DONE: portable_atomic::AtomicBool = portable_atomic::Atomi
 /// enumerate is a knob nobody sets — and this turns it from folklore into a
 /// measurement.
 ///
-/// **Where the arena lives is the CALLER's choice**, and both answers are real.
-/// `Executor` holds `arena: &'s mut [MaybeUninit<u8>]` -- a borrowed slice, since
-/// phase-271 (issue 0110) moved the sized tables off build-time consts. What is
-/// inline is `ExecutorInlineStorage::backing`, which the C FFI sizes its
-/// `_opaque` from, so a stack-declared `nros_executor_t` does put the arena on
-/// the task stack -- that is the FreeRTOS "Invalid mbox" case in
-/// `docs/reference/platform-implementation-notes.md`. The C++ component entry
-/// does not take that path: `run_components` -> `nros::init` ->
-/// `Node::GlobalStorageHolder` is a `static`, so the arena is `.bss` and IS
-/// visible to `nm` and `mem-report`. Measured on mr-canhubk344: DTCM tracked
-/// ARENA_SIZE one-for-one across MAX_CBS 24 -> 36.
+/// **Where the arena lives is the CALLER's choice**, and THREE answers are real
+/// -- phase-392 W6 surveyed every entry path and found a third this comment had
+/// missed. `Executor` holds `arena: &'s mut [MaybeUninit<u8>]` -- a borrowed
+/// slice, since phase-271 (issue 0110) moved the sized tables off build-time
+/// consts. What is inline is `ExecutorInlineStorage::backing`, which the C FFI
+/// sizes its `_opaque` from.
 ///
-/// Do not size against one placement and assume the other.
+/// * **`.bss`** -- all 34 in-tree C `nros_executor_t` objects are file-scope
+///   statics; the C++ entry reaches `Node::GlobalStorageHolder`, also a static;
+///   and the `alloc` convenience constructors serve from
+///   `super::backing::EXECUTOR_BACKING`. Visible to `nm` and `mem-report`.
+///   Measured on mr-canhubk344: DTCM tracked ARENA_SIZE one-for-one across
+///   MAX_CBS 24 -> 36. Measured on the native zenoh talker: 21,560 B.
+/// * **the heap** -- the `alloc` constructors' fallback (a second executor, or
+///   an entry sized past the reservation, or `NROS_EXECUTOR_BACKING_U64S=0`).
+///   This was the ONLY Rust answer before W6, and it has no symbol, which is
+///   why the campaign's own instrument could not see its largest consumer.
+/// * **a task stack** -- a stack-declared `nros_executor_t`. Legal, and nothing
+///   in the tree does it.
+///
+/// Do not size against one placement and assume another.
 ///
 /// `nros_log`, never stdio: this is reached on `no_std` targets and inside
 /// Zephyr `native_sim`, where a Rust `std` stdio call is FATAL (issue 0589).
@@ -618,7 +626,14 @@ fn report_arena_headroom(used: usize, capacity: usize) {
     // reasoning in this comment and issue 0900, and a test that fails on `…`.
     nros_log::nros_info!(
         nros_log::get_logger("nros"),
-        "arena over-provisioned: set NROS_EXECUTOR_ARENA_SIZE={suggest}          (Zephyr: CONFIG_ prefix). {used}/{capacity} bytes claimed at first          spin, and the arena is INLINE ON THE TASK STACK. Later registrations          need more. issue 0900"
+        // phase-392 W6 — the clause "and the arena is INLINE ON THE TASK STACK"
+        // stood here and was FALSE on every path (see the doc comment above);
+        // dropping it is also what buys the budget back. Placement is the
+        // caller's, so this line names the NUMBER, which is the same whichever
+        // memory the backing came from.
+        "arena over-provisioned: set NROS_EXECUTOR_ARENA_SIZE={suggest} \
+         (Zephyr: CONFIG_ prefix). {used}/{capacity} bytes claimed at first \
+         spin; later registrations need more. issue 0900"
     );
 }
 
