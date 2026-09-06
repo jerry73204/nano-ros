@@ -1921,6 +1921,150 @@ fn test_arena_alignment() {
 // Timer callback tests
 // ====================================================================
 
+// ===========================================================================
+// phase-436 W1 (issue 1192) — the park is bounded by the next TIMER deadline.
+// ===========================================================================
+
+/// Issue 0515's audit must keep seeing the TIER's declared cadence, not the
+/// park bound. Capping the park by the timer deadline (issue 1192) makes the
+/// two differ, and if the audit follows the cap it compares the timer period
+/// against itself — always an exact multiple, so the warning that issue 0515
+/// exists to emit would go silent on every image that registers a timer.
+#[test]
+fn the_quantization_audit_sees_the_declared_cadence_not_the_park_bound() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    // The cap only bites when the timer is SHORTER than the budget, so that
+    // is the case to test: a 33 ms timer under `spin_default`'s 50 ms. If the
+    // audit followed the cap it would compare 33 ms against 33 ms — an exact
+    // multiple — and stay silent on a tier whose grid genuinely quantizes.
+    executor
+        .register_timer(TimerDuration::from_millis(33), || {})
+        .unwrap();
+
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    assert_eq!(
+        executor.spin_quantization_us, 50_000,
+        "the audit must run against the 50 ms declared cadence, not the 33 ms park bound"
+    );
+}
+
+/// The bound is not merely COMPUTED — `spin_once` must USE it, and must
+/// record which source won. Without that the helper could be correct and
+/// unused: the shape issue 0736 recorded, a probe on a path no image takes.
+#[test]
+fn spin_once_parks_on_the_timer_and_says_so() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    let (bound_us, source) = executor.last_park();
+    assert_eq!(
+        bound_us, 10_000,
+        "the 10 ms timer must bound the 50 ms park, got {bound_us} us"
+    );
+    assert_eq!(
+        source,
+        super::spin::WakeSourceId::Timer,
+        "the timer won this park, and the attribution must name it"
+    );
+}
+
+/// With no timer, the caller's budget wins and is named as the winner — the
+/// attribution has to distinguish "nothing else was pending" from "a timer
+/// happened to match the budget".
+#[test]
+fn spin_once_attributes_an_unbounded_park_to_the_caller() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(50));
+
+    let (bound_us, source) = executor.last_park();
+    assert_eq!(bound_us, 50_000);
+    assert_eq!(source, super::spin::WakeSourceId::CallerBudget);
+}
+
+/// A registered timer is a deadline the EXECUTOR owns. A caller budget longer
+/// than that deadline must not let the executor sleep past it.
+#[test]
+fn a_timer_deadline_shortens_a_longer_caller_budget() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+
+    // 50 ms is `spin_default`'s budget; the timer is due in 10 ms.
+    let bound_us = executor.next_wake_bound_us(50_000);
+    assert_eq!(
+        bound_us, 10_000,
+        "a 10 ms timer under a 50 ms budget must cap the park at 10 ms, got {bound_us} us"
+    );
+}
+
+/// The budget still wins when it is the tighter of the two: capping must be a
+/// `min`, not "the timer always decides".
+#[test]
+fn a_shorter_caller_budget_wins_over_a_later_timer() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(100), || {})
+        .unwrap();
+
+    let bound_us = executor.next_wake_bound_us(5_000);
+    assert_eq!(
+        bound_us, 5_000,
+        "a 5 ms budget under a 100 ms timer must stay 5 ms, got {bound_us} us"
+    );
+}
+
+/// With no timers registered the budget stands unchanged — the cap must not
+/// invent a deadline and turn a long idle wait into a poll.
+#[test]
+fn no_timers_leaves_the_caller_budget_alone() {
+    let executor: Executor = executor_with_clock(MockSession::new());
+    assert_eq!(executor.next_wake_bound_us(50_000), 50_000);
+}
+
+/// The nearest of several timers decides.
+#[test]
+fn the_nearest_timer_decides_the_bound() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor
+        .register_timer(TimerDuration::from_millis(40), || {})
+        .unwrap();
+    executor
+        .register_timer(TimerDuration::from_millis(7), || {})
+        .unwrap();
+    executor
+        .register_timer(TimerDuration::from_millis(25), || {})
+        .unwrap();
+
+    assert_eq!(
+        executor.next_wake_bound_us(50_000),
+        7_000,
+        "the soonest of three timers is the one that bounds the park"
+    );
+}
+
+/// A cancelled timer owes nothing, so it must not hold the park short. Without
+/// this the cap would keep waking on a deadline nobody is waiting for.
+#[test]
+fn a_cancelled_timer_does_not_bound_the_park() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    let id = executor
+        .register_timer(TimerDuration::from_millis(10), || {})
+        .unwrap();
+    executor.cancel_timer(id).unwrap();
+
+    assert_eq!(
+        executor.next_wake_bound_us(50_000),
+        50_000,
+        "a cancelled timer is not a deadline"
+    );
+}
+
 #[test]
 #[cfg(feature = "std")] // asserts on real elapsed time, not a counter
 fn test_add_timer_and_fire() {
