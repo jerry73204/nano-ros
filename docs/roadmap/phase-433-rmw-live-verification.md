@@ -46,34 +46,53 @@ not work. No unit test could see any of it.
 Every check that passed tested our code against our own builders, our own
 parser and our own vtable.
 
-## The blocker: nothing runs the live-peer tests (issue 1127)
+## The blocker: the live-peer tests run, skip, and read as green (issue 1127)
 
 `nros_tests::interop::CELLS` is the intent list for live-peer work — 18 rows,
-17 `Runtime`. Of the eleven distinct test binaries they name, **three are
-reachable if a human types the recipe** — `interop_e2e` (`just native
-test-ros2`, `just native test-ros2-lifecycle`), `params` (`just native
-test-ros2-params`) and `xrce_ros2_interop` (`just xrce test-ros2`), eight cells
-between them. The other eight binaries, nine cells, are named by no recipe and
-no workflow.
+17 `Runtime`, across 11 test binaries.
 
-**No sweep reaches any of the seventeen.** The repo-root `just test-all`
-excludes `group(=ros2-interop)` outright, correctly, and nothing picks the
-group up elsewhere. `just native test-all` does aggregate the three hand-run
-recipes — and is itself called by no recipe and no workflow.
+**They are invoked on every push to `main`.** The root `just test-all`
+(`justfile:2172`) runs `cargo nextest --workspace` with **no exclude filter**;
+`just ci tier1` is preconditions + check + `rust-rtos-link-check` + `test-all`;
+`host-tests.yml` runs `just ci tier1` on push to `main`.
 
-`matrix_fixture_coverage.rs` G1 is the gate for exactly this and its doc
+**And every one of them skips.** That runner has no ROS — the workflow installs
+none, and its own `on:` comment says "This lane needs ROS on the runner and its
+two jobs failed on every pull request". So each cell resolves to
+`nros_tests::skip!`, the junit rewrite converts it to a skip, and the lane is
+green.
+
+**A skip is not a verdict, and nothing tells one apart from a pass.** No
+mechanism distinguishes "skipped on every host since it was written" from
+"covered". Same absorbing-verdict class as issue 0445, where a STALE fixture
+replaces whatever the runtime would have done with a message explaining itself,
+and issue 0444 hid behind it for exactly that long.
+
+`matrix_fixture_coverage.rs` G1 is the gate closest to this, and its doc
 comment claims exactly this ("A Runtime cell nothing runs … fails here"). What
-it asserts is `tests_dir.join(format!("{}.rs", c.test)).is_file()` — that the
-FILE exists. Five gates surround a cell; none asks whether anything invokes it.
-The repo's recurring shape, one level up from where phase-393 named it: *a
-cell's existence reads as a lane*.
+it asserts is `tests_dir.join(format!("{}.rs", c.test)).is_file()` — the FILE
+exists. Five gates surround a cell (G1–G5) and **not one asks whether the cell
+has ever produced a result.** They are all statements about declarations.
 
-**And this host has no ROS.** `/opt/ros` does not exist, `ros2` is not on PATH,
-`ROS_DISTRO` is empty. ROS 2 Humble lives in the `ros2` distrobox, and issue
-0759's rule stands: a box in play means every job runs in the box on its own
-tree. The mirror at `/mnt/wd/data/projects/nano-ros-box` is 323 commits behind
-`main`. So "wire the tests into a lane" is not a one-line change; it is a
-box-resident lane, which is W1 below.
+**A second, smaller problem: no focused runner.** `--workspace` reaches a
+binary but cannot run *one cell against a live peer*, which is what verifying
+any of this requires. Three of the 11 binaries have a focused recipe —
+`interop_e2e` (`just native test-ros2`, `just native test-ros2-lifecycle`),
+`params` (`just native test-ros2-params`), `xrce_ros2_interop` (`just xrce
+test-ros2`). The other eight have none. (`just native test-all` aggregates the
+three and is itself called by nothing. `just native test` is a different lane
+and does exclude the ros2 groups — correctly; misreading that exclusion as the
+root sweep's produced the first version of this analysis.)
+
+**And this host has no ROS either**, so the work is box-resident by
+construction (issue 0759: a box in play means every job in the box, on its own
+tree). Verified 2026-09-06: the `ros2` box is fully provisioned — 290
+`ros-humble-*` packages, `rmw_zenoh_cpp` 0.1.9, `rmw_cyclonedds_cpp` 1.3.4,
+`rmw_fastrtps_cpp` 6.2.10, and box-owned `just` / `cargo-nextest` / `nros` /
+`bindgen` under `~/.local-box/bin`. **Nothing about the environment is
+missing.** The mirror at `/mnt/wd/data/projects/nano-ros-box` was 323 commits
+behind and is being refreshed; a stray `nano-ros-box-box` beside it is debris
+from a sync started inside the box tree.
 
 ## Coverage map — what a live peer has actually seen
 
@@ -113,16 +132,10 @@ the same build — the shape of a defect only a peer can show.
 
 ## Three axes with no live coverage
 
-* **Language.** Sixteen of the eighteen cells declare `Lang::Rust`. One
-  declares C++ (`cpp_multi_node_entry`, unreachable). **None declares C — and
-  the declaration is wrong**: `interop_e2e::scenario_coord` returns
-  `Lang::Rust` unconditionally, while all three cyclone cases spawn C example
-  binaries through `nano_cyclone_c_binary` (`c_talker`, `c_listener`,
-  `c_service_server`). The per-case coordinate tripwire cannot catch this,
-  because it reads the same constant the cell was written from. So the true
-  state is the inverse of the declared one: C/cyclone is proven live and
-  Rust/cyclone is not, and the matrix says the opposite. Fixing the constant
-  will make G-gates fail; that failure is the finding.
+* **Language.** Was the inverse of what the matrix declared; **corrected in
+  W3 (PR #587)**. C/cyclone is what runs; Rust/cyclone is carved. What remains
+  after the correction: C++ has exactly one cell (`cpp_multi_node_entry`) and
+  it has no focused runner.
 * **Platform.** One on-target cell exists (`zephyr-qos-rust-zenoh`) and no
   recipe runs it. FreeRTOS, NuttX, ThreadX and esp32 have **zero** live-peer
   cells. Every claim that an RTOS image interoperates rests on host testing plus
@@ -168,15 +181,52 @@ must be re-checked against artifact timestamps before it is believed
 *Acceptance:* every Runtime cell has a dated verdict; every failure has an
 issue.
 
-### W3 — the language-axis correction
+**The pre-flight is done** (PR #592, which adds the W2 pre-flight doc to this
+series) and it changes the order. All 11 binaries compile. Ten of eleven are expected
+to produce a real verdict given a Humble box; `graph_interop` has the strongest
+assertions in the set and should go first. Two exceptions:
 
-Fix `scenario_coord`'s unconditional `Lang::Rust`, let the G-gates fail, and
-follow the failures. Then decide, per workload, whether the missing language
-gets a cell or a recorded carve-out. This is cheap and it changes what the
-matrix *claims*, which is the point.
+* **`params` cannot produce a verdict at all** — four of its tests guard with a
+  bare `return`, which is a PASS. Issue **1135**. Fix that before running it,
+  or its green means nothing.
+* **`qos_zephyr_ros2_interop_e2e` is blocked** — the only `ZephyrWestLeaves`
+  cell, needing a second build channel. Schedule it last or split it out.
 
-*Acceptance:* the declared coordinate of every interop case matches the binary
-it spawns; `matrix_fixture_coverage` green again.
+Fixture builds W2 needs: `just build-test-fixtures lane=native` covers 10 of 11
+— and it must be that recipe rather than `just native build-fixtures`, because
+only the former also runs `build-compile-check-fixtures`, which produces
+`cpp_multi_node_entry`'s cmake fixture. Plus `just zephyr build-fixtures` for
+the eleventh, and `just cyclonedds setup` + `just xrce setup` in the box.
+
+**Box trap worth stating once:** source `./activate.sh`, not only
+`ros2-box-env.sh`. The router is resolved through `NROS_RMW_ZENOHD` →
+`AMENT_PREFIX_PATH` → `$ROS_DISTRO`, and box-env sets neither of the last two,
+so nine binaries would skip on "zenohd not found" with a perfectly good router
+sitting in `/opt/ros/humble`.
+
+### W3 — the language-axis correction — **DONE 2026-09-06 (PR #587)**
+
+`scenario_coord` derives the language now. Only the cyclone half was wrong:
+all three cyclone cases spawn C binaries, every zenoh case genuinely is Rust
+(verified by reading what each spawns, including the stock-`demo_nodes_cpp`
+case, where the C++ is the *peer* and no coordinate names it). The cells are
+`native-pubsub-c-cyclone-n2r` and `native-service-c-cyclone-r2n`.
+
+**The prediction in this doc was wrong and the correction is the useful part.**
+It said "correcting it will make the G-gates fail, which is the finding". No
+gate failed. G5 was satisfied without inventing anything — `examples/
+fixtures.toml` already produces `linux|c|cyclonedds` rows for exactly the
+binaries the cases spawn. So the declaration was wrong *in isolation*: nothing
+downstream had ever depended on the value, which is its own finding about how
+much the coordinate was load-bearing.
+
+The vacated Rust/Cyclonedds coordinate is CARVED for both workloads rather than
+deleted, because `examples/native/rust/*` do carry `linux|rust|cyclonedds`
+fixture rows — the gap is a missing lane, not a missing build, and deleting the
+rows would leave the fixture list as the only evidence. Note for whoever takes
+that lane: Rust↔Cyclone against a live peer is not wholly unproven —
+`native-graph-rust-cyclone-r2n` is that pairing. It is *delivery* over
+Rust/Cyclone that has never run.
 
 ### W4 — the gate G1's doc comment already promises
 
