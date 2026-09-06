@@ -104,9 +104,21 @@ static_assert(static_cast<int32_t>(ErrorCode::NotFound) == -4 &&
 // call site that drops the value.
 //
 // Measured before landing: `just check c` and `just check cpp` are both green
-// with it applied, so the in-tree surface already consumes its Results. The
-// blast radius is on PORTED code and on anything added later, which is where
-// it is wanted.
+// with it applied, so the in-tree surface already consumes its Results.
+//
+// CORRECTED 2026-09-06 — the commit that added this said a bare discard
+// becomes "a `-D warnings` error". It does not. `-D warnings` is a Rust/clippy
+// flag with no C++ counterpart here, and no C++ lane in this tree compiles
+// with a bare `-Werror` (the only two uses are `-Werror=deprecated-declarations`).
+// So a discarded `Result` is a `-Wunused-result` WARNING and the lane stays
+// green through it -- `rclcpp::shutdown()` carried exactly that discard,
+// printed the warning on every run, and nothing failed.
+//
+// This attribute is therefore a signal to a reader and to a `-Werror`
+// consumer, NOT an enforced gate in this tree. Where a failure must not be
+// ignorable, the refusal has to be at runtime -- which is what
+// `rclcpp::detail::require_created` does for the `create_*` verbs, and what
+// `rclcpp::init(argc, argv)` already did for `--ros-args`.
 class [[nodiscard]] Result {
   public:
     /// Default-construct a success.
