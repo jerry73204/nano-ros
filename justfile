@@ -4169,7 +4169,12 @@ setup target="" tier="" *extra:
     # check-{c,cpp}-fmt drift across clang-format major versions, so a consistent
     # pinned binary (`[tool.clang-format]` in the index) is part of base dev
     # setup. Idempotent.
-    just setup-clang-format || echo "  (clang-format provisioning skipped — python3 venv unavailable)"
+    # Non-fatal, but the REASON has to be true: this used to say "python3 venv
+    # unavailable", which named a mechanism the recipe stopped using when
+    # phase-422 W2 replaced the pip-wheel download with `nros setup --tool
+    # clang-format`. A wrong reason on a skipped step aims the next person at
+    # the wrong thing.
+    just setup-clang-format || echo "  (clang-format provisioning skipped — see the error above; \`just setup-clang-format\` retries it)"
     just _orchestrate setup "$chosen_tier"
     echo ""
     echo "✅ nano-ros setup complete."
