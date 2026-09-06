@@ -580,16 +580,10 @@ pub(super) fn lowered_storages(
     fields: &[rosidl_parser::Field],
     resolver: &CapacityResolver,
 ) -> Vec<FieldStorage> {
-    rosidl_lower::lower_fields(
-        package,
-        message,
-        fields,
-        resolver,
-        &rosidl_lower::TargetProfile::host(),
-    )
-    .iter()
-    .map(|lf| lf.storage.as_field_storage())
-    .collect()
+    rosidl_lower::lower_fields(package, message, fields, resolver)
+        .iter()
+        .map(|lf| lf.storage.as_field_storage())
+        .collect()
 }
 
 /// Build every nros field of `msg`, sourcing each field's storage from the

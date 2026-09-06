@@ -1,7 +1,7 @@
 //! Stage 2 of the codegen pipeline (RFC-0068): **Lower**.
 //!
 //! Takes the neutral [`rosidl_resolve::ResolvedMessage`] plus a `CodegenConfig`
-//! (capacity/storage policy — the [`config`] module) and a `TargetProfile`
+//! (capacity/storage policy — the [`config`] module)
 //! (pointer width, enum width, alignment rules) and produces a TARGET-concrete
 //! but still LANGUAGE-neutral IR: per-field storage, `repr(C)` layout,
 //! plainness, alignment and serialized size. These are the facts a per-language
@@ -16,6 +16,5 @@ pub mod config;
 mod lowered;
 
 pub use lowered::{
-    CdrOp, FieldShape, LoweredField, LoweredStorage, LoweredType, TargetProfile, lower,
-    lower_fields,
+    CdrOp, FieldShape, LoweredField, LoweredStorage, LoweredType, lower, lower_fields,
 };
