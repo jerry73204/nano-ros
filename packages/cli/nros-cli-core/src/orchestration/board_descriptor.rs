@@ -106,6 +106,25 @@ pub enum EntryKind {
 
 /// The per-board pieces the entry-point renderer interpolates into the shared
 /// board-run entry shape. `None` path interpolation here — these reference only
+/// Generated entry-point pieces for a board whose entry is not the default.
+///
+/// `crate_root_extra`, `crate_root_deps` and `closure_extra` are **rung 3 of
+/// RFC-0064's customization ladder** — the escape hatch, not ordinary config.
+/// Rungs 1 and 2 are a declared flag and a `#[no_mangle]` hook; rung 3 is "own
+/// the file", and these three are how a board owns part of a generated one.
+///
+/// The RFC's rule about rung 3 applies to them: **it must always exist.** A
+/// declarative model that cannot be escaped is worse than none, because real
+/// boards always have one thing nobody anticipated, and if the only answer is
+/// "patch nano-ros" the model failed exactly when it mattered.
+///
+/// phase-375 W8 asked for these to be RENAMED to say they are the escape hatch.
+/// They are not, and the reason is worth recording: a rename is churn in every
+/// out-of-tree descriptor that uses one, buying a label this doc-comment
+/// already carries and that a reader meets in the same place. The fields that
+/// WERE renamed in that wave (`target_contains` ->
+/// `disambiguate_by_target`) changed what a reader would conclude from the
+/// name; these do not.
 /// the board crate name.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BoardEntry {
@@ -276,10 +295,20 @@ pub struct BoardDescriptor {
     #[serde(default)]
     pub entry: Option<BoardEntry>,
     /// Disambiguate two descriptors sharing a `names` entry by requiring this
-    /// substring in the requested target (e.g. `"riscv64"` for threadx-riscv64,
-    /// so `board = "threadx"` picks riscv64 vs linux by target).
-    #[serde(default)]
-    pub target_contains: Option<String>,
+    /// substring in the requested target.
+    ///
+    /// RFC-0064 R5 D6 renamed this from `target_contains`, because it is NOT a
+    /// property of the board: it is a rule for telling two ROWS apart when they
+    /// claim the same name (`threadx` is claimed by both `threadx-linux` and
+    /// `threadx-qemu-riscv64`, and only the target says which you meant). A
+    /// board that shares no name with another needs none, and a reader who took
+    /// it for a board fact would expect it to mean something on its own.
+    ///
+    /// The old spelling is a serde alias rather than a hard rename: an
+    /// out-of-tree board descriptor is a user's file, and breaking it to
+    /// improve a name in our tree is a cost we impose and do not pay.
+    #[serde(default, alias = "target_contains")]
+    pub disambiguate_by_target: Option<String>,
     /// Declared board capabilities (heap/atomics/threads). `None` → inferred from
     /// `platform` via `capabilities()` during the 241.C migration.
     #[serde(default)]
@@ -970,11 +999,11 @@ impl BoardCatalog {
             return named
                 .iter()
                 .find(|d| {
-                    d.target_contains
+                    d.disambiguate_by_target
                         .as_ref()
                         .is_some_and(|sub| target.contains(sub.as_str()))
                 })
-                .or_else(|| named.iter().find(|d| d.target_contains.is_none()))
+                .or_else(|| named.iter().find(|d| d.disambiguate_by_target.is_none()))
                 .copied();
         }
         if target.contains("linux") {
@@ -1738,7 +1767,7 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             priority_plan: None,
             cargo_config: Some("inc = \"${workspace}/third-party/x\"".into()),
             entry: None,
-            target_contains: None,
+            disambiguate_by_target: None,
             capabilities: None,
             cmake: None,
             source: None,
@@ -1962,7 +1991,7 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             priority_plan: None,
             cargo_config: None,
             entry: None,
-            target_contains: None,
+            disambiguate_by_target: None,
             capabilities: None,
             cmake: None,
             source: None,

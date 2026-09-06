@@ -121,11 +121,28 @@ commit; the five gates stay unchanged (this does not weaken them).
 
 ## W3 — A board below tier 2 must not redden a shared lane
 
-- [ ] State the rule in RFC-0064 terms and decide the mechanism: either
-      onboarding-complete-at-merge (W2 makes this cheap) or excluding tier-3
-      boards from the gates that block `check-fast`.
-- [ ] W2 first — the second option trades coverage for isolation and should only
-      be reached for if the scaffold proves insufficient.
+- [x] **The rule, in RFC-0064 terms: a board that is not COMPLETE does not
+      resolve, so it cannot redden anything.** Completeness is now structural
+      rather than a checklist — `BoardCatalog::require_announcement` refuses a
+      descriptor with no `package.xml`, `check-board-tiers` refuses a board
+      directory with no registry row and a row with no directory, and
+      `check-provider-announcements` refuses a descriptor whose announcement
+      disagrees with it. An incomplete board fails at the point of resolution,
+      naming itself, instead of surfacing three gates later as someone else's
+      red main.
+- [x] **Mechanism: onboarding-complete-at-merge, option 1.** W2 is landed, which
+      is the condition this wave set for choosing it — the scaffold makes
+      completeness cheap, so buying isolation by excluding tier-3 boards from
+      `check-fast` would trade coverage for nothing. Recorded as a decision
+      rather than left as a default, per W5's own standard.
+- [x] W2 first — the second option trades coverage for isolation and should only
+      be reached for if the scaffold proves insufficient. _(It did not.)_
+
+**What this does NOT claim.** The rule covers a board that is missing something.
+It does not cover a board that is COMPLETE and BROKEN — a tier-3 board whose
+fixture row fails to build still reddens a shared lane, and nothing here changes
+that. W4's smoke floor and witness-gated ceiling is the wave that addresses it,
+and it is the one this phase says needs agreement before implementation.
 
 **Acceptance:** adding a build-only board cannot make main red for people who do
 not use it.
@@ -259,15 +276,32 @@ field group by field group; each group is a gate plus a mechanical edit.
       `rustflags`/`runner`/`linker` as text with no schema check. Promote them to
       real fields; the CLI composes the leaf `.cargo/config.toml` from those
       instead of pasting the blob through.
+
+      **Left for a host that can build fixtures.** This is the largest remaining
+      W8 item and the only one that changes what lands in a leaf's
+      `.cargo/config.toml`. Its failure mode is a leaf that resolves against the
+      wrong target or links with the wrong flags — visible in a fixture build
+      and invisible to `just check fast` and the CLI unit tests, which is all
+      this host can run. Doing it blind and reporting it green would be the
+      museum-binary mistake in a new place.
 - [x] **Drop:** `capability_features` (7 rows, all the single value
       `["safety-e2e"]`; the only read in the tree is inside
       `fn a_board_advertises_the_safety_capability_feature()`),
       `[board.entry] comment` (an escaped Rust `//` comment in TOML),
       `crate_path` and `board_features` (in the struct, authored by nobody).
-- [ ] **Reclassify** `target_contains` — a row disambiguator, not a board
-      property. Rename it to say so.
-- [ ] Rung 3 survives: `crate_root_extra` / `crate_root_deps` / `closure_extra`
-      stay, renamed to say they are the escape hatch.
+- [x] **Reclassify** `target_contains` — a row disambiguator, not a board
+      property. Renamed to `disambiguate_by_target`, with the old spelling kept
+      as a serde ALIAS: an out-of-tree board descriptor is a user's file, and
+      breaking it to improve a name in our tree is a cost we impose and do not
+      pay.
+- [x] Rung 3 survives: `crate_root_extra` / `crate_root_deps` / `closure_extra`
+      stay. ~~renamed to say they are the escape hatch~~ — **not renamed, and
+      the reason is recorded on `BoardEntry`**: a rename is churn in every
+      out-of-tree descriptor using one, buying a label the doc-comment already
+      carries in the same place a reader meets the fields. `target_contains`
+      earned its rename because the name led a reader to a wrong conclusion;
+      these do not. The rung-3 rule the RFC attaches to them — *it must always
+      exist* — is now stated where they are defined.
 - [x] Gate, in RFC-0087 D4's ratchet shape: a stated derivable field must equal
       its derived value. _(landed as three additions to the EXISTING
       `check-derived-descriptor-fields` — a sibling-field derivation mechanism,

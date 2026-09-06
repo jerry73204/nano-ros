@@ -6903,7 +6903,7 @@ rustflags = [
             priority_plan: None,
             cargo_config: cargo_config.map(str::to_string),
             entry: None,
-            target_contains: None,
+            disambiguate_by_target: None,
             capabilities: None,
             cmake: None,
             source: Some("packages/boards/nros-board-nuttx-qemu/nros-board.toml".into()),
