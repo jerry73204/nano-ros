@@ -1,12 +1,18 @@
 # Phase 375 — The board tier is a promise with an owner, and onboarding is the cost
 
-**Status (2026-08-22). PROPOSED — W0 landed, W1–W5 not started.** Opened from the
+**Status (2026-09-06). W0 and W1 LANDED; W2–W9 open.** Opened from the
 question "more and more boards appear; it bloats — balance the platforms per
 tier". The measurement says the tiers are NOT what bloats, so the waves below
 target owners and onboarding instead.
 
+**W6–W9 added 2026-09-06** for RFC-0064 revision 5. W2 asked for a scaffold that
+emits the five artifacts a board needs; auditing what those artifacts should
+CONTAIN found that the tree has four different board-addition processes and no
+single descriptor shape to scaffold. W6–W9 make one process exist, so W2 has
+something to emit.
+
 **Implements:** [RFC-0064](../design/0064-board-support-organization.md)
-revision 4 (2026-08-22).
+revision 4 (2026-08-22) and revision 5 (2026-09-06).
 **Related:** [phase-320](archived/phase-320-board-support-tiers.md) (W3.b opened
 the maintainer field and left it unenforced — this closes it),
 [phase-346](archived/phase-346-out-of-tree-board-seam.md) (the seam W5 needs,
@@ -145,6 +151,106 @@ platform's tier-2 entry cost is one cell.
 
 **Acceptance:** a recorded decision, not a default.
 
+## W6 — One board process: a board is a package, found by a scan
+
+RFC-0064 R5 D1/D2/D5. The measurement is in R5: four routes, and our own
+`qemu_cortex_a53` takes route 4 — an inline `board = "…"` string in
+`fixtures.toml` and a `.conf` copied into each example leaf, with no package, no
+descriptor and no announcement.
+
+- [ ] Every board is a directory with `package.xml` announcing
+      `<nano_ros_provides kind="board" name="…"/>` beside an `nros-board.toml`.
+      A crate only where the board needs bring-up code.
+- [ ] Replace the `packages/boards/*/nros-board.toml` glob with `provider_scan`
+      over `[workspace] package_paths` (RFC-0087 D6). Depth-independent, so
+      bundle boards resolve; root-driven, so an out-of-tree board package is
+      found by the same code path.
+- [ ] `check-provider-announcements` loses `if not os.path.exists(pkg_xml):
+      continue`. Ratchet against today's one offender,
+      `nros-board-mps3-an536-freertos` — the newest board in the tree, which
+      skipped the step because the step was optional.
+- [ ] `qemu-cortex-a53` and the Zephyr `mps2_an385` flavour become real board
+      packages; their fixture rows name a board instead of a Zephyr id, and the
+      per-board `.conf` moves out of the example leaf so consumers share it.
+
+**Acceptance:** every board the tree builds is announced; the announcement gate
+runs on all of them, not 10 of 14; an out-of-tree board directory resolves with
+no in-tree edit beyond a `package_paths` entry.
+
+## W7 — `[board.zephyr]`, and the projection replaces `board.cmake`
+
+RFC-0064 R5 D3/D4. Pairs with 215.K, which is the same change seen from the FVP
+board's side.
+
+- [ ] `[board.zephyr]` block: `west_board`, `sdk_abi`, `default_rmw`,
+      `default_transport`, `runner` (stated only when it differs from Zephyr's
+      own board definition).
+- [ ] Conventions supply the rest: `prj.conf` and
+      ``boards/<west_board with `/` → `_`>.{conf,overlay}`` present-if-exists; the
+      Rust-support Kconfig module derived AND generated, since its body is
+      `default y if BOARD_<UPPER(first segment)>`.
+- [ ] `nros board cmake-vars <name> --out <build-dir>/…`; `nano_ros_use_board()`
+      includes the result. Signature unchanged, so no consumer call site moves.
+      The projection is a build artifact, never committed (phase-330 precedent).
+- [ ] Delete `board.cmake`, `board_metadata.rs` and
+      `phase215_f_manifest_drift.rs`. Replace with a projection round-trip test
+      (descriptor → projection → parse back == descriptor), which has no
+      "skip if the other face is missing" arm and so cannot go vacuous the way
+      the drift gate did.
+- [ ] Gate `check-board-descriptor-single-source`: no `board.cmake` anywhere, no
+      `[package.metadata.nros.board]` anywhere.
+
+**Acceptance:** one authored descriptor per board; the drift gate that checked
+zero boards is gone rather than repaired.
+
+## W8 — The descriptor holds primitives only
+
+RFC-0064 R5 D6 carries the full audit over all 12 `[[board]]` rows. Landable
+field group by field group; each group is a gate plus a mechanical edit.
+
+- [ ] **Move to the platform descriptor:** `platform_feature` (3 of 12 are not
+      `platform-<platform>`), `link_kind` (11 `none`, and both NuttX rows carry
+      the exception), `[board.priority_plan]` (the two FreeRTOS QEMU boards hold
+      byte-identical blocks — that is `configMAX_PRIORITIES`). Board override
+      stays for a board that genuinely retunes one.
+- [ ] **Derive:** `entry_kind` (zero exceptions today), `local_aliases`
+      (8 of 10 are `[platform_feature]`), `[board.entry] crate_name` (7 of 7 are
+      `snake_case(board_crate)`), `[board.entry] signature` (4 of 7 identical).
+- [ ] **Decompose `cargo_config`** — a raw TOML blob in 8 of 12 rows, holding
+      `rustflags`/`runner`/`linker` as text with no schema check. Promote them to
+      real fields; the CLI composes the leaf `.cargo/config.toml` from those
+      instead of pasting the blob through.
+- [ ] **Drop:** `capability_features` (7 rows, all the single value
+      `["safety-e2e"]`; the only read in the tree is inside
+      `fn a_board_advertises_the_safety_capability_feature()`),
+      `[board.entry] comment` (an escaped Rust `//` comment in TOML),
+      `crate_path` and `board_features` (in the struct, authored by nobody).
+- [ ] **Reclassify** `target_contains` — a row disambiguator, not a board
+      property. Rename it to say so.
+- [ ] Rung 3 survives: `crate_root_extra` / `crate_root_deps` / `closure_extra`
+      stay, renamed to say they are the escape hatch.
+- [ ] Gate, in RFC-0087 D4's ratchet shape: a stated derivable field must equal
+      its derived value, and a moved field must not be restated at board level
+      unless it differs.
+
+**Acceptance:** a QEMU Zephyr board authors 6 keys where today's equivalent
+authors 19, and the in-tree and out-of-tree descriptors for comparable boards are
+identical field for field.
+
+## W9 — `just board-new` emits the shape W6–W8 defined
+
+W2 restated once there is one shape to scaffold. Kept separate because W2's
+acceptance (green `check-fast` before first commit) is unchanged and still the
+point.
+
+- [ ] Scaffold emits the W6 package (`package.xml` + descriptor), the
+      `board-support.toml` row, the weak-symbol allowlist stub and the leaf lock.
+- [ ] A `--out-of-tree <dir>` mode emits the same thing plus the
+      `package_paths` line, so a user's board is one command too.
+
+**Acceptance:** the scaffolded board and a hand-written in-tree board are the
+same files.
+
 ## Risks
 
 **The ratchet is the whole of W1.** A maintainer rule that fails every existing
@@ -155,3 +261,8 @@ selectively.
 **W4 changes what a tier PROMISES**, so it is the one wave that needs agreement
 before implementation rather than after. The smoke floor is cheap; the nightly
 ceiling removes coverage that exists today.
+
+**W8 moves fields between descriptors, and a move is invisible in a diff.** A
+board that silently loses its priority plan gets the platform default, which is
+plausible and wrong. The ratchet has to fire on a RESTATED field, not only on a
+missing one, and the move lands per field group with the gate in the same commit.
