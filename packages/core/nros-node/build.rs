@@ -105,8 +105,13 @@ fn main() {
     // (issue 0460); an enum would need a second reader shape for no gain.
     //
     // Setting it to 0 on a pub/sub-only image is the whole point: 74,240 bytes
-    // becomes 16,384 at the defaults, and that arena is INLINE ON THE TASK
-    // STACK, not in `.bss`.
+    // becomes 16,384 at the defaults.
+    //
+    // phase-392 W6 — this comment used to end "and that arena is INLINE ON THE
+    // TASK STACK, not in `.bss`". False since phase-271 (issue 0110), and it is
+    // the reason the saving read as a stack saving rather than a RAM one. The
+    // arena is a slice borrowed from caller-supplied backing; see
+    // `executor::backing` for where that backing lives on each entry path.
     //
     // Too small fails at REGISTRATION (`NodeError::BufferTooSmall`), not at
     // link — same caveat `NROS_EXECUTOR_ARENA_SIZE` carries, and the reason
@@ -291,11 +296,98 @@ fn main() {
 
     std::fs::write(Path::new(&out_dir).join("nros_node_config.rs"), contents).unwrap();
 
+    emit_executor_backing(&out_dir);
+
     // Export via `links = "nros_node"` so dependents (nros-c, nros-cpp)
     // can read these as DEP_NROS_NODE_MAX_CBS, DEP_NROS_NODE_ARENA_SIZE, etc.
     println!("cargo:max_cbs={max_cbs}");
     println!("cargo:arena_size={arena_size}");
     println!("cargo:rx_buf_size={rx_buf_size}");
+}
+
+/// phase-392 W6 — emit the ONE item that has to be generated for
+/// `executor::backing`: the named static itself, because
+/// `#[unsafe(link_section = …)]` takes a string LITERAL and the section name is
+/// a build-time input.
+///
+/// `NROS_EXECUTOR_BACKING_SECTION` is a SECTION NAME, not a path, so watching
+/// the env value is the correct fingerprint here (issue 0491 is about paths,
+/// which have several spellings for one directory; a section name has one).
+///
+/// The generated file is deliberately tiny and carries no arithmetic — the size
+/// is `EXECUTOR_BACKING_U64S`, a `const` in the module, so a reader looking for
+/// "how big is it?" never has to open `OUT_DIR`.
+fn emit_executor_backing(out_dir: &str) {
+    // Words to reserve. ABSENT means "the crate's own default sizing", which is
+    // why this is `env_opt_usize` and not `env_usize` with a number: build.rs
+    // cannot call `ExecutorSizing::DEFAULT.u64_len()` (it lives in the crate it
+    // is building), and RETYPING that arithmetic here is the single-derivation
+    // rule's exact failure mode — a second copy that agrees until a table moves.
+    // So absence emits the const EXPRESSION and the crate computes it.
+    //
+    // **ZERO means "no static; leak from the heap as before"**, and it is the
+    // documented opt-out for a memory-constrained image: on a hosted target the
+    // allocator has no fixed reservation, so the static is free, but on an RTOS
+    // the allocator arena IS a fixed static (`CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE`
+    // on Zephyr, `configTOTAL_HEAP_SIZE` on FreeRTOS) and it is sized to hold
+    // this backing already. Turning the static on there without lowering that
+    // knob reserves the same bytes twice. The pairing is per-image and nobody
+    // but the image's author can measure it — see phase-392 W6.
+    let words = env_opt_usize("NROS_EXECUTOR_BACKING_U64S");
+    println!("cargo:rustc-check-cfg=cfg(nros_executor_backing_static)");
+    if words == Some(0) {
+        // No item at all, and no cfg: `backing::take` is then a `None` stub and
+        // the crate carries no reservation. The file still has to EXIST because
+        // `include!` is unconditional at the module's top level.
+        std::fs::write(
+            Path::new(out_dir).join("nros_executor_backing.rs"),
+            "// NROS_EXECUTOR_BACKING_U64S=0 -- no static reservation; the alloc\n\
+             // convenience constructors leak from the heap (phase-392 W6).\n",
+        )
+        .unwrap();
+        return;
+    }
+    println!("cargo:rustc-cfg=nros_executor_backing_static");
+    let len = match words {
+        Some(n) => n.to_string(),
+        None => "EXECUTOR_BACKING_DEFAULT_U64S".to_string(),
+    };
+    println!("cargo:rerun-if-env-changed=NROS_EXECUTOR_BACKING_SECTION");
+    let section = env::var("NROS_EXECUTOR_BACKING_SECTION").unwrap_or_default();
+    let attr = if section.is_empty() {
+        String::new()
+    } else {
+        // A section name reaches the assembler verbatim, so refuse anything that
+        // could close the string literal or smuggle a directive: a mangled
+        // section is a link error four layers from here, or worse, a silently
+        // misplaced 74 KiB.
+        assert!(
+            section
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '$')),
+            "NROS_EXECUTOR_BACKING_SECTION must be [A-Za-z0-9._$]+, got {section:?}"
+        );
+        format!("#[unsafe(link_section = \"{section}\")]\n")
+    };
+    let contents = format!(
+        "/// GENERATED by `nros-node/build.rs` -- see `executor::backing` for what \
+         this is\n\
+         /// and why it is generated rather than written.\n\
+         ///\n\
+         /// The executor's per-entry storage, reserved ONCE in `.bss` so \
+         `mem-report`\n\
+         /// can price what a leaked `Box` made invisible (phase-392 W6, RFC-0002 \
+         SS 4.4b).\n\
+         pub(crate) const EXECUTOR_BACKING_U64S: usize = {len};\n\
+         {attr}\
+         static mut EXECUTOR_BACKING: [MaybeUninit<u64>; EXECUTOR_BACKING_U64S] =\n    \
+         [MaybeUninit::uninit(); EXECUTOR_BACKING_U64S];\n"
+    );
+    std::fs::write(
+        Path::new(out_dir).join("nros_executor_backing.rs"),
+        contents,
+    )
+    .unwrap();
 }
 
 /// The platform and board rungs of the RFC-0049 ladder for `[knobs.executor]`.

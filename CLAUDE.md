@@ -625,9 +625,23 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   parallel SPDP. → issue 0161 (archived), platform-implementation-notes.md.
 - **`zpico_spin_once` on multi-threaded platforms uses `z_sleep_ms()`, not `select()`** (else
   `Promise::wait()` burns its budget in ~39 ms). → platform-implementation-notes.md.
-- **FreeRTOS:** `APP_TASK_STACK` 64 KB (inline executor arena on stack) → "Invalid mbox" otherwise;
-  IP-seeded `srand()`; poll-task priority ≥ 4; manual action server needs
+- **FreeRTOS:** IP-seeded `srand()`; poll-task priority ≥ 4; manual action server needs
   `try_handle_get_result()`. → platform-implementation-notes.md.
+- **The executor arena is NOT on the task stack, and has not been since phase-271** —
+  three documents, a build-script comment and a RUNTIME advisory string said it was,
+  for five phases (corrected phase-392 W6). `Executor` holds `arena: &'s mut
+  [MaybeUninit<u8>]`, a slice borrowed from caller-supplied backing, so **placement is
+  the CALLER's**: all 34 C `nros_executor_t` objects are file-scope statics, C++ uses
+  `Node::GlobalStorageHolder<0>::storage`, and every RUST board reached an `alloc`
+  convenience constructor that `Box::leak`ed it — **invisible to `mem-report`, which
+  reads symbols**. The Rust arm is a named `.bss` static now
+  (`nros_node::executor::backing::EXECUTOR_BACKING`, RFC-0002 § 4.4b); the heap arm
+  survives for a SECOND executor (tiered boot) and for an entry sized past the default.
+  It is a MOVE, not a saving — the same bytes leave the allocator arena
+  (`CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE` / heap_4) and become linker-visible, so never
+  report the `.bss` growth without subtracting the heap requirement it replaces. The
+  companion stale number: `APP_TASK_STACK` was deleted in phase-76; the live default is
+  `app_stack_bytes` = **384 KiB**, and nothing in the tree overrides it.
 - **Tier and transport priorities land in ONE scheduler — they now share ONE vocabulary,
   RAW FreeRTOS (issue 0623, FIXED).** `FreertosScheduling`'s `zenoh_read_priority` /
   `zenoh_lease_priority` / `poll_priority` are raw `0..configMAX_PRIORITIES-1`, the same

@@ -69,14 +69,32 @@ fn trace_register(_slot: usize, _kind: EntryKind, _name: TraceName<'_>) {}
 // Executor::open() factory method
 // ============================================================================
 
-/// phase-271 — leak a default-sized (`ExecutorSizing::DEFAULT`) `u64` backing,
-/// yielding the `'static` storage the `alloc` convenience constructors borrow.
-/// One-time, executor-lifetime allocation (the executor lives for the program);
-/// intentionally not freed. `alloc`-only — no_std-no-alloc entries supply their
-/// own `static`/stack backing via `from_session_in` / the `nros::main!` macro.
+/// phase-271 / phase-392 W6 — the `'static` `u64` backing the `alloc`
+/// convenience constructors borrow, sized to `sizing`.
+///
+/// **The named static first, the heap second.** phase-271 made this a
+/// `Box::leak`, and a leak has no symbol: `mem-report` reads an ELF's symbol
+/// table, so the largest single RAM consumer of every Rust image was the one
+/// thing the memory instrument could not see (RFC-0002 § 4.4b). It is served
+/// from `executor::backing::EXECUTOR_BACKING` now — same bytes, same
+/// executor-lifetime reservation, in `.bss` where the linker can print them and
+/// out of the allocator arena that used to pay for them.
+///
+/// The heap arm is still reached, and both cases are legitimate rather than
+/// degraded: a SECOND executor (the tiered boot paths open one per tier) and an
+/// entry sized past the build-time default. Neither is an error, so neither
+/// warns — `report_arena_headroom` is where an over-provisioned executor gets
+/// told about itself, and a duplicate line here would just be noise.
+///
+/// `alloc`-only — no_std-no-alloc entries supply their own `static`/stack
+/// backing via `open_in` / `from_session_in`.
 #[cfg(feature = "alloc")]
-fn leak_default_backing(sizing: super::storage::ExecutorSizing) -> &'static mut [MaybeUninit<u64>] {
-    alloc::boxed::Box::leak(alloc::boxed::Box::new_uninit_slice(sizing.u64_len()))
+fn default_backing(sizing: super::storage::ExecutorSizing) -> &'static mut [MaybeUninit<u64>] {
+    let words = sizing.u64_len();
+    match super::backing::take(words) {
+        Some(backing) => backing,
+        None => alloc::boxed::Box::leak(alloc::boxed::Box::new_uninit_slice(words)),
+    }
 }
 
 #[cfg(feature = "rmw-cffi")]
@@ -277,9 +295,9 @@ impl Executor<'static> {
         config: &ExecutorConfig<'_>,
         sizing: super::storage::ExecutorSizing,
     ) -> Result<Self, NodeError> {
-        // SAFETY: leaked backing is exactly `sizing.u64_len()` words, `'static`,
+        // SAFETY: the backing is exactly `sizing.u64_len()` words, `'static`,
         // uniquely owned by the returned executor.
-        unsafe { Self::open_in(config, leak_default_backing(sizing), sizing) }
+        unsafe { Self::open_in(config, default_backing(sizing), sizing) }
     }
 
     /// Phase 128.F.1 — explicit per-backend session declaration for
@@ -301,8 +319,8 @@ impl Executor<'static> {
     #[cfg(feature = "rmw-cffi")]
     pub fn open_multi(specs: &[SessionSpec<'_>]) -> Result<Self, NodeError> {
         let sizing = super::storage::ExecutorSizing::DEFAULT;
-        // SAFETY: leaked backing is exactly `sizing.u64_len()` words, `'static`.
-        unsafe { Self::open_multi_in(specs, leak_default_backing(sizing), sizing) }
+        // SAFETY: the backing is exactly `sizing.u64_len()` words, `'static`.
+        unsafe { Self::open_multi_in(specs, default_backing(sizing), sizing) }
     }
 
     /// Phase 104.C.1 — open the Executor against a specific RMW
@@ -324,8 +342,8 @@ impl Executor<'static> {
     #[cfg(feature = "rmw-cffi")]
     pub fn open_with_rmw(rmw_name: &str, config: &ExecutorConfig<'_>) -> Result<Self, NodeError> {
         let sizing = super::storage::ExecutorSizing::DEFAULT;
-        // SAFETY: leaked backing is exactly `sizing.u64_len()` words, `'static`.
-        unsafe { Self::open_with_rmw_in(rmw_name, config, leak_default_backing(sizing), sizing) }
+        // SAFETY: the backing is exactly `sizing.u64_len()` words, `'static`.
+        unsafe { Self::open_with_rmw_in(rmw_name, config, default_backing(sizing), sizing) }
     }
 }
 
@@ -1719,9 +1737,9 @@ impl Executor<'static> {
     #[cfg(feature = "alloc")]
     pub fn from_session(session: session::ConcreteSession) -> Self {
         let sizing = super::storage::ExecutorSizing::DEFAULT;
-        // SAFETY: the leaked backing is exactly `sizing.u64_len()` words,
+        // SAFETY: the backing is exactly `sizing.u64_len()` words,
         // `'static`, and uniquely owned by this executor.
-        unsafe { Self::from_session_in(session, leak_default_backing(sizing), sizing) }
+        unsafe { Self::from_session_in(session, default_backing(sizing), sizing) }
     }
 
     /// [`from_session`](Self::from_session) with an [`ExecutorConfig`], so a
@@ -1768,9 +1786,9 @@ impl Executor<'static> {
     #[cfg(feature = "alloc")]
     pub unsafe fn from_session_ptr(session_ptr: *mut session::ConcreteSession) -> Self {
         let sizing = super::storage::ExecutorSizing::DEFAULT;
-        // SAFETY: leaked backing as in `from_session`; session_ptr contract
+        // SAFETY: the backing as in `from_session`; session_ptr contract
         // forwarded to `from_session_ptr_in`.
-        unsafe { Self::from_session_ptr_in(session_ptr, leak_default_backing(sizing), sizing) }
+        unsafe { Self::from_session_ptr_in(session_ptr, default_backing(sizing), sizing) }
     }
 }
 
@@ -3988,9 +4006,11 @@ impl<'s> Executor<'s> {
 
     /// Total arena bytes this executor was given.
     ///
-    /// The arena is a borrowed slice; whether its storage is stack or `.bss` is
-    /// the caller's choice, not a property of this type (see
-    /// `report_arena_headroom`).
+    /// The arena is a borrowed slice; where its storage lives is the caller's
+    /// choice, not a property of this type. Three answers are real — a `.bss`
+    /// static (the C/C++ entries, and the `alloc` constructors since phase-392
+    /// W6), the heap (those constructors' fallback), and a stack-declared
+    /// `nros_executor_t`. See `super::backing` and `report_arena_headroom`.
     pub fn arena_capacity(&self) -> usize {
         self.arena.len()
     }

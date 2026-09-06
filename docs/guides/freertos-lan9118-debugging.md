@@ -210,18 +210,20 @@ srand(seed);
 
 **Problem**: Service server or action server crashes with `lwIP ASSERT: Invalid mbox` during network init or shortly after `z_open()`. Simpler examples (pub/sub) work fine.
 
-**Cause**: The `Executor` struct has an inline `arena: [MaybeUninit<u8>; ARENA_SIZE]` array that lives on the FreeRTOS task stack. Service examples use `NROS_EXECUTOR_ARENA_SIZE=4096` (4 KB) and action examples use `NROS_EXECUTOR_ARENA_SIZE=8192` (8 KB). Combined with zenoh-pico's internal stack buffers (transport TX/RX, peer structures) and Rust function frames, the total stack usage exceeds a small task stack.
+**Cause**: The application task's frame is dominated by zenoh-pico's internal stack buffers (transport TX/RX, peer structures) and by the Rust frames of the executor-open chain — `Executor::open_in` builds an `Executor` in its own frame and returns it by value. The total exceeds a small task stack.
+
+> **Corrected 2026-09-06 (phase-392 W6).** This paragraph used to say the cause was `Executor`'s inline `arena: [MaybeUninit<u8>; ARENA_SIZE]`, and that service/action examples pin `NROS_EXECUTOR_ARENA_SIZE` to 4096/8192. **Neither is true and neither has been since phase-271 (issue 0110).** The arena is a slice borrowed from caller-supplied backing, which on FreeRTOS is a named `.bss` static; no example in the tree sets `NROS_EXECUTOR_ARENA_SIZE`. Raising the arena knob will not change this symptom.
 
 When the stack overflows, it corrupts adjacent memory including lwIP's global `tcpip_mbox` variable (declared in `tcpip.c`). Any subsequent call to `tcpip_input()`, `tcpip_callback()`, or `sys_mbox_trypost()` triggers the "Invalid mbox" assertion, which enters an infinite `for(;;){}` loop.
 
-**Diagnosis**: If pub/sub examples work but service/action examples crash with "Invalid mbox":
-- Compare the arena sizes: talker sets `NROS_EXECUTOR_MAX_CBS=0` (no callbacks), service server uses defaults (4 slots, 4096 arena), action server sets `NROS_EXECUTOR_MAX_CBS=8` and `NROS_EXECUTOR_ARENA_SIZE=8192`
-- Larger arena = more stack needed = more likely to overflow
+**Diagnosis**: If pub/sub examples work but service/action examples crash with "Invalid mbox", the extra depth is in the registration pass, not in the arena — a service or action entry registers more entities and each registration adds frames.
 
-**Fix**: Set `APP_TASK_STACK` large enough for the largest example. 64 KB (16384 words) provides adequate headroom for all example types:
-```rust
-const APP_TASK_STACK: u32 = 16384; // 64 KB
-```
+**Fix**: Raise the application task's stack. The knob is `app_stack_bytes`
+(`nros_board_common::freertos_config`), whose default is **393216** (384 KiB);
+override it at build time with `NROS_FREERTOS_APP_STACK_KB=<kib>`, or per tier with
+`[node.rt] app_stack_bytes`.
+
+> **Corrected 2026-09-06 (phase-392 W6).** This step used to read *"set `APP_TASK_STACK` to 16384 words (64 KB)"*. `APP_TASK_STACK` was **deleted in phase-76** and 64 KB is six times below today's default, so following it verbatim would have made the problem worse. The C/C++ carrier keeps its own mirror of the number in `cmake/templates/freertos_app_config.c.in` (524288); the two are allowed to differ and the divergence is documented there.
 
 **Note**: The 256 KB FreeRTOS heap (`configTOTAL_HEAP_SIZE`) has plenty of room. The constraint is the per-task stack, not total memory.
 

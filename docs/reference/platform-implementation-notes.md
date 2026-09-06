@@ -141,9 +141,22 @@ are prefixed with the enum name (`prefix_with_name = true`) to avoid C++ name co
 
 ## FreeRTOS pitfalls
 
-- Stack overflow → "Invalid mbox": `Executor` has an inline `arena: [MaybeUninit<u8>; ARENA_SIZE]`
-  on the task stack. Action examples use `NROS_EXECUTOR_ARENA_SIZE=8192`; `APP_TASK_STACK` must be
-  16384 words (64 KB) for headroom.
+- Stack overflow → "Invalid mbox". **The three numbers this entry used to name are all gone —
+  read it as a symptom, not as a recipe** (corrected phase-392 W6, 2026-09-06):
+  - `Executor` has NOT held an inline `arena: [MaybeUninit<u8>; ARENA_SIZE]` since phase-271
+    (issue 0110). It holds `arena: &'s mut [MaybeUninit<u8>]`, a slice borrowed from
+    caller-supplied backing, and on FreeRTOS that backing is a named `.bss` static
+    (`nros_node::executor::backing::EXECUTOR_BACKING`, phase-392 W6) — not the task stack.
+  - `APP_TASK_STACK` was deleted in phase-76. The live knob is `app_stack_bytes`
+    (`nros_board_common::freertos_config::DEFAULT_APP_STACK_BYTES`, **393216** = 384 KiB),
+    overridable with `NROS_FREERTOS_APP_STACK_KB`. No file in the tree sets that override.
+    The C/C++ carrier's own mirror in `cmake/templates/freertos_app_config.c.in` is 524288.
+  - No example pins `NROS_EXECUTOR_ARENA_SIZE=8192`; that was pre-phase-271 prose.
+
+  What is still true is the SYMPTOM: the app task's frame is dominated by the zenoh-pico
+  session open and the `Executor` value `open_in` builds and returns by value, so an
+  undersized app task dies as "Invalid mbox" rather than as a stack fault. Size it by
+  measuring, not by copying a number out of a document.
 - Deterministic `rand()` starts from seed 1 → duplicate Zenoh session IDs across QEMU instances;
   `srand()` with an IP-based unique seed in `nros_freertos_init_network()`.
 - Manual-polling action server: `create_action_server()` is not arena-registered, so `spin_once()`
