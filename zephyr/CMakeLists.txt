@@ -662,6 +662,22 @@ if(CONFIG_NROS_CPP_API)
         # both archives are linked into this image from one nros-node dep
         # graph, and a feature that reaches only one of them splits the unit.
         string(APPEND _nros_c_for_cpp_features "${_nros_trace_suffix}")
+        # Issue 1156 — and so do `alloc` and `param-services`, by that same
+        # rule. Issue 1100 applied it to `_nros_features`, the C-API-ON string;
+        # this is the string a C++-ONLY image builds nros-c from, and it kept
+        # the split: `nros_c_cargo_build` took
+        # `rmw-cffi,platform-zephyr,ros-humble` while `nros_cpp_cargo_build`
+        # took `rmw-cffi,alloc,platform-zephyr,ros-humble,param-services`, so
+        # the image still carried two nros-c units with different
+        # EXECUTOR_SIZE and the second build script still aborted.
+        #
+        # `alloc` unconditionally: this branch is inside `if(CONFIG_NROS_CPP_API)`,
+        # so the C++ half has it by construction. `param-services` under the
+        # same NANO_ROS_FEATURES condition `_nros_cpp_features` gates on.
+        string(APPEND _nros_c_for_cpp_features ",alloc")
+        if("param_services" IN_LIST NANO_ROS_FEATURES)
+            string(APPEND _nros_c_for_cpp_features ",param-services")
+        endif()
         nros_cargo_build(
             PACKAGE nros-c
             FEATURES "${_nros_c_for_cpp_features}${_nros_panic_suffix}"
