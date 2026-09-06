@@ -97,6 +97,7 @@ Two pipelines, one architecture, one vocabulary:
     |  LOWER   rosidl-lower              |  LOWER    nros-entry-lower
     v          (no TargetProfile)        v           (no target facts)
   LoweredType                          LoweredEntry
+  (structured, neutral)                (structured, neutral — NOT rendered text)
     |  RENDER  packs/<lang>/             |  RENDER   packs/entry/<lang>/
     v                                    v
   generated messages                   generated entry
@@ -138,9 +139,12 @@ board path, tier rows, QoS codes, boot config, and **escaping**. If this crate
 grows a heavy dependency the proc-macro cannot adopt it and the duplication
 returns — so the budget is a design constraint, not a preference.
 
-Escaping in particular stays here: a template that quoted a string wrong emits
-code that compiles into the wrong behaviour, silently, on a target. Templates
-place values; they never compute one.
+Escaping is the exception that proves the boundary, and §8b corrects an earlier
+version of this section. Quoting IS a correctness property and must stay in
+compiled, reviewed Rust — but it is not language-neutral, so it cannot be baked
+into the IR. `LoweredEntry` carries RAW values; each pack gets an escaping
+FILTER registered on the render environment. Templates place values; they never
+compute one, and they never invent a quoting rule.
 
 ---
 
@@ -272,6 +276,79 @@ not.
 
 ---
 
+## 8b. Simulation: adding Zig — where this design breaks
+
+The procedure above is only worth what it survives. Walking a real third
+language through it finds three defects, all in **Stage 2**, and all of the same
+kind: facts that look neutral but are spelled for the C family.
+
+A Zig entry is a normal C-ABI consumer. It would `@cImport` `nros/main.h` and
+`nros/boot_config.h`, declare the component seams `extern`, and finish with
+`c.nros_board_native_run_components_named(...)`. Nothing about that is exotic —
+which is exactly why it is a good probe.
+
+### Defect 1 — `board_path` is C++, not a board
+
+`LoweredEntry` was to carry the board as `::nros::board::LinuxBoard`. That is a
+C++ class path. A Zig pack cannot use it, a pure-C pack cannot use it, and the C
+pack today does not (it calls `nros_board_native_run_components_named`). The
+NEUTRAL fact is the board IDENTITY plus its boot shape; how that becomes a call
+is a pack's business — a class path in C++, a function symbol in C and Zig.
+
+### Defect 2 — escaping cannot be done in Stage 2
+
+§4 says Stage 2 escapes every literal, on the grounds that quoting is a
+correctness property that must stay in trusted Rust. The first half is right and
+the second half does not follow: a C string literal, a Rust string literal and a
+Zig string literal have **different** escape rules. There is no such thing as an
+"already escaped" literal that is neutral.
+
+The fix keeps the safety and drops the false neutrality: `LoweredEntry` carries
+the RAW value, and each pack gets an escaping **filter** — Rust code registered
+on the render environment, so quoting is still compiled and reviewed rather than
+written in a template. `rosidl-codegen` already does exactly this
+(`add_filter("snake_case", …)`, `add_filter("c_type", …)`), so it is the
+established mechanism, not a new one.
+
+### Defect 3 — pre-rendered text is a language in disguise
+
+The C conversion that landed carries **six** pre-rendered fields:
+`boot_config`, `spec_rows`, `groups_arrays`, `trailer`, per-node `decls`, and
+`name_lit`. Every one is C syntax produced in Rust. They are correct for C, and
+they are correct for C++ because it shares C's syntax here — which is precisely
+why the shortcut survived review and would NOT have survived a third language.
+
+Zig's tier table is `.{ .name = "high", .groups = &groups_0, … }`; its baked
+config is `export var … linksection(".nros_boot_config")`; its declarations are
+Zig statements. None of that can be reached from a C string.
+
+So Stage 2 must hand over **structured** data — tier rows as fields, not
+initialiser text; boot config as values, not a blob; per-node declarations as a
+list of what to declare, not C statements — and each pack spells it.
+
+### What the simulation does NOT break
+
+- The pipeline itself. `Plan → lower → render → goldens` holds; only the
+  contents of the IR were wrong.
+- `Language` as one enumeration. Zig is one variant, seen everywhere.
+- The goldens. A Zig row is a coordinate and a file to read, exactly as
+  designed.
+- Sharing within a language FAMILY. The C and C++ packs legitimately share
+  sub-templates (`c_service_trailer.c.jinja` already is one). That is a
+  pack-level relationship, and it belongs in Stage 3 — not smuggled into Stage 2
+  by pre-rendering.
+
+### Consequence for the conversion already done
+
+`emit_c`'s move to a template is correct and stays: it proved the pipeline, the
+renderer and the goldens end to end. What it did not prove is neutrality, and
+this RFC should not claim it did. Its view is a C-family view, and the
+structured-IR work above is what turns it into a `LoweredEntry` a third language
+could render from.
+
+That ordering is deliberate rather than a mistake to unwind: converting one
+language first is what made the shortcut visible at all.
+
 ## 9. Acceptance
 
 - `Language` declared once in a serde-only leaf; the `snake_case` wire repr of
@@ -279,6 +356,10 @@ not.
 - No type re-spells the enumeration; a narrowing derives and says so.
 - `nros-entry-lower` exists inside the proc-macro's dependency budget;
   `LoweredEntry` is `serde`-serializable and carries **no target facts**.
+- `LoweredEntry` carries no RENDERED TEXT and no language-specific spelling:
+  no C initialiser strings, no pre-escaped literals, no C++ class paths. A
+  third language must be renderable from it without a Stage 2 change (§8b).
+- Escaping is a per-pack filter in Rust, not a field of the IR.
 - `TargetProfile` is gone from `rosidl-lower`, and nothing replaces it.
 - A gate compiles the generated C and Rust for one non-host target and compares
   `sizeof` against `size_of` over a type corpus.
