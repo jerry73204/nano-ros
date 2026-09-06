@@ -101,6 +101,12 @@ pub fn reset() {
 /// Open a node and make it current. Returns false if the recorder is full or
 /// the node is a duplicate — never silently drops, because a dropped node makes
 /// every entity after it vanish from the count.
+///
+/// phase-428 W6 remainder: `#[must_use]` because the doc comment above states
+/// the consequence of ignoring the answer and `bool` says nothing at a call
+/// site that drops it. RFC-0089 Part I's fourth row — a difference the compiler
+/// does not point at must be made loud by other means.
+#[must_use]
 pub fn begin_node(name: &str, namespace: &str, domain_id: u32) -> bool {
     state().with(|st| {
         let id = String::from(name);
@@ -122,6 +128,10 @@ pub fn begin_node(name: &str, namespace: &str, domain_id: u32) -> bool {
 /// subscription in the emitted schema; both are `None` for entities that carry
 /// neither. Returns false when there is no current node or the recorder is
 /// full.
+///
+/// phase-428 W6 remainder: see [`begin_node`] — a dropped `false` here is an
+/// entity missing from the emitted metadata with nothing said about it.
+#[must_use]
 pub fn record_entity(
     kind: EntityKind,
     source_name: &str,

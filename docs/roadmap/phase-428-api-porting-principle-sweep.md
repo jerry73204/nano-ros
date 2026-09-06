@@ -481,3 +481,113 @@ settled it.
 **A guarantee asserted from having WRITTEN the code rather than from having
 OBSERVED it in the tree that ships** is the mechanism this phase catalogues,
 turned on its author.
+
+
+## W6 remainder (2026-09-06) — the note that had never fired, and a `#[must_use]` sweep that measured smaller than it looked
+
+Two items were outstanding after W6: widen `#[must_use]` on the Rust public
+surface, and decide whether the correlator's return-type NOTE could become a
+VERDICT now that W5 has authored 82 ledger rows. Both were sized before they
+were applied, and both came out differently from the expectation.
+
+### The note had fired ZERO times, in any language
+
+`correlate.py`'s `ret_differs` was landed by W6 as "compares return types, as a
+note". It did not. `_ret_of` read `item["ret"]`; `flatten` writes the return
+type one level down, per OVERLOAD, in `item["overloads"][i]["ret"]`. So the
+function answered `None` for every row on every surface and the branch it feeds
+was unreachable — **0 notes across 323 `same` rows** in c/cpp/rust. W6's own
+comment names `Publisher::publish`, `Client::service_is_ready` and
+`Executor::spin_once` as the rows it would catch; none of the three was ever
+marked.
+
+This is the fourth instance in this phase of the same mechanism, and the
+CORRECTION section above names it: **a guarantee asserted from having written
+the code rather than from having observed it in the tree.** The note was
+described as landed in a commit message and in this document; one measurement
+would have said otherwise, and none was taken. The gate now carries a live
+negative control (four mutations, all caught) precisely so this cannot recur.
+
+### Sizing it, after the fix
+
+Two false-positive classes had to go first, both pure SPELLING:
+
+* `bool` vs `_Bool` — the same type in C before C23, spelled differently by the
+  two extractions. **10 of the 11 C rows were this.**
+* `rcl_{time_point,duration}_value_t` vs `int64_t` — a two-hop typedef
+  (`rcl/time.h:46,48` -> `rcutils/time.h:48,50`). Two cpp rows.
+
+Both are normalised in `_TYPE_NOISE` rather than ledgered, because a row
+asserting a divergence that is only a spelling is a FALSE ledger claim, which is
+what W5 complained about in nineteen existing rows. That table is authored, so
+it is the drift class this phase catalogues; it is kept to three entries and a
+fourth alias would surface as a new gate row, not as silence.
+
+Measured after that, on the NATIVE surface the gate runs on:
+
+| lane | `same` rows | of those, return type differs | already ledgered | residue |
+| --- | --- | --- | --- | --- |
+| cpp | 135 | 17 | 6 | 11 |
+| c | 101 | 1 | 0 | 1 |
+| rust | 88 | 15 | 9 | 6 |
+
+**PROMOTED.** 33 rows carry the marker; 20 had no ledger entry once the gate ran
+on the native surface (which adds `cpp:Node::get_logger` and `cpp:shutdown`, and
+answers `LifecycleNode::trigger_transition` from an existing row). Twenty rows
+is affordable, so all twenty were authored rather than left as a note. The
+verdict is `gate_rows`'s only `same` exception and reports as bucket `same:ret`.
+
+The sharpest of the twenty is `c:timer_get_time_until_next_call`: upstream is
+`rcl_ret_t rcl_timer_get_time_until_next_call(const rcl_timer_t *, int64_t *
+out)` and ours is `uint64_t nros_timer_get_time_until_next_call(const struct
+nros_timer_t *, uint64_t now)`. The error channel is gone — our own doc says the
+result is "0 if ready now **or invalid**", so a due timer and a dead one share a
+value — and `unsigned` cannot express upstream's documented NEGATIVE "overdue by
+that amount". The correlator called it `same`.
+
+Next in line is `cpp:Node::get_logger`, `rclcpp::Logger` upstream and `const
+void*` here, which is the row W5's CORRECTION section was already circling.
+
+### The `#[must_use]` sweep is smaller than "sweep the public surface" suggests
+
+**`Result` needs no attribute.** `core::result::Result` is itself `#[must_use]`,
+so every `pub fn -> Result<..>` in the tree already warns on a discarded
+statement; putting the attribute on the function would be redundant. The gap is
+`bool`, which carries no such lint. That halves the stated scope before any code
+is read.
+
+Measured across `nros-node`, `nros-rmw` and the `nros` facade: **47 public
+`bool`-returning functions, 45 without the attribute.** Marking all 45 is not
+the ask — a `bool` that answers a QUESTION (`is_valid`, `has_data`,
+`supports_event`, `any_ready`) is not one that reports a FAILURE. Reading all 45
+found **three** in the second class, plus three more one crate down in
+`nros-params` that the first three delegate to:
+
+* `Executor::declare_parameter_with_descriptor` — the sibling three lines below
+  the one method W4 named and W6 marked. Identical `else { false }` arm.
+* `metadata_mode::begin_node` / `record_entity` — both doc comments already
+  state the consequence of ignoring the answer.
+* `ParameterServer::declare` / `declare_with_descriptor` and
+  `ParameterBuilder::declare` — the actual implementations, marked because
+  fixing only the wrapper is the half-fix rule this repo has a section about.
+
+**Deliberately NOT marked:** the 39 question-answering predicates, and
+`remove_pre_shutdown_callback` / `remove_on_shutdown_callback`, whose doc says
+in as many words that "it was not there" is an ordinary answer and not an error.
+`refill` returns whether budget remains, not whether the refill worked.
+
+Cost, measured with `cargo check --workspace --all-targets` under the repo's own
+`HOST_UNCHECKABLE` exclusions: the three in-scope crates produced **zero** new
+warnings. The `nros-params` extension produced **nine**, all in that crate's own
+`#[cfg(test)] mod tests`, all setup calls whose success the test depends on —
+now `assert!(...)`, which is what "tests must fail on unmet preconditions" wants
+anyway.
+
+### Pre-existing, not introduced here
+
+`api-parity.py --check` was ALREADY RED on this branch before any of this: six
+rows (`c:client_init`, `c:node_init`, `c:service_init`, `c:subscription_init`,
+`c:node_get_serialization_format`, `cpp:Node::serialization_format`) carry no
+ledger entry. Verified by running the gate from this branch's own HEAD scripts
+with the promotion absent — same six, and only those six. They are not in the
+`same:ret` class and are outside this work item.

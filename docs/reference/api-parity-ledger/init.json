@@ -120,6 +120,11 @@
     "disposition": "refuse-loud",
     "why": "argv filtering, and there is no argv. RFC-0045 resolves boot config from baked values and the board."
   },
+  "cpp:shutdown": {
+    "verdict": "divergence",
+    "disposition": "adopt",
+    "why": "phase-428 W6 remainder (2026-09-06) — ledgered because the correlator's return-type comparison became a VERDICT. `rclcpp::shutdown(context, reason)` returns `bool` — `true` when THIS call was the one that shut the context down, `false` when it was already down. Ours (`packages/api/nros-cpp/include/nros/node.hpp:181,1031`) returns `Result`. The widening is RFC-0018's and is LOUD for a discarded statement (`Result` is `[[nodiscard]]`), but note what changes for the ported idiom `if (rclcpp::shutdown()) { ... }`: upstream's `false` means \"someone else already did it\", an ORDINARY answer, while a falsy `Result` means an ERROR. A ported conditional keeps compiling and stops meaning the same thing. Recorded here rather than actioned because the shape is right — an error channel is required — and the fix, if one is wanted, is to make \"already shut down\" an `ok` rather than a failure. Sibling of `rclcpp::init` returning `void` upstream and `Result` here, which is RFC-0089 Part I's own worked example."
+  },
   "cpp:signal_handlers_installed": {
     "verdict": "declined",
     "disposition": "absent",
