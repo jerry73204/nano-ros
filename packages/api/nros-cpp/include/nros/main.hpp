@@ -275,34 +275,14 @@ class LinuxBoard {
 ///     auto-brings-up networking);
 ///   * the spin loop yields cooperatively each tick (`entry_tick_yield`
 ///     → `k_yield()`).
-// Phase 244.C2 enabler — compile-time connect locator for Zephyr (+ NuttX,
-// which reuses this macro). Defaults to the Kconfig `CONFIG_NROS_ZENOH_LOCATOR`
-// when the board sets one (the e2e gate threads
-// `CONFIG_NROS_ZENOH_LOCATOR=tcp/127.0.0.1:<port>` per fixture), else `""`
-// (backend discovery — the in-tree FVP Cyclone path). The typed carrier may
-// also bake a literal by defining `NROS_ENTRY_LOCATOR` before this header.
-#ifndef NROS_ENTRY_LOCATOR
-#if defined(CONFIG_NROS_ZENOH_LOCATOR)
-#define NROS_ENTRY_LOCATOR CONFIG_NROS_ZENOH_LOCATOR
-#elif defined(CONFIG_NROS_RMW_XRCE) && defined(CONFIG_NROS_XRCE_AGENT_ADDR) &&                     \
-    defined(CONFIG_NROS_XRCE_AGENT_PORT)
-// #174 / phase-286 W3 — XRCE has NO zenoh locator; its agent endpoint lives in
-// CONFIG_NROS_XRCE_AGENT_{ADDR,PORT}. Without this, `NROS_ENTRY_LOCATOR` fell to
-// `""` and the C/C++ XRCE entry opened its session with no agent address → the
-// transport never connected (`run_components` rc=-100 TRANSPORT_ERROR, 0
-// delivery). Synthesize the bare `host:port` the XRCE session parser accepts
-// (`nros-rmw-xrce/session.c` `parse_host_port`) — the C/C++ analog of the Rust
-// example `build.rs` bake (issue #163, which fixed only the Rust images).
-// Adjacent string-literal concat + stringize: "127.0.0.1" ":" 2018 →
-// "127.0.0.1:2018".
-#define NROS_ENTRY_LOCATOR_STRINGIZE_(x) #x
-#define NROS_ENTRY_LOCATOR_STRINGIZE(x) NROS_ENTRY_LOCATOR_STRINGIZE_(x)
-#define NROS_ENTRY_LOCATOR                                                                         \
-    CONFIG_NROS_XRCE_AGENT_ADDR ":" NROS_ENTRY_LOCATOR_STRINGIZE(CONFIG_NROS_XRCE_AGENT_PORT)
-#else
-#define NROS_ENTRY_LOCATOR ""
-#endif
-#endif
+// phase-432 (W3.1 prerequisite) — `NROS_ENTRY_LOCATOR` and
+// `NROS_ENTRY_DOMAIN_ID` are derived in ONE place, `<nros/entry_config.h>`,
+// which is a C header so the C entry sees the same ladder. This used to be
+// two: the ladder below, and `<nros/app_main.h>` defining both as `""` and `0`
+// with no derivation — so a pure-C entry would have compiled, linked, booted
+// and dialled nothing. The `#ifndef` guards inside still let a typed carrier
+// bake a literal by defining either macro BEFORE this header.
+#include "nros/entry_config.h"
 
 // #166 / phase-286 W1 — runtime locator override (see nros/platform.h). Declared
 // here (not via a platform-header include) to keep main.hpp's include surface
@@ -312,19 +292,9 @@ extern "C" const char* nros_runtime_locator_override(void);
 
 class ZephyrBoard {
   public:
-    /// Compile-time domain id (CLAUDE.md embedded rule — NOT a runtime
-    /// env). Cyclone keys off `CONFIG_NROS_CYCLONE_DOMAIN_ID` when present
-    /// (matches ASI), else the generic `CONFIG_NROS_DOMAIN_ID`. Override
-    /// by defining `NROS_ENTRY_DOMAIN_ID` before including this header.
-#ifndef NROS_ENTRY_DOMAIN_ID
-#if defined(NROS_RMW_CYCLONEDDS) && defined(CONFIG_NROS_CYCLONE_DOMAIN_ID)
-#define NROS_ENTRY_DOMAIN_ID CONFIG_NROS_CYCLONE_DOMAIN_ID
-#elif defined(CONFIG_NROS_DOMAIN_ID)
-#define NROS_ENTRY_DOMAIN_ID CONFIG_NROS_DOMAIN_ID
-#else
-#define NROS_ENTRY_DOMAIN_ID 0
-#endif
-#endif
+    /// Compile-time domain id (CLAUDE.md embedded rule — NOT a runtime env).
+    /// Derived in `<nros/entry_config.h>`, included above; override by
+    /// defining `NROS_ENTRY_DOMAIN_ID` before this header.
 
     /// Phase 266 (W6) — 3-arg named overload: explicit locator + session name.
     /// `session_name` sets the primary session / node name (`ros2 node list`).
@@ -415,13 +385,14 @@ class ZephyrBoard {
 /// compiled as `APP_MAIN_CPP` and linked into the kernel by the cargo
 /// `nros-nuttx-ffi` build (`nuttx_ffi_build.rs`), driven from the carrier
 /// cmake (`nano_ros_node_register` NuttX branch → `nros_platform_link_app`).
-// Phase 238 — compile-time default connect locator for the locator-less
-// `NuttxBoard::run(lambda)` overload. The carrier normally bakes the real
-// locator into the generated entry TU and calls the 2-arg overload; this
-// default only applies if a hand-written entry uses the 1-arg form.
-#ifndef NROS_ENTRY_LOCATOR
-#define NROS_ENTRY_LOCATOR ""
-#endif
+// Phase 238 had a THIRD `#ifndef NROS_ENTRY_LOCATOR` here, defining `""` for
+// the locator-less `NuttxBoard::run(lambda)` overload, with a comment saying
+// "this default only applies if a hand-written entry uses the 1-arg form".
+// It could never fire: the ladder above this point in the same header has
+// always already defined the macro, so a locator-less NuttX entry inherited
+// the Zephyr/XRCE derivation rather than the `""` the comment promised.
+// Deleted rather than kept as a belt: an unreachable define that claims a
+// value it does not produce is worse than no define at all.
 
 class NuttxBoard {
   public:
