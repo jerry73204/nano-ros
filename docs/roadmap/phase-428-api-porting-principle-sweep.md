@@ -959,3 +959,59 @@ measured is stated apart from what was reasoned.
 (Counted over every non-`_` key in the 17 shards; the census above was taken
 on an earlier tip, which is why its "after" column and this "before" column
 differ by the rows the merge with `main` added.)
+
+## Closure (2026-09-07) — two items the follow-through left open
+
+### 1. `check-ledger-orphan-refs` now sees a bare filename
+
+The gate matched `dir/file.ext` only, which is how 42 rows citing the deleted
+`rclcpp_compat.hpp` by bare name stayed green until a reader found them (item 2
+above; PR #634 fixed the rows and said so). Widened, and the rule stated once
+in the script's docstring:
+
+* **Two spellings.** A repo-relative path (`packages/`, `docs/`, ...) must exist
+  on disk, as before. A **bare `name.ext`** must match at least one tracked
+  file of that basename (`git ls-files`), for `ext` in `hpp h rs py cpp c toml
+  just md json jinja sh`. Both accept a `:NNN` line or a `:NNN-NNN` range,
+  stripped and not checked.
+* **The allow-list is three words**, sentence-scoped: `deleted`, `removed`,
+  `retired`. "`x.hpp` holds it. The shim was deleted." is still an orphan —
+  the first sentence claims the file is there. Nothing else excuses a bare
+  name.
+* **A directory-qualified path under a non-repo root is upstream and out of
+  scope** (`rclcpp/qos.hpp`, `rmw/rmw.h`). That was already the rule for
+  paths; it is now the convention the bare-name rule relies on: cite an
+  upstream file WITH its directory, and a bare name is always ours.
+* A work-item label (`W4.c`, `Q1.b`) has the shape of a bare name and is
+  skipped by its stem (one or two letters and digits). Two ledger rows cite
+  `W4.c` / `W5.c`; both would have been false findings.
+* Nested objects (`rename`, `their_rename`) are scanned too. The first version
+  read top-level strings only, and 14 of the 29 findings below sat in a
+  `rename.residue`.
+
+Self-test grew from three controls to ten: a planted bare orphan (red), the
+same name with a `:120-131` range (red), the same name in a sentence saying it
+was deleted (green), an existing basename with a line (green), a label
+(green), a nested `rename.resolution` orphan (red), and the "deleted" word in
+the NEXT sentence (red — the scoping control).
+
+**Run on the ledger it found 29 rows, all real, fixed in `ca70b9f6c`:**
+
+| what | rows | fix |
+| --- | ---: | --- |
+| `param_deprecation_probe.c` / `param_name_aliases.c` in the `c:param_*` rows' `residue` | 14 | W-B5 (commit `4dc5caee9`) retired the forwarders and the four typedef aliases and deleted the probes; the rows said the forwarders "survive" and the probes prove they warn. Now: survived one release, retired, `residue: NONE` dated |
+| `service_deprecation_probe.c` in `c:service_send_reply_raw` | 1 | same class, same fix |
+| `action_deprecation_probe.c` in the two `c:action_server_*goal_count*` rows | 2 | same class, same fix |
+| `rmw.h` bare in the eight `*_get_actual_qos` rows | 8 | `rmw/rmw.h` |
+| `graph.h`, `network_flow_endpoint.hpp`, `range.rs`, `create_timer.hpp` bare | 4 | `rcl/graph.h`, `rclcpp/network_flow_endpoint.hpp`, `rclrs/src/parameter/range.rs`, `rclcpp/create_timer.hpp` |
+
+The 17 forwarder rows are the same class the gate's own docstring lists as its
+second bullet ("describing forwarders removed in phase-417 W-B5") — the
+filename was the only handle a filesystem check had on them, and it was
+enough. What the gate still cannot see, and says so: the `c:param_*` rows are
+`bucket: ours-only` for names no surface carries; that is the extractor's
+question, not a stat's.
+
+Gates: `just check ledger-orphan-refs`, `gate-selftests` (142/254 with a
+selftest), `grep-q-error-conflation` (the script greps nothing; 87 baselined
+sites, none grew), `gate-lists`, `api-parity-ledger` — all green.
