@@ -130,7 +130,17 @@ def files():
         for p in tracked(ROOT / root):
             if p.suffix not in SUFFIXES:
                 continue
-            if any(part in SKIP_PARTS for part in p.parts):
+            # RELATIVE to the repo. Tested against the ABSOLUTE path, this
+            # skipped every file whenever the checkout itself lived under a
+            # directory named `third-party` -- which is how the safety island
+            # vendors this repo (`<super>/third-party/nano-ros`). The gate then
+            # scanned 0 files.
+            #
+            # It refuses to pass on an empty scan, so it went RED rather than
+            # silently green, which is the only reason this was noticed at all.
+            # `check-doc-recipe-refs` had the identical bug and no such floor,
+            # so it read as passing while examining nothing.
+            if any(part in SKIP_PARTS for part in p.relative_to(ROOT).parts):
                 continue
             yield p
 
