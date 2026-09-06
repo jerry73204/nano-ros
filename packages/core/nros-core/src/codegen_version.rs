@@ -44,6 +44,18 @@ pub const NROS_CODEGEN_VERSION: u32 = 2;
 /// available. Raise the floor only when a real migration needs one, and lower
 /// it never.
 ///
+/// Held at 1 while [`NROS_CODEGEN_VERSION`] moved to 2 (phase-417, rebased onto
+/// phase-429's gate). That surface move is ADDITIVE plus one relocation, so a
+/// tree generated against version 1 still runs: the C additions are new entry
+/// points, the two C++ changes add `size()`/`empty()` and `std::string` interop
+/// to `FixedString`/`HeapString`, and the four `nros_ret_t` declarations that
+/// left `action.h` / `client.h` / `parameter.h` / `service.h` were CONSOLIDATED
+/// into `nros_generated.h`, which all four still reach through `nros/types.h`
+/// — the headers say so in a comment, and keeping that include is what makes
+/// `#include <nros/action.h>` continue to compile. Nothing a version-1 tree
+/// names was withdrawn, so this is the window the doc above describes rather
+/// than a migration.
+///
 /// The range `[NROS_CODEGEN_VERSION_MIN, NROS_CODEGEN_VERSION]` is expressed to
 /// C and C++ as a SET OF DEFINED SYMBOLS rather than as a comparison — see
 /// `nros-build-helpers`' codegen-version anchor — so there is no range check on
