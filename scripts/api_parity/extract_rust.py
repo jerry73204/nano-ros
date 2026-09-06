@@ -46,6 +46,15 @@ NROS_FEATURES = [
     "lifecycle-services",
     "stream",
     "safety-e2e",
+    # phase-428 Q1 follow-through (2026-09-06) — the hosted init surface.
+    # `env` gates all of `src/init.rs` (`init`, `init_with_args`,
+    # `init_with_launch*`, `Context`, `ContextSource`, `InitError`) plus
+    # `src/env.rs`; without it `rust:init_with_args` — the one Rust
+    # REFUSE-LOUD row — was on no measured surface, so `misdeclared_refusals`
+    # could not vouch for it, and `rust:Context` read `theirs-only` while the
+    # type exists. `env` requires `std` (a `compile_error!` in lib.rs), which
+    # is already in this list.
+    "env",
 ]
 
 

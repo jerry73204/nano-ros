@@ -891,14 +891,71 @@ The 20 refuse-loud rows now: `cpp:NodeOptions` and its ten refused members,
 and does not fully believe: its diagnostic is rustc's "expected struct, found trait",
 which names neither the constraint nor the alternative, and the row says so.
 
-### What the gate still cannot see
+### Leftovers, closed (2026-09-06, follow-through PR)
 
-`rust:init_with_args` is on no measured surface: `env` is not in
-`extract_rust.NROS_FEATURES`, so `init_with_args`, `init_with_launch*`, `Context::config`
-and nine other names are invisible to the correlator. Adding `env` was measured (12
-rows appear, `Context` moves `theirs-only` → `same`, most of them unledgered) and is its
-own item, not this one. Until then `misdeclared_refusals` cannot vouch for that row
-either way. Also left as found, and stated so nobody trusts them: `rust:init`'s `why`
-is about `nros::logging::init` (the orphan-refs gate already records this), and the
-`cpp:Node::create_{publisher,subscription,wall_timer}` rows still describe the
-discarded-`Result` state that `require_created` closed.
+Three things the pass above left as found. Each is now closed, and what was
+measured is stated apart from what was reasoned.
+
+1. **The `env` surface is measured.** `env` joined `extract_rust.NROS_FEATURES`
+   (it requires `std`, already in the set). Measured with
+   `scripts/api-parity.py --lang rust --show all` before and after, on
+   `e82830bb6`: `same 88 → 89`, `theirs-only 503 → 502`, `ours-only 1225 → 1238`.
+   `rust:Context` moved `theirs-only` → `same`, as predicted. What appeared was
+   **19 report lines, not the 12 the earlier estimate said**: 16 UNLEDGERED (the
+   six rclrs `Context::` members, which stop inheriting once their type is
+   `same` — a member gap inside a shipped type is argued on its own, per
+   `lookup`'s rule — plus `Context::config`, `ContextSource`, `InitError`,
+   `REFUSE_INIT_ARGS`, `args_have_ros_args`, `ExecutorConfigEnvExt`,
+   `ExecutorConfigEnvExt::from_env`, `resolve_hosted`, `try_resolve_hosted`,
+   `rmw_selector`) and 3 already ledgered (`init_with_args` — now printing
+   `<refuse-loud>` on a surface the gate can see, so `misdeclared_refusals`
+   vouches for it — `init_with_launch`, `init_with_launch_auto`). All 16 have
+   rows: `Context::new` / `default_from_env` / `domain_id` are `gap` + `absent`
+   (`default_from_env` is `nros::init()` under rclrs's spelling, and the row says
+   so rather than opening a rename on the entry-point family here);
+   `Context::from_env` / `ok` / `create_executor` are `declined` + `absent`
+   (options object, shutdown state, allocating factory — each names its
+   constraint); the rest are `extension`. `rust:Context` itself is
+   `divergence` + `adopt-bounded` (same identity, construction by the free
+   `init*` family, executor opened into caller storage), and its stale
+   `"bucket": "theirs-only"` field is gone.
+2. **Stale `why` texts.** `rust:init` now describes `nros::init()` — the
+   `nros::logging::init` text it carried was a mis-filing. The
+   `cpp:Node::create_{publisher,subscription,wall_timer}` rows describe
+   `detail::require_created` (`nros.hpp:384`) and keep the discarded-`Result`
+   state as one dated sentence; `cpp:Node::Node` and the
+   `create_wall_timer` rename resolution had the same predecessor and got the
+   same treatment. **The class was `rclcpp_compat.hpp` cited as if it
+   existed**: 42 rows across nine shards (one, `cpp:Result`, already said the
+   header was retired and stands) — 19 carrying the identical
+   "visible only because `rclcpp_compat.hpp` is now a translation unit"
+   sentence (rewritten once, mechanically), the QoS-profile family, `Rate` /
+   `WallRate`, `NodeOptions`, the parameter trio, `FutureReturnCode`, and two
+   rows claiming `NodeOptions::enable_rosout` is an inert bool when it is a
+   `static_assert` refusal (`options.hpp:250`). Every one now names the header
+   and line that owns the declaration and keeps the shim as history. Sweep:
+   `grep -o '.\{100\}rclcpp_compat.hpp' docs/reference/api-parity-ledger/*.json`
+   — every remaining hit sits in a sentence that says the file was deleted.
+   The orphan-refs gate was green throughout: it matches `dir/file.ext` and a
+   bare `rclcpp_compat.hpp` has no directory, which is why this needed a
+   reader and not a gate.
+3. **Gates.** `just check api-parity-ledger`, `ledger-orphan-refs`,
+   `gate-selftests` and `api-parity` (ending "every divergence carries a
+   ledger entry") all green; every shard re-parsed through a
+   duplicate-key-raising `object_pairs_hook` and round-trips byte-for-byte.
+   `api-parity`'s C extractor needed PR #612's `7b3bab8e9` (the duplicate
+   `nros_node_get_fully_qualified_name`) cherry-picked as a temporary aid; it is
+   not in this branch.
+
+| disposition | before (`e82830bb6`) | after |
+| --- | ---: | ---: |
+| refuse-loud | 20 | 20 |
+| absent | 650 | 656 |
+| adopt | 96 | 96 |
+| adopt-bounded | 27 | 28 |
+| (none) | 1925 | 1934 |
+| rows | 2718 | 2734 |
+
+(Counted over every non-`_` key in the 17 shards; the census above was taken
+on an earlier tip, which is why its "after" column and this "before" column
+differ by the rows the merge with `main` added.)

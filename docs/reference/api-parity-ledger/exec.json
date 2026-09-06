@@ -879,6 +879,11 @@
     "verdict": "extension",
     "why": "the session-identity builder an embedded image opens its executor with: locator, session mode, domain id, node name, namespace, monotonic clock, epoch clock, RMW selection. rclrs has no counterpart because its `Context` reads argv and the environment (`Context::from_env`, `default_from_env`) -- neither exists on a device (RFC-0045). The builder is `const fn` throughout so an image can bake the whole thing into a static. Covers the chaining setters (`new`, `default_const`, `domain_id`, `node_name`, `namespace`, `mode`, `rmw`, `epoch_us`) and the resolvers below."
   },
+  "rust:Context::create_executor": {
+    "verdict": "declined",
+    "disposition": "absent",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — `rclrs::Context::create_executor(&self, runtime: E) -> Executor`: the context ALLOCATES an executor over a runtime it is handed. Ours opens one into caller-owned storage from the identity the context resolved: `Executor::open(&ctx.config(name))` (`packages/api/nros/src/init.rs:126`), because the executor's arenas are sized at compile time and placed by the caller (RFC-0045; no allocator) and there is exactly one session per image (issue 0465) — a factory on the context would imply a second. Absent: `no method named create_executor`; the two-line replacement is in `Context::config`'s doc comment."
+  },
   "rust:ExecutorConfig::resolve": {
     "verdict": "extension",
     "why": "RFC-0045 precedence model A, as a function: env rung > baked `BootConfig` > compiled default, resolved per FIELD so a baked node name and an env locator can both apply. rclrs's equivalent is `Context::from_env`, which is one rung and requires a process environment. Issue 0687 moved the environment READ out to the hosted edge (`nros::env::resolve_hosted`) so this stays no_std; an embedded caller fills the same rung from a settings partition or a Kconfig blob."
@@ -894,6 +899,14 @@
   "rust:ExecutorConfig::try_resolve_with": {
     "verdict": "extension",
     "why": "see `rust:ExecutorConfig::try_resolve`."
+  },
+  "rust:ExecutorConfigEnvExt": {
+    "verdict": "extension",
+    "why": "phase-428 Q1 follow-through (2026-09-06) — the trait that carries `ExecutorConfig::from_env()` on hosted builds (`packages/api/nros/src/env.rs:237`). It exists because issue 0687 / phase-359 W10 moved every environment read out of `nros-node` (which stays `no_std` and takes VALUES through `ExecutorConfig::resolve_with`) into `nros::env`, the one place that reads the process environment; an inherent method would have put `std::env` back in the core. Bring the trait into scope (the prelude has it) and the call site spelling is unchanged. rclrs's nearest is `Context::from_env`, which is a constructor of the context, not of a config — see `rust:Context`. Visible since `env` joined the measured feature set."
+  },
+  "rust:ExecutorConfigEnvExt::from_env": {
+    "verdict": "extension",
+    "why": "see `rust:ExecutorConfigEnvExt`. `from_env() -> ExecutorConfig<'static>` (`packages/api/nros/src/env.rs:263`): the env rung over an empty `BootConfig`, panicking on a malformed variable like `resolve_hosted` (RFC-0045 / issue 0206: malformed identity input is an error, never a silent fallback)."
   },
   "rust:ExecutorError": {
     "verdict": "divergence",
