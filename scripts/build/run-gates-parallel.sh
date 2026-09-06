@@ -191,8 +191,10 @@ fi
 # the sentence stops overstating what happened.
 #
 # `check-skip.sh` is sourced ABOVE, before the serial path, which closes on the
-# same ledger. Found while adding `action-client-arena-budget`, which skips
-# whenever nothing is built and therefore skips in most CI runs.
+# same ledger. Found while adding `action-client-arena-budget`, which skipped
+# whenever nothing was built and therefore skipped in most CI runs — that gate
+# has since left this lane and fails closed instead (phase-413 W7, issue 1001),
+# but the reporting it exposed is what the remaining skippers need.
 skips="$(nros_build_dir "$NROS_KIND_CHECK_SKIPS")/checks.skipped"
 skipped=0
 if [ -s "$skips" ]; then

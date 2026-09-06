@@ -22,24 +22,17 @@
 # sidecar/metadata half cannot, because a cross-compiled component is
 # unprobeable by construction.
 #
-# Cheap where it matters: instant on a tree with nothing built (it exits 78 and
-# records a SKIP rather than reporting a pass over zero images), ~18 s on a
-# fully built 100 GB dev tree, which is one `nm` per image and no compilation.
+# NOT a fast-lane gate — `.config/gate-lane-exempt.txt` says so, and
+# `build-test-fixtures` runs it. Phase-413 W7 / issue 1001: it reads BUILT
+# IMAGES, so on the fast line it examined nothing on every pull request (it
+# exited 78 and recorded a SKIP) while costing a developer with a populated
+# tree a repository walk that is minutes on a cold page cache. It now runs
+# where images are a precondition rather than a coincidence, over roots DERIVED
+# from the fixture manifest, and examining nothing is a FAILURE.
+#
+# ~4 s on a fully built 100 GB dev tree: one `nm` per image, no compilation.
 action-client-arena-budget:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    _rc=0
-    python3 scripts/check-action-client-arena-budget.py || _rc=$?
-    if [ "$_rc" -eq 78 ]; then
-        # 78 is `lane-skip.sh`'s "I did no work", reused so there is ONE
-        # spelling of it. A gate that examined nothing must not read as a pass.
-        # shellcheck source=scripts/build/check-skip.sh
-        source scripts/build/check-skip.sh
-        nros_check_skip action-client-arena-budget \
-            "no built image with an attributable nros_node_config.rs in this tree"
-        exit 0
-    fi
-    exit "$_rc"
+    python3 scripts/check-action-client-arena-budget.py
 
 # Per-example rustfmt --check (AST-only, no codegen/deps). The `check.yml`
 # per-example-fmt step as a recipe (SSoT).
