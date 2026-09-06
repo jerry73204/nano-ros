@@ -3435,7 +3435,7 @@ fn typed_c_subscription_refused_decode_is_loud_and_undelivered() {
     // that THIS refusal was counted. Exactness made it fail in `check::build`'s
     // parallel lane while passing solo.
     assert!(
-        super::arena::typed_deserialize_failures() >= failures_before + 1,
+        super::arena::typed_deserialize_failures() > failures_before,
         "the refusal must also be counted for the rate-limited nros_log report"
     );
     assert_eq!(
