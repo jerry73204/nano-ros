@@ -110,12 +110,24 @@ PROBE = "nros_repr_probe"
 # C-pack structs with NO counterpart in the C++ pack's Rust glue, and why.
 #
 # A two-way ratchet: an unlisted orphan is a failure, and a listed one that
-# GAINS a counterpart is also a failure, so the map can only shrink. It is
-# empty, and both halves have already earned their keep -- the first run put
+# GAINS a counterpart is also a failure, so the map can only shrink. Both
+# halves have already earned their keep -- the first run put
 # `fingerprint_corpus_action_probe_goal_View` here, the capacity-key fix in
 # `generate_cpp_action_package` then gave it a counterpart, and the second half
 # of the ratchet is what said so instead of leaving a permanent excuse behind.
-C_ONLY_EXPECTED: dict[str, str] = {}
+C_ONLY_EXPECTED: dict[str, str] = {
+    "fingerprint_corpus_srv_probe_service_handler_t": (
+        "C-only convenience wrapper around the typed service trampoline: a "
+        "callback + context + caller-owned request/response storage + an error "
+        "tally. It carries no wire payload of its own -- the two payload "
+        "structs it embeds ARE paired and compared -- and the Rust side reaches "
+        "the same trampoline through its own typed service API rather than a "
+        "mirrored struct, so there is nothing for it to agree with."
+    ),
+    "fingerprint_corpus_srv_probe_client_handler_t": (
+        "Same shape on the client side, and C-only for the same reason."
+    ),
+}
 
 # C spellings that are types rather than struct references. Anything else that
 # looks like an identifier in a field declaration must resolve to a struct this
@@ -149,6 +161,72 @@ C_BUILTIN = {
 # --------------------------------------------------------------------------
 # extraction
 # --------------------------------------------------------------------------
+
+
+def strip_c_comments(text: str) -> str:
+    """Remove `/*...*/` and `//`/`///` comments, keeping line structure.
+
+    Not cosmetic. Every downstream reader of a struct body treats it as C
+    DECLARATIONS: `_split_members` splits on depth-0 `;`, `_member_name` takes
+    the last token, and `unresolved_c_types` reads every identifier as a type
+    reference. A doc comment defeats all three at once -- the generated typed
+    service handler carries `/// Last NROS_SERVICE_TYPED_* code; ...`, whose
+    `;` FORGES a member named `code` and whose prose ("Your", "Installed",
+    "verbatim") reads as unresolvable type names. Comments cannot change
+    layout, so removing them before extraction loses nothing the probe
+    measures.
+
+    String and char literals are preserved, because a `//` inside one is not a
+    comment; generated C has none in a struct body today, and a stripper that
+    is wrong about that would be a silent corruption rather than a loud one.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"' or c == "'":
+            q = c
+            out.append(c)
+            i += 1
+            while i < n:
+                out.append(text[i])
+                if text[i] == "\\" and i + 1 < n:
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                if text[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            if j < 0:
+                raise SystemExit(f"{PROBE}: unterminated block comment")
+            out.append("\n" * text.count("\n", i, j))
+            i = j + 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def extract_c_fnptr_typedefs(text: str) -> dict[str, str]:
+    """`typedef R (*NAME)(args);` declarations, by NAME, kept VERBATIM.
+
+    The typed service/client handlers embed one as a field, so the probe TU
+    cannot compile without it. Re-emitted rather than replaced by `void*`:
+    a function pointer is not required to be the size of a data pointer, and
+    the point of this gate is to measure what the pack actually declares.
+    """
+    out: dict[str, str] = {}
+    for m in re.finditer(r"\btypedef\b[^;{}]*?\(\s*\*\s*(\w+)\s*\)\s*\([^;{}]*\)\s*;", text):
+        out[m.group(1)] = m.group(0)
+    return out
 
 
 def _balanced_body(text: str, open_at: int) -> tuple[str, int]:
@@ -342,9 +420,11 @@ def topo_order(structs: dict[str, dict]) -> list[str]:
     return order
 
 
-def unresolved_c_types(structs: dict[str, dict]) -> set[str]:
+def unresolved_c_types(
+    structs: dict[str, dict], fnptrs: dict[str, str] | None = None
+) -> set[str]:
     """Identifiers used as types that this script did not extract."""
-    known = set(structs) | C_BUILTIN
+    known = set(structs) | C_BUILTIN | set(fnptrs or {})
     missing: set[str] = set()
 
     def walk(body: str) -> None:
@@ -368,7 +448,9 @@ def unresolved_c_types(structs: dict[str, dict]) -> set[str]:
     return missing
 
 
-def c_probe_tu(structs: dict[str, dict], pairs: list[str], arm: str) -> str:
+def c_probe_tu(
+    structs: dict[str, dict], pairs: list[str], arm: str, fnptrs: dict[str, str] | None = None
+) -> str:
     lines = [
         "/* generated by scripts/check-repr-memory-agreement.py - do not edit */",
         "#include <stdint.h>",
@@ -376,8 +458,20 @@ def c_probe_tu(structs: dict[str, dict], pairs: list[str], arm: str) -> str:
         "#include <stddef.h>",
         "",
     ]
-    for name in topo_order(structs):
-        lines.append(f"typedef struct {name} {{{structs[name]['body']}}} {name};")
+    order = topo_order(structs)
+    # Forward-declare every tag first so a function-pointer typedef may name a
+    # struct through a pointer before that struct is complete -- which the
+    # generated typed client handler does. Definitions still follow in topo
+    # order, because an EMBEDDED member needs a complete type.
+    for name in order:
+        lines.append(f"typedef struct {name} {name};")
+    lines.append("")
+    for _, decl in sorted((fnptrs or {}).items()):
+        lines.append(decl)
+    if fnptrs:
+        lines.append("")
+    for name in order:
+        lines.append(f"struct {name} {{{structs[name]['body']}}};")
     lines.append("")
     for name in pairs:
         info = structs[name]
@@ -508,13 +602,16 @@ def check_arm(
     c_dir, cpp_dir = generate(nros, work, arm, configured)
 
     c_structs: dict[str, dict] = {}
+    c_fnptrs: dict[str, str] = {}
     # walk-ok: `c_dir` is codegen output this function just produced under a
     # temp dir — nothing here is tracked, so `git ls-files` would return
     # nothing. The gate's own text allows scanning for untracked artifacts
     # scoped to a build dir, which is exactly this.
     for h in sorted(c_dir.rglob("*.h")):
-        for name, info in extract_c_structs(h.read_text(encoding="utf-8")).items():
+        text = strip_c_comments(h.read_text(encoding="utf-8"))
+        for name, info in extract_c_structs(text).items():
             c_structs[name] = info
+        c_fnptrs.update(extract_c_fnptr_typedefs(text))
     generated_names = sorted(c_structs)
 
     rust_structs: dict[str, dict] = {}
@@ -537,14 +634,15 @@ def check_arm(
 
     # Types the generated headers reach for but do not define (`nros_view_str_t`
     # and friends) come from the authored C header, extracted the same way.
-    missing = unresolved_c_types(c_structs)
+    missing = unresolved_c_types(c_structs, c_fnptrs)
     if missing:
-        view_text = VIEW_H.read_text(encoding="utf-8")
+        view_text = strip_c_comments(VIEW_H.read_text(encoding="utf-8"))
         authored = extract_c_structs(view_text) | extract_c_macro_structs(view_text)
         for name, info in authored.items():
             if name in missing:
                 c_structs[name] = info
-        missing = unresolved_c_types(c_structs)
+        c_fnptrs.update(extract_c_fnptr_typedefs(view_text))
+        missing = unresolved_c_types(c_structs, c_fnptrs)
     if missing:
         raise SystemExit(
             f"{PROBE}: the {arm} arm's C output names type(s) this script cannot "
@@ -598,7 +696,7 @@ def check_arm(
         return len(pairs), 0, name_problems
 
     c_src = work / f"{arm}-probe.c"
-    c_src.write_text(c_probe_tu(c_structs, [c for c, _ in pairs], arm))
+    c_src.write_text(c_probe_tu(c_structs, [c for c, _ in pairs], arm, c_fnptrs))
     c_obj = work / f"{arm}-probe-c.o"
     run([cc, "-c", *CC_FLAGS, "-o", str(c_obj), str(c_src)], f"the {arm} C probe")
 
