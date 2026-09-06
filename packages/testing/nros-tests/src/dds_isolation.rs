@@ -212,6 +212,74 @@ pub fn apply_fastdds_profile(cmd: &mut std::process::Command) {
     cmd.env("FASTRTPS_DEFAULT_PROFILES_FILE", fastdds_profile_path());
 }
 
+/// Put the CycloneDDS loopback config on a `Command`'s environment.
+///
+/// The sibling of [`apply_fastdds_profile`], and it did not exist — which is
+/// issue 1137. Cyclone's `dds_create_participant` reads `CYCLONEDDS_URI`
+/// through Cyclone's own loader (`nros-rmw-cyclonedds/src/session.cpp` leaves
+/// the hosted path to it deliberately), so this reaches a nano-ros binary
+/// exactly the way the shell export reaches a `ros2` peer.
+pub fn apply_cyclone_config(cmd: &mut std::process::Command) {
+    if lan_allowed() || std::env::var_os("CYCLONEDDS_URI").is_some() {
+        return;
+    }
+    cmd.env("CYCLONEDDS_URI", cyclone_config_uri());
+}
+
+/// Put EVERY known loopback profile on a `Command`'s environment — the
+/// bare-`Command` twin of [`env_exports_for_rmw`].
+///
+/// # Why this exists, and why it is not per-RMW
+///
+/// Issue 1009 pinned the bus through [`env_exports_for_rmw`], which only ever
+/// reaches a process started from a `source setup.bash` shell string — i.e. the
+/// **ROS 2 peer**. Our own side of every pair is a bare `Command`, and it got
+/// nothing. That is exactly the state the issue's own headline forbids: *pin
+/// both sides or neither; half is no discovery.* Two days later
+/// `cyclone_enumerates_a_stock_ros2_node` — which had PASSED live on 2026-08-30
+/// (issue 0927) — enumerated only itself again with the identical signature,
+/// because the stock talker was pinned to `127.0.0.1` with
+/// `AllowMulticast=false` and an explicit localhost peer while our probe kept
+/// Cyclone's default interface pick. Neither side could see the other's SPDP.
+/// Issue 1137.
+///
+/// It sets BOTH variables rather than asking which middleware the child speaks,
+/// for two reasons:
+///
+/// * the caller usually cannot know. A fixture binary is built per-RMW and the
+///   spawn site holds only a `PathBuf`; `graph-probe` is literally one source
+///   compiled once per backend.
+/// * a variable naming a middleware the child does not link is inert. That is
+///   the opposite of the `ROS_LOCALHOST_ONLY` failure this module was written
+///   about, where the variable was honoured by one side and ignored by the
+///   other — here NEITHER half of a mismatched pair can act on it, so it cannot
+///   create an asymmetry.
+///
+/// # Where to call it, and where NOT to
+///
+/// At the spawn site of a nano-ros process whose PEER is a host `ros2` process
+/// — i.e. one started through [`env_exports_for_rmw`]. Deliberately NOT inside
+/// [`crate::process::ManagedProcess::spawn_command`], which would look like the
+/// chokepoint and be wrong: the `DockerRosEnv` editions lanes run their peer in
+/// a container that cannot read a host profile path, so those pairs are
+/// symmetric-UNPINNED and pinning our half of one would CREATE this bug. What
+/// keeps a new site from forgetting is `check-dds-isolation-symmetry`, not this
+/// function's placement.
+pub fn apply_to_command(cmd: &mut std::process::Command) {
+    apply_fastdds_profile(cmd);
+    apply_cyclone_config(cmd);
+}
+
+/// Is the bus pinned for `rmw` at all? True unless the caller opted out.
+///
+/// The predicate BOTH sides are supposed to agree on, exposed so
+/// `both_spawn_paths_pin_the_same_buses` can assert the agreement rather than
+/// restate it.
+#[must_use]
+pub fn pins_loopback_for(rmw: &str) -> bool {
+    !env_exports_for_rmw(rmw).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +324,71 @@ mod tests {
         if std::env::var_os("CYCLONEDDS_URI").is_none() {
             assert!(env_exports_for_rmw("rmw_cyclonedds_cpp").contains("CYCLONEDDS_URI"));
         }
+    }
+
+    /// **Issue 1137 — the two spawn paths must pin the SAME set of buses.**
+    ///
+    /// The shell path ([`env_exports_for_rmw`]) reaches a `ros2` peer; the
+    /// `Command` path ([`apply_to_command`]) reaches our own binary. Issue 1009
+    /// built the first and not the second, so every Cyclone pair ran half
+    /// pinned, and "half is no discovery" is the issue's own conclusion.
+    ///
+    /// Asserted as an equivalence rather than as two separate presence checks:
+    /// a presence check on each side passes when only one of them exists, which
+    /// is the defect.
+    #[test]
+    fn both_spawn_paths_pin_the_same_buses() {
+        if lan_allowed() {
+            return;
+        }
+        for (rmw, var) in [
+            ("rmw_fastrtps_cpp", "FASTRTPS_DEFAULT_PROFILES_FILE"),
+            ("rmw_cyclonedds_cpp", "CYCLONEDDS_URI"),
+        ] {
+            if std::env::var_os(var).is_some() {
+                // An operator's own profile wins on both paths; nothing to compare.
+                continue;
+            }
+            let mut cmd = std::process::Command::new("true");
+            apply_to_command(&mut cmd);
+            let on_command = cmd
+                .get_envs()
+                .any(|(k, v)| k == var && v.is_some_and(|v| !v.is_empty()));
+            assert_eq!(
+                pins_loopback_for(rmw),
+                on_command,
+                "the shell path and the Command path disagree about {var}: a peer \
+                 started through `source setup.bash` and a nano-ros binary started \
+                 as a bare Command would land on different buses, which is issue \
+                 1137 (and 1009's own 'pin both sides or neither')"
+            );
+        }
+    }
+
+    /// The variable actually reaches a CHILD, and the file it names is READABLE
+    /// from there.
+    ///
+    /// Asserted on a real child's environment rather than on the `Command`
+    /// struct, and on the file's CONTENT rather than on its path: a
+    /// `CYCLONEDDS_URI` pointing at a file the child cannot open is how Cyclone
+    /// silently keeps its default interface pick, which is indistinguishable
+    /// from no pin at all — the same "absent vs empty" confusion the whole
+    /// graph family is about.
+    #[test]
+    fn a_child_inherits_a_cyclone_config_it_can_actually_read() {
+        if lan_allowed() || std::env::var_os("CYCLONEDDS_URI").is_some() {
+            return;
+        }
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", r#"cat "${CYCLONEDDS_URI#file://}""#]);
+        apply_to_command(&mut cmd);
+        let out = cmd.output().expect("run sh");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            text.contains("<AllowMulticast>false</AllowMulticast>"),
+            "a child given CYCLONEDDS_URI must be able to READ the profile it \
+             names; `cat` of it produced:\n{text}{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }

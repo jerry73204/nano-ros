@@ -100,6 +100,11 @@ fn spawn_cyclone_listener(binary: &Path, domain: u8) -> ManagedProcess {
     // wire keyexpr, and the Int32-typed cyclone topic won't match a String sub.
     cmd.env("ROS_DOMAIN_ID", domain.to_string())
         .env("RUST_LOG", "info");
+    // Issue 1137 — the same bus as the bridge's Cyclone egress and as the
+    // `ros2 topic echo` peer the companion case starts; that peer has carried a
+    // loopback-only `CYCLONEDDS_URI` since issue 1009, and half a pin is no
+    // discovery.
+    nros_tests::dds_isolation::apply_to_command(&mut cmd);
     ManagedProcess::spawn_command(cmd, "nano-cyclone-listener-declarative-bridge")
         .expect("spawn nano cyclone listener")
 }
@@ -167,6 +172,8 @@ fn declarative_zenoh_to_cyclonedds_bridge_to_nano_listener() {
             format!("NROS_BRIDGE_{CYCLONE_NODE}_DOMAIN"),
             domain.to_string(),
         );
+    // Issue 1137 — the Cyclone egress is a DDS participant; same bus as its peer.
+    nros_tests::dds_isolation::apply_to_command(&mut bridge_cmd);
     let mut bridge = ManagedProcess::spawn_command(bridge_cmd, "bridge-cyclonedds-native_entry")
         .expect("spawn declarative bridge entry");
     std::thread::sleep(Duration::from_secs(2));
@@ -246,6 +253,9 @@ fn declarative_zenoh_to_cyclonedds_nested_header_to_ros2() {
             format!("NROS_BRIDGE_{CYCLONE_NODE}_DOMAIN"),
             domain.to_string(),
         );
+    // Issue 1137 — the Cyclone egress is a DDS participant; same bus as the
+    // `ros2 topic echo` peer below.
+    nros_tests::dds_isolation::apply_to_command(&mut bridge_cmd);
     let mut bridge =
         ManagedProcess::spawn_command(bridge_cmd, "bridge-cyclonedds-native_entry-nested")
             .expect("spawn declarative bridge entry");

@@ -119,9 +119,17 @@ fn a_stock_ros2_client_drives_the_nano_ros_action_server() {
     });
 
     let domain = action_domain();
-    let mut server = Command::new(&server_bin)
+    let mut server_cmd = Command::new(&server_bin);
+    server_cmd
         .env("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")
-        .env("ROS_DOMAIN_ID", domain.to_string())
+        .env("ROS_DOMAIN_ID", domain.to_string());
+    // Issue 1137 — the same bus as the `HostRosEnv` peer below. That env string
+    // funnels through `ros2_env_setup_rmw_with_domain`, which has exported a
+    // loopback-only `CYCLONEDDS_URI` since issue 1009; without the matching pin
+    // here the two participants sit on different interfaces and `send_goal`
+    // fails to discover the action at all.
+    nros_tests::dds_isolation::apply_to_command(&mut server_cmd);
+    let mut server = server_cmd
         .spawn()
         .expect("start the nano-ros action server");
 

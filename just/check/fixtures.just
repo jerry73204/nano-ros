@@ -344,3 +344,26 @@ test-domain-assignment:
 # Pure `git ls-files` + line scan, no build, ~0.2 s -- fast line.
 test-scripts-have-callers:
     python3 scripts/check-test-scripts-have-callers.py
+
+# Issue 1137 — if the PEER's bus is pinned, OUR side's must be too.
+#
+# Issue 1009 confined every DDS interop peer to loopback, and measured that
+# pinning ONE side is worse than pinning neither (0 of 15, empty output). It was
+# then half-applied: `ros2_env_setup_rmw_with_domain` builds a shell string, so
+# the pin reached the `ros2` peer and never the bare `std::process::Command` our
+# own binaries are spawned from. Two days later
+# `cyclone_enumerates_a_stock_ros2_node` — which had PASSED live on 2026-08-30
+# (issue 0927) — enumerated exactly one node, itself, against a stock talker
+# that was up, because the talker sat on `127.0.0.1` with multicast off while
+# our probe kept Cyclone's default interface. That symptom is
+# indistinguishable from a broken `ros_discovery_info` reader, and was filed as
+# one twice.
+#
+# Keys on the HOST peer helpers, never on the `Middleware` enum: `DockerRosEnv`
+# names the same variants and its pairs are symmetric-UNPINNED (a container
+# cannot read a host profile path), so pinning our half of one would create the
+# bug rather than fix it.
+#
+# Pure `git ls-files` + line scan, no build, no ROS — fast line.
+dds-isolation-symmetry:
+    python3 scripts/check-dds-isolation-symmetry.py
