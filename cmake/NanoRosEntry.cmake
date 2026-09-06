@@ -541,11 +541,30 @@ function(nano_ros_entry)
         # ("NANO_ROS_DEFAULT_RMW;NANO_ROS_RMW"), not that function itself: it
         # FATAL_ERRORs when nothing resolves, and an entry with no RMW chosen yet
         # is a legitimate state here.
+        # ...and then KCONFIG, which is the answer on Zephyr and the reason the
+        # first version of this block baked nothing there (phase-206 W2, final
+        # item). A west Zephyr image selects its backend with
+        # `CONFIG_NROS_RMW_<X>=y` and sets NEITHER cmake variable: measured on
+        # `build-ws-cpp-entry-cyclonedds`, whose CMakeCache has no
+        # `NANO_ROS_RMW` at all while its `.config` carries
+        # `CONFIG_NROS_RMW_CYCLONEDDS=y`. So `_nra_rmw` came out empty, the bake
+        # was skipped, and the image linked Cyclone (`ddsi_` x14283) carrying
+        # none of the user's bytes -- configure clean, compile clean, silently
+        # unconfigured. Exactly the shape this work item exists to stop.
+        #
+        # Same mapping and same order as `nros_system_generate`'s, so the two
+        # wirings cannot disagree about which backend an image is.
         set(_nra_rmw "")
         if(DEFINED NANO_ROS_DEFAULT_RMW AND NOT "${NANO_ROS_DEFAULT_RMW}" STREQUAL "")
             set(_nra_rmw "${NANO_ROS_DEFAULT_RMW}")
         elseif(DEFINED NANO_ROS_RMW AND NOT "${NANO_ROS_RMW}" STREQUAL "")
             set(_nra_rmw "${NANO_ROS_RMW}")
+        elseif(CONFIG_NROS_RMW_CYCLONEDDS)
+            set(_nra_rmw "cyclonedds")
+        elseif(CONFIG_NROS_RMW_XRCE)
+            set(_nra_rmw "xrce")
+        elseif(CONFIG_NROS_RMW_ZENOH)
+            set(_nra_rmw "zenoh")
         endif()
 
         if(_nra_rmw)
@@ -556,7 +575,24 @@ function(nano_ros_entry)
                 OUT_DIR "${_nra_cfg_dir}"
                 RESULT  _nra_cfg_header)
             if(_nra_cfg_header)
-                if(TARGET nros_rmw_${_nra_rmw})
+                # ZEPHYR FIRST: the backend TUs are compiled into the Zephyr
+                # MODULE library (`zephyr_library_sources` in
+                # zephyr/cmake/nros_rmw_<backend>.cmake), so there is no
+                # `nros_rmw_<backend>` target to hang an include on and the
+                # branch below is dead there. Measured on
+                # `build-ws-cpp-entry-cyclonedds`: the bake fired, the header
+                # was byte-identical to the SSoT, Cyclone linked (`ddsi_`
+                # x14283) -- and the ELF carried none of the user's bytes,
+                # because `session.cpp` never saw the directory.
+                #
+                # `zephyr_include_directories` is what the sibling wiring
+                # (`nros_system_generate`) uses for exactly this reason.
+                if(COMMAND zephyr_include_directories)
+                    zephyr_include_directories("${_nra_cfg_dir}")
+                    message(STATUS
+                        "nano-ros: ${_nra_rmw} user config reaches the Zephyr "
+                        "module library (entry ${_NRA_NAME})")
+                elseif(TARGET nros_rmw_${_nra_rmw})
                     target_include_directories(nros_rmw_${_nra_rmw}
                         PRIVATE "${_nra_cfg_dir}")
                     message(STATUS

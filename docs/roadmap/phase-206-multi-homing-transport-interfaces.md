@@ -519,13 +519,52 @@ with **zero** bake lines — `rmw/` ships `cyclonedds.xml` and no `zenoh.conf`, 
 the active backend picks the file and an image whose backend has no config
 compiles with no cmake participation at all.
 
-**What the RTOS row adds, and what it still does not.** The Zephyr row above is a
-COMPILE-stage measurement: the bytes reach `session.cpp.obj` but not
-`zephyr.elf`, because that fixture's `main.c` is a 212.H.1 stub that never
-creates a node and the link runs `--gc-sections`. An RTOS image that links
-Cyclone AND carries a bringup config is the remaining gap — smaller than it was,
-and no longer blocking the mechanism, which is now proven end to end on a real
-image.
+**The RTOS gap is CLOSED — 2026-09-07, and closing it found two defects in W2
+itself.** `west_bringup_zephyr_cyclone_user_config` remains a COMPILE-stage
+measurement by construction (its `main.c` is a 212.H.1 stub that never creates a
+node, so `--gc-sections` drops the backend and the bytes stop at
+`session.cpp.obj`). The image that closes the acceptance is
+**`workspace-zephyr-cpp-cyclonedds`** — `examples/workspaces/cpp`'s Zephyr entry,
+which links `talker_pkg` + `listener_pkg`, so the backend is REFERENCED and
+survives the link:
+
+| check | result |
+| --- | --- |
+| Cyclone genuinely linked (`strings \| grep -c ddsi_`) | **14283** |
+| `dds_create_domain` | 6 |
+| `cdds.io/config` in the image | 1 |
+| the SSoT's exact bytes, contiguous, in `zephyr.elf` | **True** |
+| generated header byte-identical to the SSoT | True |
+
+Negative control, same workspace and bringup: `[image.zephyr]` is zenoh, and
+`rmw/` ships `cyclonedds.xml` and no `zenoh.conf`, so that image bakes nothing.
+
+**TWO DEFECTS IN W2, both invisible until an image actually linked the backend.**
+Each left the build green — configure clean, compile clean, silently
+unconfigured — which is the exact failure this work item exists to make
+impossible, sitting inside the fix for it:
+
+1. **The entry path could not see Zephyr's RMW.** It resolved from
+   `NANO_ROS_DEFAULT_RMW` / `NANO_ROS_RMW`; a west Zephyr image sets NEITHER and
+   selects its backend through Kconfig. Measured: that build's `CMakeCache.txt`
+   has no `NANO_ROS_RMW` at all while its `.config` carries
+   `CONFIG_NROS_RMW_CYCLONEDDS=y`. `_nra_rmw` came out empty and the bake was
+   skipped. The path now falls back to Kconfig with the same mapping and order
+   `nros_system_generate` uses, so the two wirings cannot disagree about which
+   backend an image is.
+2. **The include could not reach Zephyr's backend.** It attached to a
+   `nros_rmw_<backend>` TARGET, but Zephyr compiles those TUs into the Zephyr
+   MODULE library (`zephyr_library_sources`), so no such target exists and the
+   branch was dead. With the bake fixed the header was byte-identical and
+   Cyclone linked — and the ELF still carried none of the user's bytes. It now
+   publishes through `zephyr_include_directories()`, as the sibling wiring does.
+
+**A trap worth recording for the next reader:** `NetworkInterface` and
+`autodetermine` appear in the ELF whether or not the bake worked — they are
+Cyclone's OWN config-parser strings. Only `cdds.io/config` and a
+whole-document byte comparison distinguish a baked image from an unbaked one.
+The first run here read as a near-pass on those two strings and was a total
+miss.
 
 A conf-file trap found on the way, recorded because it fails GREEN: omitting
 `CONFIG_CPP=y` leaves `NROS_RMW_CYCLONEDDS`'s `depends on NET_SOCKETS &&
