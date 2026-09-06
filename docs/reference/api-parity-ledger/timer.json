@@ -5,7 +5,7 @@
   ],
   "c:clock_add_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_change_e": {
@@ -46,7 +46,7 @@
   },
   "c:clock_remove_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification -- rcl calls back when the clock steps (simulation reset, NTP correction), with a threshold selecting which jumps qualify. Ours has no notification at all; on a device a monotonic clock does not step, and the simulation case now has ROS time in every language (issue 0789) without anyone asking to be TOLD that the clock stepped -- a simulator writes the time, the nodes read it."
   },
   "c:clock_state_t": {
@@ -145,7 +145,7 @@
   },
   "c:sleep_ms": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives. rclc's `rclc_sleep_ms` is the same shape. Our platform sleep (`nros_platform_sleep_us`) exists for the BOARD layer, not for application code."
   },
   "c:steady_clock_fini": {
@@ -293,7 +293,7 @@
   },
   "cpp:Clock::create_jump_callback": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "time-jump notification: rcl lets a caller register for a callback when the clock steps (simulation reset, NTP correction) with a threshold controlling which jumps qualify. Ours has no notification at all. On a device the case that matters -- a monotonic clock stepping -- does not happen, and the simulator case now has ROS time in every language (issue 0789) with no notification asked for: a simulator writes the time and the nodes read it."
   },
   "cpp:Clock::get_clock_handle": {
@@ -322,17 +322,17 @@
   },
   "cpp:Clock::sleep_for": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::sleep_until": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "cpp:Clock::wait_until_started": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp blocks the calling thread until the first `/clock` message arrives. RFC-0021 forbids a blocking helper that does not drive the executor -- a wait that spins nothing stops the transport for as long as the simulator takes to publish, and on a single-threaded executor that is forever. The predicate it waits on IS available (`Clock::started`, issue 0789): a node polls it from a timer, or simply publishes once time is non-zero."
   },
   "cpp:ClockQoS::ClockQoS": {
@@ -522,12 +522,12 @@
   },
   "cpp:NodeOptions::clock_qos": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "a node option; see the node stage's `cpp:NodeOptions`."
   },
   "cpp:NodeOptions::use_clock_thread": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp spawns a dedicated thread to service the `/clock` subscription so simulated time advances even while callbacks run. RFC-0002 gives one executor per RTOS task and does not spawn; ROS time would advance on the executor that subscribes to it."
   },
   "cpp:Rate": {
@@ -693,7 +693,7 @@
   },
   "cpp:sleep_for": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclcpp's `Rate` blocks the calling thread in a sleep loop to hold a fixed frequency. RFC-0021 forbids a blocking helper that does not drive the executor -- a `Rate::sleep` on a single-threaded executor stops the transport for the whole period. The periodic work shape here is a timer, which the executor drives."
   },
   "rust:AnyTimerCallback": {

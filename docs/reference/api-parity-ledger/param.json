@@ -5,7 +5,7 @@
   ],
   "c:add_parameter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "provides": [
       "nros_parameter_declare_bool",
       "nros_parameter_declare_integer",
@@ -232,7 +232,7 @@
   },
   "c:parameter_get_int": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "rclc spells it `rclc_parameter_get_int`; ours is `nros_parameter_get_integer`. See `c:parameter_server_t` for the `param`/`parameter` split. Ours also spells the 64-bit integer `integer` where rclc says `int`, matching `rcl_interfaces` and our own `ParameterType::Integer`. RE-VERDICTED 2026-08-27 (phase-379 W5), was `rename`. The `param` -> `parameter` half of this row LANDED: ours is `nros_parameter_get_integer` now. What is left is the only thing this row can still be about, and it is a difference we KEEP: rclc abbreviates the 64-bit integer to `int`, and we spell it `integer` because that is what `rcl_interfaces` calls the type and what our own `ParameterType::Integer`, `nros_parameter_type_t::NROS_PARAMETER_INTEGER` and the C++/Rust surfaces call it. Renaming ours to `int` would make the C surface disagree with our other two languages and with the message definitions, to match one abbreviation. So there is no destination left for this row to carry, which -- exactly as for `c:add_parameter` -- makes it a DECLINE rather than a rename. What a user loses: nothing but the spelling; `rclc_parameter_get_int(s, \"x\", &v)` is `nros_parameter_get_integer(s, \"x\", &v)`. Ours: `c:parameter_get_integer`.",
     "rename": {
       "status": "resolved",
@@ -266,7 +266,7 @@
   },
   "c:parameter_set_int": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the setter half; see `c:parameter_get_int`. RE-VERDICTED 2026-08-27 (phase-379 W5), was `rename`. The `param` -> `parameter` half of this row LANDED: ours is `nros_parameter_set_integer` now. What is left is the only thing this row can still be about, and it is a difference we KEEP: rclc abbreviates the 64-bit integer to `int`, and we spell it `integer` because that is what `rcl_interfaces` calls the type and what our own `ParameterType::Integer`, `nros_parameter_type_t::NROS_PARAMETER_INTEGER` and the C++/Rust surfaces call it. Renaming ours to `int` would make the C surface disagree with our other two languages and with the message definitions, to match one abbreviation. So there is no destination left for this row to carry, which -- exactly as for `c:add_parameter` -- makes it a DECLINE rather than a rename. What a user loses: nothing but the spelling; `rclc_parameter_set_int(s, \"x\", &v)` is `nros_parameter_set_integer(s, \"x\", &v)`. Ours: `c:parameter_set_integer`.",
     "rename": {
       "status": "resolved",
@@ -297,7 +297,7 @@
   },
   "cpp:AsyncParametersClient": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the CLIENT side of the parameter services -- a service client speaking `rcl_interfaces/srv/*` on someone else's behalf. Ours registers the SERVER side (`nros_executor_register_parameter_services`) and ships no client: a device sets its own parameters from baked config (RFC-0045) and is the thing a desktop tool queries, not the thing that queries. See the param stage for the server half."
   },
   "cpp:ComponentNode::declare_parameter": {
@@ -388,7 +388,7 @@
   },
   "cpp:Parameter": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "provides": [
       "nros::ParameterServer::get_parameter",
       "nros::ParameterServer::set_parameter"
@@ -397,17 +397,17 @@
   },
   "cpp:ParameterCallbackHandle": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the owning handle `ParameterEventHandler::add_parameter_callback` returns; dropping it unregisters. the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventCallbackHandle": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the whole-event form of `cpp:ParameterCallbackHandle`. the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventHandler": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the `/parameter_events` family. We publish no `/parameter_events` topic at all -- `QOS_PROFILE_PARAMETER_EVENTS` is defined in `nros-rmw/src/traits.rs` and has no publisher behind it -- so there is nothing for an event handler to subscribe to. Bringing it back needs a `std::function`-shaped callback registry and a shared_ptr handle per registration, neither of which exists without an allocator. What a user loses: reacting to ANOTHER node's parameter change. Phase 379 W3."
   },
   "cpp:ParameterEventsQoS::ParameterEventsQoS": {
@@ -439,7 +439,7 @@
   },
   "cpp:ParameterValue": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the value half of `cpp:Parameter`, with the same allocator problem: `get<std::string>()` and `to_value_msg()` both hand back owned storage. Rust's `ParameterValue` is the no-allocator equivalent (heapless `String`/`Vec`, accessors that return borrows); C++ has no counterpart."
   },
   "cpp:ParametersQoS::ParametersQoS": {
@@ -452,7 +452,7 @@
   },
   "cpp:SyncParametersClient": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "the CLIENT side of the parameter services -- a service client speaking `rcl_interfaces/srv/*` on someone else's behalf. Ours registers the SERVER side (`nros_executor_register_parameter_services`) and ships no client: a device sets its own parameters from baked config (RFC-0045) and is the thing a desktop tool queries, not the thing that queries. See the param stage for the server half. The sync form additionally blocks on its own spin, which RFC-0021 forbids."
   },
   "cpp:_to_json_dict_entry": {
@@ -559,7 +559,7 @@
   },
   "rust:ParameterBuilder::ignore_override": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "declares that a command-line or params-file override must NOT win. rclrs's parameter OVERRIDE machinery: a value supplied outside the code (`--ros-args -p`, a params file, a prior declaration) that the declaration then has to reconcile with. Overrides are resolved BEFORE the image runs here -- the launch resolver bakes them into the SystemModel and the generated entry seeds them into the executor store before any component constructor runs (RFC-0045, issue 0745) -- so by declare time there is no second value to reconcile against. Constraint: no runtime env, no argv."
   },
   "rust:ParameterBuilder::integer_range": {
@@ -780,17 +780,17 @@
   },
   "cpp:NodeOptions::append_parameter_override": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0089 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+    "disposition": "absent",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. This member is NOT declared here at all: `packages/api/nros-cpp/include/nros/options.hpp` refuses the ten option setter/getter pairs a tutorial chains (`arguments`, `use_intra_process_comms`, `enable_rosout`, ...) with a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_NODE_OPTIONS`, and declares nothing else on the type. So a ported call to THIS one gets `no member named` -- honest, and it names neither the constraint nor the alternative. phase-428 Q1 (2026-09-06): this row used to say it was a `= delete` overload; it never was, and the disposition is corrected from refuse-loud to absent. The refusal that does exist is per-CONCEPT and `cpp:NodeOptions` carries it."
   },
   "cpp:NodeOptions::parameter_event_qos": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0089 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+    "disposition": "absent",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. This member is NOT declared here at all: `packages/api/nros-cpp/include/nros/options.hpp` refuses the ten option setter/getter pairs a tutorial chains (`arguments`, `use_intra_process_comms`, `enable_rosout`, ...) with a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_NODE_OPTIONS`, and declares nothing else on the type. So a ported call to THIS one gets `no member named` -- honest, and it names neither the constraint nor the alternative. phase-428 Q1 (2026-09-06): this row used to say it was a `= delete` overload; it never was, and the disposition is corrected from refuse-loud to absent. The refusal that does exist is per-CONCEPT and `cpp:NodeOptions` carries it."
   },
   "cpp:NodeOptions::parameter_overrides": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0089 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+    "disposition": "absent",
+    "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. This member is NOT declared here at all: `packages/api/nros-cpp/include/nros/options.hpp` refuses the ten option setter/getter pairs a tutorial chains (`arguments`, `use_intra_process_comms`, `enable_rosout`, ...) with a dependent `static_assert` carrying `NROS_RCLCPP_REFUSE_NODE_OPTIONS`, and declares nothing else on the type. So a ported call to THIS one gets `no member named` -- honest, and it names neither the constraint nor the alternative. phase-428 Q1 (2026-09-06): this row used to say it was a `= delete` overload; it never was, and the disposition is corrected from refuse-loud to absent. The refusal that does exist is per-CONCEPT and `cpp:NodeOptions` carries it."
   }
 }

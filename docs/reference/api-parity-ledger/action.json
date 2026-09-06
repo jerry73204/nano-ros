@@ -561,7 +561,7 @@
   },
   "cpp:Client::async_cancel_goals_before": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "why": "cancels every goal accepted before a timestamp. It needs each goal's acceptance stamp, which our arena does not keep -- see `c:action_goal_info_t`: time is a board capability (RFC-0036) and the accept path has no clock to read. A user loses bulk cancellation by age and must cancel by goal id."
   },
   "cpp:Client::wait_for_action_server": {
@@ -609,7 +609,7 @@
   },
   "cpp:ResultCode": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
+    "disposition": "absent",
     "provides": [
       "nros::GoalStatus"
     ],
