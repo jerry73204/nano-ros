@@ -1,0 +1,234 @@
+# The XRCE backend's build CONFIGURATION — the ONE statement. phase-420 W9.
+#
+# Sibling of `xrce-sources.txt`, which answers "which files". This one answers
+# "with what values". Same two consumers, same reason:
+# `nros-rmw-xrce-cffi/build.rs` (cc-rs, the Rust lane) and
+# `nros-rmw-xrce/CMakeLists.txt` (the C/C++ lane) each used to hold their own
+# copy of every number and every feature toggle, and the two copies were
+# already disagreeing.
+#
+# WHAT WAS DUPLICATED, MEASURED (phase-420 W9, 2026-09-05)
+#
+#   * The two upstream `config.h.in` templates were filled in TWICE — by hand
+#     in `generate_ucdr_config` / `generate_uxr_config`, and by `configure_file`
+#     in the CMakeLists — with every `@TOKEN@` value restated in both: the four
+#     MTUs, the stream/session limits, the `UCLIENT_PROFILE_*` and
+#     `UCLIENT_PLATFORM_*` toggles.
+#   * The KNOBS were resolved twice, and only one lane resolved them at all.
+#     `zephyr/Kconfig` defines six `CONFIG_NROS_XRCE_*` options; the Rust lane
+#     read all six, the CMake lane read ZERO (`grep -c CONFIG_NROS_XRCE
+#     nros-rmw-xrce/CMakeLists.txt` was 0) and compiled the defaults. Kconfig's
+#     own help text said so out loud — "read by nros-rmw-xrce-cffi/build.rs",
+#     naming one lane.
+#
+# HOW BAD THAT WAS — the open question, SETTLED by measurement, phase-420 W9
+#
+# It is NOT an issue-0135-class ABI split, because no single image can hold TUs
+# from both lanes. Measured, not inferred:
+#
+#   * nothing in the tree `add_subdirectory()`s or `find_package()`s
+#     `nros-rmw-xrce`; the only configure of it is `just check rmw-xrce`;
+#   * the only consumers of the resulting `libnros_rmw_xrce.a` are that
+#     project's own two CTest binaries (read out of its `link.txt`);
+#   * `zephyr/cmake/nros_rmw_xrce.cmake` is an explicit no-op — the Zephyr XRCE
+#     path compiles no C through cmake at all;
+#   * `cmake/NanoRosRmwDispatch.cmake` maps `xrce` to `nros-rmw-xrce-cffi`, the
+#     CARGO lane, for every image; `NrosRmwXrce` is named only by
+#     `packages/api/nros-c/cmake/NanoRosLink.cmake`, which nothing includes and
+#     whose `NrosRmwXrceConfig.cmake` phase-140 deleted.
+#
+# So the live defect was TEST FIDELITY, not corruption: the CMake lane's CTest
+# harness validated the backend at values no image compiles once a knob is set.
+# That is worth fixing and was not worth panicking about, and this file is the
+# fix — one statement, consumed twice — rather than a correction of two copies,
+# which is what would drift again on the next append.
+#
+# FORMAT
+#
+# Line-oriented, `#` comments, blank lines ignored, whitespace-separated
+# columns — the shape `xrce-sources.txt`, `config/rust-targets.txt` and
+# `packages/cli/cli-source-dirs.txt` already use, and for the same reason: it
+# is the only shape both consumers can read. CMake has no TOML parser
+# (`file(STRINGS)` is what it has) and the Rust side must not gain a dependency
+# (`cargo` is `--locked`-shimmed, and a build script has to work from a bare
+# clone).
+#
+# Four record types:
+#
+#   value <template> <token> <literal>
+#       A `@<token>@` substitution in <template>, fixed. Nobody tunes it.
+#
+#   knob <template> <token> <env> <default> <min>
+#       A `@<token>@` substitution whose value a person may choose. <env> is
+#       the environment variable; the Kconfig option is `CONFIG_<env>` — the
+#       pair is DERIVED, never tabulated, which is the shape
+#       `check-kconfig-knob-forwarding` already expects (issue 0460). <min> is
+#       rejected below, in BOTH lanes, so a too-small value fails at build time
+#       rather than at 3 a.m. on the wire.
+#
+#   flag <template> <token> <condition>
+#       A `#cmakedefine <token>` toggle. <condition> is a token from the SAME
+#       vocabulary `xrce-sources.txt` uses, answered by the SAME per-lane
+#       block, because "which files" and "which profile defines" have to agree
+#       or the generated header promises a profile whose TUs are not compiled.
+#
+#   define <macro> <env> <min>
+#       A `-D<macro>=<n>` on the backend compile — NOT a template token. There
+#       is deliberately NO default column: `nros-rmw-xrce/src/internal.h` holds
+#       the default in an `#ifndef`, and that is the one statement of it.
+#       Restating it here would be this file's own defect, one column over.
+#
+# <template> is `uxr` (micro-XRCE-DDS-Client's `include/uxr/client/config.h.in`)
+# or `ucdr` (micro-CDR's `include/ucdr/config.h.in`).
+#
+# NOT HERE, ON PURPOSE
+#
+#   * `@PROJECT_VERSION*@` — DERIVED from each vendored tree's own
+#     `project(<name> VERSION …)` line (issue 1069). A version stated here
+#     would be the fifth hand-written restatement of a fact the tree already
+#     holds, which is exactly what 1069 retired.
+#   * `_POSIX_C_SOURCE`, `_DEFAULT_SOURCE`, `UCLIENT_PLATFORM_NO_POSIX`,
+#     `-Os`, `-ffunction-sections` — compile ENVIRONMENT, not configuration.
+#     Unifying those is the remaining W9 step (one compile, not just one set of
+#     values); they stay in the lanes until that lands, where they are at least
+#     visible rather than half-shared.
+#
+# THE KNOB LADDER, and the one place the lanes legitimately differ
+#
+#   1. the environment variable          — a person, right now
+#   2. `CONFIG_<env>` in `$DOTCONFIG`    — a person, in the tree (Kconfig)
+#   3. the `[knobs.xrce]` rung           — RUST LANE ONLY, see below
+#   4. the `<default>` column here       — nobody stated one
+#
+# Rung 3 (`nros_platform_config`'s `[knobs.xrce]` in a platform/board TOML) is
+# a CARGO build-script front-end: reading it needs a TOML parser, which the
+# CMake lane does not have and cannot grow without the dependency this format
+# exists to avoid. It covers exactly two knobs
+# (`NROS_XRCE_CUSTOM_TRANSPORT_MTU`, `NROS_XRCE_STREAM_HISTORY`) and can only
+# be delivered by a cargo build, so it cannot fire in a lane with no cargo.
+# Rungs 1, 2 and 4 are implemented identically in both lanes, and that is what
+# `check-xrce-config-manifest` asserts. Say it out loud rather than let a
+# reader assume symmetry that is not there.
+#
+# Gate: `just check xrce-config-manifest` (scripts/check-xrce-config-manifest.py)
+#       — fails if either lane states a token value of its own, if a knob's env
+#       name is not `CONFIG_`-derivable, if a `flag` uses a condition neither
+#       lane answers, or if a template holds a `@TOKEN@` / `#cmakedefine` this
+#       file does not cover.
+
+# ---- micro-CDR ---------------------------------------------------------------
+
+# ucdrEndianness enum: BIG=0, LITTLE=1. Both lanes have always said 1; x86 and
+# every ARM target we build are little-endian. A big-endian port makes this a
+# `flag`-style condition, not a second literal in one lane.
+value  ucdr  CONFIG_MACHINE_ENDIANNESS  1
+
+# ---- micro-XRCE-DDS-Client: session and stream limits -------------------------
+
+value  uxr  UCLIENT_MAX_OUTPUT_BEST_EFFORT_STREAMS   1
+value  uxr  UCLIENT_MAX_OUTPUT_RELIABLE_STREAMS      1
+value  uxr  UCLIENT_MAX_INPUT_BEST_EFFORT_STREAMS    1
+value  uxr  UCLIENT_MAX_INPUT_RELIABLE_STREAMS       1
+value  uxr  UCLIENT_MAX_SESSION_CONNECTION_ATTEMPTS  10
+value  uxr  UCLIENT_MIN_SESSION_CONNECTION_INTERVAL  1000
+value  uxr  UCLIENT_MIN_HEARTBEAT_TIME_INTERVAL      100
+
+# Only substituted inside `#ifdef UCLIENT_PROFILE_SHARED_MEMORY` /
+# `#ifdef UCLIENT_HARD_LIVELINESS_CHECK`, both of which are `never` below. Kept
+# because `configure_file` substitutes textually regardless of the `#ifdef`, so
+# an unstated token compiles as an EMPTY macro body in one lane and whatever
+# the other lane wrote in the other.
+value  uxr  UCLIENT_SHARED_MEMORY_MAX_ENTITIES       4
+value  uxr  UCLIENT_SHARED_MEMORY_STATIC_MEM_SIZE    10
+value  uxr  UCLIENT_HARD_LIVELINESS_CHECK_TIMEOUT    10000
+
+# ---- micro-XRCE-DDS-Client: the transport MTUs --------------------------------
+
+# Phase 214.C.2 — UDP/TCP/custom share a 4096-byte default; serial uses 512
+# (UART throughput floor). issue 0968 — UDP and TCP honour the general knob
+# too: only CUSTOM was tunable, so every Zephyr XRCE example (they all dial an
+# agent at CONFIG_NROS_XRCE_AGENT_ADDR:PORT over UDP) was pinned to 4096
+# whatever Kconfig said. `STREAM_BUFFER_SIZE = MTU x STREAM_HISTORY`, twice per
+# session, so the default cost 131072 bytes where a configured 512 costs 16384.
+#
+# Minimum 128: below that the framing/header assumptions break.
+knob   uxr  UCLIENT_UDP_TRANSPORT_MTU     NROS_XRCE_TRANSPORT_MTU         4096  128
+knob   uxr  UCLIENT_TCP_TRANSPORT_MTU     NROS_XRCE_TRANSPORT_MTU         4096  128
+knob   uxr  UCLIENT_CUSTOM_TRANSPORT_MTU  NROS_XRCE_CUSTOM_TRANSPORT_MTU  4096  128
+value  uxr  UCLIENT_SERIAL_TRANSPORT_MTU  512
+
+# ---- micro-XRCE-DDS-Client: the #cmakedefine toggles --------------------------
+
+flag   uxr  UCLIENT_PROFILE_DISCOVERY         always
+flag   uxr  UCLIENT_PROFILE_CUSTOM_TRANSPORT  always
+flag   uxr  UCLIENT_PROFILE_STREAM_FRAMING    always
+flag   uxr  UCLIENT_TWEAK_XRCE_WRITE_LIMIT    always
+
+# Paired with the `uxr_ip_udp` source group in xrce-sources.txt — the whole
+# point of one condition vocabulary. Promising `UCLIENT_PROFILE_UDP` in the
+# header while dropping `udp_transport.c` from the compile is a link error at
+# best and a silently absent transport at worst.
+flag   uxr  UCLIENT_PROFILE_UDP               posix_ip
+flag   uxr  UCLIENT_PROFILE_TCP               posix_ip
+
+# `transport_posix_serial.c` rides the same `posix` condition.
+flag   uxr  UCLIENT_PROFILE_SERIAL             posix
+flag   uxr  UCLIENT_PLATFORM_POSIX             posix
+
+# Compiled off everywhere, and stated rather than omitted: an omitted
+# `#cmakedefine` is `/* #undef */` under `configure_file` and an UNTOUCHED
+# `#cmakedefine` line under a hand substitution — two different headers from
+# one silence.
+flag   uxr  UCLIENT_PROFILE_CAN                never
+flag   uxr  UCLIENT_PROFILE_MULTITHREAD        never
+flag   uxr  UCLIENT_PROFILE_SHARED_MEMORY      never
+flag   uxr  UCLIENT_HARD_LIVELINESS_CHECK      never
+flag   uxr  UCLIENT_PLATFORM_POSIX_NOPOLL      never
+flag   uxr  UCLIENT_PLATFORM_WINDOWS           never
+flag   uxr  UCLIENT_PLATFORM_FREERTOS_PLUS_TCP never
+flag   uxr  UCLIENT_PLATFORM_RTEMS_BSD_NET     never
+# 129.C.1 — the Zephyr transport is `transport_nros_udp.c` through the platform
+# ABI, not upstream's Zephyr platform, so this toggle has read `never` in both
+# lanes since that phase. It gated `transport_zephyr_udp.c`, which issue 1073
+# DELETED (2026-09-05): that TU's whole body sat behind
+# `#if defined(UCLIENT_PLATFORM_ZEPHYR)`, so with this row `never` no lane could
+# have got a symbol out of it even had one compiled it. The row itself is
+# unchanged and still correct — it selects upstream's Zephyr PLATFORM, which we
+# do not use, and never named our TU.
+flag   uxr  UCLIENT_PLATFORM_ZEPHYR            never
+
+# ---- backend compile defines --------------------------------------------------
+#
+# Phase 207.6 — per-session pool sizes. A pub-only bare-metal node can drop
+# subscribers/services to 1, the ring to 1 and the buffer to 256; combined with
+# STREAM_HISTORY=4 and a 512-byte MTU the session struct falls from ~390 KB to
+# ~10-20 KB. Unset means `internal.h`'s `#ifndef` default stands, in BOTH lanes.
+# The three entity caps admit ZERO, and that is the whole saving (issue 1033,
+# landed on main while this manifest was in review — its minimums are adopted
+# here rather than reverted, because the reasoning is measured and the manifest
+# is now the only place a minimum is stated).
+#
+# The minimum used to be 1, justified as "zero-length arrays aren't standard C;
+# 1 is the practical minimum". Measured, that is wrong in the way that mattered:
+# these are PLAIN arrays MID-struct, not flexible array members, so the
+# `flexible array member not at end of struct` failure this repo has seen came
+# from an EMPTY define (`arr[]`), not a zero one (`arr[0]`) — two different
+# errors that read alike. `slot_t arr[0];` mid-struct compiles on gnu11, c11 AND
+# gnu99; only `-pedantic` rejects it, and nothing here passes `-pedantic`. And
+# nothing indexes slot 0 unconditionally — every walk is
+# `for (i = 0; i < MAX; ++i)`, which at 0 simply does not run.
+#
+# Clamping was the thing issue 0827 forbids in as many words: it "reserved the
+# memory anyway while reading as though the knob had been honoured". A cap of 0
+# on an image that creates none of that entity is the honest answer, and on the
+# zephyr cpp listener it takes `xrce_session_state_t` from 76,624 bytes to
+# 54,928 — under its 66,048 heap, so the image boots.
+define  XRCE_MAX_SUBSCRIBERS       NROS_XRCE_MAX_SUBSCRIBERS       0
+define  XRCE_MAX_SERVICE_SERVERS   NROS_XRCE_MAX_SERVICE_SERVERS   0
+define  XRCE_MAX_SERVICE_CLIENTS   NROS_XRCE_MAX_SERVICE_CLIENTS   0
+define  XRCE_SUBSCRIBER_RING_DEPTH NROS_XRCE_SUBSCRIBER_RING_DEPTH 1
+define  XRCE_BUFFER_SIZE           NROS_XRCE_BUFFER_SIZE           64
+# Phase 130.6 — reliable-stream history. `internal.h` documents why 16 is the
+# default; 4 is the floor (reliable retransmission needs at least 2 unACK'd
+# messages outstanding plus headroom).
+define  XRCE_STREAM_HISTORY        NROS_XRCE_STREAM_HISTORY        4

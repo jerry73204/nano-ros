@@ -940,10 +940,17 @@ test-bridge-zenoh-to-cyclonedds-imperative verbose="":
 test-bridge-zenoh-to-xrce verbose="":
     @just _test-focused 'binary(=declarative_bridge_zenoh_to_xrce)' {{verbose}}
 
-# Run ROS 2 interop tests (shell script)
-[group("debug")]
-test-ros2-shell:
-    ./tests/ros2-interop.sh
+# Issue 1097's sibling — the `test-ros2-shell` recipe is GONE. It ran
+# `./tests/ros2-interop.sh`, a script phase-16 planned ("Add shell test script
+# `tests/ros2-interop.sh`") and never committed: `git log --all -- '*ros2-interop.sh'`
+# is empty, so the recipe never worked on any host, ever. Like `xrce
+# check-rust-rmw` it survived by being `[group("debug")]`, on no lane, and
+# named by nothing.
+#
+# ROS 2 interop is covered by `just native test-ros2` (the `interop_e2e`
+# nextest binary) and by `interop::CELLS` (RFC-0051).
+#
+# Gate: `check-just-recipe-paths`.
 
 _test-c-codegen verbose="":
     #!/usr/bin/env bash

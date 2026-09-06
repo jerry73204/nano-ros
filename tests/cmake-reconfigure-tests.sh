@@ -79,6 +79,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
+# `nros_grep_q` — 0 match / 1 no-match / exit 2 when grep could not run, so a
+# tool failure never becomes a finding (issue 0726). Call it with a HERE-STRING,
+# NEVER through a pipe: builtin `printf` flushes per LINE and `grep -q` stops at
+# the first hit, so the writer's next write takes SIGPIPE and `pipefail` turns a
+# MATCH into a MISS. That is issue 1077, measured at 13 of 300 runs here.
+# shellcheck source=../scripts/lib/grep-q.sh
+source "$PROJECT_ROOT/scripts/lib/grep-q.sh"
+
 MODULE="$PROJECT_ROOT/cmake/NanoRosReconfigure.cmake"
 
 FAILURES=0
@@ -213,7 +221,7 @@ SRC_ARMED="$TEST_TMPDIR/armed-src"
 write_project "$SRC_ARMED" "armed"
 CONFIGURE_OUT="$(cmake -G Ninja -S "$SRC_ARMED" -B "$TEST_TMPDIR/armed-build" 2>&1)"
 check
-if printf '%s\n' "$CONFIGURE_OUT" | grep -q 'PROBE_READ=placeholder'; then
+if nros_grep_q 'PROBE_READ=placeholder' <<<"$CONFIGURE_OUT"; then
     log_success "first pass read the placeholder, as it must"
 else
     fail "first pass did not read the placeholder:
@@ -221,7 +229,7 @@ $CONFIGURE_OUT"
 fi
 
 check
-if printf '%s\n' "$CONFIGURE_OUT" | grep -q 'cmake will run once more'; then
+if nros_grep_q 'cmake will run once more' <<<"$CONFIGURE_OUT"; then
     log_success "the changed answer announced the re-configure"
 else
     fail "a changed answer armed nothing, or said nothing about it:
@@ -266,7 +274,7 @@ SRC_SAME="$TEST_TMPDIR/identical-src"
 write_project "$SRC_SAME" "identical"
 CONFIGURE_OUT="$(cmake -G Ninja -S "$SRC_SAME" -B "$TEST_TMPDIR/identical-build" 2>&1)"
 check
-if printf '%s\n' "$CONFIGURE_OUT" | grep -q 'cmake will run once more'; then
+if nros_grep_q 'cmake will run once more' <<<"$CONFIGURE_OUT"; then
     fail "a producer that rewrote IDENTICAL bytes armed a re-configure -- every build would re-configure forever"
 else
     log_success "identical bytes armed nothing"
@@ -299,7 +307,7 @@ else
 fi
 
 check
-if printf '%s\n' "$BUILD_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+if nros_grep_q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$BUILD_OUT"; then
     log_success "and it said WHY it stopped, naming the knob"
 else
     fail "the bound was hit silently -- a build sized from a stale answer must say so:
@@ -326,7 +334,7 @@ BEFORE_MTIME="$(stat -c %Y "$ORDINARY")"
 SETTLE_OUT="$(cmake -P "$SETTLE_PROBE" 2>&1)"
 AFTER_MTIME="$(stat -c %Y "$ORDINARY")"
 check
-if printf '%s\n' "$SETTLE_OUT" | grep -q 'SETTLE_OK' && [ "$BEFORE_MTIME" = "$AFTER_MTIME" ]; then
+if nros_grep_q 'SETTLE_OK' <<<"$SETTLE_OUT" && [ "$BEFORE_MTIME" = "$AFTER_MTIME" ]; then
     log_success "settle left an ordinary file alone, and a missing file is not an error"
 else
     fail "settle was not a no-op: before=$BEFORE_MTIME after=$AFTER_MTIME
@@ -697,7 +705,7 @@ for _step in 1:big:1496 2:small:880 3:big:1496 4:small:880; do
     if [ "$CHAIN_DELIVERED" != "$_want" ]; then
         LIFETIME_OK=0
     fi
-    if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+    if nros_grep_q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$CHAIN_OUT"; then
         LIFETIME_OK=0
         LIFETIME_LOG="$LIFETIME_LOG  <-- hit the bound"
     fi
@@ -776,7 +784,7 @@ $CHAIN_OUT"
     # with enough leaves exhausts NROS_RECONFIGURE_MAX_PASSES on a CLEAN build
     # dir and ships the previous answer with a warning.
     check
-    if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+    if grep -q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$CHAIN_OUT"; then
         fail "$_calls producer calls per configure exhausted the pass bound on a clean build dir:
 $CHAIN_OUT"
     else
@@ -805,7 +813,7 @@ $CHAIN_OUT"
         _j_log="$_j_log
   edit ($_which): delivered=$CHAIN_DELIVERED want=$_want reruns=$CHAIN_RERUNS"
         [ "$CHAIN_DELIVERED" = "$_want" ] || _j_ok=0
-        if printf '%s\n' "$CHAIN_OUT" | grep -q 'NROS_RECONFIGURE_MAX_PASSES'; then
+        if grep -q 'NROS_RECONFIGURE_MAX_PASSES' <<<"$CHAIN_OUT"; then
             _j_ok=0
             _j_log="$_j_log  <-- hit the bound"
         fi

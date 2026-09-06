@@ -262,3 +262,143 @@ zpico-config-keys:
         exit 0
     fi
     python3 scripts/gen-zpico-config-keys.py --check
+
+# phase-420 W9 / the mirror class issue 1068 fixed for micro-XRCE, one vendored
+# tree over. zenoh-pico is compiled TWICE — by `nros-zpico-build` for the cargo
+# lane and by `zephyr/cmake/nros_rmw_zenoh.cmake` for the west lane — and each
+# lane held its own copy of the selection: the same nine directory globs,
+# written out twice, with nothing checking they agreed.
+#
+# `packages/rmw/zenoh/zpico-sys/zenoh-sources.txt` is now the one list. Unlike
+# the XRCE manifest it names DIRECTORIES, because zenoh-pico's selection is a
+# RULE ("the whole core") on a rebased patch line, not a subset; the safety a
+# file list would buy is bought instead by asserting every `.c` in the tree is
+# covered by a record, left to the per-platform axis, or on a documented
+# not-compiled list. Also asserts that neither lane names a vendored path (pure
+# text, so it holds without the submodule) and that both answer exactly the
+# manifest's condition tokens, both directions.
+#
+# And one check that is NOT about shape, because every other one is: PLATFORM-
+# CONDITIONAL COMPILATION IS LEGITIMATE ONLY FOR THE PLATFORM TREES — a path
+# under `src/system/<platform>/` must be in a conditional group, the core must
+# be in an unconditional one. Moving a record between two legitimately-declared
+# groups breaks no shape: `dir core … utils` → `dir zephyr_system … utils`
+# leaves every count identical and drops nine `.c` from every non-Zephyr build,
+# under the reader's "selected no sources" guard because 125 is not 0.
+# Buildless, ~40 ms.
+[private]
+zenoh-source-manifest:
+    @python3 scripts/check-zenoh-source-manifest.py
+
+# Issue 1069 — the same mirror class as `xrce-source-manifest`, one fact over.
+# `MICROCDR_VERSION_STR` compiled as "2.4.1" under CMake and "2.0.2" under
+# cargo, for a tree that is 2.0.2; the client said 2.4.1 in BOTH lanes against a
+# 3.0.1 checkout, disarming upstream's own `#if UXR_CLIENT_VERSION_MAJOR >= 4`
+# tripwire by a major version. Both lanes now read `project(<name> VERSION …)`
+# out of the vendored CMakeLists.
+#
+# It checks WIRING, not shape. The first version checked only "no literals, a
+# derivation block exists, sdk-index agrees" and a review mutation walked through
+# it: point micro-CDR's derivation at the CLIENT's tree and every shape check
+# still passes while the configure emits `MICROCDR_VERSION_STR "3.0.1"` — 1069
+# verbatim. So the invariant is stated per hop, both lanes (cmake: dir var →
+# derivation site → prefix → configure_file; cargo: let root → generator arg →
+# in-body derivation + template read), plus the client's expected micro-CDR and
+# the authored `nros-sdk-index.toml` rows. Buildless, ~30 ms.
+[private]
+xrce-vendored-versions:
+    @python3 scripts/check-xrce-vendored-versions.py
+
+# phase-348 W4 — build order derived from package.xml `<depend>`, not from the
+# order a SUBDIRS list happens to be written in. Every workspace CMakeLists
+# carries "Node pkgs BEFORE entries so the entry codegen sees their metadata";
+# the entry packages already state that as <exec_depend>. Covers the cycle and
+# bad-subdir rejections and the cmake seam. Needs `just setup-cli`.
+# phase-420 W9 — the sibling of `xrce-source-manifest`, one axis over: that one
+# keeps the two XRCE lanes from re-growing a source list each, this one keeps
+# them from re-growing a CONFIGURATION each. Every `@TOKEN@` in the two upstream
+# `config.h.in` templates was written twice, and the six `CONFIG_NROS_XRCE_*`
+# Kconfig options reached the Rust lane and NOT the CMake one (a `grep -c` of
+# zero), so a stated MTU compiled in one lane and the default in the other.
+#
+# It checks WIRING, not just shape: Kconfig's per-option `Maps to <SYMBOL>.`
+# line must name exactly the symbols `xrce-config.txt` binds that knob to, so a
+# row whose columns are perfect and whose env name points at the wrong knob
+# fails. Buildless, ~40 ms.
+[private]
+xrce-config-manifest:
+    @python3 scripts/check-xrce-config-manifest.py
+
+# phase-420 W9 — EXACTLY ONE LANE COMPILES THE VENDORED ZENOH-PICO TREE PER
+# PLATFORM. Measured 2026-09-05, because W9's zenoh bullet asked and the answer
+# decided the work: can one Zephyr image hold zenoh-pico TUs from BOTH lanes?
+# NO. Zephyr's `nros-platform.toml` says `[build.zenoh] compiled_by =
+# "platform"` and `runner.rs` skips `build_zenoh_pico_unified` on it (issue
+# 0534/0541 — the cargo lane cannot compile those TUs on Zephyr at all, they
+# include a `version.h` only the west build generates). The one C TU cargo emits
+# into a Zephyr image is the in-repo alias TU, which includes no vendored
+# header. So the "duplicate compile" W9 names is a per-platform SPLIT, and
+# "one build consumed by both" is not the shape the evidence supports.
+#
+# What it does support is this gate. The split rests on three statements that
+# have to agree — a TOML field, a Rust guard, and which lane answers a manifest
+# condition token — and a Zephyr C/C++ image links with
+# `-Wl,--allow-multiple-definition`, so if both lanes ever did compile the tree
+# the duplicate symbols would NOT stop the link: one lane's objects would
+# silently win, with the two lanes' independently-resolved `Z_FEATURE_*`
+# deciding flag-gated struct layouts inside it (issue 0135).
+#
+# The check that is not about shape, since `check-zenoh-source-manifest` covers
+# shape: A PLATFORM TOKEN IS ANSWERED TRUE-CAPABLE BY EXACTLY ITS OWNER. That
+# gate asserts both lanes answer the same token SET and says nothing about which
+# WAY. `set(_zenoh_cond_zephyr FALSE)` keeps the set identical and drops
+# `system/zephyr/network.c` from every Zephyr image (phase 160.C —
+# `Transport(ConnectionFailed)` at session open); `"zephyr" => true` keeps it
+# identical and compiles that Zephyr-only TU into every other platform. Both are
+# reported here, as is a record whose group token names a DIFFERENT platform
+# than its `system/<dir>/` path.
+#
+# And check (7), which found something on its first run: the tree is compiled
+# THREE times, not two. `scripts/qemu/build-zenoh-pico.sh` has its own
+# nine-directory loop, its own config header and its own slot defaults (issue
+# 1096), so `check-zenoh-source-manifest`'s "neither lane names a vendored path"
+# was true of the two lanes it knows and false of the repository. Every tracked
+# file naming the vendored SOURCE root must now be a declared lane or carry a
+# TRACKED ISSUE ID — a fourth copy fails while the third is visible debt.
+#
+# Checks 8 and 9 close a hole review found after the first version: SWAPPING the
+# two groups' conditions (`zephyr_system zephyr` ⇄ `zephyr_isotp zephyr_isotp`)
+# leaves every token declared, used, answered and counted as before — sibling
+# green, checks 5 and 6 green, both tokens naming zephyr — while
+# `system/zephyr/network.c` starts compiling only under ISO-TP, which is the
+# phase-160.C ABI break on every non-ISO-TP Zephyr image. So: a group's NAME
+# must agree with its CONDITION on platform and feature (the name is what a
+# reader trusts, so `zephyr_system` gated on an ISO-TP feature is a lie in the
+# file), and its MIRROR — a feature-gated group holds the TUs that IMPLEMENT
+# that feature, which catches the records trading groups instead. Both rules are
+# stated in words in `zenoh-sources.txt`'s header too.
+# Buildless, ~1.1 s measured (check 7 reads every tracked build-ish file; the
+# other eight are a handful of files and are instant).
+[private]
+zenoh-lane-ownership:
+    @python3 scripts/check-zenoh-lane-ownership.py
+
+# phase-420 W9 step 4 — the third XRCE mirror gate, one axis over. Its siblings
+# ask WHICH FILES (`xrce-source-manifest`) and WITH WHAT VALUES
+# (`xrce-config-manifest`); this one asks WHO COMPILES THEM.
+#
+# micro-XRCE-DDS-Client and micro-CDR were compiled twice from the same manifest
+# rows — cc-rs for six target families on one side, `add_library(… STATIC …)` on
+# the other — with each lane choosing its own flags. The CMake copy reached NO
+# image (dispatch maps `xrce` to the cargo crate everywhere, the Zephyr hook is a
+# no-op, nothing add_subdirectory()s the project), so `just check rmw-xrce` was
+# validating objects no image contains. That project now LINKS the cargo lane's
+# archive, and this asserts the arrangement holds: each lane declares the trees
+# it compiles and USES that declaration as its filter, the shipping lane declares
+# all of them, the CMake lane declares no vendored one and cannot even name their
+# source roots, and the pointer file the two exchange has one statement of its
+# name and keys on each side. Direction is checked, not just the count: swapping
+# the two declarations leaves every tree compiled exactly once and ships an
+# archive with no XRCE in it. Buildless, ~0.05 s.
+xrce-one-vendored-compile:
+    @python3 scripts/check-xrce-one-vendored-compile.py

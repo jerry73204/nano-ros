@@ -174,6 +174,22 @@ _gate-list-end:
 fast-serial:
     @bash scripts/build/run-gates-parallel.sh --serial
 
+    # `_check-skip-reset` is shared skip-ledger infrastructure at the ROOT
+    # (`run-gates-parallel.sh` calls it too), not a gate — and a module cannot
+    # depend on a root recipe, so it is called rather than depended on. It must
+    # still run FIRST: it truncates the ledger every gate below appends to.
+    @just _check-skip-reset
+    #!/usr/bin/env bash
+    set -e
+    # issue 0650 — the closing sentence is REPORTED, not asserted. Six gates in
+    # this lane skip on a missing optional tool (bindgen, ROS 2, colcon, the
+    # in-tree CLI), which they must: this tier is documented to run green on a
+    # pristine worktree. What they may not do is let "Fast checks passed!" stand
+    # for gates that never ran.
+    # shellcheck source=scripts/build/check-skip.sh
+    source scripts/build/check-skip.sh
+    nros_check_skip_report "Fast checks passed!"
+
 # Build tier — gates that COMPILE or need the workspace to RESOLVE (workspace +
 # embedded clippy, feature combos, riscv32 no_std, nros-tests source gates,
 # staticlib link-proof, dep-chain codegen, the example-matrix clippy, and the

@@ -52,7 +52,6 @@ just test-c-xrce        # C XRCE API tests (needs cmake + XRCE Agent)
 tests/
 ├── README.md           # This file
 ├── c-msg-gen-tests.sh  # C message generation tests
-├── ros2-interop.sh     # ROS 2 interop tests (shell-based)
 ├── zephyr/             # Zephyr native_sim tests (shell-based)
 │   └── run-c.sh        # Zephyr C examples test
 └── simple-workspace/   # Standalone build verification
@@ -456,11 +455,6 @@ ros2-interop-tests:
         apt-get update
         apt-get install -y ros-humble-rmw-zenoh-cpp ros-humble-example-interfaces
         cargo install zenoh --locked
-
-    - name: Run interop tests (shell)
-      run: |
-        source /opt/ros/humble/setup.bash
-        ./tests/ros2-interop.sh all
 
     - name: Run interop tests (Rust)
       run: |

@@ -2,12 +2,14 @@
  *
  * Routes the micro-XRCE custom-transport callbacks through the
  * canonical `nros_platform_udp_*` ABI in <nros/platform_net.h>.
- * Replaces both `transport_posix_udp.c` (libc BSD sockets) and
- * `transport_zephyr_udp.c` (already on the platform ABI but
- * gated by `UCLIENT_PLATFORM_ZEPHYR`). The XRCE C build no
- * longer needs to know what platform it is on; whichever
- * `nros-platform-<rtos>` library satisfies the symbols at link
- * time wins.
+ * Replaces `transport_posix_udp.c` (libc BSD sockets), which is
+ * still compiled for callers that resolve `xrce_posix_udp_init`,
+ * and the former `transport_zephyr_udp.c` (already on the platform
+ * ABI but gated by `UCLIENT_PLATFORM_ZEPHYR`), which 129.C.1 both
+ * stopped compiling and switched off, and issue 1073 deleted. The
+ * XRCE C build no longer needs to know what platform it is on;
+ * whichever `nros-platform-<rtos>` library satisfies the symbols
+ * at link time wins.
  *
  * Bridge state piggy-backs on the existing
  * `xrce_session_state_t.udp_bridge` struct (`fd` + `sock` +

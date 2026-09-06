@@ -939,7 +939,14 @@ config NROS_XRCE_TRANSPORT_MTU
     default 512
     help
       Custom transport MTU for XRCE-DDS. Also sizes stream buffers
-      (4x MTU) and UDP staging. Maps to XRCE_TRANSPORT_MTU.
+      (4x MTU) and UDP staging.
+      Maps to UCLIENT_UDP_TRANSPORT_MTU, UCLIENT_TCP_TRANSPORT_MTU.
+
+      phase-420 W9 — the old "Maps to XRCE_TRANSPORT_MTU" named a macro that
+      does not exist. The `Maps to` line is a CONTRACT now, cross-checked
+      against packages/rmw/xrce/xrce-config.txt by check-xrce-config-manifest,
+      so a knob wired to the wrong token fails a gate instead of reading
+      plausibly.
 
 config NROS_XRCE_MAX_SUBSCRIBERS
     int "Maximum concurrent subscribers"
@@ -1022,7 +1029,12 @@ config NROS_XRCE_STREAM_HISTORY
     range 2 16
     help
       Reliable stream history depth for XRCE-DDS. Must be >= 2.
-      Maps to NROS_XRCE_STREAM_HISTORY, read by nros-rmw-xrce-cffi/build.rs.
+      Maps to XRCE_STREAM_HISTORY.
+
+      phase-420 W9 — the old line named the ENVIRONMENT variable rather than
+      the macro, and said "read by nros-rmw-xrce-cffi/build.rs", naming ONE
+      lane. Both lanes read it now: nros-rmw-xrce/CMakeLists.txt read none of
+      these six options and compiled the defaults instead.
 
       Defaults to 16 to match XRCE_STREAM_HISTORY in
       packages/rmw/xrce/nros-rmw-xrce/src/internal.h. This option was inert until

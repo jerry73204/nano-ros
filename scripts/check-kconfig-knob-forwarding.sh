@@ -70,6 +70,23 @@ DERIVED_READERS=(
     packages/platform/nros-platform/build.rs
 )
 
+# phase-420 W9 — a reader may name its knobs in a shared MANIFEST rather than in
+# its own source. `packages/rmw/xrce/xrce-config.txt` is the one statement of
+# every XRCE build value, read by BOTH the cargo lane (`build.rs`) and the cmake
+# lane (`nros-rmw-xrce/CMakeLists.txt`); before it, the CMake lane read none of
+# these six options at all and compiled the defaults.
+#
+# The names appear UNQUOTED there (a whitespace-separated column), so this list
+# is matched with a word-boundary grep rather than the `"NAME"` literal the
+# source readers use. A manifest only counts once something reads it: each entry
+# names the readers that must appear in DERIVED_READERS above, and those are
+# already held to the `nros_zephyr_build` requirement, so the `$DOTCONFIG` rung
+# issue 0751 is about is still proved — by the file that resolves the knob, not
+# by the file that lists it.
+MANIFEST_READERS=(
+    packages/rmw/xrce/xrce-config.txt
+)
+
 # Knobs the cmake side exports that no Rust build script reads. Each needs a
 # reason: an unread export is either dead or a C-lane-only knob.
 NO_RUST_READER=(
@@ -114,6 +131,16 @@ for knob in $knobs; do
         fi
     done
     if [ "$found" = 0 ]; then
+        # A knob stated in a shared manifest. Unquoted, word-bounded.
+        for f in "${MANIFEST_READERS[@]}"; do
+            [ -f "$f" ] || continue
+            if nros_grep_q -E "(^|[[:space:]])$knob([[:space:]]|\$)" "$f"; then
+                found=1
+                break
+            fi
+        done
+    fi
+    if [ "$found" = 0 ]; then
         for allowed in "${NO_RUST_READER[@]}"; do
             [ "$knob" = "$allowed" ] && { found=1; break; }
         done
@@ -148,6 +175,29 @@ for f in "${DERIVED_READERS[@]}"; do
         echo "       is actually resolved from \$DOTCONFIG (issue 0751)." >&2
         fail=1
     }
+done
+
+# A manifest reader is only a reader if a lane actually consumes it. Listing a
+# file here and having nothing read it would be exactly the silence this gate
+# exists to break, one indirection further out.
+for f in "${MANIFEST_READERS[@]}"; do
+    [ -f "$f" ] || { echo "[FAIL] MANIFEST_READERS names missing $f" >&2; fail=1; continue; }
+    consumed=0
+    for r in "${READERS[@]}" "${DERIVED_READERS[@]}"; do
+        [ -f "$r" ] || continue
+        # COMMENTS STRIPPED, and the full repo-relative path, not the basename.
+        # Every one of these readers also NAMES the manifest in prose, so a
+        # basename grep over the raw file passes on a reader that only talks
+        # about it — the "is this coverage or is it a mention?" confusion this
+        # gate is otherwise about. Here-string, never a pipe (issue 1077).
+        stripped="$(sed 's|//.*||' "$r")"
+        nros_grep_q -F -- "$f" <<<"$stripped" && { consumed=1; break; }
+    done
+    if [ "$consumed" = 0 ]; then
+        echo "[FAIL] $f is listed as a knob manifest but no Rust reader reads it" >&2
+        echo "       — a manifest nobody parses states knobs that reach nothing." >&2
+        fail=1
+    fi
 done
 
 if [ "$fail" != 0 ]; then

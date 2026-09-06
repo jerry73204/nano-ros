@@ -145,16 +145,31 @@ test-c verbose="":
     fi
     echo "All failures were [SKIPPED] preconditions — treating as pass."
 
-# Phase 121.7.i — `cargo check` the out-of-workspace nros-rmw-xrce Rust
-# crate so CI catches drift after platform-API or trait-surface changes.
-# Workspace `cargo check` skips it (it's workspace-excluded for xrce-sys
-# linking reasons), so this recipe is the only place it gets compiled.
-[group("debug")]
-check-rust-rmw:
-    #!/usr/bin/env bash
-    set -e
-    cd packages/rmw/xrce/nros-rmw-xrce
-    cargo check --quiet
+# Issue 1097 — the `check-rust-rmw` recipe is GONE. It ran `cargo check` in
+# `packages/rmw/xrce/nros-rmw-xrce`, and that directory has never held a
+# `Cargo.toml` in this repo's history: the crate was deleted 2026-05-12
+# (`f5aeb8faf`, phase-115.K.2) and the recipe was written 2026-05-13
+# (`68c89568c`, phase-121.7.i), whose roadmap entry claims "CI now exercises
+# it". It was born dead and stayed that way for four months, because it was
+# `[group("debug")]`, on no lane, and named by nothing.
+#
+# What it looked like it did is not what it did. `cargo` walks UP for a
+# manifest, so the missing `Cargo.toml` never produced "could not find
+# Cargo.toml" — cargo resolved the ROOT workspace and the recipe became a
+# full-workspace `cargo check`, i.e. everything EXCEPT the xrce crate it
+# claimed to check (`nros-rmw-xrce-cffi` is in `HOST_UNCHECKABLE`). Measured:
+# it dies on `nros-c`'s duplicate `panic_impl` lang item, a red that says
+# nothing about XRCE.
+#
+# The coverage it named — "catch drift after platform-API or trait-surface
+# changes" — is `just check rmw-xrce` (on the `build-serial` lane): it runs
+# `cargo build -p nros-rmw-xrce-cffi`, then cmake-builds this C project
+# against that lane's own archive and runs its CTests. Respelling this as
+# `cargo check -p nros-rmw-xrce-cffi` would only be a second, weaker spelling
+# of that gate's first step.
+#
+# Gate: `check-just-recipe-paths` — a literal path a recipe names must exist
+# and carry the manifest its tool needs.
 
 # Clean XRCE build artifacts
 [group("main")]

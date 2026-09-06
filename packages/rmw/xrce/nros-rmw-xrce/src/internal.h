@@ -634,18 +634,21 @@ rmw_ret_t xrce_custom_transport_install(xrce_session_state_t* st, bool framing);
  * the agent has interop'd with for years. */
 rmw_ret_t xrce_posix_udp_init(xrce_session_state_t* st, const char* host, const char* port);
 
-/* Zephyr UDP via the canonical nros platform networking ABI. Uses the same
- * Micro-XRCE custom transport shape as POSIX UDP, but delegates socket and
- * endpoint storage to nros_platform_udp_* instead of POSIX sockets. */
-rmw_ret_t xrce_zephyr_udp_init(xrce_session_state_t* st, const char* host, const char* port);
-
-/* Phase 129.NET.3 — platform-agnostic XRCE UDP. Mirrors the Zephyr
- * variant but without the per-platform `#if`. Works on every target
- * that satisfies the `nros_platform_udp_*` symbols at link time
- * (POSIX, Zephyr, FreeRTOS, ThreadX, ESP-IDF; bare-metal via
- * `nros-smoltcp`). Supersedes `xrce_posix_udp_init` /
- * `xrce_zephyr_udp_init` long-term; both are kept for one cycle
- * for fallback. */
+/* Phase 129.NET.3 — platform-agnostic XRCE UDP. Works on every
+ * target that satisfies the `nros_platform_udp_*` symbols at link
+ * time (POSIX, Zephyr, FreeRTOS, ThreadX, ESP-IDF; bare-metal via
+ * `nros-smoltcp`), and it is the ONLY UDP path `session.c` routes a
+ * bare `host:port` locator through, on every platform.
+ *
+ * It superseded two per-platform TUs. `xrce_posix_udp_init` above is
+ * still compiled (`backend_posix` in xrce-sources.txt) so a caller
+ * that resolves the older symbol keeps working. Its Zephyr twin
+ * `xrce_zephyr_udp_init` is GONE (issue 1073): 129.C.1 deleted the
+ * `platform-zephyr` feature that compiled `transport_zephyr_udp.c`
+ * AND turned off the `UCLIENT_PLATFORM_ZEPHYR` its whole body sat
+ * behind, so the symbol has been absent from every archive since —
+ * the "one cycle" of fallback was never actually delivered for it,
+ * and the file was deleted rather than revived. */
 rmw_ret_t xrce_nros_udp_init(xrce_session_state_t* st, const char* host, const char* port);
 
 /* Phase 115.K.2.5.1.5-serial — POSIX serial transport via custom

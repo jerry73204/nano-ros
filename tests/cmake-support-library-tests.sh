@@ -48,6 +48,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
+# `nros_grep_q` — 0 match / 1 no-match / exit 2 when grep could not run, so a
+# tool failure never becomes a finding (issue 0726). Call it with a HERE-STRING,
+# NEVER through a pipe: builtin `printf` flushes per LINE and `grep -q` stops at
+# the first hit, so the writer's next write takes SIGPIPE and `pipefail` turns a
+# MATCH into a MISS. That is issue 1077, measured at 13 of 300 runs here.
+# shellcheck source=../scripts/lib/grep-q.sh
+source "$PROJECT_ROOT/scripts/lib/grep-q.sh"
+
 MODULE="$PROJECT_ROOT/cmake/NanoRosSupportLibrary.cmake"
 
 FAILURES=0
@@ -93,7 +101,10 @@ assert_contains() {
 # that has nothing to do with the guard they are checking.
 log_says() {
     # log_says <file> <needle>
-    tr -s '[:space:]' ' ' < "$1" | grep -qF -- "$2"
+    # Captured, not piped: `tr … | grep -qF` lets grep exit at the first match
+    # while tr still has output to write, and tr's SIGPIPE then becomes the
+    # pipeline's status under `pipefail` — a MATCH reported as a MISS. 1077.
+    nros_grep_q -F -- "$2" <<<"$(tr -s '[:space:]' ' ' < "$1")"
 }
 
 assert_not_contains() {
@@ -314,7 +325,7 @@ if ! ninja -C "$B1" > "$TEST_TMPDIR/whole-build.log" 2>&1; then
     FAILURES=$((FAILURES + 1))
 else
     pass "the project builds"
-    if nm "$B1/app/image" 2>/dev/null | grep -q 'nros_test_vendor_init_table'; then
+    if nros_grep_q 'nros_test_vendor_init_table' <<<"$(nm "$B1/app/image" 2>/dev/null)"; then
         pass "WHOLE_ARCHIVE kept the unreferenced vendor init table in the image"
     else
         fail "WHOLE_ARCHIVE did NOT keep the unreferenced symbol — force-linking \
@@ -340,7 +351,7 @@ else
         fail "issue 0475 REPRODUCED: the archive rebuilt but the executable did \
 not relink (museum binary)"
     fi
-    if nm "$B1/app/image" 2>/dev/null | grep -q 'nros_test_vendor_second_table'; then
+    if nros_grep_q 'nros_test_vendor_second_table' <<<"$(nm "$B1/app/image" 2>/dev/null)"; then
         pass "the relinked executable carries the NEW object"
     else
         fail "the executable kept the OLD object after a support-source edit"
@@ -363,7 +374,7 @@ elif ! ninja -C "$B2" > "$TEST_TMPDIR/plain-build.log" 2>&1; then
     FAILURES=$((FAILURES + 1))
 else
     pass "the control project (no WHOLE_ARCHIVE) builds"
-    if nm "$B2/app/image" 2>/dev/null | grep -q 'nros_test_vendor_init_table'; then
+    if nros_grep_q 'nros_test_vendor_init_table' <<<"$(nm "$B2/app/image" 2>/dev/null)"; then
         fail "CONTROL BROKEN: the unreferenced table survived WITHOUT \
 WHOLE_ARCHIVE, so assertion A proves nothing on this host/linker"
     else
@@ -430,7 +441,7 @@ Implicit inputs were: $(tr '\n' ' ' < "$A_IMPL")"
     fi
     if ninja -C "$B3" > "$TEST_TMPDIR/archive-build.log" 2>&1; then
         pass "the ARCHIVE project builds"
-        if nm "$B3/app/image" 2>/dev/null | grep -q 'nros_test_prebuilt_rom_table'; then
+        if nros_grep_q 'nros_test_prebuilt_rom_table' <<<"$(nm "$B3/app/image" 2>/dev/null)"; then
             pass "WHOLE_ARCHIVE kept the prebuilt archive's unreferenced table"
         else
             fail "the prebuilt archive's unreferenced table was dropped"

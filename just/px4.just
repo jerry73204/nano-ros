@@ -126,7 +126,7 @@ build-sitl-cpp:
 #
 # Prereqs the helper checks for at configure time, with the command to fix each:
 #   cargo build -p nros-cpp --no-default-features --features std,rmw-cffi --release
-#   cmake -S packages/core/nros-platform-posix -B build/nros-platform-posix
+#   cmake -S packages/platform/nros-platform-posix -B build/nros-platform-posix
 #   cmake --build build/nros-platform-posix
 [group("examples")]
 build-sitl-example:

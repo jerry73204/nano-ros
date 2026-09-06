@@ -2263,7 +2263,20 @@ fn build_zenoh_pico_unified(
     }
 
     // Step 4 — core sources + per-platform extra C files.
-    add_zenoh_pico_core_sources(&mut build, zenoh_pico_src);
+    //
+    // phase-420 W9 — the vendored source selection is READ, not written here.
+    // `zpico-sys/zenoh-sources.txt` is the one list; `zephyr/cmake/
+    // nros_rmw_zenoh.cmake` reads the same file. `interp.nros` is
+    // `CARGO_MANIFEST_DIR` of `zpico-sys` (see `manifest::InterpContext`), so
+    // this is a direct join and not a `.parent()` walk — the shape that came
+    // out doubled in phase-321 W2.d and that no grep for "../" can find.
+    add_zenoh_pico_core_sources(
+        &mut build,
+        zenoh_pico_src,
+        &interp.nros.join("zenoh-sources.txt"),
+        &plat.name,
+        link,
+    );
     for extra in &plat.extra_sources {
         if let Some(env_var) = &extra.if_env {
             if env::var(env_var).is_err() {
