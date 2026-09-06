@@ -121,6 +121,32 @@ Two items that belong to this issue's area, both evidenced in
    what they actually prove — that `emit_c` ignores the board and the dispatch
    is what stops that mattering.
 
+## The C conversion took a C-family shortcut (RFC-0091 §8b)
+
+Simulating a THIRD language (Zig) against the converted `emit_c` found that its
+view carries six PRE-RENDERED C fields — `boot_config`, `spec_rows`,
+`groups_arrays`, `trailer`, per-node `decls`, `name_lit`. Each is C syntax built
+in Rust. They are correct for C, and correct for C++ because it shares C's
+syntax here, which is exactly why the shortcut survived: two languages in the
+same family cannot expose it.
+
+Zig's tier table is `.{ .name = "high", … }`, its baked config is
+`export var … linksection(…)`, its declarations are Zig statements. None is
+reachable from a C string.
+
+So the remaining work under this issue is larger than "convert `emit_cpp`":
+
+1. `LoweredEntry` must carry STRUCTURED data — tier rows as fields, boot config
+   as values, declarations as a list of what to declare — not rendered text.
+2. Escaping moves from the IR to a per-pack FILTER (Rust, registered on the
+   render environment, as `rosidl-codegen` already does for `snake_case` and
+   `c_type`). A "pre-escaped literal" is not language-neutral.
+3. The board fact is an IDENTITY plus a boot shape, not `::nros::board::LinuxBoard`.
+
+The converted emitters stay: they proved the pipeline, the renderer and the
+goldens. They did not prove neutrality, and converting one language first is
+what made the shortcut visible.
+
 ## Notes
 
 `check-entry-session-name` gates the session-name property across both
