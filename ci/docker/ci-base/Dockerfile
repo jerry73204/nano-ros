@@ -97,6 +97,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         kconfig-frontends socat parallel unzip flex bison \
         libslirp0 libpixman-1-0 \
         libmbedtls-dev \
+        clang \
+        `# ^ NOT clang-format (that is pinned separately by just setup-clang-` \
+        `# format). api-parity extracts OUR C and C++ surface by running` \
+        `# clang -Xclang -ast-dump=json over the public headers, so without` \
+        `# the compiler that gate cannot run in this container at all --` \
+        `# which is why check-api-parity is today the only ci-gate step run` \
+        `# by NO workflow, on any event. That is how phase-421's two` \
+        `# serialization_format accessors landed unledgered.` \
         ros-humble-example-interfaces \
     && rm -rf /var/lib/apt/lists/*
 

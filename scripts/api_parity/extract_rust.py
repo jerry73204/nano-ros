@@ -24,6 +24,7 @@ node-context and publisher surface reads as absent.
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -49,6 +50,30 @@ NROS_FEATURES = [
 ]
 
 
+def _pinned_nightly():
+    """The nightly the repo PINS, not a bare `+nightly`.
+
+    `cargo +nightly` asks for a toolchain named exactly `nightly`. A developer
+    box usually has one, and rustup auto-installs it otherwise, so the bare
+    spelling worked everywhere it was tried. The CI container installs
+    `nightly-2026-04-11` and NO `nightly` alias, so there the bare form either
+    fails or silently fetches a different, unpinned nightly -- and rustdoc's
+    JSON is an UNSTABLE format, so "some other nightly" is not a harmless
+    substitution: its schema is what this extractor parses.
+
+    Read from `tools/rust-toolchain.toml`, where the pin already lives, so a
+    bump still moves exactly one file.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    manifest = os.path.join(root, "tools", "rust-toolchain.toml")
+    with open(manifest) as fh:
+        for line in fh:
+            m = re.match(r'\s*channel\s*=\s*"([^"]+)"', line)
+            if m:
+                return m.group(1)
+    raise RuntimeError("no `channel = \"...\"` line in " + manifest)
+
+
 def rustdoc_json(manifest_dir, with_deps, target_dir=None, extra_env=None, features=None):
     """Build rustdoc JSON for the lib target of the crate at `manifest_dir`.
 
@@ -66,7 +91,7 @@ def rustdoc_json(manifest_dir, with_deps, target_dir=None, extra_env=None, featu
     if extra_env:
         env.update(extra_env)
 
-    cmd = ["cargo", "+nightly", "doc", "--lib"]
+    cmd = ["cargo", "+" + _pinned_nightly(), "doc", "--lib"]
     if not with_deps:
         cmd.append("--no-deps")
     if features:
