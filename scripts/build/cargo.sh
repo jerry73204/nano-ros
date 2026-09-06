@@ -479,3 +479,30 @@ nros_cargo_fetch_standalone_manifests() {
 nros_ensure_central_patch() {
     NROS_REPO_DIR="${NROS_REPO_DIR:-$PWD}" "$(nros_cli_bin)" ws central-patch >/dev/null
 }
+
+# issue 1038 follow-up — ensure ONE leaf's `generated/<pkg>` message crates
+# exist, not just the central include target above.
+#
+# `nros_ensure_central_patch` closes the manifest-parse failure for a leaf
+# whose `.cargo/config.toml` only reaches `nros-patch.toml`. A leaf that ALSO
+# patches a message crate (any `std_msgs = { path = "generated/std_msgs" }`
+# row — RFC-0067) fails the SAME way one path deeper: cargo cannot read a
+# `generated/` dir that was never materialised, central table or not. Measured
+# by reproducing it (`cargo metadata` on `examples/qemu-riscv64-threadx/rust/
+# talker` after `nros ws central-patch` alone: parse still fails, now on
+# `generated/std_msgs/Cargo.toml`).
+#
+# Every OTHER lane's rust leaves reach `fixtures-build.sh`'s cargo-row path,
+# which pre-syncs each row directory once before it fans out
+# (`nros_presync_row_dirs`). `threadx-riscv64`'s six rust roles build through
+# Corrosion/CMake instead (`nros_threadx_rv64_rust_app` /
+# `nros_cmake_fixture_build`), a seam `fixtures-build.sh` never runs for them,
+# so nothing there ever synced them.
+#
+# `nros sync <dir>` is a strict superset of `ws central-patch` — same central
+# table, plus the leaf's own `generated/` crates — so this is the ONE call a
+# CMake-driven message-dependent leaf needs, not two. Idempotent.
+nros_ensure_leaf_synced() {
+    local dir="$1"
+    NROS_REPO_DIR="${NROS_REPO_DIR:-$PWD}" "$(nros_cli_bin)" sync "$dir" >/dev/null
+}
