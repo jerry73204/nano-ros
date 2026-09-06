@@ -239,18 +239,129 @@ function(_nros_json_strlist out_var)
     set(${out_var} "${_acc}" PARENT_SCOPE)
 endfunction()
 
-# Issue 1003 — derive the RTOS entry template's family holes from the family
-# NAME, so a family is named once and everything else follows.
+# ---------------------------------------------------------------------------
+# _nros_node_register_entry_tu(<board> <lang> <out_path>)   (phase-432 W2.6)
+#
+# Generate the single-node entry TU through the SHARED entry pack.
+#
+# This replaces ten `configure_file()` calls on six
+# `cmake/templates/*_entry_main*.cpp.in` templates. Those templates were a
+# SECOND PRODUCER of the entry TU — the `nros build` path emits the same
+# artifact from `codegen/entry/templates/cpp_entry.cpp.jinja` — and they
+# drifted exactly as a second producer does. Issue 1003: ten of them called
+# `run_components(&__nros_entry_setup)`, binding the delegating overload that
+# hard-codes `"node"`, so every image built through `nano_ros_add_node`
+# registered under one name and the XRCE client key collided. It lived from
+# 2026-06-13 to 2026-09-03 beside the correct sibling.
+#
+# The templates could not simply MOVE into the pack: `configure_file` does
+# `@VAR@` substitution and nothing else, so it cannot render a jinja template.
+# One renderer had to win, and minijinja is the one that can express a shape
+# `@VAR@` cannot — which is why the retired templates pushed their single
+# variable axis (`@NROS_ENTRY_SHAPE_RCLCPP@`) into a C PREPROCESSOR branch and
+# could express no other.
+#
+# The node's facts cross as ARGUMENTS, not as a synthesised `SystemModel`: a
+# model is a build artifact of `nros sync`, never hand-authored, and a
+# cmake-side YAML writer would trade a duplicated template for a duplicated IR.
+# `nros codegen entry-node` builds the one-node plan in Rust — the same shape
+# the metadata probe already used (`render_probe_main`).
+#
+# The CLI is not a new dependency for this path: every in-tree package reaching
+# it declares message deps, so `nros_find_interfaces` already shells out to
+# `nros` at configure time.
+# ---------------------------------------------------------------------------
+function(_nros_node_register_entry_tu _board _lang _out)
+    nros_resolve_cli(_nre_cli CONTEXT "nano_ros_node_register(TYPED) entry TU")
+
+    set(_nre_args
+        codegen entry-node
+        --lang "${_lang}"
+        --board "${_board}"
+        # Issue 1017 — the SESSION name, and it comes from the node's own name.
+        # A constant here would give every image built through this verb the
+        # same name, which is issue 1003's collision with the emitter left
+        # correct. `NROS_ENTRY_NODE_NAME` is set ONCE, at the top of
+        # `nano_ros_node_register`, from `${_NRC_NAME}`.
+        --node-name "${NROS_ENTRY_NODE_NAME}"
+        --pkg-sym "${NROS_ENTRY_PKG_SYM}"
+        --out "${_out}")
+    if(_lang STREQUAL "cpp")
+        list(APPEND _nre_args
+            --class "${NROS_ENTRY_CLASS}"
+            --header "${NROS_ENTRY_CLASS_HEADER}")
+        # `NROS_ENTRY_SHAPE_RCLCPP` was a 0/1 the template turned into a
+        # preprocessor branch. The branch is now taken in Rust, so the flag
+        # carries the shape by name and only the live arm is emitted.
+        if(NROS_ENTRY_SHAPE_RCLCPP)
+            list(APPEND _nre_args --shape rclcpp)
+        else()
+            list(APPEND _nre_args --shape configure)
+        endif()
+    endif()
+
+    execute_process(
+        COMMAND "${_nre_cli}" ${_nre_args}
+        RESULT_VARIABLE _nre_rc
+        OUTPUT_VARIABLE _nre_out
+        ERROR_VARIABLE _nre_err)
+    if(NOT _nre_rc EQUAL 0)
+        message(FATAL_ERROR
+            "nano_ros_node_register(${NROS_ENTRY_NODE_NAME}): "
+            "`nros codegen entry-node` failed (rc=${_nre_rc}).\n"
+            "  CLI: ${_nre_cli} ${_nre_args}\n"
+            "  stdout: ${_nre_out}\n"
+            "  stderr: ${_nre_err}")
+    endif()
+
+    # Issue 1018 — a CONFIGURE-time emitter has no `DEPENDS` to carry its tool.
+    # `execute_process` has already run by the time ninja decides anything, so
+    # the freshness of what it emits reduces to *does a configure happen*. The
+    # tool goes in `CMAKE_CONFIGURE_DEPENDS`; this is the one spelling of that.
+    nros_codegen_tool_reconfigure("${_nre_cli}")
+endfunction()
+
+# ---------------------------------------------------------------------------
+# _nros_node_register_bake_locator(<target>)                (phase-432 W2.6)
+#
+# Bake the resolved connect locator onto the carrier target.
+#
+# The retired templates SUBSTITUTED it (`"@NROS_ENTRY_LOCATOR@"` became a
+# string literal in the TU); the shared emitter writes the MACRO, which is what
+# `nano_ros_entry`'s lane has always done and what `<nros/main.hpp>` documents
+# (it carries the per-transport defaults behind `#ifndef NROS_ENTRY_LOCATOR`).
+# So the value moves from a configure-time substitution to a compile
+# definition, and the resolved string is unchanged — `_nros_resolve_entry_locator`
+# is still the one producer (issue 0946).
+#
+# Called right after `add_executable`, BEFORE `nros_platform_link_app`: on NuttX
+# the board overlay ferries the target's COMPILE_DEFINITIONS into the cargo
+# cc-rs kernel build at CONFIGURE time, so a definition added later never
+# reaches the entry TU and the image dials the header default instead of the
+# host router.
+#
+# Native is exempt: the host board resolves its locator at run time
+# (`$NROS_LOCATOR`), so its `run_components` takes no locator at all. Zephyr is
+# exempt: its locator threads through `CONFIG_NROS_ZENOH_LOCATOR`, which is
+# exactly the `#ifndef` default the header picks up.
+# ---------------------------------------------------------------------------
+function(_nros_node_register_bake_locator _target)
+    if(NOT TARGET ${_target})
+        message(FATAL_ERROR
+            "_nros_node_register_bake_locator: '${_target}' is not a target")
+    endif()
+    target_compile_definitions(${_target} PRIVATE
+        "NROS_ENTRY_LOCATOR=\"${NROS_ENTRY_LOCATOR}\"")
+endfunction()
+
+# Issue 1003 — derive the RTOS board class from the family NAME, so a family is
+# named once and everything else follows.
 #
 # NuttX, ThreadX and FreeRTOS all boot the same way (the board's `startup.c`
-# owns `main` and dispatches to `nros_app_main`), so they share ONE entry
-# template, `templates/rtos_entry_main{,_c}_typed.cpp.in`. They used to have
-# three near-identical templates apiece; the copies differed only in these
-# three tokens, which is exactly the duplication issue 1003 is about — a fix
-# applied to one copy leaves the others wrong AND plausible.
-#
-# Every value below is COMPUTED from `_fam`. A table would be a second place
-# to forget a family.
+# owns `main` and dispatches to `nros_app_main`). They used to have three
+# near-identical entry templates apiece, then one shared template; now the
+# emitter derives the boot shape from the board key and this macro survives for
+# the FreeRTOS app-config TU, which is still a `configure_file` template.
 macro(_nros_rtos_entry_family _fam)
     set(NROS_ENTRY_RTOS_TAG "${_fam}")
     string(TOUPPER "${_fam}" NROS_ENTRY_RTOS_UPPER)
@@ -683,17 +794,13 @@ function(nano_ros_node_register)
             if(_nrc_lang STREQUAL "CPP")
                 set(NROS_ENTRY_CLASS "${_NRC_CLASS}")
                 set(NROS_ENTRY_CLASS_HEADER "${_nrc_header}")
-                configure_file(
-                    "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_typed.cpp.in"
-                    "${_entry_src}" @ONLY)
+                _nros_node_register_entry_tu(nuttx cpp "${_entry_src}")
             elseif(_nrc_lang STREQUAL "C")
                 # Phase 240.4 — C typed component. The entry TU is C++ but
                 # constructs the C component via its `__nros_c_component_<pkg>_*`
                 # factory/configure seam (NROS_C_COMPONENT). `NROS_ENTRY_PKG_SYM`
                 # is already set above to the sanitized pkg.
-                configure_file(
-                    "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_c_typed.cpp.in"
-                    "${_entry_src}" @ONLY)
+                _nros_node_register_entry_tu(nuttx c "${_entry_src}")
             else()
                 message(FATAL_ERROR
                     "nano_ros_node_register(TYPED): NuttX carrier supports "
@@ -721,6 +828,7 @@ function(nano_ros_node_register)
         # COMPILE_DEFINITIONS → APP_COMPILE_DEFS forwarding (Phase 238).
         target_compile_definitions(${PROJECT_NAME} PRIVATE
             NROS_PKG_NAME=${_pkg_sym})
+        _nros_node_register_bake_locator(${PROJECT_NAME})
         if(TARGET NanoRos::NanoRosCpp)
             target_link_libraries(${PROJECT_NAME} PRIVATE NanoRos::NanoRosCpp)
         elseif(TARGET NanoRos::NanoRos)
@@ -780,13 +888,9 @@ function(nano_ros_node_register)
         if(_nrc_lang STREQUAL "CPP")
             set(NROS_ENTRY_CLASS "${_NRC_CLASS}")
             set(NROS_ENTRY_CLASS_HEADER "${_nrc_header}")
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(threadx cpp "${_entry_src}")
         else() # C
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_c_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(threadx c "${_entry_src}")
         endif()
 
         add_executable(${PROJECT_NAME} "${_entry_src}" ${_NRC_SOURCES})
@@ -795,6 +899,7 @@ function(nano_ros_node_register)
             "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_compile_definitions(${PROJECT_NAME} PRIVATE
             NROS_PKG_NAME=${_pkg_sym})
+        _nros_node_register_bake_locator(${PROJECT_NAME})
         if(TARGET NanoRos::NanoRosCpp)
             target_link_libraries(${PROJECT_NAME} PRIVATE NanoRos::NanoRosCpp)
         elseif(TARGET NanoRos::NanoRos)
@@ -889,13 +994,9 @@ function(nano_ros_node_register)
         if(_nrc_lang STREQUAL "CPP")
             set(NROS_ENTRY_CLASS "${_NRC_CLASS}")
             set(NROS_ENTRY_CLASS_HEADER "${_nrc_header}")
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(freertos cpp "${_entry_src}")
         else() # C
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/rtos_entry_main_c_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(freertos c "${_entry_src}")
         endif()
 
         # NROS_APP_CONFIG definition TU (network + scheduling) for startup.c.
@@ -919,6 +1020,7 @@ function(nano_ros_node_register)
             "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_compile_definitions(${PROJECT_NAME} PRIVATE
             NROS_PKG_NAME=${_pkg_sym})
+        _nros_node_register_bake_locator(${PROJECT_NAME})
         if(TARGET NanoRos::NanoRosCpp)
             target_link_libraries(${PROJECT_NAME} PRIVATE NanoRos::NanoRosCpp)
         elseif(TARGET NanoRos::NanoRos)
@@ -986,21 +1088,17 @@ function(nano_ros_node_register)
         set(NROS_ENTRY_SHAPE_RCLCPP "${_nrc_shape_rclcpp}")
         set(_entry_dir "${CMAKE_CURRENT_BINARY_DIR}/nros-entry")
         set(_entry_src "${_entry_dir}/main.cpp")
-        # `CMAKE_CURRENT_FUNCTION_LIST_DIR` (CMake ≥3.17) resolves to THIS module's
-        # dir regardless of include context — unlike the captured
-        # `_NROS_NODE_REGISTER_DIR`, which is empty when the module is reached
-        # through a workspace add_subdirectory chain (the 244.C4 workspace-subdir
-        # bug: `configure_file` resolved a bogus `/templates/...` root path).
+        # phase-432 W2.6 — the 244.C4 workspace-subdir bug that made this branch
+        # reach for `CMAKE_CURRENT_FUNCTION_LIST_DIR` (an empty
+        # `_NROS_NODE_REGISTER_DIR` resolving a bogus `/templates/...` root
+        # path) cannot recur: the emitter is a BINARY resolved by
+        # `nros_resolve_cli`, not a path relative to this module.
         if(_nrc_lang STREQUAL "CPP")
             set(NROS_ENTRY_CLASS "${_NRC_CLASS}")
             set(NROS_ENTRY_CLASS_HEADER "${_nrc_header}")
-            configure_file(
-                "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/templates/native_entry_main_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(native cpp "${_entry_src}")
         else() # C
-            configure_file(
-                "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/templates/native_entry_main_c_typed.cpp.in"
-                "${_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(native c "${_entry_src}")
         endif()
 
         add_executable(${PROJECT_NAME} "${_entry_src}" ${_NRC_SOURCES})
@@ -1056,24 +1154,25 @@ function(nano_ros_node_register)
                 "declarative-register entry is not generated on Zephyr.")
         endif()
         set(_zephyr_entry_src "${CMAKE_CURRENT_BINARY_DIR}/nros-entry/zephyr_entry_main.cpp")
+        # phase-432 W2.6 — hoisted out of the C arm, where it alone used to
+        # live, to match the other four carrier branches. The sanitized pkg
+        # name is the infix of the C component's
+        # `__nros_c_component_<pkg>_{create,configure}` seam and is what the
+        # C source was compiled with (`-DNROS_PKG_NAME=`); a C++ node carries
+        # it harmlessly, and setting it in one place beats a fifth spelling.
+        string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _pkg_sym "${PROJECT_NAME}")
+        set(NROS_ENTRY_PKG_SYM "${_pkg_sym}")
         if(_nrc_lang STREQUAL "CPP")
             set(NROS_ENTRY_CLASS "${_NRC_CLASS}")
             set(NROS_ENTRY_CLASS_HEADER "${_nrc_header}")
             set(NROS_ENTRY_SHAPE_RCLCPP "${_nrc_shape_rclcpp}")
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/zephyr_entry_main_typed.cpp.in"
-                "${_zephyr_entry_src}" @ONLY)
+            _nros_node_register_entry_tu(zephyr cpp "${_zephyr_entry_src}")
         else()
             # Phase 244.C2 — Zephyr C typed carrier (mirrors the NuttX C path).
             # The entry TU is C++ but constructs the C component via its
             # `__nros_c_component_<pkg>_*` factory/configure seam
-            # (NROS_C_COMPONENT); `NROS_ENTRY_PKG_SYM` is the sanitized pkg name
-            # the C source was compiled with.
-            string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _pkg_sym "${PROJECT_NAME}")
-            set(NROS_ENTRY_PKG_SYM "${_pkg_sym}")
-            configure_file(
-                "${_NROS_NODE_REGISTER_DIR}/templates/zephyr_entry_main_c_typed.cpp.in"
-                "${_zephyr_entry_src}" @ONLY)
+            # (NROS_C_COMPONENT).
+            _nros_node_register_entry_tu(zephyr c "${_zephyr_entry_src}")
         endif()
         # Idempotency marker — guard one entry TU per Node pkg (re-runnable
         # configure). PROJECT_NAME is the Node pkg (its own project()), so the

@@ -468,6 +468,69 @@ fn cases() -> Vec<(&'static str, Plan, Lang)> {
     }
     out.push(("cpp_native_time_slice_refused", ts, Lang::Cpp));
 
+    // ---------------------------------------------------------------------
+    // phase-432 W2.6 — the `nano_ros_node_register` path.
+    //
+    // These ten rows are the artifact that had NO golden at all, which is half
+    // of why issue 1003 lived for three months: the six
+    // `cmake/templates/*_entry_main*.cpp.in` were rendered by `configure_file`,
+    // so what an image actually compiled existed only inside a build dir.
+    //
+    // The plan comes from `RegisteredNode::plan()` — the same synthesis the
+    // `entry-node` verb runs — and renders through `Lang::Cpp` because
+    // `RegisteredNode::emit()` IS `emit_cpp::emit_typed`. That routing is
+    // asserted in `registered_node`'s own tests rather than here, so a change
+    // to it fails there loudly instead of silently re-recording bytes.
+    //
+    // Five boards x two languages: every boot shape (host / kernel / app) and
+    // both component seams (the C++ class, the C factory/configure pair).
+    for board in ["native", "zephyr", "nuttx", "threadx", "freertos"] {
+        let cpp_node = super::registered_node::RegisteredNode {
+            board: board.into(),
+            node_name: "talker".into(),
+            pkg_sym: "talker_pkg".into(),
+            language: "cpp".into(),
+            class: Some("talker_pkg::Talker".into()),
+            header: Some("talker_pkg/Talker.hpp".into()),
+            shape: Some("configure".into()),
+        };
+        out.push((
+            Box::leak(format!("node_register_{board}_cpp").into_boxed_str()),
+            cpp_node.plan(),
+            Lang::Cpp,
+        ));
+
+        let c_node = super::registered_node::RegisteredNode {
+            board: board.into(),
+            node_name: "listener".into(),
+            pkg_sym: "listener_pkg".into(),
+            language: "c".into(),
+            class: None,
+            header: None,
+            shape: None,
+        };
+        out.push((
+            Box::leak(format!("node_register_{board}_c").into_boxed_str()),
+            c_node.plan(),
+            Lang::Cpp,
+        ));
+    }
+
+    // The rclcpp shape — `@NROS_ENTRY_SHAPE_RCLCPP@` in the retired templates,
+    // where BOTH arms sat in the TU behind a preprocessor branch. One board is
+    // enough: the shape selects the component body, and the board selects the
+    // boot wrapper, which the ten rows above already cover.
+    let rclcpp = super::registered_node::RegisteredNode {
+        board: "native".into(),
+        node_name: "talker".into(),
+        pkg_sym: "talker_pkg".into(),
+        language: "cpp".into(),
+        class: Some("talker_pkg::Talker".into()),
+        header: Some("talker_pkg/Talker.hpp".into()),
+        shape: Some("rclcpp".into()),
+    };
+    out.push(("node_register_native_rclcpp", rclcpp.plan(), Lang::Cpp));
+
     out
 }
 

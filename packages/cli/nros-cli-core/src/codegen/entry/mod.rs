@@ -49,6 +49,8 @@ pub mod metadata;
 /// phase-432 W2.4 — the shared Rust-entry parity corpus, this side.
 #[cfg(test)]
 mod parity;
+
+pub mod registered_node;
 mod render;
 
 /// The entry emitters' target language.

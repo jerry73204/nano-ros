@@ -246,10 +246,55 @@ to remove.
   layout the renderer shipped with. One convention or it drifts, which is the
   whole point.
 
-- **W2.6 — the CMake templates become a pack.** `cmake/templates/*_entry_main*`
-  render the same artifact from cmake variables. Phase-416 already collapsed
-  six into one parameterised RTOS template; `check-entry-session-name` is what
-  holds the two producers together until this lands.
+- **W2.6 — the CMake templates become a pack. LANDED.** The six
+  `cmake/templates/*_entry_main*.cpp.in` are DELETED;
+  `nano_ros_node_register()` calls `nros codegen entry-node`, which synthesises
+  a one-node `Plan` in Rust (`codegen/entry/registered_node.rs`) and renders the
+  SAME `cpp_entry.cpp.jinja` the `nros build` path uses.
+
+  **Why not "move the templates into the pack".** `configure_file` does `@VAR@`
+  substitution and nothing else, so it cannot render a jinja template — one
+  renderer had to win. That is why the retired templates pushed their single
+  variable axis (`@NROS_ENTRY_SHAPE_RCLCPP@`) into a C preprocessor branch and
+  could express no other; minijinja can express the shape, so it is the one that
+  survives. Keeping six pack templates rendered through `nros` would pay the
+  whole cost of the CLI dependency and buy none of the unification.
+
+  **Why not a synthesised `SystemModel`.** That trades a duplicated TEMPLATE for
+  a duplicated IR. A model is a build artifact of `nros sync`, never
+  hand-authored, and `plan_from_model` additionally requires an
+  `execution.deploy` slice that a single registered node does not have and would
+  have to invent. The facts cross as ARGUMENTS and the synthesis lives in Rust —
+  the shape `render_probe_main` already used for the metadata probe.
+
+  **Cost, measured:** all 13 in-tree packages reaching this path declare message
+  deps, so `nros_find_interfaces` already shells out to `nros` at configure time.
+  The CLI is a new dependency for none of them.
+
+  **Corrected counts.** This doc said `NanoRosNodeRegister.cmake` had FOUR call
+  sites selecting `*_entry_main_c_typed.cpp.in`; there were FIVE (native,
+  zephyr, nuttx, threadx, freertos), and TEN entry-template `configure_file`
+  calls in all — five platform blocks x two languages.
+
+  **`check-entry-session-name` is REDUCED, not deleted.** Its "compare two
+  producers" half is retired because there is one producer, but three things it
+  guards are not subsumed: the one-argument delegating overload in
+  `<nros/main.hpp>` is still reachable and `cpp_boot_wrapper.cpp.jinja` still
+  writes the call by hand; the name must still come FROM the node, which is a
+  CMake-side property the pack cannot state; and the `--node-name` argument must
+  actually be passed. It also now refuses a resurrected
+  `cmake/templates/*_entry_main*`.
+
+  **Behavioural change, deliberate.** Images built through the verb now carry the
+  `.nros_boot_config` blob (they had none) and take their session name from it
+  rather than from a substituted literal. The RTOS families get
+  `NROS_ENTRY_LOCATOR` as a compile definition instead of a substituted string —
+  the same spelling `nano_ros_entry` has always used, resolved by the same
+  `_nros_resolve_entry_locator` (issue 0946). Two diagnostics are LOST: the
+  `NROS_<FAM>_ENTRY_DEBUG` printf and the Zephyr C entry's issue-0157 loud
+  failure print. The launch lane never had either, so this makes the two paths
+  agree; restoring the loud print to the shared boot wrapper is a separate
+  change because it moves every Zephyr golden.
 
 **Acceptance.** `LoweredEntry` carries no rendered text; a third language is
 renderable without a Stage 2 change; the proc-macro and the CLI share lowering
@@ -332,13 +377,22 @@ settled work.
 
   **Blocking sites for deleting the routing branch** (`cmd/codegen.rs:281-295`),
   found by enumeration rather than guess: `NanoRosEntry.cmake`'s `.cpp`
-  extension override and its `_lang_tag`; **`NanoRosNodeRegister.cmake`'s FOUR
-  call sites** selecting `*_entry_main_c_typed.cpp.in` — the largest site, and
-  one this doc did not previously name, though W2.6 folding those into the pack
-  would remove it; `emit_c.rs` + `c_entry.c.jinja`, which hardcode
-  `nros_board_native_*` for every board; the two prerequisites above; and
-  `check-entry-session-name.py`'s `PRODUCERS`, which errors if a listed glob
+  extension override and its `_lang_tag`; ~~`NanoRosNodeRegister.cmake`'s call
+  sites selecting `*_entry_main_c_typed.cpp.in`~~ — **CLEARED by W2.6**, which
+  deleted those templates (there were FIVE such sites, not four, across ten
+  entry-template `configure_file` calls); `emit_c.rs` + `c_entry.c.jinja`, which
+  hardcode `nros_board_native_*` for every board; the two prerequisites above;
+  and `check-entry-session-name.py`'s `PRODUCERS`, which errors if a listed glob
   matches nothing.
+
+  On that third one, W2.6 supplies a measurement rather than a guess: the C
+  emitter is BOARD-BLIND, and the goldens say so in bytes.
+  `c_zephyr_one.c.golden` and `c_freertos_one.c.golden` both emit
+  `nros_board_native_run_components_named` and a host `int main(int argc, char**
+  argv)`. Nothing ships from that path today — the node-register lane now routes
+  every board through the C++ emitter, and the launch lane already routed
+  embedded C there — so the blindness is latent, not live. It becomes live the
+  moment the routing branch is deleted, which is exactly what W3.1 proposes.
 
 - **W3.1b — the surface decision, written down.** RFC-0091 §6 — a pack is a
   (language x SURFACE), not a language: Rust has FOUR packs and the `cpp` pack

@@ -5,7 +5,7 @@
 /// service on `/add_two_ints`; the real handler decodes the CDR request
 /// (int64 a, b) and writes the CDR reply (int64 sum). `NROS_C_COMPONENT` emits
 /// the C-ABI factory + configure seam the Zephyr typed Entry carrier
-/// (`zephyr_entry_main_c_typed.cpp.in`) drives. No interpreter synthesis.
+/// (the shared entry pack) drives. No interpreter synthesis.
 
 #include <stddef.h>
 #include <stdint.h>

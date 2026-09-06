@@ -17,7 +17,7 @@ if(CONFIG_NROS_RMW_CYCLONEDDS)
 endif()
 
 # TYPED component (RFC-0043 / phase-244.C2). The Zephyr typed carrier branch
-# (LANGUAGE C) configure_files `zephyr_entry_main_c_typed.cpp.in` (a C++ entry
+# (LANGUAGE C) generates the entry TU through the shared pack (a C++ entry
 # that drives the C component's NROS_C_COMPONENT factory/configure seam) +
 # compiles src/FibonacciClient.c into the global `app`. No hand-written main.c.
 find_package(nano_ros REQUIRED)

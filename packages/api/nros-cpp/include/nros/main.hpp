@@ -421,9 +421,11 @@ class NuttxBoard {
 
     /// Run the Entry-pkg lifecycle on a NuttX board with an explicit
     /// connect `locator`. The bootable-ELF carrier
-    /// (`nano_ros_node_register` NuttX branch) bakes the locator into the
-    /// generated entry TU (`configure_file` of
-    /// `cmake/templates/nuttx_entry_main.cpp.in`) because — unlike Zephyr's
+    /// (`nano_ros_node_register` NuttX branch) bakes the locator as a compile
+    /// definition on the carrier target, which this macro's `#ifndef` default
+    /// below then yields to (phase-432 W2.6 — the entry TU comes from the
+    /// shared pack and reads the MACRO; it used to be a `configure_file`
+    /// substitution into a per-family template) because — unlike Zephyr's
     /// `CONFIG_NET_CONFIG_AUTO_INIT` peer discovery — the QEMU slirp guest
     /// must dial the host zenoh router explicitly (`tcp/10.0.2.2:<port>`),
     /// mirroring the Rust `*_entry` pkg's `[…entry] locator = …` bake.

@@ -468,10 +468,22 @@ Rendering through the pack instead (parse text -> `TokenStream`) was considered
 and rejected: it compiles `minijinja` into every user's entry build, which is
 the dependency weight that created this duplication once already.
 
-**The CMake templates become a pack.** Phase-416 already collapsed six into one
-parameterised RTOS template; `check-entry-session-name` gates both producers for
-the fact that drifted. Until they are a pack, that gate is what holds them
-together.
+**The CMake templates become a pack.** DONE — phase-432 W2.6. The six
+`cmake/templates/*_entry_main*.cpp.in` are deleted; `nano_ros_node_register()`
+calls `nros codegen entry-node`, which synthesises a one-node `Plan` and renders
+the same pack.
+
+Note what this settles about the boundary: the templates could not simply move,
+because `configure_file` substitutes `@VAR@` and cannot render a jinja template.
+When two build systems render one artifact, ONE renderer wins and the other
+becomes a caller — the loser's facts cross as arguments. That is the general
+shape for any future producer, not a detail of this one.
+
+`check-entry-session-name` survives in reduced form. With one producer it no
+longer compares two spellings, but the one-argument delegating overload it
+guards against is still declared in `<nros/main.hpp>` and still written by hand
+in `cpp_boot_wrapper.cpp.jinja`; and "the name comes FROM the node" is a
+CMake-side property no pack can state about itself.
 
 ---
 

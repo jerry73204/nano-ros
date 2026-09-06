@@ -73,6 +73,65 @@ pub enum Sub {
     /// subcommand at configure time; the Rust `nros::main!()` proc-
     /// macro is the in-process equivalent for cargo workspaces.
     Entry(EntryArgs),
+
+    /// phase-432 W2.6 — the entry TU for ONE registered node.
+    ///
+    /// `nano_ros_node_register()` builds an image from a single
+    /// component and has no launch tree, so it cannot pass a
+    /// `--model`. It passes the node's facts instead, and Rust
+    /// synthesises the one-node plan (see
+    /// [`entry_codegen::registered_node`]).
+    ///
+    /// This exists so the verb stops rendering its OWN copy of the
+    /// entry TU. It used to `configure_file()` one of six
+    /// `cmake/templates/*_entry_main*.cpp.in` — a second producer of
+    /// one artifact, which is how issue 1003's missing session name
+    /// lived for three months beside a correct sibling.
+    #[command(name = "entry-node")]
+    EntryNode(EntryNodeArgs),
+}
+
+/// phase-432 W2.6 — one registered node's facts, as `nano_ros_node_register()`
+/// knows them. Each flag was a `@VAR@` substitution in a retired template.
+#[derive(Debug, ClapArgs)]
+pub struct EntryNodeArgs {
+    /// `c` or `cpp` — the COMPONENT's language. The emitted TU is C++
+    /// either way; a C component is reached through its
+    /// `NROS_C_COMPONENT` factory/configure seam.
+    #[arg(long, value_name = "LANG")]
+    pub lang: String,
+
+    /// Board key: `native`, `zephyr`, `nuttx`, `threadx`, `freertos`.
+    /// Selects the board class and the boot shape.
+    #[arg(long, value_name = "KEY", default_value = "native")]
+    pub board: String,
+
+    /// The node's own name — and therefore the SESSION name. Issue 1003
+    /// is what happens when this does not reach the emitted call.
+    #[arg(long, value_name = "NAME")]
+    pub node_name: String,
+
+    /// Sanitized package symbol; the infix of
+    /// `__nros_c_component_<pkg>_{create,configure}`. Must match the
+    /// `-DNROS_PKG_NAME=` the component TU was compiled with.
+    #[arg(long, value_name = "SYM")]
+    pub pkg_sym: String,
+
+    /// Fully-qualified component class (C++ only).
+    #[arg(long, value_name = "NS::CLASS")]
+    pub class: Option<String>,
+
+    /// Header to `#include` for `--class` (C++ only).
+    #[arg(long, value_name = "PATH")]
+    pub header: Option<String>,
+
+    /// `rclcpp` (the component IS-A node) or `configure` (C++ only).
+    #[arg(long, value_name = "SHAPE")]
+    pub shape: Option<String>,
+
+    /// Where to write the generated TU.
+    #[arg(long, value_name = "PATH")]
+    pub out: PathBuf,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -182,6 +241,7 @@ pub fn run(args: Args) -> Result<()> {
             super::codegen_cyclonedds_descriptors::run(sub_args)
         }
         Some(Sub::Entry(sub_args)) => run_entry(sub_args),
+        Some(Sub::EntryNode(sub_args)) => run_entry_node(sub_args),
         None => {
             let Some(args_file) = args.args_file else {
                 bail!("nros codegen: --args-file is required (or use a subcommand)");
@@ -213,8 +273,6 @@ pub fn run(args: Args) -> Result<()> {
 
 /// `nros codegen entry --lang {rust|c|cpp}` — Phase 219.A/B/C.
 fn run_entry(args: EntryArgs) -> Result<()> {
-    use std::fs;
-
     let lang = entry_codegen::Lang::parse(&args.lang)?;
 
     // R-code.1 — `--args` was a launch-arm concept (launch-time `<arg>`
@@ -335,18 +393,7 @@ fn run_entry(args: EntryArgs) -> Result<()> {
         }
     };
 
-    // Atomic-ish write: only touch `out` when the contents actually
-    // change, so cmake's mtime-based dependency tracking doesn't
-    // spuriously rebuild downstream targets.
-    let existing = fs::read_to_string(&args.out).ok();
-    if existing.as_deref() != Some(src.as_str()) {
-        if let Some(parent) = args.out.parent() {
-            fs::create_dir_all(parent)
-                .wrap_err_with(|| format!("create parent `{}`", parent.display()))?;
-        }
-        fs::write(&args.out, &src)
-            .wrap_err_with(|| format!("write generated TU `{}`", args.out.display()))?;
-    }
+    write_generated_tu(&args.out, &src)?;
 
     if let Some(depfile) = args.depfile.as_ref() {
         entry_codegen::write_depfile(&args.out, &plan.depfile_paths, depfile)?;
@@ -357,6 +404,81 @@ fn run_entry(args: EntryArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Write-if-changed for a generated TU.
+///
+/// Only touch `out` when the contents actually change, so cmake's mtime-based
+/// dependency tracking does not spuriously rebuild every downstream target on a
+/// re-configure. Shared by both entry verbs — the property is about the build
+/// graph, not about which producer wrote the bytes, and a second spelling of it
+/// is how one of them ends up merely truncating the file.
+fn write_generated_tu(out: &std::path::Path, src: &str) -> Result<()> {
+    use std::fs;
+
+    let existing = fs::read_to_string(out).ok();
+    if existing.as_deref() != Some(src) {
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent)
+                .wrap_err_with(|| format!("create parent `{}`", parent.display()))?;
+        }
+        fs::write(out, src).wrap_err_with(|| format!("write generated TU `{}`", out.display()))?;
+    }
+    Ok(())
+}
+
+/// `nros codegen entry-node` — phase-432 W2.6.
+///
+/// The `nano_ros_node_register()` path. It renders through the SAME templates
+/// as `nros build`; the only difference is where the one-node plan comes from.
+fn run_entry_node(args: EntryNodeArgs) -> Result<()> {
+    use entry_codegen::registered_node::RegisteredNode;
+
+    // Validate the language against the one parser, rather than testing the
+    // string here — a second spelling of "which languages exist" is exactly
+    // what phase-432 is deleting.
+    match entry_codegen::Lang::parse(&args.lang)? {
+        entry_codegen::Lang::C | entry_codegen::Lang::Cpp => {}
+        entry_codegen::Lang::Rust => bail!(
+            "codegen entry-node: --lang rust is not this verb's shape — a Rust \
+             component registers through `nano_ros_node_register(LANGUAGE RUST)` \
+             against its Cargo.toml and boots via `nros::main!`, which is the \
+             in-process emitter"
+        ),
+    }
+
+    // A C++ component needs its class and header, and a C one must not carry
+    // them: `class_name` is what selects the component-object shape in the
+    // emitter, so a C node that supplied one would silently emit a C++ body
+    // against a struct that has no `configure` member. Refuse rather than emit.
+    let is_cpp = args.lang != "c";
+    if is_cpp && (args.class.is_none() || args.header.is_none()) {
+        bail!(
+            "codegen entry-node --lang {}: --class and --header are required \
+             (the entry constructs the component object by name)",
+            args.lang
+        );
+    }
+    if !is_cpp && (args.class.is_some() || args.header.is_some()) {
+        bail!(
+            "codegen entry-node --lang c: --class/--header do not apply — a C \
+             component is reached through its `NROS_C_COMPONENT` \
+             factory/configure seam, keyed on --pkg-sym"
+        );
+    }
+
+    let node = RegisteredNode {
+        board: args.board,
+        node_name: args.node_name,
+        pkg_sym: args.pkg_sym,
+        language: args.lang,
+        class: args.class,
+        header: args.header,
+        shape: args.shape,
+    };
+
+    let src = node.emit().map_err(|e| eyre!("{e}"))?;
+    write_generated_tu(&args.out, &src)
 }
 
 /// Phase 219.J — emit the `target_link_libraries` sidecar the cmake

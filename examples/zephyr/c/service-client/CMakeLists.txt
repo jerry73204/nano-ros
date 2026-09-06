@@ -3,7 +3,7 @@
 #
 # Instead of a hand-written imperative `main.c`, the node is a stateful C
 # component (`NROS_C_COMPONENT(add_client_t, client_configure)`); the Zephyr typed
-# carrier (`zephyr_entry_main_c_typed.cpp.in`, a C++ entry that drives the C
+# carrier (the shared entry pack, a C++ entry that drives the C
 # component's `__nros_c_component_<pkg>_{create,configure}` seam) generates the
 # entry + composes it into the Zephyr `app`.
 
@@ -28,7 +28,7 @@ if(CONFIG_NROS_RMW_CYCLONEDDS)
 endif()
 
 # The Zephyr typed carrier branch (LANGUAGE C) configure_files
-# `zephyr_entry_main_c_typed.cpp.in` + compiles src/AddTwoIntsClient.c with
+# the shared entry pack (`nros codegen entry-node`) + compiles src/AddTwoIntsClient.c with
 # -DNROS_PKG_NAME=<pkg sym> so its NROS_C_COMPONENT factory/configure seam links
 # against the generated entry, all into the global `app`. No second executable.
 find_package(nano_ros REQUIRED)

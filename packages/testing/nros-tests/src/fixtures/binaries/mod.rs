@@ -737,8 +737,10 @@ fn dep_info_newer_source(binary_path: &Path) -> Option<PathBuf> {
 /// among them
 ///
 ///   * `cmake/NanoRos*.cmake` — the shared modules; an edit changes every image;
-///   * `cmake/templates/zephyr_entry_main_c_typed.cpp.in` — the template that
-///     GENERATES the entry TU;
+///   * the `nros` CLI itself — since phase-432 W2.6 it GENERATES the entry TU
+///     for `nano_ros_node_register` too (`nros codegen entry-node`), which is
+///     why `nros_codegen_tool_reconfigure()` puts it in
+///     `CMAKE_CONFIGURE_DEPENDS` (issue 1018);
 ///   * `cmake/zephyr/native-sim-line-3.7.conf`, `cmake/compat/stubs/*`.
 ///
 /// A hand list cannot enumerate those without becoming a second copy of the
