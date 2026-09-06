@@ -55,13 +55,32 @@ and Rust message packs emit no `enum` at all.
   argument. The nested-struct `align` stand-in becomes an explicit named
   constant with the comment that already explains why its value cannot matter
   (`plain` is false for nested regardless).
-- **W1.2** The cross-language repr gate. Compile the generated C and the
-  generated Rust for ONE non-host target and compare `sizeof` against
-  `size_of` over a type corpus. This is the replacement for the profile and
-  must land WITH the deletion, not after: removing a model of the target
-  without adding a measurement of it is strictly worse than either.
-  Precedent and warning both: the sizes-header mirror (0088→0268), where a
-  stale one was silent memory corruption, 336 bytes short on freertos C.
+- **W1.2** The cross-language repr gate — **re-scoped by implementing W1.1**,
+  and the correction matters more than the original wording.
+
+  The first draft said "compile the generated C and the generated Rust and
+  compare sizes". Measured: the **idiomatic** generated Rust carries no
+  `repr(C)` anywhere, so it and the C header share no memory and are not
+  required to agree on layout at all — they share CDR, which is
+  target-independent by specification. Gating that pair would assert a
+  property nobody needs and that a legitimate change could break.
+
+  The pair that genuinely shares memory is the **`repr(C)` one**:
+  `packs/rmw/message.rs.jinja` and `packs/cpp/*.jinja` (both emit `repr(C)`)
+  against the C header. That is where the short-enums hazard would bite if an
+  `enum` were ever emitted, and it is what the gate must cover.
+
+  Shape: for a type corpus, emit a size probe on each side (a sized global
+  whose length is `sizeof`/`size_of`), cross-compile both for one non-host
+  target (`arm-none-eabi-gcc` + `armv7a-none-eabi` are both present on this
+  host), and compare symbol sizes — no execution needed. Skip cleanly when a
+  toolchain is absent, and mutation-test it by changing a field width on one
+  side only.
+
+  It must land WITH the deletion, not after: removing a model of the target
+  without adding a measurement of it is strictly worse than either. Precedent
+  and warning both: the sizes-header mirror (0088→0268), where a stale one was
+  silent memory corruption, 336 bytes short on freertos C.
 - **W1.3** Amend RFC-0068 in place. Already drafted as a `> **Amended by**`
   block at its Stage 2; W1.3 is confirming it reads correctly once the code is
   gone, and moving RFC-0091's own status if it is then fully implemented.
