@@ -575,6 +575,34 @@ shared-dir-churn dirs:
 phase-new slug="":
     @scripts/reserve-phase-id.sh {{slug}}
 
+# phase-375 W2/W9 — scaffold a board package.
+#
+# Onboarding used to be a scavenger hunt across the five gates `s32z270` landed
+# red on (weak symbols, board tiers, leaf lock, provider announcements, matrix
+# orphan). Each was correct; the cost was meeting them one at a time, on main.
+# The scaffold's acceptance is that a board it created is green on
+# `just check fast` before its first commit.
+#
+# `--out-of-tree <dir>` writes the same package elsewhere: a user's board and
+# ours are one shape, and which root found it is the only difference.
+#
+#   just board-new my-board --platform freertos
+#   just board-new my-board --platform zephyr --west-board plank/soc/smp
+#   just board-new my-board --platform freertos --out-of-tree ~/src/my-boards
+[group("develop")]
+board-new *ARGS:
+    #!/usr/bin/env bash
+    set -e
+    # Same resolution order every other recipe uses: an explicit $NROS_CLI, then
+    # the in-tree release build. Not PATH — a stale `~/.nros/bin/nros` shadowing
+    # the in-tree CLI is the museum-binary trap `nros_resolve_cli` documents.
+    _cli="${NROS_CLI:-packages/cli/target/release/nros}"
+    if [ ! -x "$_cli" ]; then
+        echo "board-new: no nros CLI at $_cli — run \`just setup-cli\` first." >&2
+        exit 1
+    fi
+    "$_cli" board new {{ARGS}}
+
 # Two RFC-0087s existed on 2026-09-04 — `package-identity-and-provider-format`
 # and `ros2-api-adoption-and-the-compile-or-conform-rule`, four hours apart,
 # neither session able to see the other. RFCs were the last of the three

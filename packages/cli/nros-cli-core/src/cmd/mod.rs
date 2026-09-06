@@ -11,6 +11,7 @@ use clap::Subcommand;
 
 pub mod board;
 pub mod board_facts;
+pub mod board_new;
 pub mod bringup;
 pub mod build;
 pub mod check;

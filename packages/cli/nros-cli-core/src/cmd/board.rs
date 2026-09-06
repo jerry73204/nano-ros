@@ -25,6 +25,8 @@ pub enum Args {
     List(ListArgs),
     /// Print a board's resolved descriptor as JSON.
     Info(InfoArgs),
+    /// Scaffold a new board package (phase-375 W2/W9).
+    New(crate::cmd::board_new::NewArgs),
     /// Project a board descriptor into cmake variables (RFC-0064 R5 D4).
     ///
     /// Written per configure into the build directory by
@@ -75,6 +77,7 @@ pub fn run(args: Args) -> Result<()> {
         Args::List(args) => list(args),
         Args::Info(args) => info(args),
         Args::CmakeVars(args) => cmake_vars(args),
+        Args::New(args) => crate::cmd::board_new::run(args),
     }
 }
 
