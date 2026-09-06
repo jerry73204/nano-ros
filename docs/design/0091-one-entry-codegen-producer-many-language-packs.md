@@ -343,6 +343,39 @@ and there are FOUR such views of one field — `RmwField`, `IdiomaticField`,
 fact, several authored spellings" this RFC exists to remove, one layer above
 where it was found.
 
+### Corrections from implementing W2.5a
+
+The two findings held; three details did not, and each changed the work.
+
+**The count is SIX views across FIVE surfaces, not four.** The `cpp` pack
+builds a PAIR — `CppField` for the header and `CppFfiField` for the `repr(C)`
+Rust glue — and both re-derived from the parser exactly like the other four.
+That pair is also the one the §5 memory-agreement gate exists for, so it was
+the surface least safe to leave out.
+
+**Two of the four were HALF migrated, and that mattered.** `NrosField` and
+`CField` already received the storage decision as a `FieldStorage`
+(phase-335 W1.c) and re-derived only the other fifteen facts. The
+half-migration had a shape worth naming: a `pre_storage: Option<FieldStorage>`
+parameter whose `None` meant "resolve it yourself again". An `Option` like that
+IS the second answer, kept alive as a parameter.
+
+**`align` and `plain` are NOT dropped facts.** The first finding lists four —
+`shape`, `cdr_op`, `align`, `plain` — and only the first two were wanted by a
+surface. `align` and `plain` are per-field inputs to `LoweredType::plain`,
+consumed inside `lower()`; W1.1's `NESTED_ALIGN_STANDIN` comment already says
+`align` exists only to answer plainness. They stay unread per-field on purpose,
+and the struct now says so.
+
+One thing the wave found that §6b does not mention: `element_cap` (phase-403
+W7) was folded into the field type by each storage surface separately, and
+folding it in the IR would have been wrong. It narrows STORAGE and leaves CDR
+alone, so the ROS-ABI mirror (`rmw`) must keep spelling the `.msg` type while
+`c`/`nros`/`cpp` spell the folded one. It is carried as a fact
+(`LoweredField::element_cap`) with one derivation (`storage_type()`) — two
+questions with two answers, which is not the same as one fact with two
+spellings.
+
 ### The filters are already the right shape
 
 `c_type` takes a `CTypeSpell` and returns a spelling. That IS the
