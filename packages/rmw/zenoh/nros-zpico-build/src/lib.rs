@@ -206,7 +206,84 @@ impl ShimConfig {
             build.define(name, value.as_str());
         }
     }
+
+    /// Issue 1015 — every `-D` this config emits that becomes a FIXED C ARRAY
+    /// EXTENT in `zpico.c` must be at least 1.
+    ///
+    /// Zero is not a smaller pool; it is a different kind of object. A
+    /// zero-length array is a GNU extension that compiles SILENTLY, and none of
+    /// the zpico session's pools is the last member of its struct, so a zero
+    /// changes the struct's layout instead of shrinking a table. Measured on the
+    /// reference island, which declares no service servers and therefore derived
+    /// `ZPICO_MAX_QUERYABLES = 0`: the board transmitted NOTHING in 15 s — no
+    /// panic, no log line, no fault, core in WFI. The same image at 4
+    /// transmitted 110 bytes, and every gate in the tree was green either way,
+    /// because 0 was derived correctly and delivered faithfully. Nothing asked
+    /// whether it was USABLE.
+    ///
+    /// Here as well as in cmake, and as well as in `zpico.c` itself, because
+    /// **a floor in one producer does not bind another**. This lane is reached
+    /// by builds cmake never sees — a `fixtures.toml` row's `env = { ... }`, a
+    /// shell export, a bare `cargo build` in an example leaf — and it is the
+    /// earliest point on that path that can tell. The `#error` beside the arrays
+    /// is the backstop for both.
+    ///
+    /// Reads [`ShimConfig::defines`] rather than the fields, deliberately: the
+    /// hazard belongs to what reaches the COMPILER, so a define added later is
+    /// covered by adding its name to [`C_ARRAY_EXTENT_DEFINES`] and nothing
+    /// else. `scripts/check-c-array-extent-floors.py` holds that list to the
+    /// array declarations in `zpico.c`.
+    pub fn check_c_array_extents(&self) -> Result<(), String> {
+        for (name, value) in self.defines() {
+            if !C_ARRAY_EXTENT_DEFINES.contains(&name) {
+                continue;
+            }
+            let n: i64 = value.parse().map_err(|_| {
+                format!("{name}={value} is not an integer, and it sizes a fixed C array.")
+            })?;
+            if n < 1 {
+                return Err(format!(
+                    "{name}={n} is not a usable size (issue 1015).\n  \
+                     A pool that backs a FIXED C ARRAY has a floor of ONE. Zero is not a \
+                     smaller pool — a zero-length array is a GNU extension that compiles \
+                     SILENTLY, and these are not the last member of their struct, so a zero \
+                     changes the struct's layout instead of shrinking a table.\n  \
+                     MEASURED: the image linked, every gate stayed green, and the board \
+                     transmitted 0 bytes in 15 seconds — no panic, no log, core in WFI.\n  \
+                     A zero here is almost never a deliberate zero. It is a derivation that \
+                     found nothing: the image's entity inventory resolved to an empty \
+                     declaration, so the demand summed to 0 and was delivered faithfully. \
+                     Declare the entities in the ENTITIES list of nano_ros_node_register(), \
+                     or state {name} explicitly (on Zephyr, the CONFIG_NROS_* option of the \
+                     same name)."
+                ));
+            }
+        }
+        Ok(())
+    }
 }
+
+/// Issue 1015 — the `-D` names in [`ShimConfig::defines`] that become a FIXED C
+/// ARRAY EXTENT in `zpico.c`, and therefore have a floor of one.
+///
+/// Not every knob is on this list and that is the point: `ZPICO_TX_BATCH` is a
+/// flag, `ZPICO_GET_POLL_INTERVAL_MS` is a period, and the task priorities are
+/// priorities. A floor asserted where the hazard does not exist is how a check
+/// stops meaning anything.
+///
+/// `ZPICO_MAX_PENDING_REPLIES`, `ZPICO_GRAPH_CACHE_SIZE` and `ZPICO_ZID_SIZE`
+/// are array extents too, and are absent because this producer does not supply
+/// them — the rule is that a producer floors what it SUPPLIES, and the `#error`
+/// guards in `zpico.c` cover the rest.
+pub const C_ARRAY_EXTENT_DEFINES: &[&str] = &[
+    "ZPICO_MAX_PUBLISHERS",
+    "ZPICO_MAX_SUBSCRIBERS",
+    "ZPICO_MAX_QUERYABLES",
+    "ZPICO_MAX_LIVELINESS",
+    "ZPICO_MAX_PENDING_GETS",
+    "ZPICO_MAX_SESSIONS",
+    "ZPICO_GET_REPLY_BUF_SIZE",
+];
 
 /// Buffer size configuration for zenoh-pico.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1115,5 +1192,123 @@ int32_t zpico_init(void);\n";
         assert!(is_embedded_target("riscv32imc-unknown-none-elf"));
         assert!(is_embedded_target("armv7a-nuttx-eabihf"));
         assert!(!is_embedded_target("x86_64-unknown-linux-gnu"));
+    }
+
+    /// A `ShimConfig` with every field at a legal value, for the issue-1015
+    /// tests below to mutate one field of. Written out rather than
+    /// `Default`-ed: there is no `Default` here on purpose, because every one
+    /// of these numbers is a size somebody decided.
+    fn usable_shim_config() -> ShimConfig {
+        ShimConfig {
+            max_publishers: 1,
+            max_subscribers: 1,
+            max_queryables: 1,
+            queryable_table_declared: false,
+            max_liveliness: 1,
+            max_pending_gets: 1,
+            max_sessions: 1,
+            get_reply_buf_size: 64,
+            get_poll_interval_ms: 10,
+            tx_batch: false,
+            tx_batch_flush_ms: 50,
+            read_task_priority: 16,
+            lease_task_priority: 16,
+        }
+    }
+
+    /// Issue 1015 — the floor is ONE, and one is enough.
+    ///
+    /// The direction that matters as much as the refusal: a correctly-declared
+    /// image whose derivation lands on the floor must still build. The
+    /// derivation floors at 1, so `1` is the value a real single-service image
+    /// arrives with, and a check that rejected it would trade a silent board
+    /// for a broken one.
+    #[test]
+    fn a_pool_of_one_is_a_usable_size() {
+        assert!(usable_shim_config().check_c_array_extents().is_ok());
+    }
+
+    /// A config whose one named extent is zero.
+    ///
+    /// Panics on an extent it has no case for, deliberately: a name added to
+    /// [`C_ARRAY_EXTENT_DEFINES`] without a case here would otherwise leave the
+    /// loop below iterating over one fewer field while still reporting a pass.
+    fn shim_config_with_zero(name: &str) -> ShimConfig {
+        let mut c = usable_shim_config();
+        match name {
+            "ZPICO_MAX_PUBLISHERS" => c.max_publishers = 0,
+            "ZPICO_MAX_SUBSCRIBERS" => c.max_subscribers = 0,
+            "ZPICO_MAX_QUERYABLES" => c.max_queryables = 0,
+            "ZPICO_MAX_LIVELINESS" => c.max_liveliness = 0,
+            "ZPICO_MAX_PENDING_GETS" => c.max_pending_gets = 0,
+            "ZPICO_MAX_SESSIONS" => c.max_sessions = 0,
+            "ZPICO_GET_REPLY_BUF_SIZE" => c.get_reply_buf_size = 0,
+            other => panic!(
+                "{other} is listed as a C array extent but this test has no way \
+                 to set it to zero, so its floor is untested"
+            ),
+        }
+        c
+    }
+
+    /// Issue 1015 — a zero in ANY array-extent define is refused, not just the
+    /// one that bit.
+    ///
+    /// `MAX_QUERYABLES` is the one that silenced the reference island, and
+    /// fixing only it would leave six loaded: `MAX_LIVELINESS` and
+    /// `MAX_PENDING_GETS` are Kconfig-settable and size arrays in the same
+    /// struct.
+    ///
+    /// Iterates over [`C_ARRAY_EXTENT_DEFINES`] rather than a second list, so
+    /// the coverage of this test is the coverage of the check.
+    #[test]
+    fn every_array_extent_refuses_zero() {
+        for name in C_ARRAY_EXTENT_DEFINES {
+            let err = shim_config_with_zero(name)
+                .check_c_array_extents()
+                .expect_err("a zero array extent must be refused");
+            assert!(
+                err.contains(name),
+                "the refusal must NAME the knob — the whole defect was a failure \
+                 nobody could attribute. Got: {err}"
+            );
+            assert!(err.contains("1015"), "got: {err}");
+        }
+    }
+
+    /// A knob that is NOT an array extent keeps its full range, zero included.
+    ///
+    /// `ZPICO_TX_BATCH_FLUSH_MS` is a period and `ZPICO_READ_TASK_PRIORITY` is a
+    /// priority; asserting a floor where the hazard does not exist is how a
+    /// check stops meaning anything. Priority 0 in particular is a legal
+    /// normalised value.
+    #[test]
+    fn a_non_extent_knob_may_be_zero() {
+        let mut cfg = usable_shim_config();
+        cfg.read_task_priority = 0;
+        cfg.lease_task_priority = 0;
+        cfg.get_poll_interval_ms = 0;
+        assert!(cfg.check_c_array_extents().is_ok());
+    }
+
+    /// Every name in the list is a define this config actually emits.
+    ///
+    /// A misspelled entry is silently inert — the loop skips it and the floor
+    /// is simply never checked — which is the same shape as the defect this
+    /// list exists to stop.
+    #[test]
+    fn every_listed_extent_is_a_define_this_config_emits() {
+        let emitted: Vec<&str> = usable_shim_config()
+            .defines()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for name in C_ARRAY_EXTENT_DEFINES {
+            assert!(
+                emitted.contains(name),
+                "{name} is listed as a C array extent but ShimConfig::defines() \
+                 never emits it, so its floor is never checked"
+            );
+        }
     }
 }

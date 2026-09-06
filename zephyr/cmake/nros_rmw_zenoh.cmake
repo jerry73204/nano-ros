@@ -1,3 +1,12 @@
+# Issue 1015 -- `nros_assert_c_array_extent`, the configure-time floor on a
+# number about to size a fixed C array. Included at FILE scope, ABOVE the
+# function below, for the reason AGENTS.md gives at length: an `include()`
+# evaluated inside a function frame loses the file's normal `set()`s when the
+# frame pops (the `_NROS_ENTRY_DIR` pattern). Nothing here is a variable today,
+# and putting the include where the rule says keeps that from mattering if it
+# ever is.
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/NanoRosCArrayExtents.cmake")
+
 function(nros_zephyr_configure_rmw_zenoh)
 # -------------------------------------------------------------------------
 # Zenoh-pico library (compiled from vendored submodule)
@@ -214,6 +223,75 @@ foreach(_zp MAX_PUBLISHERS MAX_SUBSCRIBERS MAX_QUERYABLES)
             "configure on a clean build dir always lands here, issue 0991)")
     endif()
 endforeach()
+
+# Issue 1015 -- the seven `-D`s below that become a FIXED C ARRAY EXTENT in
+# `zpico.c` are checked here, at the point cmake commits a number to a compiler,
+# rather than at any of the places the number could have come from.
+#
+# That seam is the point on purpose. These values have four upstreams that never
+# see each other -- an environment override, a hand-set `.conf`, the entity
+# inventory's derivation, and the literal-8 fallback immediately above -- and a
+# check placed at any ONE of them binds only that one. phase-412 shipped six
+# delivery-class defects in a single wave for exactly that reason. Checking the
+# value that is about to be written binds all four, and any fifth.
+#
+# The reference island derived `MAX_QUERYABLES = 0` here and built a board that
+# transmitted nothing for 15 s with every gate green. The derivation now floors
+# its pools at 1, so this arm should be unreachable through THAT path; it is
+# here because the other three paths are still open, and because "unreachable"
+# is a claim about today's producers.
+#
+# NOT checked: FRAG_MAX_SIZE, BATCH_UNICAST_SIZE, GET_POLL_INTERVAL_MS. They are
+# buffer/timing quantities, not array extents, and a floor asserted where the
+# hazard does not exist is how a gate loses its meaning.
+nros_assert_c_array_extent(
+    MACRO ZPICO_MAX_PUBLISHERS
+    VALUE "${NROS_RESOLVED_ZPICO_MAX_PUBLISHERS}"
+    ARRAY "publisher_entry_t publishers[ZPICO_MAX_PUBLISHERS]"
+    KCONFIG CONFIG_NROS_MAX_PUBLISHERS
+    DECLARE "Derived from this image's entity inventory. A 0 means the \
+inventory found no publishers: every component's nano_ros_node_register() must \
+carry an ENTITIES list naming them, and a component that declares none makes \
+the whole inventory refuse.")
+nros_assert_c_array_extent(
+    MACRO ZPICO_MAX_SUBSCRIBERS
+    VALUE "${NROS_RESOLVED_ZPICO_MAX_SUBSCRIBERS}"
+    ARRAY "subscriber_entry_t subscribers[ZPICO_MAX_SUBSCRIBERS]"
+    KCONFIG CONFIG_NROS_MAX_SUBSCRIBERS
+    DECLARE "Derived from this image's entity inventory. A 0 means the \
+inventory found no subscriptions: every component's nano_ros_node_register() \
+must carry an ENTITIES list naming them.")
+nros_assert_c_array_extent(
+    MACRO ZPICO_MAX_QUERYABLES
+    VALUE "${NROS_RESOLVED_ZPICO_MAX_QUERYABLES}"
+    ARRAY "queryable_entry_t queryables[ZPICO_MAX_QUERYABLES]"
+    KCONFIG CONFIG_NROS_MAX_QUERYABLES
+    DECLARE "Derived from this image's entity inventory as \
+`service servers + 3 * action servers`. A 0 means it found neither -- declare \
+them in the ENTITIES list of nano_ros_node_register(), or state the knob. Note \
+the parameter (6) and lifecycle (5) service families are NOT counted, because a \
+feature enables them and the inventory cannot see it: an image carrying either \
+must state the knob (issue 0460).")
+nros_assert_c_array_extent(
+    MACRO ZPICO_MAX_LIVELINESS
+    VALUE "${NROS_RESOLVED_ZPICO_MAX_LIVELINESS}"
+    ARRAY "liveliness_entry_t liveliness[ZPICO_MAX_LIVELINESS]"
+    KCONFIG CONFIG_NROS_MAX_LIVELINESS)
+nros_assert_c_array_extent(
+    MACRO ZPICO_MAX_PENDING_GETS
+    VALUE "${NROS_RESOLVED_ZPICO_MAX_PENDING_GETS}"
+    ARRAY "pending_get_slot_t pending_gets[ZPICO_MAX_PENDING_GETS]"
+    KCONFIG CONFIG_NROS_MAX_PENDING_GETS)
+nros_assert_c_array_extent(
+    MACRO ZPICO_GRAPH_CACHE_SIZE
+    VALUE "${CONFIG_NROS_GRAPH_CACHE_SIZE}"
+    ARRAY "uint8_t buf[ZPICO_GRAPH_CACHE_SIZE] in graph_cache_t"
+    KCONFIG CONFIG_NROS_GRAPH_CACHE_SIZE)
+nros_assert_c_array_extent(
+    MACRO ZPICO_GET_REPLY_BUF_SIZE
+    VALUE "${NROS_RESOLVED_ZPICO_GET_REPLY_BUF_SIZE}"
+    ARRAY "uint8_t buf[ZPICO_GET_REPLY_BUF_SIZE] in get_reply_ctx_t"
+    KCONFIG CONFIG_NROS_GET_REPLY_BUF_SIZE)
 
 zephyr_compile_definitions(
     ZPICO_MAX_PUBLISHERS=${NROS_RESOLVED_ZPICO_MAX_PUBLISHERS}

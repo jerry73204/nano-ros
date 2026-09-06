@@ -496,7 +496,7 @@ fn shim_config_from_env() -> ShimConfig {
     let sizing = resolve_queryable_default();
     let max_queryables = env_usize("ZPICO_MAX_QUERYABLES", sizing.default);
     check_queryable_override(max_queryables, &sizing);
-    ShimConfig {
+    let config = ShimConfig {
         max_publishers: env_usize("ZPICO_MAX_PUBLISHERS", 8),
         max_subscribers: env_usize("ZPICO_MAX_SUBSCRIBERS", 8),
         max_queryables,
@@ -523,7 +523,24 @@ fn shim_config_from_env() -> ShimConfig {
         // not be a tuning choice, it would be the two lanes disagreeing.
         read_task_priority: env_usize("ZPICO_READ_TASK_PRIORITY", 16),
         lease_task_priority: env_usize("ZPICO_LEASE_TASK_PRIORITY", 16),
+    };
+    // Issue 1015 — a number that sizes a fixed C array must be usable, and the
+    // earliest point on THIS path that can tell is right here, where the
+    // environment has just been read and no compiler has been invoked.
+    //
+    // `check_queryable_override` above is a different question and does not
+    // cover it: that one asks whether the table is big enough for the services
+    // this image DECLARES, and it returns early when nothing was declared —
+    // which is exactly the state that derives zero. So the case that silenced
+    // the board passed straight through it.
+    //
+    // A panic and not a `cargo:warning=`: a warning on a build script is one
+    // line in a wall of them, and the failure it would be warning about is a
+    // board that says nothing at all.
+    if let Err(why) = config.check_c_array_extents() {
+        panic!("{why}");
     }
+    config
 }
 
 /// Read buffer config from environment variables with platform-appropriate defaults.

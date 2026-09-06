@@ -1199,6 +1199,28 @@ entity-inventory-knobs:
     fi
     ./tests/cmake-entity-inventory-tests.sh
 
+# Issue 1015 -- the CONFIGURE-time floor on a number about to size a fixed C
+# array, beside the two inventory readers whose output it checks.
+#
+# `check-c-array-extent-floors` asks whether every producer HAS a floor; this
+# asks whether the floor WORKS, in both directions. The passing direction is the
+# one that costs something to get wrong: the derivation floors its pools at 1,
+# so `1` is the value a real single-service image arrives with, and a check that
+# refused it would trade a silent board for a broken build.
+#
+# `cmake -P` only -- no compiler, no configure, no nano-ros build, ~1 s.
+[private]
+c-array-extent-floor-behaviour:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cmake >/dev/null 2>&1; then
+        # shellcheck source=scripts/build/check-skip.sh
+        source scripts/build/check-skip.sh
+        nros_check_skip c-array-extent-floor-behaviour "missing host tool(s): cmake"
+        exit 0
+    fi
+    ./tests/cmake-c-array-extent-tests.sh
+
 # Issue 0991 -- the two inventories above are written LATER in a configure than
 # they are READ, and the recovery three call sites described in comments
 # ("CMAKE_CONFIGURE_DEPENDS, so ninja re-runs cmake by itself") was measured to
@@ -4744,6 +4766,26 @@ zenoh:
 [private]
 infra-queryable-counts:
     @python3 scripts/check-infra-queryable-counts.py
+
+# Issue 1015 — a number that sizes a FIXED C ARRAY has a floor of ONE, and every
+# producer of that number enforces it.
+#
+# The knob gates beside this one ask whether the number the image was BUILT with
+# is the number that was DERIVED. This one asks whether the number is USABLE,
+# which nothing asked, and which is why a derived `MAX_QUERYABLES = 0` shipped a
+# board that transmitted 0 bytes in 15 seconds — no panic, no log, core in WFI —
+# with `check-knob-delivery` and `check-knob-fixpoint` both green and correct. A
+# zero-length array is a GNU extension that compiles silently, and the zpico
+# pools are not the last member of their struct, so a zero changes the layout
+# rather than shrinking a table.
+#
+# Keyed off the ARRAY DECLARATIONS in zpico.c, not off a list, because a list is
+# what the first fix was: it guarded three extents and left seven loaded, two of
+# them (MAX_LIVELINESS, MAX_PENDING_GETS) Kconfig-settable and sizing arrays in
+# the very same struct. Measured against the pre-fix tree: 15 problems.
+[private]
+c-array-extent-floors:
+    @python3 scripts/check-c-array-extent-floors.py
 
 # phase-412 W4 — the value that reaches the COMPILE is the value the resolver
 # produced. The knob gates beside this one check whether the derived number is

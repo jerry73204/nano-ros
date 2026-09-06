@@ -359,27 +359,6 @@ typedef struct {
 // Static slots for non-blocking z_get operations
 // ZPICO_MAX_PENDING_GETS is provided via -D compiler flag from build.rs,
 // with a default fallback above for non-Cargo build paths.
-/* Issue 1015 -- these three pools are FIXED C ARRAYS, so zero is not a smaller
- * pool: a zero-length array is a GNU extension that compiles silently, and
- * none of these is the last member of its struct. A derived 0 (an image that
- * declares no service servers derives exactly that) produced a board that
- * transmitted NOTHING -- no panic, no log, core in WFI -- while every gate
- * stayed green, because the value was derived correctly and delivered
- * faithfully. It was simply not a usable size.
- *
- * The derivation floors these at 1 (nros-cli-core entity_inventory.rs). This
- * is the second line, here rather than there because a floor in one producer
- * does not bind another, and this is where the array actually is. */
-#if ZPICO_MAX_QUERYABLES < 1
-#error "ZPICO_MAX_QUERYABLES must be >= 1: it sizes a C array (issue 1015)"
-#endif
-#if ZPICO_MAX_SUBSCRIBERS < 1
-#error "ZPICO_MAX_SUBSCRIBERS must be >= 1: it sizes a C array (issue 1015)"
-#endif
-#if ZPICO_MAX_PUBLISHERS < 1
-#error "ZPICO_MAX_PUBLISHERS must be >= 1: it sizes a C array (issue 1015)"
-#endif
-
 typedef struct {
     get_reply_ctx_t ctx;
     bool in_use;
@@ -462,6 +441,67 @@ typedef void (*zpico_waker_fn)(int32_t session_index, int32_t slot);
 
 #ifndef ZPICO_MAX_SESSIONS
 #define ZPICO_MAX_SESSIONS 1 // single-session targets keep TODAY's footprint
+#endif
+
+/* =========================================================================
+ * Issue 1015 -- EVERY FIXED C ARRAY EXTENT IN THIS FILE HAS A FLOOR OF ONE.
+ *
+ * Zero is not a smaller pool; it is a different kind of object. A zero-length
+ * array is a GNU extension that compiles SILENTLY, and none of these is the
+ * last member of its struct -- so a zero changes the struct's layout rather
+ * than shrinking a table. Measured on the reference island, which declares no
+ * service servers and so derived `ZPICO_MAX_QUERYABLES = 0`: the board
+ * transmitted NOTHING in 15 s. No panic, no log line, no fault, core in WFI.
+ * The same image at 4 transmitted 110 bytes. Every gate was green either way,
+ * because the value was derived correctly and delivered faithfully -- it was
+ * simply not a USABLE size.
+ *
+ * This is the LAST line of defence, not the first. Ahead of it:
+ *   - the derivation floors its pools at 1 (`nros-cli-core`
+ *     `entity_inventory.rs`);
+ *   - the cargo producer refuses a zero it is handed
+ *     (`nros-zpico-build` `ShimConfig::check_c_array_extents`);
+ *   - the Zephyr configure refuses one before a compiler is ever invoked
+ *     (`nros_assert_c_array_extent` in `cmake/NanoRosCArrayExtents.cmake`).
+ * A floor in one producer does not bind another, and this is the one place
+ * that binds ALL of them, including a producer written tomorrow.
+ *
+ * The first fix guarded THREE of these and left seven loaded --
+ * `ZPICO_MAX_LIVELINESS` and `ZPICO_MAX_PENDING_GETS` are Kconfig-settable and
+ * carry the identical hazard. The set below is the complete one, and
+ * `scripts/check-c-array-extent-floors.py` derives it from the array
+ * declarations in this file rather than from this list, so a pool added later
+ * fails the gate instead of shipping unguarded.
+ * ========================================================================= */
+#if ZPICO_MAX_PUBLISHERS < 1
+#error "ZPICO_MAX_PUBLISHERS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_SUBSCRIBERS < 1
+#error "ZPICO_MAX_SUBSCRIBERS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_QUERYABLES < 1
+#error "ZPICO_MAX_QUERYABLES must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_LIVELINESS < 1
+#error "ZPICO_MAX_LIVELINESS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_PENDING_GETS < 1
+#error "ZPICO_MAX_PENDING_GETS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_PENDING_REPLIES < 1
+#error "ZPICO_MAX_PENDING_REPLIES must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_MAX_SESSIONS < 1
+#error "ZPICO_MAX_SESSIONS must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_GET_REPLY_BUF_SIZE < 1
+#error "ZPICO_GET_REPLY_BUF_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_GRAPH_CACHE_SIZE < 1
+#error "ZPICO_GRAPH_CACHE_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
+#endif
+#if ZPICO_ZID_SIZE < 1
+#error "ZPICO_ZID_SIZE must be >= 1: it sizes a fixed C array (issue 1015)"
 #endif
 
 struct zpico_session {

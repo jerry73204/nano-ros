@@ -2644,6 +2644,52 @@ structure:
         let k = d.knobs().expect("wiring yields knobs");
         assert_eq!(k.max_subscribers, 2, "two subscriptions across the image");
         assert_eq!(k.max_publishers, 1, "one publisher");
+        // Issue 1015 — this image declares no service servers and no actions,
+        // so the demand for the queryable table is exactly 0. It derives 1.
+        //
+        // That is not a rounding convenience. `ZPICO_MAX_QUERYABLES` sizes
+        // `queryable_entry_t queryables[N]` in `zpico.c`, which is NOT the last
+        // member of its struct, so a zero-length array is a GNU extension that
+        // compiles silently and changes the struct's layout. Measured on the
+        // reference island — the image with the identical shape to this one —
+        // the board transmitted 0 bytes in 15 s with no panic, no log and no
+        // fault, while every gate stayed green. One slot costs a handful of
+        // bytes; a zero costs the whole image.
+        assert_eq!(
+            k.max_queryables, 1,
+            "a pool that backs a fixed C array has a floor of ONE, even with \
+             nothing declared (issue 1015)"
+        );
+    }
+
+    /// Issue 1015 — the floor applies to EVERY pool that backs a C array, not
+    /// only the one that bit.
+    ///
+    /// An image that declares nothing at all derives 0 demand for all three,
+    /// and `MAX_SUBSCRIBERS` / `MAX_PUBLISHERS` carry the identical hazard: a
+    /// subscriber-less or publisher-less image is a perfectly ordinary thing to
+    /// build, and it was one `#error`-free compile away from the same silent
+    /// board.
+    #[test]
+    fn every_session_pool_floors_at_one() {
+        let mut inv = EntityInventory::new("metadata");
+        inv.insert(ComponentEntities {
+            pkg: "p".into(),
+            component: "c".into(),
+            class: "C".into(),
+            // A component that declares an explicit NONE is an ANSWER, not an
+            // absence, so the image composes and derives rather than refusing.
+            // That is the exact state the reference island was in.
+            declaration: Declaration::Stated(vec![]),
+        });
+        let k = inv
+            .derive()
+            .knobs()
+            .expect("an image that declared NONE still derives")
+            .clone();
+        assert_eq!(k.max_subscribers, 1, "issue 1015");
+        assert_eq!(k.max_publishers, 1, "issue 1015");
+        assert_eq!(k.max_queryables, 1, "issue 1015");
     }
 
     /// phase-412 -- the merge takes the larger list of each kind, whichever
