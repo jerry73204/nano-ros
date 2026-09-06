@@ -216,6 +216,23 @@ to remove.
   Do it surface by surface with the message goldens as the guard, not in one
   commit.
 
+  **LANDED.** Six commits, one per surface plus a guard and an IR-prep, every
+  golden byte-identical at each. Three corrections to the measurement, all
+  written into RFC-0091 §6b ("Corrections from implementing W2.5a"): it is SIX
+  views across FIVE surfaces (the `cpp` pack builds a header/`repr(C)` PAIR),
+  two of the four were already half-migrated behind a `pre_storage:
+  Option<FieldStorage>` back-door, and `align`/`plain` are not dropped facts —
+  they answer `LoweredType::plain` inside `lower()`.
+
+  One thing the item did not anticipate: **the goldens could not guard two of
+  the five surfaces.** `emit_corpus()` covers `nros`, `c` and `cpp` and renders
+  no `rmw` or idiomatic bytes at all, so a golden had to be recorded first
+  (`tests/rust_surface_golden.rs`, deliberately outside `emit_corpus` so it does
+  not move the fixture-staleness fingerprint for two surfaces with no production
+  caller). Deleted on the way through: `lowered_storages`,
+  `primitive_to_cdr_method`, `c_cdr_write_method`, `c_cdr_read_method` — the
+  duplicate derivations gone rather than bypassed.
+
 - **W2.5b — a language contributes a FILTER SET.** Nine of the ten registered
   filters are per-language type spellings (`c_type`, `rust_type_rmw`,
   `cpp_repr_c_type`, `nros_type`, …) and they are already the RIGHT shape — a

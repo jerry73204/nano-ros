@@ -196,8 +196,18 @@ pub struct LoweredField {
     /// [`Self::element_op`], which say which of the two a caller means.
     pub cdr_op: Option<CdrOp>,
     /// Alignment of the field's payload, bytes.
+    ///
+    /// The one field no message surface reads, and legitimately so (phase-432
+    /// W2.5a): it exists solely to answer [`LoweredType::plain`] inside
+    /// [`lower`], and `NESTED_ALIGN_STANDIN` above records that its VALUE
+    /// cannot change an outcome anywhere else. If a surface ever needs a
+    /// field's alignment, it needs a real per-target answer, not this.
     pub align: usize,
     /// Whether this field is POD-blit eligible.
+    ///
+    /// Also unread per-field: like `align`, it is an input to
+    /// [`LoweredType::plain`], which is a property of the STRUCT (every field
+    /// plain AND one shared alignment) and is what a blit fast path would ask.
     pub plain: bool,
     /// The `.msg` default, as parsed. A language spells it (`constant_value_to_rust`
     /// and friends); the value itself is neutral.
