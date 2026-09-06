@@ -85,7 +85,8 @@ endfunction()
 
 # ---------------------------------------------------------------------------
 # nano_ros_add_executable(<name> <sources…> [DEPLOY <target>…] [BOARD <board>]
-#     [BRINGUP <dir>] [LAUNCH <launch.xml>] [TYPED])
+#     [BRINGUP <dir>] [LAUNCH <launch.xml>] [LAUNCH_ARGS <k=v>…] [LANG c|cpp]
+#     [PANIC <policy>] [TYPED])
 #
 # Standalone entry. DEPLOY/BOARD default to the package.xml `<export>` tuple in
 # W4; until then DEPLOY defaults to `native` and an embedded board is passed
@@ -100,7 +101,17 @@ function(nano_ros_add_executable name)
     # phase-405 W1 — LOCATOR and ARGS dropped in lockstep with
     # `nano_ros_entry`. A verb that still accepted them would forward keywords
     # the callee no longer parses, which lands them in SOURCES.
-    cmake_parse_arguments(_NRE "TYPED" "BOARD;BRINGUP;LAUNCH;MODEL;HOST;LANG" "DEPLOY;SOURCES" ${ARGN})
+    #
+    # PANIC and LAUNCH_ARGS are parsed HERE, not left to the accident (issue
+    # 1136). Both used to reach `nano_ros_entry` only because this frame
+    # dropped them into `_srcs`, which the callee re-tokenized back into
+    # keywords — so they worked while `nano_ros_entry` happened to parse them,
+    # and became positional sources the moment it stopped. phase-405 W1 named
+    # that hazard ("add one positional source to any of them and it breaks")
+    # and removed the callee's half of it; this is the other half. Parsing them
+    # explicitly also makes the chain checkable: `check-generated-cmake-keywords`
+    # compares what `cmake_root.rs` emits against BOTH frames' keyword sets.
+    cmake_parse_arguments(_NRE "TYPED" "BOARD;BRINGUP;LAUNCH;MODEL;HOST;LANG;PANIC" "DEPLOY;SOURCES;LAUNCH_ARGS" ${ARGN})
     set(_srcs ${_NRE_SOURCES} ${_NRE_UNPARSED_ARGUMENTS})
     if(NOT _srcs AND NOT _NRE_LAUNCH AND NOT _NRE_BRINGUP AND NOT _NRE_MODEL)
         message(FATAL_ERROR
@@ -160,10 +171,13 @@ function(nano_ros_add_executable name)
     if(_NRE_LAUNCH)
         list(APPEND _entry_extra LAUNCH ${_NRE_LAUNCH})
     endif()
-    # R1 / W4.2 — the canonical resolved-model input (RFC-0052). Deprecated
-    # expert override; prefer BRINGUP.
-    if(_NRE_MODEL)
-        list(APPEND _entry_extra MODEL ${_NRE_MODEL})
+    # The arg-bound `[[model]]` variant selector — how an image picks ONE host
+    # out of a multi-host system (issue 1136).
+    if(_NRE_LAUNCH_ARGS)
+        list(APPEND _entry_extra LAUNCH_ARGS ${_NRE_LAUNCH_ARGS})
+    endif()
+    if(_NRE_PANIC)
+        list(APPEND _entry_extra PANIC ${_NRE_PANIC})
     endif()
     if(_NRE_TYPED)
         list(APPEND _entry_extra TYPED)
@@ -171,13 +185,29 @@ function(nano_ros_add_executable name)
     # phase-326 (issue 0364) — HOST removed with `<node machine=>` (ROS 1
     # syntax); kept PARSED so an old caller fails loud with guidance instead
     # of the keyword silently joining SOURCES via UNPARSED_ARGUMENTS.
+    #
+    # The guidance used to name MODEL, which phase-405 W4 then retired — a
+    # message pointing at a keyword nothing parses. LAUNCH_ARGS is the live
+    # answer, and the one the generator emits.
     if(_NRE_HOST)
         message(FATAL_ERROR
             "nano_ros_add_executable(${name}): HOST was removed (phase-326 / "
-            "issue 0364) — multi-host partitions at RESOLVE time now. Point "
-            "MODEL at the per-host SystemModel instead (resolved with "
-            "`host:=${_NRE_HOST}`, e.g. "
-            "MODEL config/multihost_${_NRE_HOST}_model.yaml).")
+            "issue 0364) — multi-host partitions at RESOLVE time now. Name the "
+            "INPUT and the binding instead: `BRINGUP <dir> LAUNCH "
+            "<multihost.launch.xml> LAUNCH_ARGS host=${_NRE_HOST}`, with a "
+            "matching `[[model]]` declaration in the bringup's system.toml.")
+    endif()
+    # MODEL retired with phase-405 W4: `nano_ros_entry` stopped parsing it and
+    # this frame kept forwarding it, so the keyword reached the callee's
+    # UNPARSED_ARGUMENTS and was DROPPED — an entry silently built from the
+    # bringup default instead of the model it named. Zero callers passed it,
+    # which is why nobody saw it. Fail loudly rather than forward into a void.
+    if(_NRE_MODEL)
+        message(FATAL_ERROR
+            "nano_ros_add_executable(${name}): MODEL was removed (phase-405 "
+            "W4) — an entry names the INPUT that produces a model, not the "
+            "resolved artifact. Use `BRINGUP <dir> LAUNCH <file>` (plus "
+            "`LAUNCH_ARGS k=v` for a declared variant).")
     endif()
     # Language: explicit LANG wins (the only way a LAUNCH-only entry — no
     # sources to infer from — can select C; nano_ros_entry's sourceless

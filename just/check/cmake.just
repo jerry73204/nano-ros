@@ -91,6 +91,20 @@ cmake-find-program-shadowed:
 retired-cmake-keywords:
     @python3 scripts/check-retired-cmake-keywords.py
 
+# issue 1136 — the same question from the GENERATOR's end. The sibling above
+# scans tracked cmake for a caller still passing a retired keyword; a generated
+# root lives under `build/<coord>/` and is tracked by nothing, so the one caller
+# that runs in CI is the one it cannot see. phase-405 W1 dropped `LAUNCH_ARGS`
+# from `nano_ros_entry` on a survey that excluded generated CMakeLists, and
+# every workspace-fixture configure died on `Cannot find source file:
+# LAUNCH_ARGS` — for six days, because host-tests runs on no gating event.
+#
+# Both sides are literals, so the comparison is static: what `cmake_root.rs`
+# emits, against the keyword lists of every cmake frame the call traverses.
+[private]
+generated-cmake-keywords:
+    @python3 scripts/check-generated-cmake-keywords.py
+
 # issue 0719 — the C/C++ half of the same question. `check-image-panic-policy`
 # reads what a RUST image declares (`nros::main!(panic = …)`) and says outright
 # that it cannot see "the C/C++ side, where the policy is a cargo feature on the

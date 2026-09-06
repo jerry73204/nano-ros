@@ -108,12 +108,21 @@ function(nano_ros_entry)
     # Phase 219.D — LAUNCH + ARGS + LANG keyword args.
     # R1 / W4.2 — MODEL <system_model.yaml>: the canonical resolved-model
     # input (RFC-0052); mutually exclusive with LAUNCH.
-    # phase-405 W1 — LOCATOR, ARGS and LAUNCH_ARGS are GONE. Each had zero
-    # authored users in the tree (generated CMakeLists excluded, since those are
-    # tool output rather than a caller's choice), and each carried live-looking
-    # code that could never run. Dropping them from the parse turns such a call
-    # into an UNPARSED_ARGUMENTS error rather than a line that silently does
-    # nothing.
+    # phase-405 W1 — LOCATOR and ARGS are GONE. Each had zero users and carried
+    # live-looking code that could never run; dropping them from the parse turns
+    # such a call into an UNPARSED_ARGUMENTS error rather than a line that
+    # silently does nothing.
+    #
+    # LAUNCH_ARGS went with them and came BACK (issue 1136, phase-433 W0). The
+    # survey that retired it excluded generated CMakeLists "since those are tool
+    # output rather than a caller's choice" — and the generator is the only
+    # caller that runs in CI. `cmake_root.rs` emits `LAUNCH_ARGS host=robot1`
+    # for every arg-bound image, so the removal turned two words into positional
+    # SOURCES and every workspace fixture configure died on `Cannot find source
+    # file: LAUNCH_ARGS`. It was never dead: it selects the `[[model]]` variant
+    # (`--arg` below), which is the ONLY difference between the robot1 and
+    # robot2 images — without it both resolve the whole system and become one
+    # program.
     #
     # phase-405 W4 — MODEL is GONE. Zero callers passed it, authored OR
     # generated, and it named a resolved artifact directly while BRINGUP+LAUNCH
@@ -129,7 +138,7 @@ function(nano_ros_entry)
     cmake_parse_arguments(_NRA
         "TYPED"
         "NAME;BOARD;LAUNCH;LANG;HOST;BRINGUP;PANIC"
-        "SOURCES;DEPLOY"
+        "SOURCES;DEPLOY;LAUNCH_ARGS"
         ${ARGN})
 
     # BRINGUP with no LAUNCH means this bringup's default launch. Conditional on
@@ -287,6 +296,13 @@ function(nano_ros_entry)
             if(NOT _NRA_LAUNCH STREQUAL "default")
                 list(APPEND _nra_mp_args --launch "${_NRA_LAUNCH}")
             endif()
+            # The arg-bound variant selector. Each `k=v` must match a
+            # `[[model]]` declaration in the bringup's system.toml (phase-330
+            # W4.0); `nros model-path` refuses an undeclared binding rather
+            # than deriving a name nothing produces.
+            foreach(_kv IN LISTS _NRA_LAUNCH_ARGS)
+                list(APPEND _nra_mp_args --arg "${_kv}")
+            endforeach()
             nros_resolve_cli(_nra_mp_tool CONTEXT "nano_ros_entry LAUNCH")
             execute_process(
                 COMMAND "${_nra_mp_tool}" model-path ${_nra_mp_args}
