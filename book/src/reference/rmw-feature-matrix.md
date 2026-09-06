@@ -26,22 +26,21 @@ backends land implementations.
 | Publish / subscribe | wired | wired | wired |
 | Services (server side) | wired | wired | wired |
 | Service clients | wired | wired | wired |
-| Server-availability probe | wired | — | — |
+| Server-availability probe | wired | — | wired |
 | Status events (deadline / liveliness / lost) | wired | — | — |
 | Manual liveliness assert | wired | — | — |
-| Event-driven wake (`set_wake_callback`) | wired | — | — |
+| Event-driven wake (`set_wake_callback`) | wired | — | wired |
 | Deadline hint (`next_deadline_ms`) | wired | — | — |
 | Zero-copy loan API | — | — | — |
 | Batch receive (`take_sequence`) | wired | — | wired |
 | Streamed publish | wired | wired | — |
 | Connectivity ping | wired | wired | — |
 | Identity / feature probe | — | — | — |
-| Publisher GID / matched counts | — | — | — |
-| Actual-QoS read-back | — | — | — |
+| Publisher GID / matched counts | — | — | wired |
+| Actual-QoS read-back | — | — | wired |
 | Wait-for-acked | — | — | — |
-| Take-with-info | — | — | — |
-| Entity new-data callbacks | — | — | — |
-| Graph introspection (names/types/counts) | — | — | — |
+| Take-with-info | wired | — | — |
+| Graph introspection (names/types/counts) | wired | — | — |
 
 ## Node-layer features
 

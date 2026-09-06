@@ -54,7 +54,6 @@ fast-parallel  # retired alias for `fast`, kept for muscle memory
 fast-serial  # lane verb: the same lane, one gate at a time, fail-fast
 nextest-test-filters  # in no lane and no caller found — issue 1071's class
 no-std  # gate.yml + `just ci` run it by name; cross-compiles riscv32
-rmw-feature-matrix  # generator `--check`; in no lane and no caller found
 rustdoc-links  # `cargo doc` over the deployed crate set; compiles `zpico-sys`, whose build script needs the zenoh-pico source. Its own pull-request step in gate.yml runs it AFTER provisioning
 sched-matrix  # generator `--check`; in no lane and no caller found
 sdk-index  # NETWORK — downloads and sha256-checks SDK release assets

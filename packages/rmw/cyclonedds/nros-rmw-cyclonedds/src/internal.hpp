@@ -148,6 +148,13 @@ dds_entity_t client_response_reader(const rmw_client_t *client);
 dds_entity_t service_request_reader(const rmw_service_t *service);
 dds_entity_t service_response_writer(const rmw_service_t *service);
 
+/** phase-428 W13.c — the `service_server_is_available` slot: does a server
+ *  hold BOTH halves of this client's pair (a matched reader on the request
+ *  writer and a matched writer on the reply reader), paired by `serviceid`
+ *  user data when the server advertises one. Read from Cyclone's matched
+ *  sets, no query issued. `*out_available` is written only on OK. */
+rmw_ret_t client_server_is_available(const rmw_client_t *client, bool *out_available);
+
 
 /* ---- session.cpp ---- */
 rmw_ret_t session_create(const char *locator, uint8_t mode,

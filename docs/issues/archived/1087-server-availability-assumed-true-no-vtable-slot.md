@@ -74,12 +74,45 @@ and the `ZenohServiceRos2Server` interop cell now starts the client BEFORE the
 ROS 2 `add_two_ints_server` and asserts both halves: the waiting line with no
 server (and no request sent), then the result once the server's token lands.
 
+## Resolution — phase-428 W13.c (2026-09-07)
+
+**Cyclone fills the slot.** `nros_rmw_cyclonedds::client_server_is_available`
+(`service.cpp`) mirrors upstream `rmw_cyclonedds_cpp`'s
+`check_for_service_reader_writer` (humble `rmw_node.cpp`): the request writer's
+matched readers (`dds_get_matched_subscriptions`) AND the reply reader's
+matched writers (`dds_get_matched_publications`) must both be non-empty; when
+any matched reader advertises `serviceid=<guid>` in its user data (stock
+`rmw_cyclonedds_cpp` servers do), a matched reply writer must carry the SAME
+id — that pairs the two halves to one server — and when none does (every
+nano-ros server; this backend sets no user data) both-non-empty is the answer.
+Read from the matched sets Cyclone already keeps, no query issued, bounded
+storage (32 handles a side, no `std::vector`). Upstream's graph-cache
+reader/writer pre-count is a copy of the same discovery state, not a second
+source, so it is not reproduced. Test
+`nros_rmw_cyclonedds_service_server_available` (Cyclone lane): one client on
+its own participant reads false with no server, true once a server on a
+SECOND participant matches both halves, false for a client of another name on
+the same busy bus, and false again after the server is destroyed — polled, so
+cross-participant SEDP jitter costs time rather than a red.
+
+**XRCE keeps the slot NULL, on purpose.** The Agent owns the DDS participant,
+so the matched-endpoint state lives Agent-side and micro-XRCE-DDS-Client has
+no read for it (no `dds_get_matched_*`, no built-in topic readers, no
+participant enumeration). What the session CAN know — the Agent acknowledged
+`create_requester` — says only that the client's own endpoints exist, nothing
+about a server; answering from it would be this issue's "yes without asking"
+one layer down. NULL is `Err(Unsupported)` at `CffiClient::service_is_ready`,
+the three-answer contract's "cannot know", and the wait loops then wait their
+budget rather than send into the void. `vtable.c` records the decision at the
+slot.
+
 ## What this does NOT close
 
-* **W13.c** — cyclone and XRCE still leave the `service_server_is_available`
-  vtable slot NULL, so on those backends `service_is_ready` is `Err` and
-  `wait_for_service` waits out its budget and reports `false`: honest, and
-  slower than the DDS cache could answer. Tracked as phase-428 W13.c.
+* QoS compatibility is not part of the Cyclone match beyond what DDS matching
+  itself enforces (an incompatible-QoS server never enters the matched set).
+* nano-ros servers do not advertise `serviceid`, so a nano-ros client against
+  two nano-ros servers where one is half-torn-down takes the both-non-empty
+  fallback, the same as pre-#191 upstream.
 * QoS compatibility is not part of the match (upstream's slot folds it in).
 * Whether a zenoh-pico liveliness subscriber sees its OWN session's tokens
   (client and server in one image) is not measured here; the `wait_for_service`
