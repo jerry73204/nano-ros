@@ -8,6 +8,39 @@
 
 use std::{env, path::Path};
 
+/// `TripleBuffer::SLOT_COUNT` — the slot count a `KEEP_LAST(<=1)` history uses.
+const TRIPLE_BUFFER_SLOTS: usize = 3;
+
+/// `size_of::<usize>()` for the `SpscRing`'s per-slot length array, taken at
+/// its 64-bit width. A 32-bit target spends 4, so this over-states there by
+/// `(depth + 1) * 4` — the one direction that cannot under-size an arena.
+const RING_LEN_BYTES: usize = 8;
+
+/// The QoS history depth an undeclared subscription actually gets:
+/// `QoSProfile::QOS_PROFILE_DEFAULT.depth`, i.e. `rmw_qos_profile_default`'s
+/// KEEP_LAST(10). Issue 1190 — modelling this as 1 (the triple-buffer case) is
+/// what under-sized the arena by 8,560 bytes per subscription.
+///
+/// RESTATED here because a build script cannot read a const out of the crate it
+/// is building; `the_modelled_qos_depth_is_the_runtime_default` in
+/// `executor/arena.rs` is what keeps the two equal.
+const PUBSUB_QOS_DEPTH: usize = 10;
+
+/// Bytes one buffered receive region claims, mirroring
+/// [`executor::arena::buffered_region_size`] — the function the allocator
+/// itself calls.
+///
+/// `depth <= 1` is a `TripleBuffer`: three slots, no length array. Anything
+/// deeper is an `SpscRing` with `depth + 1` slots (Lamport's extra slot) and a
+/// `usize` length beside each.
+const fn buffered_region(depth: usize, slot: usize) -> usize {
+    if depth <= 1 {
+        TRIPLE_BUFFER_SLOTS * slot
+    } else {
+        (depth + 1) * slot + (depth + 1) * RING_LEN_BYTES
+    }
+}
+
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
@@ -127,9 +160,28 @@ fn main() {
     // smaller, so budget every slot at the action-client size.
     // Per entry: 3 × (4096 + 384) + 3 × rx_buf + 1536 ≈ 14976 + 3·rx_buf
     //
+    // **"Subscription entries are strictly smaller" was FALSE and is the whole
+    // of issue 1190.** A subscription's arena claim is
+    // `size_of(entry) + buffered_region_size(qos.depth, slot)`, and that region
+    // is a TRIPLE BUFFER (3 slots, no length array) only at depth <= 1. The ROS
+    // default is KEEP_LAST(**10**) -- `QoSProfile::QOS_PROFILE_DEFAULT` -- where
+    // the region is an `SpscRing` of `depth + 1 = 11` slots PLUS an 11-entry
+    // `usize` length array. Measured live in the ROS 2 box on
+    // `examples/native/rust/listener`: 792 (the `SubBufferedRawEntry<closure>`
+    // the declarative path registers) + 11 * (1024 + 8) = **12,144 bytes for one
+    // ordinary subscription**, against `3 * 1024 + 512` = 3,584 modelled. The
+    // image had an 8,192-byte arena and died at `Node::register` with
+    // `NodeError::BufferTooSmall`.
+    //
+    // So every term that stands for a buffered receive region goes through
+    // `buffered_region()` below, which mirrors
+    // `executor::arena::buffered_region_size` exactly, at the depth the runtime
+    // will actually use. `arena.rs` holds the const assertions that keep each
+    // modelled term an upper bound on the entry types it stands for; those see
+    // the real backend handle sizes, which a build script cannot.
+    //
     // Embedded targets that never instantiate an `ActionClient` can
-    // override the derived size with `NROS_EXECUTOR_ARENA_SIZE`. A
-    // pub/sub-only workload only needs `3 × rx_buf + 512` per entry.
+    // override the derived size with `NROS_EXECUTOR_ARENA_SIZE`.
     //
     // Phase 214.C.4 — magic-number breakdown for `4480` and friends:
     //   ACTION_CLIENT_SERVICE_BUF   = 4096  // pending_request blocking-fallback buf
@@ -141,14 +193,58 @@ fn main() {
     const ACTION_CLIENT_SERVICES: usize = 3;
     const ACTION_CLIENT_FEEDBACK_SUBS: usize = 3; // goal + result + feedback rx
     const ACTION_CLIENT_SUB_OVERHEAD: usize = 1536;
+    // The depth `NodeHandle::create_action_client_with_callbacks_sized` passes
+    // for the feedback stream. RESTATED, like `PUBSUB_QOS_DEPTH`, and held to
+    // `nros_node::executor::DEFAULT_ACTION_FEEDBACK_DEPTH` by a test.
+    //
+    // It is NOT in the arithmetic below, deliberately. The action-client term
+    // is depth-blind in the same way the pub/sub term was, but unlike that one
+    // it is still an UPPER BOUND and by a wide margin: measured on x86_64 with
+    // the cffi backend, the entry is 5,312 bytes and its feedback region
+    // `buffered_region(8, 1024)` = 9,288, so 14,600 against the 18,048 this
+    // models. Rewriting it to `struct + buffered_region(8, rx)` would move
+    // every one of the 1,524 images built at the default 74,240 -- upward by
+    // 24,864 B if the fiction of a 4,096-byte `pending_request` per service
+    // client is kept, downward by 10,464 B if it is not. Neither is a change
+    // this issue measured a need for, and downward is the direction that
+    // breaks images. So the term is left byte-identical and the PROPERTY is
+    // asserted instead (`arena.rs`), which is what will notice if the margin
+    // ever closes. That margin is also what hid this bug: it is why a 4-slot
+    // image survived a pub/sub term short by 8,560 B per subscription.
+    const ACTION_FEEDBACK_DEPTH: u16 = 8;
     const ARENA_BASE_OVERHEAD: usize = 2048;
+    // The smallest arena the derivation will hand out. Issue 1190 asked whether
+    // this should be at least ONE entry, and the answer is no.
+    //
+    // It did not hide the bug. `.max()` only ever RAISES: the listener's
+    // declared sum was 5,632 and the floor made it 8,192, in the right
+    // direction and still 3,952 short of the 12,144 the registration wanted.
+    // What hid the bug was the action-client term's margin above, on the images
+    // that budget every slot at it.
+    //
+    // Raising it to "one subscription entry" (14,424 at the defaults) would tax
+    // every timer-only and publisher-only image 6,232 bytes for a guarantee it
+    // cannot use -- 8,192 holds 128 timers. A floor is safe exactly when the
+    // per-entry model is right, which is why the fix went there and why the
+    // model's terms are now asserted to be upper bounds rather than trusted.
     const ARENA_FLOOR: usize = 8192;
     // issue 0900 — the budget for the two entry SHAPES, summed over how many
     // slots each may occupy, instead of charging every slot the larger one.
     // With `action_clients == max_cbs` (the default) the second term is zero
     // and this is byte-identical to the old formula.
-    const PUBSUB_SUB_BUFS: usize = 3;
-    const PUBSUB_ENTRY_OVERHEAD: usize = 512;
+    //
+    // issue 1190 — the STRUCT half of a pub/sub entry, with the buffered region
+    // now a separate term. 512 was short of every concrete entry this crate
+    // defines: measured on x86_64 with the cffi backend,
+    // `SubBufferedRawEntry<()>` is 640, `SubBufferedEntry<(), ()>` and
+    // `SubBufferedRawCEntry` 656, `SubBufferedTypedCEntry` 672 and
+    // `SubBufferedRawInfoCEntry` 872 -- the bulk of it the backend handle
+    // (`CffiSubscription` alone is 584, two 256-byte name buffers of it). The
+    // declarative runtime's callback closure carries a 128-byte `heapless`
+    // callback id on top, which is how the failing image reached 792. 1024
+    // covers every one of those; the const assertions in `arena.rs` hold it to
+    // that per backend, since only the crate can see a handle's size.
+    const PUBSUB_ENTRY_STRUCT: usize = 1024;
     let action_client_entry = ACTION_CLIENT_SERVICES * ACTION_CLIENT_PER_SERVICE
         + ACTION_CLIENT_FEEDBACK_SUBS * rx_buf_size
         + ACTION_CLIENT_SUB_OVERHEAD;
@@ -183,18 +279,33 @@ fn main() {
     // resolutions have already caused in this file's sibling. It is named in
     // phase-403 step 3 rather than guessed at here.
     let rx_recv_size = env_usize("NROS_SUBSCRIBER_BUFFER_SIZE", rx_buf_size);
-    let pubsub_entry = PUBSUB_SUB_BUFS * rx_recv_size + PUBSUB_ENTRY_OVERHEAD;
+    // issue 1190 -- the region a subscription's QoS history actually claims, at
+    // the depth the runtime will actually use. `PUBSUB_QOS_DEPTH` is a
+    // RESTATEMENT of `QoSProfile::QOS_PROFILE_DEFAULT.depth`, which a build
+    // script cannot read; `the_modelled_qos_depth_is_the_runtime_default` in
+    // `arena.rs` holds the two together.
+    //
+    // It is the DEFAULT depth, not a bound over every depth, so a subscription
+    // built with an explicit `QoS(N > 10)` still out-runs it and still needs
+    // `NROS_EXECUTOR_ARENA_SIZE`. Carrying the declared depths here instead is
+    // phase-403 step 2's remaining wiring: `NROS_ENTITY_DECLARED_DEPTHS` and
+    // `NROS_ENTITY_UNDECLARED_DEPTH_COUNT` reach cmake and stop there, so this
+    // lane has nothing better to read yet. Budgeting the default is not a guess
+    // in the meantime -- it is exactly what a subscription created with no QoS
+    // argument gets, which is what "the image declared nothing" means.
+    let pubsub_region = buffered_region(PUBSUB_QOS_DEPTH, rx_recv_size);
+    let pubsub_entry = pubsub_region + PUBSUB_ENTRY_STRUCT;
 
     // phase-403 step 3 -- SUM OVER WHAT THE IMAGE DECLARES, when it declares.
     //
     // The arithmetic below this comment charges EVERY callback slot at the
     // pub/sub entry size. That is a worst case over `max_cbs`, and on an image
     // that declares its entities it is wrong in a measurable direction: a
-    // TIMER claims 32 bytes of arena (measured, `report_arena_costs`) and this
-    // model bills it `3 * rx_buf + 512` -- 5,000 bytes at the reference
-    // island's derived rx_buf of 1,496. Ten subscriptions and four timers cost
-    // 72,048 modelled against ~50,000 actually claimed, which is why that
-    // image pins the knob by hand.
+    // TIMER claims 32 bytes of arena (measured, `report_arena_costs`) and the
+    // undeclared branch bills it a whole pub/sub entry -- 17,568 bytes at the
+    // reference island's derived rx_buf of 1,496, and 5,000 back when this
+    // paragraph was written and the pub/sub term modelled three slots instead
+    // of eleven (issue 1190). Which is why that image pins the knob by hand.
     //
     // So when phase-403 W9's entity inventory reaches this lane, the sum runs
     // per KIND instead. Absence is not zero: a count that is missing means
@@ -206,6 +317,20 @@ fn main() {
     // pointer-generous 64 rather than pinned to the host figure -- the one
     // direction that cannot under-size a 32-bit target.
     const TIMER_ENTRY: usize = 64;
+    // issue 1190 -- a service server is modelled on its OWN shape, not on the
+    // pub/sub entry plus a buffer.
+    //
+    // It has no trailing region at all: `SrvRawEntry<REQ, REPLY>` /
+    // `SrvEntry<..>` carry the request and reply buffers INLINE and reach the
+    // arena through `arena_alloc`, not `arena_alloc_with_trailing`. So it costs
+    // two buffers plus the handle, and it never paid the QoS-depth multiplier
+    // the pub/sub term has just grown. Keeping `pubsub_entry + rx_buf` would
+    // have billed a service 13,400 bytes at the defaults against the 2,592
+    // `SrvRawEntry<1024, 1024>` measures on x86_64 with the cffi backend --
+    // a fix in one term inflating an unrelated one.
+    const SERVICE_ENTRY_BUFS: usize = 2; // request + reply
+    const SERVICE_ENTRY_STRUCT: usize = 1024; // handle + callback + ctx, as above
+    let service_entry = SERVICE_ENTRY_BUFS * rx_buf_size + SERVICE_ENTRY_STRUCT;
     let declared_subs = env_opt_usize("NROS_ENTITY_COUNT_SUBSCRIPTION");
     let declared_timers = env_opt_usize("NROS_ENTITY_COUNT_TIMER");
     let declared_services = env_opt_usize("NROS_ENTITY_COUNT_SERVICE_SERVER");
@@ -219,18 +344,12 @@ fn main() {
         declared_action_clients,
         declared_action_servers,
     ) {
-        (Some(subs), Some(timers), Some(services), Some(acl), Some(asv)) => {
-            // A service server carries a request AND a reply buffer, so it is
-            // billed at the pub/sub entry plus one more buffer rather than
-            // being folded into the pub/sub term.
-            let service_entry = pubsub_entry + rx_buf_size;
-            (subs * pubsub_entry
-                + timers * TIMER_ENTRY
-                + services * service_entry
-                + (acl + asv) * action_client_entry
-                + ARENA_BASE_OVERHEAD)
-                .max(ARENA_FLOOR)
-        }
+        (Some(subs), Some(timers), Some(services), Some(acl), Some(asv)) => (subs * pubsub_entry
+            + timers * TIMER_ENTRY
+            + services * service_entry
+            + (acl + asv) * action_client_entry
+            + ARENA_BASE_OVERHEAD)
+            .max(ARENA_FLOOR),
         // Nobody declared, or declared only partly: keep the pre-step-3
         // arithmetic byte for byte, so no existing image moves.
         _ => (action_clients * action_client_entry
@@ -291,7 +410,51 @@ fn main() {
          /// Shutdown-hook slots PER PHASE -- one table this size for \
          pre-shutdown hooks and a second for on-shutdown hooks \
          (set via NROS_EXECUTOR_MAX_SHUTDOWN_CBS, default 2). Issue 0790.\n\
-         pub const MAX_SHUTDOWN_CBS: usize = {max_shutdown_cbs};\n"
+         pub const MAX_SHUTDOWN_CBS: usize = {max_shutdown_cbs};\n\
+         \n\
+         /// Issue 1190 -- the arena derivation's MODEL, as the consts it \
+         summed.\n\
+         ///\n\
+         /// Emitted rather than retyped: `executor::arena` asserts that each \
+         term\n\
+         /// is an UPPER BOUND on the entry types it stands for, and it can \
+         only do\n\
+         /// that against the numbers the derivation actually used. The \
+         previous\n\
+         /// arrangement had `the_default_derivation_is_unchanged` retyping \
+         six of\n\
+         /// them, which is a second copy that agrees until one side moves.\n\
+         pub mod arena_model {{\n    \
+             /// QoS history depth the pub/sub term budgets \
+             (`QoSProfile::QOS_PROFILE_DEFAULT.depth`).\n    \
+             pub const QOS_DEPTH: u32 = {pubsub_qos_depth};\n    \
+             /// Buffered receive region for ONE subscription at that depth.\n    \
+             pub const PUBSUB_REGION: usize = {pubsub_region};\n    \
+             /// Allowance for the entry STRUCT beside that region.\n    \
+             pub const PUBSUB_STRUCT: usize = {pubsub_entry_struct};\n    \
+             /// Whole modelled cost of one subscription slot.\n    \
+             pub const PUBSUB_ENTRY: usize = {pubsub_entry};\n    \
+             /// Whole modelled cost of one service-server slot.\n    \
+             pub const SERVICE_ENTRY: usize = {service_entry};\n    \
+             /// Whole modelled cost of one timer slot.\n    \
+             pub const TIMER_ENTRY: usize = {timer_entry};\n    \
+             /// Whole modelled cost of one action-client / action-server \
+             slot.\n    \
+             pub const ACTION_CLIENT_ENTRY: usize = {action_client_entry};\n    \
+             /// QoS depth an action client's feedback stream registers with.\n    \
+             pub const ACTION_FEEDBACK_DEPTH: u16 = \
+             {action_feedback_depth};\n    \
+             /// Per-executor overhead the derivation adds once.\n    \
+             pub const BASE_OVERHEAD: usize = {arena_base_overhead};\n    \
+             /// Smallest arena the derivation will produce.\n    \
+             pub const FLOOR: usize = {arena_floor};\n\
+         }}\n",
+        pubsub_qos_depth = PUBSUB_QOS_DEPTH,
+        pubsub_entry_struct = PUBSUB_ENTRY_STRUCT,
+        action_feedback_depth = ACTION_FEEDBACK_DEPTH,
+        arena_base_overhead = ARENA_BASE_OVERHEAD,
+        arena_floor = ARENA_FLOOR,
+        timer_entry = TIMER_ENTRY,
     );
 
     std::fs::write(Path::new(&out_dir).join("nros_node_config.rs"), contents).unwrap();

@@ -1744,7 +1744,7 @@ impl<'e, 's> NodeCtx<'e, 's> {
                 A::ACTION_HASH,
                 // Feedback is a stream → buffer a short QoS-depth history (Phase
                 // 239.5). Goal-response / result are single-outstanding (gated).
-                8u16,
+                super::arena::DEFAULT_ACTION_FEEDBACK_DEPTH,
                 on_goal_response,
                 on_feedback,
                 on_result,

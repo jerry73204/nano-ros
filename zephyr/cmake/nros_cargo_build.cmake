@@ -828,9 +828,11 @@ function(nros_resolve_knobs)
     # subscription in the image (`RX_BUF` is a const generic and the C/C++ path
     # is type-erased), so the number it wants is the largest type the image can
     # receive. The inventory knows that exactly; an eye reading a header does
-    # not. Note the arena scales with it (`max_cbs * (3 * rx_buf + 512) + 2048`),
-    # so an image that also PINS `NROS_EXECUTOR_ARENA_SIZE` must move the two
-    # together -- which is an argument for pinning neither.
+    # not. Note the arena scales with it -- and by the QoS DEPTH as well, issue
+    # 1190: `max_cbs * ((depth + 1) * (rx_buf + 8) + 1024) + 2048` for a pub/sub
+    # image, where the ROS default depth is 10 -- so an image that also PINS
+    # `NROS_EXECUTOR_ARENA_SIZE` must move the two together, which is an
+    # argument for pinning neither.
     _nros_resolve_derivable_knob(NROS_SUBSCRIPTION_BUFFER_SIZE
         "${CONFIG_NROS_SUBSCRIPTION_BUFFER_SIZE}"
         NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE)

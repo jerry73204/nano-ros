@@ -1483,6 +1483,32 @@ publisher's depth today.
 
 ### Step 3 LANDED 2026-09-03 -- the arena. Last, because its failure cannot report itself.
 
+> **Correction, 2026-09-07 (issue 1190). Step 3 shipped WITHOUT step 2's
+> depth, and the direction it guessed is the one this doc named as unsafe.**
+> Step 2's own design says it outright: *"assuming 1 UNDER-sizes an image that
+> took the default -- the unsafe direction"*, and *"the arena then REFUSES to
+> derive rather than defaulting"*. The per-kind sum that landed does neither.
+> It charges `3 * rx_buf + 512` per subscription -- three slots is
+> `TripleBuffer::SLOT_COUNT`, i.e. depth 1 -- and it reads no depth at all;
+> `NROS_ENTITY_DECLARED_DEPTHS` and `NROS_ENTITY_UNDECLARED_DEPTH_COUNT` reach
+> cmake and stop there, never entering the cargo environment `nros-node/build.rs`
+> reads. So the first image whose inventory resolved to one subscription derived
+> an 8,192-byte arena for a 12,144-byte registration and died at
+> `Node::register` with `BufferTooSmall`, measured live on
+> `examples/native/rust/listener` in the ROS 2 box.
+>
+> The fix budgets the RUNTIME default depth (10) instead of refusing, because
+> refusing means "keep the hand-set knob" and these images have no hand-set
+> knob -- refusal there is the 8,192 that just failed. Budgeting the default is
+> not a guess: it is exactly what a subscription created with no QoS argument
+> gets. An image that states a smaller depth in code is over-provisioned and
+> can say so with `NROS_EXECUTOR_ARENA_SIZE`.
+>
+> **What is still owed is step 2's actual wiring**: carry the declared depths
+> (or their maximum) into the cargo env so a declared KEEP_LAST(1) image gets
+> the 3-slot region it really uses instead of the 11-slot default. That is the
+> remaining saving here and it is not what 1190 fixed.
+
 With depth present the arena is a straight sum: `arena_alloc` is a BUMP
 allocator, so the total IS the sum of the allocations. Two things are still
 needed:
