@@ -1,3 +1,12 @@
+---
+id: 364
+title: "`<node machine=>` is ROS 1 syntax, not ROS 2"
+status: resolved
+type: bug
+area: launch
+resolved_in: "phase-326, `5f784d5da` (+ fork chain: `8774077` -> `aac489f` -> `967031a`)"
+---
+
 # 0364 — `<node machine=>` is ROS 1 syntax, not ROS 2
 
 **Status:** Resolved (phase-326, `5f784d5da` + fork chain parser `8774077` →
