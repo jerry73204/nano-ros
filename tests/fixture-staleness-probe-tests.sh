@@ -357,8 +357,25 @@ checks=$((checks + 1))
 echo ""
 echo "== the OLD rules still fire on this fixture (negative control) =="
 
-out="$(cmake --build "$work/cell/build-probe" 2>&1)"
-if printf '%s' "$out" | grep -qE "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v"; then
+# BOTH halves check the build's EXIT STATUS before reading its output, and
+# neither discards stderr. This is a negative control: its whole job is to say
+# "the fixture still models the defect", so it is the one check in this file
+# whose failure message must never be reachable by a build that simply did not
+# run. It was — the cargo half was `2>/dev/null` with the status unchecked, so
+# cargo exiting 101 on
+#
+#     error: failed to open: .../nros-relwithdebinfo/.cargo-build-lock
+#       Permission denied (os error 13)
+#
+# produced no `"fresh":false`, and the check reported "this fixture no longer
+# models the defect" — a sentence aimed at the fixture for a fault in the
+# environment (a full disk, an unwritable target dir, a stale lock left by a
+# killed sibling). Whoever reads that goes and edits the fixture.
+out="$(cmake --build "$work/cell/build-probe" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then
+    fail "the old cmake rule could not be evaluated: the probe BUILD failed (exit $rc). This says nothing about the fixture."
+    printf '%s\n' "$out" | tail -20 | sed 's/^/      /' >&2
+elif printf '%s' "$out" | grep -qE "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v"; then
     ok "the old cmake rule (grep the build chatter) reports STALE — as it did forever"
 else
     fail "the old cmake rule did NOT fire: this fixture no longer models the defect"
@@ -368,11 +385,15 @@ checks=$((checks + 1))
 touch "$work/leaf/src/main.rs"
 out="$(cd "$work/leaf" && cargo build --profile "$probe_profile" \
     --target-dir "$NROS_BUILD_ROOT/cargo-fixtures/linux" \
-    --message-format=json --quiet 2>/dev/null)"
-if printf '%s' "$out" | grep -q '"fresh":false'; then
+    --message-format=json --quiet 2>"$work/negative-control-cargo.stderr")"; rc=$?
+if [ "$rc" -ne 0 ]; then
+    fail "the old cargo rule could not be evaluated: the probe BUILD failed (exit $rc). This says nothing about the fixture."
+    tail -20 "$work/negative-control-cargo.stderr" 2>/dev/null | sed 's/^/      /' >&2
+elif printf '%s' "$out" | grep -q '"fresh":false'; then
     ok "the old cargo rule (\"fresh\":false) reports STALE — as it did forever"
 else
     fail "the old cargo rule did NOT fire: this fixture no longer models the defect"
+    tail -20 "$work/negative-control-cargo.stderr" 2>/dev/null | sed 's/^/      /' >&2
 fi
 checks=$((checks + 1))
 
