@@ -1,0 +1,26 @@
+# FreeRTOS platform descriptor.
+#
+# phase-375 W8 — created to give `[priority_plan]` a per-platform home. The
+# plan is a PLATFORM fact: `range = [1, 7]` is `configMAX_PRIORITIES`, which
+# belongs to the RTOS and not to any board running on it. It was stated on
+# BOARDS, and `nros-board-mps2-an385-freertos` and
+# `nros-board-mps3-an536-freertos` held byte-identical copies.
+#
+# That duplication was not merely untidy. `scripts/lib/priority_plan.py`
+# `load_plans()` builds a `platform -> plan` map, so with two boards declaring
+# for one platform the LATER one silently wins — if the copies ever diverged,
+# one would quietly stop applying and nothing would say which.
+
+names = ["freertos", "freertos-lwip"]
+
+# RFC-0079 — the PORT's priority address plan.
+#
+# `tier_key` is the key a `[tiers.<name>.<key>]` pin is written under. FreeRTOS
+# matched its platform name by coincidence; the loader's own comment says that
+# is not a thing to build on, so it is stated.
+[priority_plan]
+tier_key = "freertos"
+direction = "bigger-is-urgent"
+range = [1, 7]
+reserved.transport = [4, 4]
+pool.app = [1, 3]

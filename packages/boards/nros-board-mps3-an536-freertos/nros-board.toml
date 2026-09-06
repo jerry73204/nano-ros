@@ -53,13 +53,10 @@ threads = true
 [board.cmake]
 toolchain_file = "cmake/toolchain/arm-freertos-armcr52.cmake"
 
-# RFC-0079 — the PORT's priority address plan. Read from the port, not chosen
-# here: the family FreeRTOSConfig sets configMAX_PRIORITIES = 8, and the
-# transport band (zenoh read/lease + the lwIP poll task) sits at 4, per
-# nros-board-common/src/freertos_config.rs. Identical to the MPS2 sibling
-# because both take the family defaults unchanged.
-[board.priority_plan]
-direction = "bigger-is-urgent"
-range = [1, 7]
-reserved.transport = [4, 4]
-pool.app = [1, 3]
+# RFC-0079's priority address plan for this port lives with the PLATFORM now
+# (`config/freertos/nros-platform.toml`), not here — `range = [1, 7]` is
+# FreeRTOS's `configMAX_PRIORITIES`, a fact about the RTOS rather than about
+# this board. phase-375 W8; the two FreeRTOS QEMU boards held byte-identical
+# copies, and `load_plans()` keys by platform, so the later one silently won.
+# A board that genuinely retunes its port still states `[board.priority_plan]`
+# and overrides.

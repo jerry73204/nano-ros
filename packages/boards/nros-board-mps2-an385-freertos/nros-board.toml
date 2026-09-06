@@ -43,32 +43,10 @@ threads = true
 [board.cmake]
 toolchain_file = "cmake/toolchain/arm-freertos-armcm3.cmake"
 
-# RFC-0079 — the PORT's priority address plan.
-#
-# Scheduling priority is one address space shared by application tiers and
-# system tasks. Before this, tiers were hand-pinned into it with no record of
-# what was already there — the DHCP/static-IP collision RFC-0079 describes,
-# measured at 34 of 38 pins in the tree colliding, preempting, or unverifiable.
-#
-# Every number here is READ FROM the port, not chosen here, and
-# `check-tier-priority-plan` cross-references them: a plan free to drift from
-# the code it describes would be a second spelling of the same fact.
-[board.priority_plan]
-direction = "bigger-is-urgent"
-# configMAX_PRIORITIES = 8 (nros-board-freertos/config/FreeRTOSConfig.h), so the
-# usable band is 0..7 and 0 is the idle task's.
-range = [1, 7]
-# zenoh-pico's read and lease tasks plus the lwIP netif poll task, all three at
-# 4 (nros-board-common/src/freertos_config.rs, FreertosScheduling::default).
-# They persist for the life of the image, which is what makes them RESERVED.
-reserved.transport = [4, 4]
-# What tiers may be allocated. Deliberately BELOW the transport band: a tier
-# that outranks the link cannot be drained or refilled by it (issue 0623, then
-# measured again in 0736).
-pool.app = [1, 3]
-# NOT reserved, and worth saying so because the first draft of the collision
-# report got it wrong: `app_priority = 3` is the priority app_task is CREATED
-# at, and `run_tiers` immediately replaces it with the boot tier's own
-# (freertos_run_tiers.c `freertos_apply_tier_priority`, entry.rs
-# `nros_freertos_set_current_task_priority`). A starting value is not a
-# standing occupant, so 3 belongs to the pool.
+# RFC-0079's priority address plan for this port lives with the PLATFORM now
+# (`config/freertos/nros-platform.toml`), not here — `range = [1, 7]` is
+# FreeRTOS's `configMAX_PRIORITIES`, a fact about the RTOS rather than about
+# this board. phase-375 W8; the two FreeRTOS QEMU boards held byte-identical
+# copies, and `load_plans()` keys by platform, so the later one silently won.
+# A board that genuinely retunes its port still states `[board.priority_plan]`
+# and overrides.

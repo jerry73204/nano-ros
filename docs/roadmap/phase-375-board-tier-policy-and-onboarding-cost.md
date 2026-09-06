@@ -177,7 +177,12 @@ not use it.
       board-import fixture was verified booting on it the same day. What keeps
       CI out is cost and x86_64-only hosting, not permission.
 
-- [ ] ~~Every supported platform earns exactly ONE Runtime cell (boots, delivers a
+- [x] **DECIDED, split.** Floor landed (above); ceiling NOT implemented and
+      recorded as such, to override rather than to re-litigate. Ticked because
+      a decision IS the outcome for this box — leaving it open would say work
+      remains, and none does unless you reverse the call. Original wording:
+
+      ~~Every supported platform earns exactly ONE Runtime cell (boots, delivers a
       message) to sit in tier 2; full cells in nightly require a witness.
       Today's spread is Linux 72 / ZephyrNativeSim 39 / … / QemuBaremetal 1 —
       defensible but undeclared. This makes it intentional and gives a new board
@@ -242,16 +247,26 @@ shared tree, which is exactly the state W1 was written to stop.
 **What would change the recommendation:** somebody putting their name on the
 row. That is a person, not a patch.
 
-- [ ] It exists for `autoware-safety-island`. Zephyr's guidance is that a
+- [x] It exists for `autoware-safety-island`. Zephyr's guidance is that a
       product board belongs in the product repo, and phase-346 landed the
-      out-of-tree seam that makes it possible.
-- [ ] The trade is explicit: out-of-tree costs in-tree evidence that the board
+      out-of-tree seam that makes it possible. _(Considered; the DECISION block
+      above is the outcome.)_
+- [x] The trade is explicit: out-of-tree costs in-tree evidence that the board
       still links; in-tree costs a maintainer under W1 and the onboarding under
-      W2. Either is fine; defaulting without deciding is not.
-- [ ] If it stays, it needs a named maintainer and it stays BuildOnly until a
-      witness exists.
+      W2. Either is fine; defaulting without deciding is not. _(Stated as a
+      table above, both ways.)_
+- [x] If it stays, it needs a named maintainer and it stays BuildOnly until a
+      witness exists. _(It has none, which is the argument for moving it.)_
 
-**Acceptance:** a recorded decision, not a default.
+**Acceptance:** a recorded decision, not a default. **MET** — the decision is
+recorded above, with what would change it.
+
+**Not yet EXECUTED, and deliberately not by me.** The move needs ASI to accept
+hosting the board and to run the link check in their CI. That is a commitment
+this repo cannot make on their behalf, and executing half of it — deleting the
+board here before it has a home there — is the one outcome worse than either
+choice. The nano-ros half is one `just board-new --out-of-tree` plus removing
+the registry row, and takes minutes once ASI has agreed.
 
 ## W6 — One board process: a board is a package, found by a scan
 
@@ -371,7 +386,36 @@ field group by field group; each group is a gate plus a mechanical edit.
       `check-derived-descriptor-fields` refuses a stated value that disagrees.
       Board override survives: `link_kind` is an `Option` with an accessor.
 
-- [ ] **`[board.priority_plan]` still wants a per-platform home** — the two
+- [x] **`[board.priority_plan]` has a per-platform home** — landed for the one
+      platform that actually duplicated. `config/freertos/nros-platform.toml`
+      carries the plan; both FreeRTOS boards dropped their byte-identical
+      copies and now inherit, with a board-level block still overriding.
+
+      The duplication was worse than untidy: `load_plans()` builds a
+      `platform -> plan` map, so with two boards declaring for one platform the
+      LATER one silently won, and a divergence would have been invisible. (The
+      loader does carry a conflict check — it fired during this work, which is
+      how the next item was found.)
+
+      **Two defects found while doing it, both in `priority_plan.py`:**
+
+      * `load_plans()` carried its own inline copy of the parser — in the module
+        whose docstring says the two consumers "had a table each for about an
+        hour, which is the second spelling this codebase keeps paying for".
+        There is one `_parse_plan_block` now, shared with the platform reader.
+      * That parser gated on `if header not in text`, which a COMMENT naming the
+        table satisfies. The boards that moved their plan kept a comment saying
+        where it went, and the substring test then produced an EMPTY plan that
+        "conflicted" with the platform's. Issue 0516's hazard, in this module.
+        It requires the table to be entered now.
+
+      Only FreeRTOS moved. posix, nuttx, threadx and zephyr each have exactly
+      ONE board declaring a plan, so there is nothing to de-duplicate and
+      moving them would be churn; they move when a second board of that
+      platform arrives, which is when the loader's conflict check would
+      otherwise start deciding by file order.
+
+      ~~Superseded wording: **`[board.priority_plan]` still wants a per-platform home** — the two
       FreeRTOS QEMU boards hold byte-identical blocks, which is
       `configMAX_PRIORITIES`. Unlike the two fields above it is per-RTOS DATA
       (ranges, reserved bands, a resolver) rather than a mapping, so the enum
