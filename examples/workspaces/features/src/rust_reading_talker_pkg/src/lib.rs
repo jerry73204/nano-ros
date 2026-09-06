@@ -25,6 +25,11 @@ pub struct ReadingTalker;
 impl Node for ReadingTalker {
     const NAME: &'static str = "reading_talker";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(1, 0, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("reading_talker"))?;
         let pub_reading = node.create_publisher_for_topic::<Reading>("/reading")?;

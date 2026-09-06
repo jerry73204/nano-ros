@@ -26,6 +26,11 @@ pub struct AddTwoIntsServer;
 impl Node for AddTwoIntsServer {
     const NAME: &'static str = "add_two_ints_server";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 1, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let mut node = ctx.create_node(NodeOptions::new("add_two_ints_server"))?;
         let _srv = node.create_service_server_for_name_with_callback::<AddTwoInts>(

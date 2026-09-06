@@ -24,6 +24,11 @@ pub struct OneDep;
 impl Node for OneDep {
     const NAME: &'static str = "one_dep";
 
+    // issue 0857 — the cell registries this class fills, exactly: (publishers,
+    // service servers, service clients, action clients, action servers). Undeclared
+    // means `NROS_RUNTIME_MAX_CELL_ENTITIES` per kind, in `.bss`, twice over.
+    const ENTITY_BOUNDS: nros::EntityBounds = nros::EntityBounds::exact(0, 0, 0, 0, 0);
+
     fn register(ctx: &mut NodeContext<'_>) -> NodeResult<()> {
         let _node = ctx.create_node(NodeOptions::new("one_dep"))?;
         Ok(())

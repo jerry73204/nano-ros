@@ -22,6 +22,19 @@
 atomic-sync-writes:
     @bash scripts/check-atomic-sync-writes.sh
 
+# Issue 0857 — a `nros::node!` class DECLARES what its cell registries hold.
+# Undeclared means `NROS_RUNTIME_MAX_CELL_ENTITIES` (8) per kind, and a
+# publisher slot embeds a loan arena: measured with `nm -S` on the prebuilt
+# `examples/workspaces/rust` native entries, an undeclared one-service class
+# cost 50,824 B of `.bss` against 272 B for a class that declares zero. Also a
+# LOWER-BOUND check on the numbers — a declaration under what `register()`
+# creates is a boot-time registration error, so it fails here instead. Same
+# family as the `entity-slot-costs` / `infra-queryable-counts` budget gates one
+# file over, but the subject is the `nros` component runtime, not an RMW pool.
+[private]
+component-entity-bounds:
+    @python3 scripts/check-component-entity-bounds.py
+
 # Issues 0400/0706/0712 — EVERY `export -f` list in scripts/build/ must close
 # over its call graph, or a helper added to an exported function dies
 # "<name>: command not found" in the make WORKER and nowhere else. Three times
