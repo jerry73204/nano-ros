@@ -31,7 +31,28 @@
 
 thumbv7m-none-eabi              rustup
 thumbv7em-none-eabihf           rustup
-# Cortex-R5F, AGX Orin SPE (phase-100). Tier 3 but rustup ships a rust-std.
+# Cortex-R5 / ARMv7-R. TWO triples, and which one an image wants is a fact
+# about its C half, not about the core:
+#
+#   armv7r-none-eabi    SOFT-FLOAT ABI (AAPCS base). The NVIDIA Orin SPE
+#                       (phase-418 418.3): the vendor `spe-freertos-bsp` FSP
+#                       compiles and links `-mfloat-abi=softfp`, so a
+#                       hard-float Rust half would pass floats in s0.. to an
+#                       FSP reading them in r0... `[arch.cortex-r5]` in
+#                       nros-platform-freertos carries the matching cflags.
+#                       Also what the Zephyr Cortex-R lane picks with no
+#                       CONFIG_FPU (zephyr/cmake/nros_cargo_build.cmake).
+#                       Already declared by that lane before it had a row here.
+#   armv7r-none-eabihf  HARD-FLOAT ABI (AAPCS-VFP). The Zephyr Cortex-R lane
+#                       with CONFIG_FPU, and the documented fallback in
+#                       cmake/toolchain/arm-freertos-armcr52.cmake for a
+#                       toolchain with no armv8r rust-std. NOT retired by
+#                       418.3 — it is a different image with a different C
+#                       half, so both rows stay.
+#
+# Both are tier 3-ish bare-metal, and both ship a prebuilt rust-std, so both
+# are `rustup` and neither needs `-Zbuild-std`.
+armv7r-none-eabi                rustup
 armv7r-none-eabihf              rustup
 # Cortex-R52 / ARMv8-R AArch32 — NXP S32Z270 (phase-372) and MPS3-AN536
 # (phase-385). Both `workspace-cpp-*-freertos` fixture rows cross-build to it.

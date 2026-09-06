@@ -1603,6 +1603,14 @@ triple = "thumbv7m-none-eabi"
 triple = "thumbv7m-none-eabi"
 toolchain = "nightly-pinned"
 
+# Cortex-R5 / ARMv7-R, SOFT-FLOAT ABI — the NVIDIA Orin SPE (phase-418 418.3)
+# and the Zephyr Cortex-R lane with no CONFIG_FPU. The vendor SPE FSP builds
+# `-mfloat-abi=softfp`, which is AAPCS base, so the hard-float row below is the
+# wrong half of the pair for that image. Both rows are real; see
+# `config/rust-targets.txt` for which image wants which.
+[rust.target.armv7r]
+triple = "armv7r-none-eabi"
+
 [rust.target.armv7r-hf]
 triple = "armv7r-none-eabihf"
 

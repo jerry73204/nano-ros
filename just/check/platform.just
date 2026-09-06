@@ -13,6 +13,41 @@
 # `just/check.just` became the worst conflict surface in the tree at 48 of
 # 300 commits.
 
+# phase-418 418.3 — an `[arch.*]` profile must be REACHABLE, UNIQUE and wired
+# to the right float ABI. phase-385 W1's defect made a check: `[arch.cortex-r52]`
+# was defined and never named in the platform's `arch = [..]`, which is the list
+# the resolver walks, so the block existed and nothing could reach it. The
+# S32Z270 board never noticed because its CMake lane passes `FREERTOS_CFLAGS`
+# explicitly; it surfaced months later on the one lane that could not
+# short-circuit.
+#
+# The rule that earns its keep is the third one. `target_match` is a SUBSTRING
+# test, and float ABI is spelled twice with nothing joining the spellings — the
+# triple's `eabi`/`eabihf` suffix on the Rust side, `-mfloat-abi=` in `cflags`
+# on the C side. `hard` is AAPCS-VFP, `soft`/`softfp` is AAPCS base; disagree
+# and ld refuses the pair at the END of a cross build with "uses VFP register
+# arguments", naming an `rcgu.o` inside an rlib rather than the profile that
+# chose the flags. `"armv7r-none-eabi"` is a substring of `"armv7r-none-eabihf"`,
+# so the Orin SPE's softfp profile claims the hard-float triple unless it says
+# otherwise — a profile that is perfectly well-formed and wired wrong, which is
+# the mutation a structure-only gate passes.
+#
+# The last rule is that one's mirror, and it was found by review AFTER the other
+# four were green: a profile must admit at least one PROVISIONED triple. Give
+# `cortex-r5` `target_match = "armv8r"` and keep its `target_exclude = "eabihf"`
+# and it matches nothing at all — its own veto kills its own match — so it is
+# listed, defined, shadows nothing, and offers the ABI rule no pair to judge.
+# phase-385 W1 was "a triple with no profile", which panics and is eventually
+# found; this is "a profile with no triple", which is silently inert. The build
+# resolves nothing either way. It has already found a third pre-existing
+# instance, `config/bare-metal`'s `[arch.riscv32gc]`.
+#
+# Buildless: it reads the platform manifests and `config/rust-targets.txt`, and
+# invokes no cargo. Self-test on the normal path.
+[private]
+arch-profile-resolution:
+    @python3 scripts/check-arch-profile-resolution.py
+
 # phase-340 W4 — the artifact-identity budget: how many times one crate is
 # COMPILED, and how many dirs one compilation is written into, for a single
 # workspace at a single feature set. `examples/workspaces/mixed` is the fixture

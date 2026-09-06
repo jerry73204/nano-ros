@@ -1,4 +1,7 @@
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy", "rust-src", "llvm-tools"]
-targets = ["thumbv7em-none-eabihf", "armv7r-none-eabihf", "aarch64-unknown-none"]
+# phase-418 418.3 — `armv7r-none-eabi` joins the hard-float triple already
+# here: the Orin SPE FSP is softfp (AAPCS base), so the `hf` triple is the
+# wrong ABI for that image. Neither replaces the other.
+targets = ["thumbv7em-none-eabihf", "armv7r-none-eabi", "armv7r-none-eabihf", "aarch64-unknown-none"]

@@ -23,13 +23,6 @@ ip_stack = true    # lwIP / FreeRTOS-Plus-TCP, both named in [build]
 
 [build.zenoh]
 defines = ["ZENOH_GENERIC", "ZENOH_FREERTOS_LWIP"]
-# Phase 154 — `Z_FEATURE_LINK_UDP_MULTICAST = 0` disables the
-# vendor `_z_close_udp_multicast` codepath in
-# `system/freertos/lwip/network.c`, which has a vendor
-# `sockrecv->socket` typo (the struct field is `_socket`).
-# nano-ros doesn't use UDP multicast over zenoh-pico on
-# FreeRTOS (router is TCP-only on this slirp path), so the
-# feature loss is harmless and the typo stops mattering.
 defines_kv = { ZENOH_DEBUG = "0", Z_FEATURE_MULTI_THREAD = "1", Z_FEATURE_LINK_UDP_MULTICAST = "0" }
 # Phase 154 — pull vendor's FreeRTOS+lwIP `system/freertos/lwip`
 # subtree + the top-level `system/freertos/system.c` so vendor's
@@ -65,7 +58,10 @@ extra_sources = [
 # `FREERTOS_CFLAGS` explicitly (`nros_armv8r_cflags_env`), which short-circuits
 # the lookup — so the gap only surfaces on a cargo-native build, which is
 # exactly what a QEMU board's `runner` needs.
-arch = ["cortex-m3", "cortex-m7", "cortex-r52"]
+# phase-418 418.3 — `cortex-r5` (ARMv7-R, the Orin SPE) is listed here at the
+# same time as its block is written, for the reason the paragraph above
+# records: a block nobody lists is a block nobody can reach.
+arch = ["cortex-m3", "cortex-m7", "cortex-r5", "cortex-r52"]
 compile = { opt_level = "s", warnings = false, cflags = ["-ffunction-sections", "-fdata-sections"] }
 required_env = [
   { name = "FREERTOS_DIR", help = "FreeRTOS kernel source. just setup-freertos; export FREERTOS_DIR=$PWD/third-party/freertos/kernel", validate_subdir = "include" },
@@ -105,6 +101,72 @@ cflags = ["-mcpu=cortex-m3", "-mthumb"]
 [arch.cortex-r52]
 target_match = "armv8r"
 cflags = ["-mcpu=cortex-r52", "-mfpu=neon-fp-armv8", "-mfloat-abi=hard"]
+
+# phase-418 418.3 — Cortex-R5 (ARMv7-R AArch32), the NVIDIA Orin SPE / AON
+# cluster, under NVIDIA's own `spe-freertos-bsp` FSP (FreeRTOS V10.4.3,
+# `portable/GCC/ARM_R5`).
+#
+# THE FLAGS ARE THE VENDOR'S, READ FROM THE VENDOR'S OWN MAKEFILE — not chosen
+# here. `spe-freertos-bsp/rt-aux-cpu-demo-fsp/Makefile` (L4T 36.4.4) compiles
+# every object, FSP and FreeRTOS alike, with
+#
+#     -mcpu=cortex-r5 -mthumb-interwork -mfloat-abi=softfp -mfpu=vfpv3-d16
+#
+# and links with `LDFLAGS := $(CFLAGS)`, so the same set decides the link. Our
+# objects go into that image; the calling convention is therefore not ours to
+# pick.
+#
+# `softfp`, NOT `hard`, and the difference is the whole point of this block.
+# Both emit VFP instructions; they disagree about where a `float` crosses a
+# function boundary — `softfp` keeps AAPCS base (core registers, r0..), `hard`
+# is AAPCS-VFP (s0../d0..). Measured with the pinned arm-none-eabi-gcc 13.2.1:
+# the C object built with the flags below moves its arguments in from r0/r1
+# with `vmov` and returns in r0; an `armv7r-none-eabi` Rust staticlib built
+# `-Ctarget-feature=+vfp3d16` emits the identical sequence and links clean,
+# while the `armv7r-none-eabihf` build takes them in s0/s1 and ld REFUSES the
+# pair — "uses VFP register arguments, <out> does not", failing to merge
+# `Tag_ABI_VFP_args`. So the cost of getting this wrong is not silent garbage;
+# it is that error, at the end of a cross build, naming an `rcgu.o` inside an
+# rlib and saying nothing about this profile.
+#
+# Which is why the Rust half must be `armv7r-none-eabi` (soft-float ABI) with
+# the FPU supplied as a TARGET FEATURE (`-C target-feature=+vfp3d16`, the exact
+# spelling of `-mfpu=vfpv3-d16`), and NOT `armv7r-none-eabihf`. The hard-float
+# triple is what `rust-toolchain.toml` and `nros-sdk-index.toml` have carried
+# for this target since phase-100, and it is the wrong one — phase-100 flagged
+# the ABI question (§2 Q3 of phase-418) without settling it. `armv7r-none-eabihf`
+# is NOT retired: the Zephyr Cortex-R lane picks it on `CONFIG_FPU`
+# (`zephyr/cmake/nros_cargo_build.cmake`), which is a different image with a
+# different C half.
+#
+# For 418.6, the Rust-side spelling, measured rather than guessed: with NO
+# feature the soft triple emits `__aeabi_fmul`/`__aeabi_fadd` calls (correct
+# ABI, no FPU); `+vfp3d16` and `+vfp3,-d32,-neon` both emit `vmla.f32` and are
+# byte-identical here. rustc reports `vfp3d16` as "unknown and unstable" (it is
+# passed straight through to LLVM) and `vfp3`/`d32` as "unstable" — a warning
+# either way on stable, not an error. `d32` must be OFF: vfpv3-d16 has 16
+# d-registers.
+#
+# `target_exclude = "eabihf"` IS LOAD-BEARING — this is the `[arch.cortex-m7]`
+# KNOWN LIMITATION below, in mirror. `target_match` is a SUBSTRING test, and
+# `"armv7r-none-eabi"` is a substring of `"armv7r-none-eabihf"`; without the
+# exclusion this profile would also claim the hard-float triple and compile the
+# C half `softfp` against a hard-float Rust half. The M7 comment says exclusion
+# cannot separate the pair — true THERE, where the profile wants the hard-float
+# triple and the soft one is the substring, so the exclusion would veto the
+# match itself. Here the profile wants the SOFT one, so `eabihf` is a
+# discriminator that appears in exactly the triple to reject.
+#
+# `cortex-r52` cannot claim an ARMv7-R triple and this cannot claim an ARMv8-R
+# one: `"armv7r-none-eabi(hf)"` does not contain `"armv8r"`, and
+# `"armv8r-none-eabihf"` contains neither `"armv7r-none-eabi"` nor — being
+# vetoed by `eabihf` in any case — anything this profile would admit. Checked
+# rather than assumed, and re-checked on every push by
+# `check-arch-profile-resolution`.
+[arch.cortex-r5]
+target_match = "armv7r-none-eabi"
+target_exclude = "eabihf"
+cflags = ["-mcpu=cortex-r5", "-mthumb-interwork", "-mfloat-abi=softfp", "-mfpu=vfpv3-d16"]
 
 # RFC-0062 — Cortex-M7, hard float (`thumbv7em-none-eabihf`). Added for the
 # NXP S32K344 / MR-CANHUBK3 bring-up; before it, this platform had exactly one
