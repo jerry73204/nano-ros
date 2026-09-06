@@ -7,7 +7,7 @@
 # descriptor named. Note `threadx` alone stays AMBIGUOUS (the threadx-linux
 # descriptor also claims it); this alias is the unambiguous spelling.
 names = ["threadx", "threadx-riscv64", "threadx-qemu-riscv64"]
-target_contains = "riscv64"
+disambiguate_by_target = "riscv64"
 platform = "threadx-riscv64"
 toolchain = "stable"
 platform_feature = "platform-threadx"

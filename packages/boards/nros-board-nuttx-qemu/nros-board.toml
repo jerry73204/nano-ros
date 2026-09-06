@@ -120,7 +120,7 @@ toolchain_file = "cmake/toolchain/armv7a-nuttx-eabi.cmake"
 [[board]]
 # phase-351 / issue 0606 — the riscv witness's downstream id, as used by the realtime workspaces.
 names = ["nuttx-riscv", "NuttX-riscv", "nuttx-qemu-riscv"]
-target_contains = "riscv"
+disambiguate_by_target = "riscv"
 platform = "nuttx"
 toolchain = "nightly"
 platform_feature = "platform-nuttx"
