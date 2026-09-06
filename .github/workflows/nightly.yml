@@ -130,6 +130,13 @@ jobs:
   # only the platforms / lines whose code (or the shared core) changed; on
   # main/dispatch/schedule, all (the per-job `github.event.schedule` guard then
   # routes each cron to its own job set).
+  #
+  # ISSUE 1029, and read this before adding a `needs: changes` to anything:
+  # THIS JOB IS ONLY USABLE ON THE 07:00 CRON. It `needs: lane`, `lane` is
+  # skipped on the 05:00 cron, and `if: always()` makes THIS job run there
+  # without making anything downstream of it run — measured over 29 scheduled
+  # runs, and it silenced the whole Zephyr lane for three weeks. A job on the
+  # 05:00 cron reads `github.event.schedule` itself.
   changes:
     needs: lane
     if: ${{ always() }}
@@ -137,9 +144,12 @@ jobs:
     outputs:
       platforms: ${{ steps.set.outputs.platforms }}
       zephyr: ${{ steps.set.outputs.zephyr }}
-      # Issue 1029 — the zephyr CRON decision, computed once and observable,
-      # instead of an inline `github.event.schedule` string compare repeated on
-      # three jobs where nobody could see what it evaluated to.
+      # Issue 1029 — DIAGNOSTIC ONLY since the third pass. This decides nothing:
+      # the three zephyr jobs gate on the event payload directly, because
+      # nothing downstream of `changes` runs on the 05:00 cron (`changes`
+      # `needs: lane`, and `lane` is skipped there). It is still computed, and
+      # `zephyr-gate-report` still publishes it, so the next incident on this
+      # edge has a value to read instead of a hypothesis.
       run_zephyr: ${{ steps.set.outputs.run_zephyr }}
     steps:
       - uses: actions/checkout@v4
@@ -542,27 +552,58 @@ jobs:
 
   # ===== Zephyr dual-line (cron 0 5) ====================================
 
-  # Issue 1029, second pass. The first fix computed `run_zephyr` once and the
-  # lane STILL skipped on both scheduled runs after it landed (2026-09-04T05:11
-  # and 2026-09-05T05:10, both on the fixed workflow — checked by `head_sha`),
-  # while the 2026-09-04T19:39 workflow_dispatch on the SAME version ran all
-  # three jobs.
+  # Issue 1029, THIRD pass — and this one has the measurement the first two were
+  # missing. `gh api .../actions/jobs/<id>/logs` DOES return the `changes` job's
+  # log; it was the run-level `gh run view --log` that mangled it. From the
+  # 2026-09-05T05:10 SCHEDULED run (job 101253467476), verbatim:
   #
-  # So one of the two gate clauses is not the string it is supposed to be on a
-  # schedule event, and BOTH are `true` by reading:
+  #     zephyr cron: event=schedule schedule='0 5 * * *' -> run_zephyr=true
+  #     selected platforms: [""] ; zephyr: true
+  #     Set output 'platforms' / Set output 'zephyr' / Set output 'run_zephyr'
   #
-  #   * `run_zephyr` is `true` in every branch of its `case` except a literal
-  #     `0 7 ` cron — including the fail-open default;
-  #   * `zephyr` is the literal `"true"` whenever the event is not
-  #     `pull_request`, and `pull_request` is NOT A TRIGGER of this workflow.
+  # So `github.event.schedule` IS exactly `0 5 * * *` on the 05:00 cron, every
+  # operand of the gate was the string `true`, all three outputs were set, and
+  # `changes` finished `success` at 05:10:44 — and all three zephyr jobs were
+  # reported `skipped` at 05:10:45, one second later. The cron string compare
+  # was never the bug. Both earlier passes rewrote a gate that was already
+  # computing the right answer.
   #
-  # Which of them is empty is not READABLE. `gh api .../jobs/<id>/logs` returns
-  # zero bytes for this workflow's `changes` job, and a step summary is not
-  # exposed by the API at all — the two places the first fix put the value.
+  # What IS different about the 05:00 cron is one edge: `changes` has
+  # `needs: lane`, and `lane` is the job that is deliberately skipped on that
+  # cron. `changes` overrides with `if: always()` and runs — but nothing
+  # downstream of it survives. Correlation over 29 scheduled runs back to
+  # 2026-08-22 is total: `lane` skipped => every job that reads a `changes`
+  # output skipped; `lane` ran (07:00 cron, and every dispatch) => they ran.
   #
-  # This job puts it somewhere that survives: an ARTIFACT. It runs on every
-  # event, including the ones where the lane is correctly skipped, so the next
-  # scheduled run answers the question whatever it does.
+  # The second pass's own artifact then said WHICH mechanism, on the
+  # 2026-09-06T05:10 scheduled run (34013334385):
+  #
+  #     event_schedule='0 5 * * *'   changes_result='success'
+  #     outputs_run_zephyr='true'    gate_would_pass='true'
+  #
+  # `gate_would_pass` IS the three jobs' `if`, evaluated in that run against the
+  # same `needs.changes` context — and the three jobs were skipped in it. So the
+  # outputs cross the edge and the gate is OPEN; GitHub skips the jobs because
+  # their `needs` chain contains a skipped job and they do not carry `always()`.
+  # A true `if` does not resurrect a job the graph has already skipped. The
+  # report job, same position, survives only because it says `always()`.
+  #
+  # So the three jobs below no longer `needs: changes` at all — they never used
+  # it for anything but the `if` — and each asks the event payload directly.
+  # The compare FAILS OPEN, as the first pass established: any schedule that is
+  # not the 07:00 platform cron runs the lane. Running too often costs minutes;
+  # never running costs the ability to tell a Zephyr regression from a healthy
+  # Zephyr, which is what the last three weeks cost.
+  #
+  # RULE for anything added here later: a job on the 05:00 cron must NOT gate on
+  # a `changes` output. `changes` is the platform sweep's job and shares `lane`'s
+  # lifetime.
+  #
+  # This report job stays, and keeps its `needs: changes` on purpose: it is the
+  # only thing that can say, from inside a scheduled run, whether the outputs
+  # cross that edge. It writes them to an ARTIFACT, quoted, because this
+  # workflow's step summaries are not exposed by the API. `always()` is what
+  # keeps it running when everything else on the edge does not.
   zephyr-gate-report:
     needs: changes
     if: ${{ always() }}
@@ -581,7 +622,10 @@ jobs:
             echo "outputs_zephyr='${{ needs.changes.outputs.zephyr }}'"
             echo "outputs_run_zephyr='${{ needs.changes.outputs.run_zephyr }}'"
             echo "outputs_platforms='${{ needs.changes.outputs.platforms }}'"
-            echo "gate_would_pass='${{ needs.changes.outputs.run_zephyr == 'true' }}'"
+            echo "old_gate_via_changes='${{ needs.changes.outputs.run_zephyr == 'true' }}'"
+            # The gate the three jobs below actually use now: the event payload,
+            # read directly, no `needs` edge in the way.
+            echo "gate_direct='${{ github.event_name != 'schedule' || !startsWith(github.event.schedule, '0 7 ') }}'"
           } | tee zephyr-gate-inputs.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -590,8 +634,9 @@ jobs:
           retention-days: 14
 
   zephyr-example-matrix:
-    needs: changes
-    if: ${{ needs.changes.outputs.run_zephyr == 'true' }}
+    # No `needs:` — see the issue-1029 block above. The gate is the event
+    # payload, and it fails OPEN on anything that is not the 07:00 platform cron.
+    if: ${{ github.event_name != 'schedule' || !startsWith(github.event.schedule, '0 7 ') }}
     name: zephyr ${{ matrix.line }} / ${{ matrix.example }}
     runs-on: ubuntu-latest
     concurrency:
@@ -709,8 +754,8 @@ jobs:
           just zephyr build-one "${{ matrix.example }}" zenoh
 
   zephyr-dual-line-summary:
-    needs: changes
-    if: ${{ needs.changes.outputs.run_zephyr == 'true' }}
+    # No `needs:` — issue 1029; same gate as zephyr-example-matrix.
+    if: ${{ github.event_name != 'schedule' || !startsWith(github.event.schedule, '0 7 ') }}
     name: zephyr ci-both (3.7 + 4.4)
     env:
       # The 4.4 line needs a Python >=3.12 venv, which nano-ros refuses to
@@ -783,8 +828,8 @@ jobs:
           just zephyr ci-both c/talker zenoh
 
   zephyr-copy-out:
-    needs: changes
-    if: ${{ needs.changes.outputs.run_zephyr == 'true' }}
+    # No `needs:` — issue 1029; same gate as zephyr-example-matrix.
+    if: ${{ github.event_name != 'schedule' || !startsWith(github.event.schedule, '0 7 ') }}
     name: zephyr copy-out check (4.4)
     env:
       # The 4.4 line needs a Python >=3.12 venv, which nano-ros refuses to
