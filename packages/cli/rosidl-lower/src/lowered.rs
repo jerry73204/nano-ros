@@ -6,10 +6,12 @@
 //! op, and the field order. Language spelling is NOT here — a template maps the
 //! neutral facts to `u32`/`uint32_t`/`write_u32`/… (RFC-0068 Stage 3).
 
-use rosidl_parser::ast::{FieldType, PrimitiveType};
+use std::borrow::Cow;
+
+use rosidl_parser::ast::{ConstantValue, FieldType, PrimitiveType};
 use rosidl_resolve::ResolvedMessage;
 
-use crate::config::{CapacityResolver, FieldKind, FieldStorage, StorageMode};
+use crate::config::{CapacityResolver, FieldKind, FieldStorage, StorageMode, with_element_bound};
 
 /// Stand-in alignment for a nested struct field.
 ///
@@ -155,20 +157,144 @@ pub enum FieldShape {
 }
 
 /// One field lowered to concrete, target-specific, language-neutral facts.
+///
+/// phase-432 W2.5a — this IS the render context. Every message surface (`rmw`,
+/// `rust`, `nros`, `c`, `cpp`) projects its view struct from here; none of them
+/// re-matches on `rosidl_parser` to answer a question this struct already
+/// answers. The accessors below are that contract: they are the ONLY sanctioned
+/// spelling of "is this a sequence", "what is the element's CDR op", "how long
+/// is the array".
 #[derive(Debug, Clone)]
 pub struct LoweredField {
     pub name: String,
-    /// The original parsed type (the renderer still needs it for spelling).
+    /// The type AS PARSED — what the `.msg` says, hence what CDR puts on the
+    /// wire and what a ROS-ABI mirror (the `rmw` surface) must spell.
+    ///
+    /// Deliberately NOT the element-capped shape: see [`Self::element_cap`] and
+    /// [`Self::storage_type`], which answer a different question.
     pub field_type: FieldType,
+    /// phase-403 W7 — the codegen config's `element_cap` for this field, when
+    /// one applies (an unbounded-string element inside a container whose mode
+    /// bounds the wire). `None` otherwise.
+    ///
+    /// This is a fact about nano-ros STORAGE, not about the wire: it narrows
+    /// what we keep in RAM, and CDR is unchanged either way. So the storage
+    /// surfaces (`c`, `nros`, `cpp`) render [`Self::storage_type`] while the
+    /// ROS-ABI mirror (`rmw`) renders [`Self::field_type`]. Two questions, two
+    /// answers — not two spellings of one answer.
+    pub element_cap: Option<usize>,
+    /// Whether this field's storage came from the [`CapacityResolver`] — true
+    /// exactly for the two configurable shapes (an unbounded string and an
+    /// unbounded sequence). A `.msg`-bounded string/sequence, an array, a
+    /// scalar and a nested struct are NOT configurable, whatever the config
+    /// says about them.
+    pub configurable: bool,
     pub shape: FieldShape,
     pub storage: LoweredStorage,
     /// CDR op of the field's scalar (or its element, for arrays/sequences);
-    /// `None` for a single nested struct.
+    /// `None` for a single nested struct. Read it through [`Self::scalar_op`] /
+    /// [`Self::element_op`], which say which of the two a caller means.
     pub cdr_op: Option<CdrOp>,
     /// Alignment of the field's payload, bytes.
     pub align: usize,
     /// Whether this field is POD-blit eligible.
     pub plain: bool,
+    /// The `.msg` default, as parsed. A language spells it (`constant_value_to_rust`
+    /// and friends); the value itself is neutral.
+    pub default_value: Option<ConstantValue>,
+}
+
+impl LoweredField {
+    /// The shape a nano-ros STORAGE surface renders: [`Self::field_type`] with
+    /// any [`Self::element_cap`] folded into the element. Identical to
+    /// `field_type` whenever no element cap applies, which is the common case.
+    pub fn storage_type(&self) -> Cow<'_, FieldType> {
+        with_element_bound(&self.field_type, self.element_cap)
+    }
+
+    /// A single scalar (`bool`, `int32`, `float64`, …).
+    pub fn is_primitive(&self) -> bool {
+        matches!(self.shape, FieldShape::Scalar)
+    }
+
+    /// A single string member — bounded or not, narrow or wide.
+    pub fn is_string(&self) -> bool {
+        matches!(self.shape, FieldShape::Str)
+    }
+
+    /// A fixed-size array `type[N]`.
+    pub fn is_array(&self) -> bool {
+        matches!(self.shape, FieldShape::Array { .. })
+    }
+
+    /// A sequence — `type[]` or `type[<=N]`.
+    pub fn is_sequence(&self) -> bool {
+        matches!(self.shape, FieldShape::Sequence)
+    }
+
+    /// A single nested message.
+    pub fn is_nested(&self) -> bool {
+        matches!(self.shape, FieldShape::Nested)
+    }
+
+    /// `N` for `type[N]`, else 0.
+    pub fn array_len(&self) -> usize {
+        match self.shape {
+            FieldShape::Array { len } => len,
+            _ => 0,
+        }
+    }
+
+    /// The CDR op of the field ITSELF — `Some` only for a scalar. A string's op
+    /// is [`CdrOp::String`] and is not a scalar op; ask [`Self::is_string`].
+    pub fn scalar_op(&self) -> Option<CdrOp> {
+        self.is_primitive().then_some(self.cdr_op).flatten()
+    }
+
+    /// The CDR op of the field's ELEMENT — `Some` only for an array or a
+    /// sequence. [`CdrOp::String`] here means a container OF strings.
+    pub fn element_op(&self) -> Option<CdrOp> {
+        (self.is_array() || self.is_sequence())
+            .then_some(self.cdr_op)
+            .flatten()
+    }
+
+    /// The element of an array/sequence is a scalar.
+    pub fn element_is_primitive(&self) -> bool {
+        matches!(self.element_op(), Some(op) if op != CdrOp::String)
+    }
+
+    /// The element of an array/sequence is a string.
+    pub fn element_is_string(&self) -> bool {
+        self.element_op() == Some(CdrOp::String)
+    }
+
+    /// Heap-backed storage (RFC-0033 `mode = "heap"`).
+    pub fn is_heap(&self) -> bool {
+        matches!(self.storage, LoweredStorage::Heap)
+    }
+
+    /// Zero-copy borrow into the receive buffer (RFC-0033 `mode = "view"`).
+    pub fn is_borrowed(&self) -> bool {
+        matches!(self.storage, LoweredStorage::Borrowed { .. })
+    }
+
+    /// The resolved capacity a CONFIGURABLE field's storage carries, else 0.
+    ///
+    /// Zero for a non-configurable field even when its storage has a capacity:
+    /// a `string<=8`'s 8 comes from the `.msg`, not from the resolver, and the
+    /// surfaces spell it off the type.
+    pub fn configured_cap(&self) -> usize {
+        if !self.configurable {
+            return 0;
+        }
+        match self.storage {
+            LoweredStorage::Fixed { cap }
+            | LoweredStorage::Bounded { cap }
+            | LoweredStorage::Borrowed { cap } => cap,
+            LoweredStorage::Inline | LoweredStorage::Heap => 0,
+        }
+    }
 }
 
 /// A message lowered to the target-concrete IR.
@@ -227,17 +353,18 @@ pub fn lower_fields(
 ) -> Vec<LoweredField> {
     fields
         .iter()
-        .map(|f| lower_field(&f.name, &f.field_type, package, message, config))
+        .map(|f| lower_field(f, package, message, config))
         .collect()
 }
 
 fn lower_field(
-    name: &str,
-    ft: &FieldType,
+    field: &rosidl_parser::ast::Field,
     package: &str,
     message: &str,
     config: &CapacityResolver,
 ) -> LoweredField {
+    let name = field.name.as_str();
+    let ft = &field.field_type;
     let (shape, storage, cdr_op, align, plain) = match ft {
         FieldType::Primitive(p) => {
             let op = CdrOp::from_primitive(*p);
@@ -314,14 +441,25 @@ fn lower_field(
         ),
     };
 
+    // The two configurable shapes, named once. `configurable` is the same
+    // predicate the arms above branch on to call `config.resolve` — stated as a
+    // fact so a surface stops re-deriving it (phase-432 W2.5a).
+    let configurable = matches!(
+        ft,
+        FieldType::String | FieldType::WString | FieldType::Sequence { .. }
+    );
+
     LoweredField {
         name: name.to_string(),
         field_type: ft.clone(),
+        element_cap: config.declared_element_bound(package, message, name, ft),
+        configurable,
         shape,
         storage,
         cdr_op,
         align,
         plain,
+        default_value: field.default_value.clone(),
     }
 }
 
@@ -467,6 +605,142 @@ string<=8    str_bounded
         assert!(!lowered.plain);
         // Its align is the stand-in, and nothing downstream reads it.
         assert_eq!(field(&lowered, "child").align, NESTED_ALIGN_STANDIN);
+    }
+
+    /// phase-432 W2.5a — the accessors the five message surfaces now project
+    /// through, checked against the shapes they used to `match` on themselves.
+    ///
+    /// Each assertion below replaced a `matches!(field.field_type, …)` in a view
+    /// builder; if one of them stops agreeing, a surface's private answer and
+    /// the IR's answer have diverged, which is exactly the defect this wave
+    /// removed.
+    #[test]
+    fn the_shape_accessors_answer_what_the_surfaces_used_to_re_derive() {
+        let t = lower_shapes();
+
+        let scalar = field(&t, "u32_v");
+        assert!(scalar.is_primitive() && !scalar.is_string());
+        assert_eq!(scalar.scalar_op(), Some(CdrOp::U32));
+        // A scalar has no element, so no surface may read one off it.
+        assert_eq!(scalar.element_op(), None);
+        assert!(!scalar.element_is_primitive() && !scalar.element_is_string());
+        assert_eq!(scalar.array_len(), 0);
+
+        let text = field(&t, "text");
+        assert!(text.is_string() && !text.is_primitive());
+        // `String`'s CDR op is `String` — but it is NOT a scalar op, so a
+        // surface asking for `primitive_method` gets nothing.
+        assert_eq!(text.scalar_op(), None);
+        assert!(text.configurable, "an unbounded string is config-resolved");
+        assert_eq!(text.configured_cap(), 256);
+
+        let bounded = field(&t, "str_bounded");
+        assert!(bounded.is_string());
+        assert!(
+            !bounded.configurable,
+            "a `.msg`-bounded string states its own cap; the resolver never sees it"
+        );
+        assert_eq!(
+            bounded.configured_cap(),
+            0,
+            "its 8 comes from the type, not the config"
+        );
+
+        let arr = field(&t, "arr_fixed");
+        assert!(arr.is_array() && !arr.is_sequence());
+        assert_eq!(arr.array_len(), 3);
+        assert_eq!(arr.element_op(), Some(CdrOp::F64));
+        assert!(arr.element_is_primitive() && !arr.element_is_string());
+        assert_eq!(arr.scalar_op(), None, "an array is not itself a scalar");
+
+        let seq = field(&t, "seq_prim");
+        assert!(seq.is_sequence() && !seq.is_array());
+        assert!(seq.configurable);
+        assert_eq!(seq.configured_cap(), 64);
+        assert_eq!(seq.element_op(), Some(CdrOp::I64));
+
+        let seq_bounded = field(&t, "seq_bounded");
+        assert!(seq_bounded.is_sequence());
+        assert!(
+            !seq_bounded.configurable,
+            "`int32[<=4]` states its own bound"
+        );
+
+        // No field here is heap or borrowed under the empty resolver.
+        assert!(t.fields.iter().all(|f| !f.is_heap() && !f.is_borrowed()));
+    }
+
+    /// A sequence OF strings: the element op is `String`, so
+    /// `element_is_string` is true and `element_is_primitive` is false. Both
+    /// surfaces (C and nros) branch on exactly this pair.
+    #[test]
+    fn a_string_element_is_not_a_primitive_element() {
+        let msg = parse_message("string[] names\nstring[3] fixed_names\n").unwrap();
+        let r = ResolvedMessage::resolve("m/msg/Names", &msg, no_deps).unwrap();
+        let t = lower(&r, &CapacityResolver::empty());
+        for name in ["names", "fixed_names"] {
+            let f = field(&t, name);
+            assert!(f.element_is_string(), "{name}");
+            assert!(!f.element_is_primitive(), "{name}");
+        }
+    }
+
+    /// A nested field has NO cdr op at all, so neither element predicate fires
+    /// — the arm every view builder spelled as a `_ => (false, false, …)`.
+    #[test]
+    fn a_nested_element_has_no_cdr_op() {
+        let inner = parse_message("int32 a\n").unwrap();
+        let outer = parse_message("test_msgs/Inner one\ntest_msgs/Inner[] many\n").unwrap();
+        let resolve = |fqn: &str| -> Option<rosidl_parser::Message> {
+            fqn.ends_with("Inner").then(|| inner.clone())
+        };
+        let r = ResolvedMessage::resolve("test_msgs/msg/Outer", &outer, resolve).unwrap();
+        let t = lower(&r, &CapacityResolver::empty());
+
+        let one = field(&t, "one");
+        assert!(one.is_nested());
+        assert_eq!(one.cdr_op, None);
+        assert_eq!(one.scalar_op(), None);
+
+        let many = field(&t, "many");
+        assert!(many.is_sequence());
+        assert_eq!(many.element_op(), None);
+        assert!(!many.element_is_primitive() && !many.element_is_string());
+    }
+
+    /// `element_cap` narrows STORAGE, never the wire — so `field_type` keeps
+    /// what the `.msg` said and `storage_type()` carries the fold. The `rmw`
+    /// surface renders the first, the `c`/`nros`/`cpp` surfaces the second.
+    #[test]
+    fn an_element_cap_moves_storage_type_and_leaves_field_type_alone() {
+        let msg = parse_message("string[] tags\n").unwrap();
+        let r = ResolvedMessage::resolve("p/msg/M", &msg, no_deps).unwrap();
+
+        let plain = lower(&r, &CapacityResolver::empty());
+        let f = field(&plain, "tags");
+        assert_eq!(f.element_cap, None);
+        assert_eq!(&*f.storage_type(), &f.field_type);
+
+        let cfg = CapacityResolver::from_toml_str(
+            "[fields]\n\"p/M.tags\" = { cap = 4, element_cap = 8, mode = \"inline\" }\n",
+        )
+        .unwrap();
+        let capped = lower(&r, &cfg);
+        let f = field(&capped, "tags");
+        assert_eq!(f.element_cap, Some(8));
+        assert_eq!(
+            f.field_type,
+            rosidl_parser::ast::FieldType::Sequence {
+                element_type: Box::new(rosidl_parser::ast::FieldType::String),
+            },
+            "the wire type is what the .msg says, cap or no cap"
+        );
+        assert_eq!(
+            &*f.storage_type(),
+            &rosidl_parser::ast::FieldType::Sequence {
+                element_type: Box::new(rosidl_parser::ast::FieldType::BoundedString(8)),
+            },
+        );
     }
 
     #[test]
