@@ -1,0 +1,11 @@
+# Prose references to an issue id with no file on disk.
+#
+# A RATCHET, not an allowlist: this file may only shrink. Each row is
+# `<path>:<id>`. The legitimate reason to be here is an IN-FLIGHT issue —
+# the citing doc is on main, its issue file is in another open PR — where
+# deleting the correct citation would be the wrong fix.
+#
+# Regenerate: python3 scripts/check-prose-issue-refs.py --write-baseline
+docs/issues/1116-rustdoc-diagnostics-outside-the-published-crate-set.md:1110
+just/check/docs.just:1110
+scripts/build/rustdoc-set.sh:1110
