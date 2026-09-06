@@ -48,7 +48,9 @@ template <class...> struct size_bound_dependent_false {
 template <class...> struct make_void {
     using type = void;
 };
-/// `std::void_t` is C++17; nros-cpp is C++14.
+/// `std::void_t` is C++17. nano-ros DECLARES C++17 since issue 1118, but
+/// this header is still written in the freestanding C++14 subset that
+/// `just check cpp` parses it at, so it carries its own.
 template <class... Ts> using void_t = typename make_void<Ts...>::type;
 
 /// The three shapes a message type can have, and the ONE question every trait

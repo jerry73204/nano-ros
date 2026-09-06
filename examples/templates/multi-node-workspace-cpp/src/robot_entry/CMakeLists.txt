@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.22)
 # `#include "talker_pkg/Talker.hpp"` resolves).
 project(robot_entry VERSION 0.1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT COMMAND nano_ros_workspace_pkg_guard)

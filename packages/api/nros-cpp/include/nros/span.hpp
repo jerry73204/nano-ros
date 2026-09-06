@@ -1,8 +1,15 @@
-// nros-cpp: Lightweight non-owning view types (freestanding C++14)
+// nros-cpp: Lightweight non-owning view types
 //
 // Provides nros::Span<T> and nros::StringView as zero-overhead alternatives
 // to std::span (C++20) and std::string_view (C++17). Compatible with GCC 5+,
 // Clang 3.5+, and all embedded toolchains.
+//
+// Written in the freestanding C++14 subset, which is a property of this
+// FILE and not the project's minimum: nano-ros declares C++17 (issue 1118 —
+// `target_compile_features(nros-cpp-headers INTERFACE cxx_std_17)`), because
+// `component_node.hpp` needs `if constexpr`. `just check cpp` still parses
+// this header at `-std=c++14 -ffreestanding`, so the subset is enforced and
+// not merely claimed.
 //
 // These types are used by generated borrowed message structs to reference
 // variable-length data in the CDR receive buffer without copying.
@@ -24,7 +31,7 @@ namespace nros {
 
 /// Non-owning view over a contiguous sequence of `T` values.
 ///
-/// Same semantics as `std::span<const T>` but requires only C++14.
+/// Same semantics as `std::span<const T>`, without needing C++20 for it.
 /// The data pointer is valid only for the lifetime of the source buffer
 /// (typically the subscription callback scope).
 template <typename T> struct Span {
@@ -49,7 +56,7 @@ template <typename T> struct Span {
 
 /// Non-owning view over a UTF-8 string (not null-terminated).
 ///
-/// Same semantics as `std::string_view` but requires only C++14.
+/// Same semantics as `std::string_view`, without needing C++17's <string_view>.
 /// The data pointer is valid only for the lifetime of the source buffer.
 struct StringView {
     /// Pointer to the first byte. Not null-terminated.

@@ -6,9 +6,17 @@ project(nros_rmw_uorb
 )
 
 # ---- C++ standard ----------------------------------------------------------
-# Same C++14 freestanding baseline as the rest of the nano-ros C++ surface;
-# matches PX4's own build (PX4 modules use C++14 — newer dialects are
-# opt-in per-module).
+# Deliberately BELOW the C++17 floor `check-cxx-standard-floor` enforces —
+# issue 1118. That floor exists because `component_node.hpp` needs
+# `if constexpr`, and this backend includes no nros-cpp header and links no
+# `NanoRos::NanoRosCpp`, so the requirement does not reach it. What DOES reach
+# it is PX4: this crate is consumed by `add_subdirectory` from a PX4 module
+# shell, and PX4 builds every module `-std=gnu++14 -Werror` (the same
+# constraint that made an `inline` variable in `node.hpp` uncompilable in a
+# PX4 module — phase-325 W2). `CXX_STANDARD_REQUIRED` would emit `-std=c++17`
+# LAST and win over PX4's flag, compiling this TU at a dialect the rest of
+# the firmware is not built with, untested.
+# nros-cxx-floor-exempt: consumed inside PX4, which builds modules -std=gnu++14 -Werror; no nros-cpp header reaches this crate
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

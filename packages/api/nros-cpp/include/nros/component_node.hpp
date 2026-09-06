@@ -558,6 +558,20 @@ class ComponentNode {
     /// consumer: `ctrl_period` 0.03 seeded, 0.15 ran). Compiled only when
     /// the bringup declares the `param_services` capability (which is also
     /// what links the executor-store FFI).
+    ///
+    /// Issue 1118 — THIS is why nano-ros declares C++17
+    /// (`target_compile_features(nros-cpp-headers INTERFACE cxx_std_17)`). The
+    /// `if constexpr` chain below is the only C++17 construct in the header
+    /// set, and it is load-bearing: at C++14 the chain degrades to a runtime
+    /// `if`, every arm is INSTANTIATED, and the `NROS_CPP_STD` arm's
+    /// `T = std::string` then meets `def = <bool>` in the first arm.
+    ///
+    /// It shipped unnoticed because GCC only WARNS on `if constexpr` under
+    /// `-std=c++14`, and because `just check cpp`'s c++14 probes cannot reach
+    /// it: the whole block is behind `NROS_SYSTEM_PARAM_SERVICES`, which only
+    /// `NanoRosCapabilities.cmake` defines. If this ever has to compile at
+    /// C++14 again (PX4 modules build `-std=gnu++14 -Werror`), rewrite it as
+    /// tag dispatch rather than lowering the declared floor.
     template <typename T> void adopt_launch_seed_(const char* name, T& def) {
         void* ex = node_.executor_handle_;
         if (ex == nullptr) {

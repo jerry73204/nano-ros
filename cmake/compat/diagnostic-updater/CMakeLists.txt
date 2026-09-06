@@ -14,7 +14,8 @@ target_include_directories(nros-diagnostic-updater INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-target_compile_features(nros-diagnostic-updater INTERFACE cxx_std_14)
+# issue 1118 — at or above the floor nros-cpp declares (`cxx_std_17`).
+target_compile_features(nros-diagnostic-updater INTERFACE cxx_std_17)
 if(TARGET NanoRos::NanoRosCpp)
     target_link_libraries(nros-diagnostic-updater INTERFACE NanoRos::NanoRosCpp)
 endif()

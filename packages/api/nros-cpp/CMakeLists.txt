@@ -301,8 +301,33 @@ if(NANO_ROS_SAFETY_E2E AND "safety" IN_LIST NROS_RMW_CAPABILITIES)
     target_compile_definitions(nros-cpp-headers INTERFACE NANO_ROS_SAFETY_E2E)
 endif()
 
-# Require at least C++14
-target_compile_features(nros-cpp-headers INTERFACE cxx_std_14)
+# THE declared C++ floor for everything that consumes nros-cpp — issue 1118.
+#
+# It read `cxx_std_14` while `component_node.hpp` used `if constexpr` at three
+# sites (four with `NROS_CPP_STD`), which is C++17. GCC only WARNS on that
+# (`'if constexpr' only available with '-std=c++17'`), so the declaration was a
+# claim the code violated and nothing failed. `just check cpp`'s ~15
+# `-std=c++14` probes could not see it either: the block sits behind
+# `#if defined(NROS_SYSTEM_PARAM_SERVICES)`, a macro only
+# `NanoRosCapabilities.cmake` defines and no probe does.
+#
+# C++17 and not C++20, deliberately: 17 is what the code already needs, what
+# ROS 2 Humble's `rclcpp` exports (`cxx_std_17`), and what every toolchain this
+# tree pins supports. Nothing in nros-cpp uses a C++20 feature, and C++20
+# support varies across the embedded toolchains — that move needs its own
+# survey.
+#
+# This is the REQUIREMENT. It is not the whole ENFORCEMENT: a compile FEATURE
+# emits no `-std=` flag when the compiler default already satisfies it, so it
+# cannot defend against a raw `-std=c++14` arriving from a toolchain file's
+# `CMAKE_CXX_FLAGS_INIT` or from Zephyr's `CONFIG_STD_CPP*`. That is why the
+# leaf packages still carry `set(CMAKE_CXX_STANDARD 17)` +
+# `CXX_STANDARD_REQUIRED ON` — measured: with REQUIRED, CMake emits the
+# standard flag LAST and it wins; without a leaf standard, the raw flag is the
+# only `-std=` on the line. `check-cxx-standard-floor` reads the number BELOW
+# out of this line and holds every other declaration in the tree at or above
+# it, so the floor has exactly one home.
+target_compile_features(nros-cpp-headers INTERFACE cxx_std_17)
 
 # Phase 140 — install rules deleted. nros-cpp is consumed in-tree
 # via `add_subdirectory(<repo-root>)`; the build-dir variant header

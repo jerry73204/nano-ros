@@ -15,7 +15,7 @@ cmake_minimum_required(VERSION 3.22)
 # §212.L.4 — CLASS prefix must equal PROJECT_NAME (pkg dir name).
 project(talker_pkg VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Resolve the cmake fn registry. Phase 213.D.1 — the fixture lives

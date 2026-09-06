@@ -13,7 +13,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 project(local_msg_package_fixture LANGUAGES CXX)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 1) Pull nano-ros.

@@ -16,9 +16,14 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 list(APPEND CMAKE_BUILD_RPATH "${CMAKE_PREFIX_PATH}/lib")
 
 # ---- C++ standard ----------------------------------------------------------
-# nano-ros core C++ surface is C++14 freestanding. The Cyclone-side wrapper
-# stays at the same baseline so it can ship into Zephyr / FreeRTOS targets
-# without bumping the toolchain requirement.
+# Deliberately BELOW the C++17 floor `check-cxx-standard-floor` enforces —
+# issue 1118. The floor is nros-cpp's (`component_node.hpp` needs
+# `if constexpr`); this wrapper includes no nros-cpp header and links no
+# `NanoRos::NanoRosCpp`, so it is not a consumer of that requirement. It ships
+# into Zephyr / FreeRTOS targets instead, and the Zephyr lane compiles this
+# backend at `-std=c++11` (issues 1011 / 1014, phase-416) — raising the
+# declaration here would assert a dialect that lane does not provide.
+# nros-cxx-floor-exempt: ships into Zephyr/FreeRTOS lanes that compile it at c++11; no nros-cpp header reaches this wrapper
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
