@@ -160,6 +160,16 @@ jobs:
               - 'scripts/ci/scaffold-journey-check.sh'
             colcon:
               - 'examples/templates/local-msg-package/**'
+              # phase-413 W3 — the lane's OWN definition and the recipe it
+              # runs. Without these, a change to the colcon-parity job could
+              # not run the colcon-parity job: converting it from a bare
+              # runner to `container:` touched only `gate.yml`, so the filter
+              # said "colcon: false" and the conversion would have merged
+              # having never executed once. A filter that excludes the thing
+              # under test is the coverage hole issues 0981/1001 keep finding
+              # in a different costume.
+              - '.github/workflows/gate.yml'
+              - 'justfile'
             sdk_index:
               - 'nros-sdk-index.toml'
               - '.gitmodules'
