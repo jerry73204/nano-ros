@@ -126,6 +126,11 @@ still matches its OWN `ros_discovery_info` writer, so it enumerates one node,
 itself — which is bit-for-bit the symptom issue 0927 already produced from a
 different cause, and which reads as a broken reader.
 
+0927's own cause is excluded by the run's first line: `GRAPH_PROBE_DOMAIN 1`
+is `unique_ros_domain_id()`'s answer for a filtered/solo nextest run
+(`domain_in_slot(0, 0)`), and `graph_interop.rs:188` hands the talker the same
+value. The two sides agree about the domain and disagree about the bus.
+
 **This is the failure mode issue 1009 measured and then half-applied.** Its own
 conclusion: *pin both sides or neither; half is no discovery* — batch F, 0 of 15
 with EMPTY output, because `ROS_LOCALHOST_ONLY` reached the ROS side and not the
