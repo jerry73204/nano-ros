@@ -241,6 +241,41 @@ to remove.
   agreement gate (W1.2) exists because two filters can disagree, so the two
   work items are each other's justification.
 
+  **LANDED.** `rosidl_codegen::filters` — `FILTER_SETS`, one entry per
+  `nros_lang::Language` plus the neutral one, each a declared name list beside
+  the `register` fn that adds them. `render.rs` calls `register_all` and knows
+  nothing else about languages. Counted rather than repeated, and the count
+  HELD: ten registered, `snake_case` the one neutral, nine per-language.
+
+  Three findings, all written into RFC-0091 §6b ("Corrections from implementing
+  W2.5b"). The nine split **C 2 / C++ 4 / Rust 3**, not evenly — the C++ pack
+  emits a header/`repr(C)` pair. **`cpp_repr_c_type` and `cpp_view_repr_type`
+  return Rust**, not C++: the `cpp_` prefix names the pack that calls them. So
+  the registry keys ownership by the CALLING PACK, not by emitted syntax —
+  otherwise the first language wanting an FFI mirror would grow the *Rust* set.
+  And `snake_case`'s neutrality is provable by use: the same `to_snake_case`
+  builds C headers, C++ headers and Rust constants.
+
+  What makes it more than a rename is the four tests, in both directions:
+  every `Language` has a set, every declared name is really registered, every
+  filter a bundled pack CALLS is registered, and every registered filter is
+  CALLED. The third is the one with teeth — minijinja resolves filters at
+  RENDER time, so a pack naming an unregistered filter used to fail at a user's
+  build. It reads the packs with minijinja's OWN lexer
+  (`machinery::tokenize`, a dev-dependency feature): the packs emit Rust and
+  C++, so their text is full of `|item|` closures and `a || b`: a textual scan
+  of `|ident` over the packs yields 23 names, of which **12 are not filters**
+  (`item`, `crate`, `i`, `rmw`, `buffer`, `_`, `handler`, `scratch`,
+  `ptr_ref`, `callback`, `response`, `request_scratch`). Each check
+  was mutation-tested (drop the Rust set / declare an unregistered name / typo
+  `c_type` to `c_typo` in `packs/c/message.h.jinja`) — all RED, restored GREEN.
+
+  Not done, on purpose: the entry side's `c_str` filter stays where it is. It
+  belongs to the C set by KIND, but the two ENVIRONMENTS must stay separate
+  (entry templates are not in `bundled_packs()`, which feeds the codegen
+  fingerprint), and `FilterSet::register` takes an `&mut Environment` so both
+  can share one registry when W2.5/W2.6 make the entry templates packs.
+
 - **W2.5 — packs move to `packs/<surface>/` and `packs/entry/<surface>/`.** Mirrors the message side's
   `rosidl-codegen/packs/<lang>/*.jinja` registry rather than the `templates/`
   layout the renderer shipped with. One convention or it drifts, which is the
