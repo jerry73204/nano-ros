@@ -31,13 +31,3 @@
 # the exclusion behind. There is no flag that regenerates it: a regenerate
 # button would turn "add a Runtime cell no lane runs" back into a one-command
 # move, which is the thing being ratcheted.
-
-bridge-zenoh-to-cyclone  # issue 1127 -- `declarative_bridge_zenoh_to_cyclonedds` has no lane
-bridge-zenoh-to-cyclone-imperative  # issue 1127 -- `bridge_zenoh_to_cyclonedds` has no lane
-bridge-zenoh-to-xrce  # issue 1127 -- `declarative_bridge_zenoh_to_xrce` has no lane
-native-graph-rust-cyclone-r2n  # issue 1127 -- `graph_interop` has no lane; the cyclone reader has never met a live participant
-native-graph-rust-zenoh-r2n  # issue 1127 -- `graph_interop` has no lane, the gap issue 0903 rode in through
-native-multinode-cpp-zenoh  # issue 1127 -- `cpp_multi_node_entry` has no lane
-native-multinode-rust-zenoh  # issue 1127 -- `rust_multi_node_per_node_graph` has no lane
-native-qos-override-rust-zenoh  # issue 1127 -- `qos_override_e2e` has no lane
-zephyr-qos-rust-zenoh  # issue 1127 -- `qos_zephyr_ros2_interop_e2e` has no lane; needs the west leaf built too

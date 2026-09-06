@@ -406,6 +406,23 @@ test-xrce verbose="":
     fi
     cargo nextest run "${cargo_nextest_args[@]}" "${args[@]}"
 
+# An nros zenoh-pico publisher ON TARGET reaches a stock `ros2 topic echo`
+# subscriber (issue #141) — the only `interop::CELLS` cell built through the
+# west leaves rather than native fixtures, so it has TWO build channels and
+# skips on either (phase-433 / issue 1127).
+#
+# Deliberately NOT sequenced after `build-fixtures` the way `just zephyr test`
+# is: this is an aimable unit, and running the whole west lane to reach one
+# cell is not something anyone would type. Build the fixture, then aim.
+#
+# Its baked router port is shared with `entry_e2e`'s zephyr_rust_qos cell, so
+# nextest serializes the two in `matrix-consumers-serial`.
+# The west-built qos entry comes from `just zephyr build-fixtures`.
+# Runs `qos_zephyr_ros2_interop_e2e`; needs ROS 2 + `rmw_zenoh_cpp` + that entry.
+[group("debug")]
+test-ros2-qos verbose="":
+    @just _test-focused 'binary(=qos_zephyr_ros2_interop_e2e)' {{verbose}}
+
 # Run Zephyr C examples test
 [group("debug")]
 test-c:
