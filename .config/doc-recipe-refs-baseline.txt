@@ -31,7 +31,6 @@ book/src/internals/creating-examples.md	install-local
 book/src/release/migration-install-local-removal.md	install-local
 book/src/start-here/setup-compared-to-ros2.md	install-local
 docs/design/0058-multi-edition-ros-test-harness.md	ros-edition-image
-docs/design/0064-board-support-organization.md	board-new
 docs/development/test-harness.md	orin-spe
 docs/guides/esp32-setup.md	build-examples-esp32-qemu
 docs/guides/esp32-setup.md	build-zenoh-pico-riscv
@@ -61,7 +60,6 @@ docs/roadmap/phase-215-board-crate-as-importable-unit.md	zephyr
 docs/roadmap/phase-217-arm-fvp-local-runtime.md	zephyr
 docs/roadmap/phase-236-cpp-entry-embedded-runtime.md	zephyr
 docs/roadmap/phase-292-asi-reference-consumer-revisit.md	zephyr
-docs/roadmap/phase-375-board-tier-policy-and-onboarding-cost.md	board-new
 docs/roadmap/phase-395-dev-workflow-migration.md	ci-l2
 docs/roadmap/phase-395-dev-workflow-migration.md	ci-l4-tier1
 packages/cli/CONTRIBUTING.md	build-build-tools
