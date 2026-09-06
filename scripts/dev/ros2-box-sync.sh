@@ -174,6 +174,12 @@ exclusions=(
     # (which names `nros setup --tool make`) is what reports it.
     --exclude '/third-party/make/'
     --exclude '/third-party/ninja/'
+    # Agent worktrees. `.claude/worktrees/<id>/` is a full source checkout per
+    # concurrent agent session — nine of them here, host-session state that is
+    # definitionally not box input. Only `target/` inside them was excluded, so
+    # the mirror was taking a copy of the tree once per live agent and
+    # `--delete` churning them as sessions came and went.
+    --exclude '/.claude/worktrees/'
     --exclude '/tmp/'
     --exclude '/test-logs/'
     --exclude 'node_modules/'
