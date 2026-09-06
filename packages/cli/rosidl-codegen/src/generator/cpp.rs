@@ -674,50 +674,67 @@ pub fn generate_cpp_action_package(
         size: usize,
     }
 
-    let build_part = |part_name: &str, msg: &Message| -> Result<ActionPart, GeneratorError> {
-        let struct_name = format!("{}_action_{}_{}_t", c_pkg_name, act_snake, part_name);
-        let (cpp_f, ffi_f, seq_s) = build_fields(
-            &msg.fields,
-            &struct_name,
-            Some(package_name),
-            &format!("{action_name}_{part_name}"),
-            resolver,
-        )?;
-        let constants = build_constants(&msg.constants);
-        let size = compute_serialized_size_max(&ffi_f);
-        Ok(ActionPart {
-            publish_fn: format!(
-                "nros_cpp_publish_{}_action_{}_{}",
-                c_pkg_name, act_snake, part_name
-            ),
-            serialize_fn: format!(
-                "nros_cpp_serialize_{}_action_{}_{}",
-                c_pkg_name, act_snake, part_name
-            ),
-            deser_fn: format!(
-                "nros_cpp_deserialize_{}_action_{}_{}",
-                c_pkg_name, act_snake, part_name
-            ),
-            ser_fn: format!(
-                "serialize_{}_action_{}_{}_fields",
-                c_pkg_name, act_snake, part_name
-            ),
-            deser_fn_inner: format!(
-                "deserialize_{}_action_{}_{}_fields",
-                c_pkg_name, act_snake, part_name
-            ),
-            struct_name,
-            cpp_fields: cpp_f,
-            ffi_fields: ffi_f,
-            seq_structs: seq_s,
-            constants,
-            size,
-        })
-    };
+    // `part_name` is the C IDENTIFIER half (`goal`), `key_part` the PAYLOAD NAME
+    // half (`Goal`). They are two different vocabularies and this closure needs
+    // both: the struct is `..._action_probe_goal_t`, while the RFC-0033 capacity
+    // key is `<pkg>/<Action>_Goal.<field>` — the spelling `nros-codegen.toml`
+    // uses and the spelling the C (`action.rs`) and Rust generators already
+    // look up.
+    //
+    // phase-432 W1.2 — found by `check-repr-memory-agreement` on its first run.
+    // This site passed the lowercase `part_name` for BOTH, so every C++ action
+    // payload looked up `Probe_goal.waypoints`, matched nothing, and fell back
+    // to the built-in capacity: the C pack emitted `int64_t data[8]` for a
+    // `cap = 8` field while the C++ pack emitted `FixedSequence<int64_t, 64>`.
+    // A miss in a capacity resolver is silent by construction, so nothing said
+    // so — the two packs simply described different memory for one lowered
+    // field. `generate_cpp_service_package` spells `{service_name}_Request`
+    // correctly, which is why services were unaffected.
+    let build_part =
+        |part_name: &str, key_part: &str, msg: &Message| -> Result<ActionPart, GeneratorError> {
+            let struct_name = format!("{}_action_{}_{}_t", c_pkg_name, act_snake, part_name);
+            let (cpp_f, ffi_f, seq_s) = build_fields(
+                &msg.fields,
+                &struct_name,
+                Some(package_name),
+                &format!("{action_name}_{key_part}"),
+                resolver,
+            )?;
+            let constants = build_constants(&msg.constants);
+            let size = compute_serialized_size_max(&ffi_f);
+            Ok(ActionPart {
+                publish_fn: format!(
+                    "nros_cpp_publish_{}_action_{}_{}",
+                    c_pkg_name, act_snake, part_name
+                ),
+                serialize_fn: format!(
+                    "nros_cpp_serialize_{}_action_{}_{}",
+                    c_pkg_name, act_snake, part_name
+                ),
+                deser_fn: format!(
+                    "nros_cpp_deserialize_{}_action_{}_{}",
+                    c_pkg_name, act_snake, part_name
+                ),
+                ser_fn: format!(
+                    "serialize_{}_action_{}_{}_fields",
+                    c_pkg_name, act_snake, part_name
+                ),
+                deser_fn_inner: format!(
+                    "deserialize_{}_action_{}_{}_fields",
+                    c_pkg_name, act_snake, part_name
+                ),
+                struct_name,
+                cpp_fields: cpp_f,
+                ffi_fields: ffi_f,
+                seq_structs: seq_s,
+                constants,
+                size,
+            })
+        };
 
-    let goal = build_part("goal", &action.spec.goal)?;
-    let result = build_part("result", &action.spec.result)?;
-    let feedback = build_part("feedback", &action.spec.feedback)?;
+    let goal = build_part("goal", "Goal", &action.spec.goal)?;
+    let result = build_part("result", "Result", &action.spec.result)?;
+    let feedback = build_part("feedback", "Feedback", &action.spec.feedback)?;
 
     let dependencies = {
         let mut deps = extract_deps(&action.spec.goal.fields);
