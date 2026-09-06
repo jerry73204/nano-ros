@@ -1520,6 +1520,15 @@ pub struct Executor<'s> {
     /// This is the bound the jitter rule judges against -- the caller's own
     /// declared cadence, so nothing further has to be declared.
     pub(crate) spin_nominal_us: u64,
+    /// Cadence DECLARED by the driver, in microseconds; `0` = not declared.
+    ///
+    /// Takes precedence over the `spin_once` timeout when judging release
+    /// jitter, because the two are not the same quantity. The timeout is how
+    /// long a spin may BLOCK waiting for work; the cadence is how often the
+    /// loop intends to come round. A driver that blocks up to 10 ms and then
+    /// sleeps 30 ms has a 30 ms cadence and a 10 ms timeout, and judging it
+    /// against the timeout reports a loop that is late on every single wake.
+    pub(crate) spin_nominal_declared_us: u64,
     /// Wakes that were already past their nominal deadline, and wakes total.
     ///
     /// The maximum alone cannot distinguish one bad wake from a loop that is
@@ -1712,6 +1721,7 @@ impl<'s> Executor<'s> {
             min_stack_headroom_bytes: 0,
             stack_headroom_reported: usize::MAX,
             spin_nominal_us: 0,
+            spin_nominal_declared_us: 0,
             late_wakes: 0,
             total_wakes: 0,
             report_violations: true,
@@ -2282,7 +2292,13 @@ impl<'s> Executor<'s> {
     /// timeout claims no cadence and is skipped entirely, which keeps
     /// `Future::wait`-style busy spins out of the statistic.
     fn record_release_jitter(&mut self, timeout: core::time::Duration) {
-        let nominal_us = timeout.as_micros().min(u64::MAX as u128) as u64;
+        // A declared cadence wins over the timeout: see
+        // `spin_nominal_declared_us` for why they are different quantities.
+        let nominal_us = if self.spin_nominal_declared_us != 0 {
+            self.spin_nominal_declared_us
+        } else {
+            timeout.as_micros().min(u64::MAX as u128) as u64
+        };
         if nominal_us == 0 {
             return;
         }
@@ -2505,6 +2521,18 @@ impl<'s> Executor<'s> {
     /// party that knows what stack it handed over: the executor never sees
     /// `stack_bytes`, and no portable query returns a task's total stack, so
     /// neither an absolute floor nor a percentage can be inferred here.
+    /// Declare how often this executor's loop intends to come round, in
+    /// microseconds. `0` (the default) falls back to the `spin_once` timeout.
+    ///
+    /// Needed because a driver's pacing and its blocking bound are separate
+    /// numbers. nros-cpp's tier loops sleep `spin_period_us` between spins but
+    /// pass a fixed 10 ms timeout, so the release-jitter rule judged every
+    /// tier against 10 ms regardless of what the contract declared -- too lax
+    /// for a 1 ms tier and far too strict for a 30 ms one.
+    pub fn set_spin_nominal_us(&mut self, us: u64) {
+        self.spin_nominal_declared_us = us;
+    }
+
     pub fn set_min_stack_headroom_bytes(&mut self, bytes: usize) {
         self.min_stack_headroom_bytes = bytes;
     }
