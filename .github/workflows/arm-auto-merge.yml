@@ -44,6 +44,41 @@
 # the button checks.
 #
 # Opt out per-PR with the `no-auto-merge` label, or by leaving the PR a draft.
+#
+# WHOSE PULL REQUESTS GET ARMED
+#
+# Only ones that could ONLY have come from someone who already has write
+# access. Two conditions, and both must hold:
+#
+#   * the head branch lives in THIS repository, not a fork. Creating that
+#     branch required push access, so the PR is from inside the trust
+#     boundary by construction. A third-party contributor has no such access
+#     and must fork -- that is the whole distinction, and it is structural
+#     rather than a guess about identity.
+#   * `author_association` is OWNER, MEMBER or COLLABORATOR. GitHub computes
+#     this per event and it is the field that says "this account has a
+#     relationship with this repository".
+#
+# The two overlap, deliberately. The fork test is the one that matters and the
+# association test costs nothing, so a scoped or revoked permission does not
+# turn into an auto-merged pull request through the other door.
+#
+# Everything else -- a fork PR, a first-time contributor, `NONE` -- is simply
+# NOT ARMED. Nothing is blocked and nothing is rejected: CI still runs, the PR
+# is still reviewable, and a maintainer who wants it to land arms it by hand
+# after reading it. Auto-merge is a convenience for work that was already
+# going to land unattended; an outside contribution is exactly the case that
+# wants a human at the end.
+#
+# `AUTO_MERGE_AUTHORS` (a repository variable, optional) narrows it further:
+# a comma-separated list of accounts, and when set, ONLY those accounts are
+# armed. Use it to name the agent accounts explicitly instead of trusting
+# every member. Unset -- the default -- means the two conditions above decide.
+#
+# Note this rule has NO history to validate against: all 556 pull requests
+# ever opened here are from one MEMBER account on non-fork branches, so no
+# third-party PR has ever existed to test it. It is written to fail CLOSED for
+# that reason -- an unrecognised case is not armed.
 
 name: arm auto-merge
 
@@ -70,7 +105,55 @@ jobs:
           && !contains(github.event.pull_request.labels.*.name, 'no-auto-merge') }}
     runs-on: ubuntu-latest
     steps:
+      # The trust decision is a STEP, not another `if:` on the job, so that
+      # "why was my pull request not armed?" has an answer in a log somewhere.
+      # A job skipped by an expression leaves no record of which clause was
+      # false, and this one has four.
+      - name: Decide whether this author's pull requests arm themselves
+        id: trust
+        env:
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ALLOWLIST: ${{ vars.AUTO_MERGE_AUTHORS }}
+        run: |
+          echo "author=$AUTHOR association=$ASSOCIATION fork=$IS_FORK"
+
+          arm=yes
+          if [ "$IS_FORK" = "true" ]; then
+            # The structural test: this branch could not have been pushed here.
+            echo "not arming — the head branch is on a fork, so the author has no write access"
+            arm=no
+          fi
+          case "$ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR) ;;
+            *)
+              echo "not arming — author_association is '$ASSOCIATION', not OWNER/MEMBER/COLLABORATOR"
+              arm=no
+              ;;
+          esac
+          if [ -n "$ALLOWLIST" ]; then
+            # An explicit list, when the repository sets one: name the agent
+            # accounts rather than trusting every member.
+            case ",$ALLOWLIST," in
+              *",$AUTHOR,"*) ;;
+              *)
+                echo "not arming — '$AUTHOR' is not in AUTO_MERGE_AUTHORS"
+                arm=no
+                ;;
+            esac
+          fi
+
+          if [ "$arm" = yes ]; then
+            echo "arming — the author already has write access to this repository"
+          else
+            echo "This is not a rejection. CI still runs and the pull request is"
+            echo "still mergeable; a maintainer arms it by hand after reading it."
+          fi
+          echo "arm=$arm" >> "$GITHUB_OUTPUT"
+
       - name: Enable auto-merge
+        if: steps.trust.outputs.arm == 'yes'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMBER: ${{ github.event.pull_request.number }}
