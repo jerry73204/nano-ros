@@ -90,51 +90,17 @@ fn build_fields(
     let mut ffi_fields = Vec::new();
     let mut seq_structs = Vec::new();
 
-    // phase-335 W1.c — storage from the lowered IR (byte-identical), resolved once.
-    let store = super::common::lowered_storages(
-        current_package.unwrap_or(""),
-        message_name,
-        fields,
-        resolver,
-    );
-    super::common::ensure_element_caps_apply(
-        current_package.unwrap_or(""),
-        message_name,
-        fields,
-        resolver,
-    )?;
-    for (field, s) in fields.iter().zip(store.iter()) {
-        // phase-403 W7 — fold any configured ELEMENT bound into the shape, so the
-        // C++ container spells `nros::FixedString<32>` and the emitted struct
-        // holds what the derived bound claims. Both builders below read this.
-        let capped = resolver.element_capped(
-            current_package.unwrap_or(""),
-            message_name,
-            &field.name,
-            &field.field_type,
-        );
-        let field_type = capped.as_ref();
-        let storage = resolve_cap_override(
-            &field.name,
-            field_type,
-            current_package,
-            message_name,
-            resolver,
-            Some(*s),
-        )?;
-        cpp_fields.push(build_cpp_field(
-            &field.name,
-            field_type,
-            current_package,
-            storage,
-        ));
-        let (ffi_field, seq_struct) = build_cpp_ffi_field(
-            &field.name,
-            field_type,
-            struct_name,
-            current_package,
-            storage,
-        );
+    // phase-432 W2.5a — the lowered IR is the context both builders read: the
+    // storage decision (phase-335 W1.c had that much), and now the element-cap
+    // fold, the shape predicates and the element classification too.
+    let package = current_package.unwrap_or("");
+    let lowered = rosidl_lower::lower_fields(package, message_name, fields, resolver);
+    super::common::ensure_element_caps_apply(package, message_name, fields, resolver)?;
+    for field in &lowered {
+        let storage = resolve_cap_override(field, current_package, message_name)?;
+        cpp_fields.push(build_cpp_field(field, current_package, storage));
+        let (ffi_field, seq_struct) =
+            build_cpp_ffi_field(field, struct_name, current_package, storage);
         ffi_fields.push(ffi_field);
         if let Some(ss) = seq_struct {
             seq_structs.push(ss);
