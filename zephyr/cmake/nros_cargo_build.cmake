@@ -263,11 +263,17 @@ set(NROS_KNOB_DERIVE_SENTINEL -1)
 #   pass 2  entity=real         ->  sizes re-derived over the SUBSCRIBED set
 #   pass 3                          this loader finally reads them
 #
-# Ninja runs all three before the build starts, so a `west build` on a clean
-# dir is correct. A HAND-driven `cmake -S -B` sequence that stops after two is
-# not, and it looks correct: the fragment on disk already states the derived
-# size while `NROS_RESOLVED_*` in the cache still holds the closure one. That
-# is measured by case H of `tests/cmake-reconfigure-tests.sh`.
+# Issue 1119 -- this used to say ninja runs all three before the build starts,
+# so a `west build` on a clean dir is correct. Measured on the safety island
+# 2026-09-06, it gets TWO configures against three arming requests and links
+# with the pass-2 value: the fragment on disk states the derived size while
+# `NROS_RESOLVED_*` in the cache still holds the closure one. A HAND-driven
+# `cmake -S -B` that stops after two is in the same state, and so is a clean
+# `west build`. Both look correct, because over-sizing is silent.
+#
+# `check-knob-delivery <build-dir>` is the check that answers it; run it before
+# trusting a size out of a build dir. Case H of
+# `tests/cmake-reconfigure-tests.sh` measures the arming, not the restart.
 function(_nros_load_derived_message_bounds)
     nros_message_bounds_knobs_file(_knobs)
     if(NOT EXISTS "${_knobs}")
