@@ -939,6 +939,63 @@ def _require_image(entry, system_toml, image):
         )
 
 
+def _require_image_rmw(entry, system_toml, image):
+    """The row's `rmw` must be one the image it names actually LINKS — issue 0831.
+
+    `row_coord()` puts an RMW in every row's coordinate, `nros_lane` selects on
+    it, and tier 2 reports coverage per coordinate. Nothing ever compared that
+    claim to the image the row builds, and for two rows it was wrong for as long
+    as they existed: `workspace-rust-native-cyclonedds` and
+    `workspace-rust-native-xrce` named an image that declared no `rmw`, so the
+    selection facade fell back to `[system] rmw` and both built ZENOH — measured
+    at the time as 0 occurrences of Cyclone's `dds_` against 1916 of zenoh's.
+
+    `rmw_coordinate_truth.rs` catches this on the ARTIFACT, which is the
+    authority and stays. This is the same question asked of the DECLARATIONS, at
+    `just check` speed and without a build: a row whose RMW no image can deliver
+    is unbuildable-as-claimed the moment it is authored, and the lane that would
+    have caught it may be a nightly away.
+
+    The image's backend set is `image.rmw` (over `[image_defaults]`, falling back
+    to `[system] rmw`) plus one per `[[domain]]` — deliberately the same union
+    `facade::image_backends` compiles into the binary, which is why a BRIDGE
+    passes: `bridge-cyclonedds` defaults to zenoh and declares a cyclonedds
+    domain, so its one image links both and a row naming either is honest.
+
+    One caveat, measured and currently inert: the CMAKE driver's fallback is the
+    LITERAL `"zenoh"` (`CmakeRootSpec { rmw: image.rmw.unwrap_or("zenoh") }`),
+    not `[system] rmw`, so the two drivers would disagree for an image that
+    declares no `rmw` under a bringup whose system header names something else.
+    Every shipped bringup declares `[system] rmw = "zenoh"`, so the two formulas
+    give the same answer everywhere today; this reads the cargo one because that
+    is the driver the issue is about.
+    """
+    system = _load_toml(entry, system_toml)
+    table = system.get("image") or {}
+    block = table.get(image) or {}
+    defaults = system.get("image_defaults") or {}
+    header = system.get("system") or {}
+
+    selected = block.get("rmw") or defaults.get("rmw") or header.get("rmw")
+    backends = {selected} if selected else set()
+    backends.update(d.get("rmw") for d in system.get("domain", []) if d.get("rmw"))
+
+    if not backends or entry["rmw"] in backends:
+        return
+
+    _fail(
+        entry,
+        f"declares rmw {entry['rmw']!r}, which the image {image!r} it builds "
+        f"does not link (that image links: {', '.join(sorted(backends))}). "
+        f"The RMW reaches a cargo build through the selection facade, which "
+        f"reads `[image.{image}] rmw` over `[image_defaults]` over `[system] "
+        f"rmw`, plus one backend per `[[domain]]` — so a row claiming an RMW "
+        f"no image declares is a coordinate that tests something else "
+        f"(issue 0831). Declare `rmw = {entry['rmw']!r}` on "
+        f"`[image.{image}]` in {system_toml}, or correct the row.",
+    )
+
+
 def _system_default_launch(entry, path):
     system = _load_toml(entry, path).get("system") or {}
     return system.get("default_launch")
@@ -1166,6 +1223,7 @@ def validate_workspace_fixture(entry):
     # `[workspace]`) asks about files this row deliberately no longer has.
     if entry.get("image"):
         _require_image(entry, system_toml, entry["image"])
+        _require_image_rmw(entry, system_toml, entry["image"])
         # ...unless it is a WEST row, where the application is hand-written and
         # west builds it in place (RFC-0085 D2/D4). Nothing is generated there,
         # so the package under `src/` is exactly as real as an unmigrated row's

@@ -884,7 +884,7 @@ holds the evidence, the item is *close it*.
 | --- | --- |
 | [#0798](../issues/0798-c-freertos-entry-hardcodes-board-while-root-routes-s32z270.md) | `examples/workspaces/c`'s root routes `s32z270-freertos` to an entry that cannot serve it |
 | [#0809](../issues/0809-two-walks-honour-different-nros-ignore-spellings.md) | `provider_scan` honours `NROS_IGNORE` while `nros-pkg-index` does not — two discovery paths, one vocabulary |
-| [#0831](../issues/0831-per-image-rmw-is-inert-on-the-cargo-driver.md) | `[image.<id>].rmw` configures nothing on the cargo driver, so a declared RMW is silently inert |
+| [#0831](../issues/archived/0831-per-image-rmw-is-inert-on-the-cargo-driver.md) | RESOLVED — `[image.<id>].rmw` selects the backend on the cargo driver, and a missing facade is healed or refused rather than warned past |
 | [#0849](../issues/0849-nros-sync-bakes-the-invocation-path-spelling.md) | `nros sync` bakes the invocation's path SPELLING into every leaf patch, so a moved checkout resolves wrong |
 | [#0914](../issues/0914-resolver-shipped-pair-untested.md) | nothing exercises the SHIPPED resolver + `pyexec` pair, so a resolver that cannot load is indistinguishable from one that works |
 | [#0939](../issues/0939-probe-links-node-name-not-component-lib.md) | the metadata probe links the node NAME, which is not a target |
