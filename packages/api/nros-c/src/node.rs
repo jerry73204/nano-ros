@@ -624,10 +624,12 @@ pub unsafe extern "C" fn rcl_node_get_namespace(node: *const nros_node_t) -> *co
 ///   name so long the join cannot be represented
 /// * `NROS_RET_FULL` — `buf_len` is too small; `out_len` says what is needed.
 ///   `FULL` and not `BUFFER_TOO_SMALL` because `nros_ret_t` has no such code:
-///   that one exists on the RMW ABI (`nros_rmw_ret_t`) and is CITED by a doc
-///   comment on `nros_publisher_publish_raw` that returns
-///   `NROS_RET_PUBLISH_FAILED` instead. Naming a constant the header does not
-///   define would make that two wrong references rather than one.
+///   that one exists on the RMW ABI (`nros_rmw_ret_t`). It was CITED by a doc
+///   comment on `nros_publisher_publish_streamed`, which returns
+///   `NROS_RET_PUBLISH_FAILED` instead — corrected under issue 1126, so this
+///   is now the only place the two ABIs' spellings are contrasted. Naming a
+///   constant the header does not define would have made that two wrong
+///   references rather than one.
 ///
 /// # Safety
 /// * `node_name` and `node_namespace` must be valid null-terminated strings

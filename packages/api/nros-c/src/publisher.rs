@@ -414,9 +414,17 @@ pub unsafe extern "C" fn nros_publish_raw(
 /// * `NROS_RET_OK` on success
 /// * `NROS_RET_INVALID_ARGUMENT` if any required pointer is NULL
 /// * `NROS_RET_NOT_INIT` if not initialised
-/// * `NROS_RET_PUBLISH_FAILED` on backend failure
-/// * `NROS_RET_BUFFER_TOO_SMALL` if the fallback's staging buffer
-///   is exceeded
+/// * `NROS_RET_PUBLISH_FAILED` on backend failure — INCLUDING a payload
+///   larger than the fallback's ~4 KiB staging buffer, and a `chunk_cb`
+///   that reports 0 written before `*out_total_len` bytes have been
+///   produced. This line used to name a `NROS_RET_`-prefixed
+///   `BUFFER_TOO_SMALL` (issue 1126): `nros_ret_t` has never defined
+///   one — the constant is `NROS_RMW_RET_BUFFER_TOO_SMALL`, on the RMW ABI
+///   (`nros_rmw_ret_t`), and a C caller writing the documented comparison
+///   got an undeclared identifier with nothing pointing back here. The
+///   backend errors collapse to one code on the way out, so the two
+///   causes are NOT distinguishable by the caller; for this entry point
+///   that is tolerable, since the caller sized the payload it streamed.
 ///
 /// # Safety
 /// * `publisher` must be a valid pointer to an initialised publisher.

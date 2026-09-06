@@ -197,8 +197,9 @@ runtime event needed; the failure is visible at startup.
 ### `*_INCOMPATIBLE_TYPE`
 
 Type-hash mismatch. Same: surfaced synchronously as
-`NROS_RMW_RET_TOPIC_NAME_INVALID` (or a future
-`NROS_RMW_RET_INCOMPATIBLE_TYPE`) at creation. No runtime event.
+`NROS_RMW_RET_TOPIC_NAME_INVALID` (or a future `INCOMPATIBLE_TYPE` code,
+unprefixed here because `rmw_ret.h` does not define one yet — issue 1126)
+at creation. No runtime event.
 
 ## Patterns
 

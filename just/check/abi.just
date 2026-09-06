@@ -92,6 +92,19 @@ opaque-storage-guards:
 platform-abi-mirror:
     @bash scripts/check-platform-abi-mirror.sh
 
+# Issue 1126 — a doc may not name a return code neither ABI defines.
+#
+# `nros_ret_t` and `nros_rmw_ret_t` share a prefix family and not a vocabulary,
+# in BOTH directions: `BUFFER_TOO_SMALL` is RMW-only, `TRY_AGAIN` user-only.
+# Both headers are in scope in the same TU, so a comment naming the wrong half
+# reads as fact and compiles to nothing — the caller who copies it gets
+# "undeclared identifier" with nothing pointing back at the doc. The issue
+# reported one site and argued against a gate from a ONE-SPELLING grep; the
+# general question found five, including one in `rmw_vtable.h`, the header a
+# third-party backend author writes against. Buildless, ~0.2 s, fast line.
+ret-code-citations:
+    @python3 scripts/check-ret-code-citations.py
+
 # Phase 376 W5 — the campaign's claim, re-proven per commit.
 #
 # `check-rmw-api-parity` asks "is every contract symbol CLASSIFIED?"; this asks

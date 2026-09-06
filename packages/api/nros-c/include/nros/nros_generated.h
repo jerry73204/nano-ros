@@ -5693,10 +5693,12 @@ NROS_PUBLIC const char *rcl_node_get_namespace(const struct nros_node_t *node);
  *   name so long the join cannot be represented
  * * `NROS_RET_FULL` — `buf_len` is too small; `out_len` says what is needed.
  *   `FULL` and not `BUFFER_TOO_SMALL` because `nros_ret_t` has no such code:
- *   that one exists on the RMW ABI (`nros_rmw_ret_t`) and is CITED by a doc
- *   comment on `nros_publisher_publish_raw` that returns
- *   `NROS_RET_PUBLISH_FAILED` instead. Naming a constant the header does not
- *   define would make that two wrong references rather than one.
+ *   that one exists on the RMW ABI (`nros_rmw_ret_t`). It was CITED by a doc
+ *   comment on `nros_publisher_publish_streamed`, which returns
+ *   `NROS_RET_PUBLISH_FAILED` instead — corrected under issue 1126, so this
+ *   is now the only place the two ABIs' spellings are contrasted. Naming a
+ *   constant the header does not define would have made that two wrong
+ *   references rather than one.
  *
  * # Safety
  * * `node_name` and `node_namespace` must be valid null-terminated strings
@@ -6041,9 +6043,17 @@ nros_ret_t nros_publish_raw(const struct nros_publisher_t *publisher,
  * * `NROS_RET_OK` on success
  * * `NROS_RET_INVALID_ARGUMENT` if any required pointer is NULL
  * * `NROS_RET_NOT_INIT` if not initialised
- * * `NROS_RET_PUBLISH_FAILED` on backend failure
- * * `NROS_RET_BUFFER_TOO_SMALL` if the fallback's staging buffer
- *   is exceeded
+ * * `NROS_RET_PUBLISH_FAILED` on backend failure — INCLUDING a payload
+ *   larger than the fallback's ~4 KiB staging buffer, and a `chunk_cb`
+ *   that reports 0 written before `*out_total_len` bytes have been
+ *   produced. This line used to name a `NROS_RET_`-prefixed
+ *   `BUFFER_TOO_SMALL` (issue 1126): `nros_ret_t` has never defined
+ *   one — the constant is `NROS_RMW_RET_BUFFER_TOO_SMALL`, on the RMW ABI
+ *   (`nros_rmw_ret_t`), and a C caller writing the documented comparison
+ *   got an undeclared identifier with nothing pointing back here. The
+ *   backend errors collapse to one code on the way out, so the two
+ *   causes are NOT distinguishable by the caller; for this entry point
+ *   that is tolerable, since the caller sized the payload it streamed.
  *
  * # Safety
  * * `publisher` must be a valid pointer to an initialised publisher.
