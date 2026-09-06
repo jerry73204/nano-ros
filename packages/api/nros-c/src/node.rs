@@ -1507,6 +1507,7 @@ mod accessor_tests {
                         &node,
                         buf.as_mut_ptr() as *mut c_char,
                         buf.len(),
+                        core::ptr::null_mut(),
                     )
                 },
                 NROS_RET_OK,
@@ -1529,6 +1530,7 @@ mod accessor_tests {
                     &node,
                     exact.as_mut_ptr() as *mut c_char,
                     exact.len(),
+                    core::ptr::null_mut(),
                 )
             },
             NROS_RET_OK
@@ -1542,6 +1544,7 @@ mod accessor_tests {
                     &node,
                     short.as_mut_ptr() as *mut c_char,
                     short.len(),
+                    core::ptr::null_mut(),
                 )
             },
             NROS_RET_FULL
