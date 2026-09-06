@@ -1,10 +1,11 @@
 use crate::{
     config::{CapacityResolver, FieldKind as CapFieldKind, FieldStorage, StorageMode},
-    templates::{CField, CppFfiField, CppField, FieldKind, NrosField, SequenceStructDef},
+    templates::{CField, CppFfiField, CppField, FieldKind, NrosField, RmwField, SequenceStructDef},
     types::{
         C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
         NrosCodegenMode, c_cdr_read_method, c_cdr_write_method, c_type_for_field_heap,
-        cpp_type_for_field_heap, escape_keyword, repr_c_type_for_field, to_c_package_name,
+        constant_value_to_rust, cpp_type_for_field_heap, escape_keyword, repr_c_type_for_field,
+        to_c_package_name,
     },
     utils::to_snake_case,
 };
@@ -583,6 +584,56 @@ pub(super) fn lowered_storages(
     rosidl_lower::lower_fields(package, message, fields, resolver)
         .iter()
         .map(|lf| lf.storage.as_field_storage())
+        .collect()
+}
+
+/// The lowered IR for a surface that mirrors ROS's OWN runtime types — the
+/// `rmw` and idiomatic Rust packs (phase-432 W2.5a).
+///
+/// Those two layers spell `rosidl_runtime_rs::Sequence<T>` / `std::vec::Vec<T>`
+/// and `String`: containers with no fixed capacity, chosen by ROS rather than by
+/// us. Nothing in a nano-ros storage config can change them, which is why
+/// `generate_message_package` and its siblings take no [`CapacityResolver`] —
+/// so the empty resolver is not a stand-in here, it is the right answer, and
+/// naming it once keeps the three entry points from each deciding that
+/// separately.
+pub(super) fn lowered_ros_abi_fields(
+    package: &str,
+    message: &str,
+    fields: &[rosidl_parser::Field],
+) -> Vec<rosidl_lower::LoweredField> {
+    rosidl_lower::lower_fields(package, message, fields, &CapacityResolver::empty())
+}
+
+/// Build every `rmw` field of a message, projected from the lowered IR
+/// (phase-432 W2.5a).
+///
+/// The `rmw` surface is the thinnest of the five: a name, the type AS PARSED
+/// (its containers are ROS's, so no storage decision applies) and the `.msg`
+/// default. All three are IR facts, and the only Rust here is the two SPELLINGS
+/// — `escape_keyword` and `constant_value_to_rust`.
+///
+/// It replaces three byte-identical closures in `msg.rs`, `srv.rs` and
+/// `action.rs`, each mapping over `rosidl_parser`'s fields. The projection is
+/// one fact per line; three copies of it was three places for a fourth
+/// surface's habit to be copied from.
+pub(super) fn build_rmw_fields(
+    package_name: &str,
+    message_name: &str,
+    msg: &rosidl_parser::Message,
+) -> Vec<RmwField> {
+    lowered_ros_abi_fields(package_name, message_name, &msg.fields)
+        .iter()
+        .map(|f| RmwField {
+            name: escape_keyword(&f.name),
+            field_type: f.field_type.clone(),
+            current_package: package_name.to_string(),
+            default_value: f
+                .default_value
+                .as_ref()
+                .map(constant_value_to_rust)
+                .unwrap_or_default(),
+        })
         .collect()
 }
 

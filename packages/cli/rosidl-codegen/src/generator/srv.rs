@@ -1,12 +1,13 @@
 use super::common::{
     GeneratorError, PayloadLang, SchemaCaps, build_c_fields, build_nros_fields,
-    build_nros_schema_for_struct, determine_field_kind, ensure_supported_storage_for_payload,
+    build_nros_schema_for_struct, build_rmw_fields, determine_field_kind,
+    ensure_supported_storage_for_payload,
 };
 use crate::{
     config::CapacityResolver,
     templates::{
         BuildRsTemplate, CConstant, CargoNrosTomlTemplate, CargoTomlTemplate, IdiomaticField,
-        LibNrosRsTemplate, LibRsTemplate, MessageConstant, RmwField, ServiceCHeaderTemplate,
+        LibNrosRsTemplate, LibRsTemplate, MessageConstant, ServiceCHeaderTemplate,
         ServiceCSourceTemplate, ServiceIdiomaticTemplate, ServiceNrosTemplate, ServiceRmwTemplate,
     },
     types::{
@@ -71,22 +72,13 @@ pub fn generate_service_package(
     let lib_rs = crate::render::render("lib.rs", &lib_rs_template)
         .map_err(|e| GeneratorError::RenderError(e.to_string()))?;
 
-    // Helper functions to convert Message to field vectors
-    let message_to_rmw_fields = |msg: &Message| {
-        msg.fields
-            .iter()
-            .map(|f| RmwField {
-                name: escape_keyword(&f.name),
-                field_type: f.field_type.clone(),
-                current_package: package_name.to_string(),
-                default_value: f
-                    .default_value
-                    .as_ref()
-                    .map(constant_value_to_rust)
-                    .unwrap_or_default(),
-            })
-            .collect()
-    };
+    let request_member = format!("{service_name}_Request");
+    let response_member = format!("{service_name}_Response");
+    // phase-432 W2.5a — the two halves are lowered under their rosidl-convention
+    // member names (`<Svc>_Request` / `<Svc>_Response`), the same keys the nros
+    // and C paths use, so all three name one member the same way.
+    let message_to_rmw_fields =
+        |member: &str, msg: &Message| build_rmw_fields(package_name, member, msg);
 
     let message_to_idiomatic_fields = |msg: &Message| {
         msg.fields
@@ -120,9 +112,9 @@ pub fn generate_service_package(
     let service_rmw_template = ServiceRmwTemplate {
         package_name,
         service_name,
-        request_fields: message_to_rmw_fields(&service.request),
+        request_fields: message_to_rmw_fields(&request_member, &service.request),
         request_constants: message_to_constants(&service.request, true),
-        response_fields: message_to_rmw_fields(&service.response),
+        response_fields: message_to_rmw_fields(&response_member, &service.response),
         response_constants: message_to_constants(&service.response, true),
     };
     // RFC-0068 Stage 3 (phase-335 W3): rmw Rust service from the minijinja pack.

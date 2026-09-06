@@ -1,6 +1,6 @@
 use super::common::{
     GeneratorError, SchemaCaps, build_c_fields, build_nros_fields, build_nros_message_schema,
-    determine_field_kind,
+    build_rmw_fields, determine_field_kind,
 };
 use crate::{
     config::CapacityResolver,
@@ -69,21 +69,9 @@ pub fn generate_message_package(
     let lib_rs = crate::render::render("lib.rs", &lib_rs_template)
         .map_err(|e| GeneratorError::RenderError(e.to_string()))?;
 
-    // Generate RMW layer message
-    let rmw_fields: Vec<RmwField> = message
-        .fields
-        .iter()
-        .map(|f| RmwField {
-            name: escape_keyword(&f.name),
-            field_type: f.field_type.clone(),
-            current_package: package_name.to_string(),
-            default_value: f
-                .default_value
-                .as_ref()
-                .map(constant_value_to_rust)
-                .unwrap_or_default(),
-        })
-        .collect();
+    // Generate RMW layer message — projected from the lowered IR (phase-432
+    // W2.5a); this used to map over `message.fields` directly.
+    let rmw_fields: Vec<RmwField> = build_rmw_fields(package_name, message_name, message);
 
     let rmw_constants: Vec<MessageConstant> = message
         .constants
