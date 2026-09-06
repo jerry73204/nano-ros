@@ -280,6 +280,113 @@ dist.linux-x86_64 = { url = "https://github.com/NEWSLabNTU/nano-ros-sdk/releases
 dist.linux-arm64 = { url = "https://github.com/NEWSLabNTU/nano-ros-sdk/releases/download/openocd-0.12.0-nros2/openocd-linux-arm64.tar.zst", sha256 = "3235ef67860cc83ac6ac95f940801602683e25ecfed00c968ef01580e5115b6d" }
 dist.macos-arm64 = { url = "https://github.com/NEWSLabNTU/nano-ros-sdk/releases/download/openocd-0.12.0-nros2/openocd-macos-arm64.tar.zst", sha256 = "33e0131e483e3a00274c2ae7df5939e368d8969df38d7c36101354d74dcaca86" }
 
+# --- the cargo tools (phase-422 W2, second half) ---
+#
+# `just workspace cargo-tools` installed these four with a bare
+# `cargo install <name> --locked`, which is the drift the `[tool.espflash]`
+# comment below already names: it "would resolve against crates.io at whatever
+# version is current that day". They are here for the same reason espflash and
+# sccache are, and they need no machinery this file did not already have.
+#
+# `cargo-nextest` is the one that mattered most. It is UNPINNED today and CI's
+# runners install it through `just setup native`, while `.config/nextest.toml`
+# is version-sensitive in a way that fails loudly: a stale `binary()` filter is
+# a PARSE ERROR that kills every nextest run in the repo (issue 0743), and the
+# domain-partition arithmetic in that file assumes nextest's global-slot
+# semantics. The tool that runs the whole suite was the one with no pin.
+#
+# PREBUILT where upstream publishes one, source as the fallback — the
+# `[tool.ninja]` shape. Both tarballs hold a BARE binary with no `bin/`, so each
+# dist carries its own `install`; that is what `DistArtifact.install` is for.
+[tool.cargo-nextest]
+version = "0.9.143-nros1"
+upstream = "cargo-nextest-0.9.143" # = source.ref (nextest-rs/nextest release tag)
+smoke = [
+    { run = "bin/cargo-nextest --version", expect = "0.9.143" },
+]
+dist.linux-x86_64 = { url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-x86_64-unknown-linux-gnu.tar.gz", sha256 = "66786b9abe23920d022a182d1416b1bbc8130dd4872a9553d76985a1708dcd1e", install = "mkdir -p {prefix}/bin && tar -xf {archive} -C {prefix}/bin cargo-nextest && chmod +x {prefix}/bin/cargo-nextest" }
+dist.linux-arm64 = { url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-aarch64-unknown-linux-gnu.tar.gz", sha256 = "2a64b3566a92508550a7ab29c3e8db25472ca37730ecb4d22100b6aa440c2a68", install = "mkdir -p {prefix}/bin && tar -xf {archive} -C {prefix}/bin cargo-nextest && chmod +x {prefix}/bin/cargo-nextest" }
+[tool.cargo-nextest.source]
+git = "https://github.com/nextest-rs/nextest"
+ref = "cargo-nextest-0.9.143"
+# The binary crate is the `cargo-nextest/` member, not the workspace root.
+install = "cargo install --path cargo-nextest --root {prefix} --locked"
+
+# Coverage. Prebuilt for both Linux arches, source elsewhere.
+[tool.cargo-llvm-cov]
+version = "0.9.0-nros1"
+upstream = "v0.9.0" # = source.ref (taiki-e/cargo-llvm-cov release tag)
+# `cargo-llvm-cov llvm-cov --version`, not `--version`: it is a cargo
+# SUBCOMMAND binary and rejects the bare flag with
+# `expected subcommand 'llvm-cov', found argument '--version'`. Caught by
+# running this probe rather than assuming it (issue 0929's whole point —
+# `system` answers "are its libraries present", smoke answers "does it run").
+smoke = [
+    { run = "bin/cargo-llvm-cov llvm-cov --version", expect = "0.9.0" },
+]
+dist.linux-x86_64 = { url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz", sha256 = "b068f7c98841aacb9c4f382b4a0c184ae82f49b56a32d442b429b2961c73be15", install = "mkdir -p {prefix}/bin && tar -xf {archive} -C {prefix}/bin cargo-llvm-cov && chmod +x {prefix}/bin/cargo-llvm-cov" }
+dist.linux-arm64 = { url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-unknown-linux-gnu.tar.gz", sha256 = "9af53b273e50d01d8bde8785de8541f6738cc4375248cd7683aec8b5768b9d21", install = "mkdir -p {prefix}/bin && tar -xf {archive} -C {prefix}/bin cargo-llvm-cov && chmod +x {prefix}/bin/cargo-llvm-cov" }
+[tool.cargo-llvm-cov.source]
+git = "https://github.com/taiki-e/cargo-llvm-cov"
+ref = "v0.9.0"
+install = "cargo install --path . --root {prefix} --locked"
+
+# Demangles Rust symbols in `mem-report` / profiling output. Small, and upstream
+# publishes no binaries, so source only — the `[tool.sccache]` shape.
+[tool.rustfilt]
+version = "0.2.1-nros1"
+upstream = "0.2.1" # = source.ref (luser/rustfilt release tag)
+smoke = [
+    { run = "bin/rustfilt --version", expect = "0.2.1" },
+]
+[tool.rustfilt.source]
+git = "https://github.com/luser/rustfilt"
+ref = "0.2.1"
+install = "cargo install --path . --root {prefix} --locked"
+
+# Reads the generated assembly for a function — a debugging tool, not a build
+# input. Source only, like rustfilt.
+[tool.cargo-show-asm]
+version = "0.2.9-nros1"
+upstream = "0.2.9" # = source.ref (pacak/cargo-show-asm release tag)
+smoke = [
+    { run = "bin/cargo-asm --version", expect = "0.2.9" },
+]
+[tool.cargo-show-asm.source]
+git = "https://github.com/pacak/cargo-show-asm"
+ref = "0.2.9"
+install = "cargo install --path . --root {prefix} --locked"
+
+# clang-format — phase-422 W2's deferred half, and the reason it was deferred is
+# gone.
+#
+# W2 declined this in 2026-09-05 because clang-format ships as a pip WHEEL whose
+# binary sits at `clang_format/data/bin/clang-format` inside a zip, so the index
+# "needs to unzip and know an inner path — new machinery for exactly one
+# consumer". That machinery now exists and serves two: `DistArtifact.install`
+# was added for `[tool.ninja]`, whose upstream zip holds a bare binary. A wheel
+# is the same shape one level deeper, so this is a dist row, not an exception.
+#
+# The wheel URLs are PyPI's own, hashed from the files PyPI publishes — the same
+# artifacts `pip download` was resolving, minus the pip dependency in the
+# provisioning path.
+#
+# The version lives HERE and nowhere else. `.clang-format-version` is deleted
+# with this entry: two sources of truth for this exact version had already
+# drifted once, invisibly (gate.yml pinned 17.0.5 in a `pip install` while the
+# file said 17.0.6, and the resolver's fallback order meant CI checked a
+# different formatting standard than every local run for as long as it stood).
+[tool.clang-format]
+version = "17.0.6-nros1"
+upstream = "17.0.6" # = the clang-format wheel version on PyPI
+system = ["unzip"]
+smoke = [
+    { run = "bin/clang-format --version", expect = "17.0.6" },
+]
+dist.linux-x86_64 = { url = "https://files.pythonhosted.org/packages/89/df/5296c3eca534eedef32813cd38b3436c86f0eabcda2238060f73e45ef37d/clang_format-17.0.6-py2.py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", sha256 = "2a1323ca5322e0dead521223155fe2ae1ba81d50abab8e20aaac28f6a94f23b9", install = "unzip -q -o {archive} -d {prefix}/.wheel && install -Dm755 {prefix}/.wheel/clang_format/data/bin/clang-format {prefix}/bin/clang-format && rm -rf {prefix}/.wheel" }
+dist.linux-arm64 = { url = "https://files.pythonhosted.org/packages/2e/a5/78fe6b7b6947a1d90dcb451caf9c63895fa84d7fc453865a64d770aae242/clang_format-17.0.6-py2.py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", sha256 = "5cda40badfb01818ece739509d9cde678fc02660180cc1a55156782ef203704d", install = "unzip -q -o {archive} -d {prefix}/.wheel && install -Dm755 {prefix}/.wheel/clang_format/data/bin/clang-format {prefix}/bin/clang-format && rm -rf {prefix}/.wheel" }
+dist.macos-arm64 = { url = "https://files.pythonhosted.org/packages/5b/0a/d112aea9f0272e2c5558a2e9cf50229c846892dadf585f2a98fa0ba22385/clang_format-17.0.6-py2.py3-none-macosx_11_0_arm64.whl", sha256 = "195014a589fde9e2bec447ee1f2efd31f8c9f773b10aa66b510beae6997e6bc5", install = "unzip -q -o {archive} -d {prefix}/.wheel && install -Dm755 {prefix}/.wheel/clang_format/data/bin/clang-format {prefix}/bin/clang-format && rm -rf {prefix}/.wheel" }
+
 # Micro-XRCE-DDS Agent — the host daemon the XRCE-DDS RMW connects to (the
 # counterpart to zenohd for the rmw-xrce path). Source build is a CMake
 # superbuild (pulls Fast-DDS/Fast-CDR), so prefer the prebuilt once seeded.

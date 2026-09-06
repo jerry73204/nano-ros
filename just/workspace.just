@@ -681,8 +681,17 @@ rust-targets:
 cargo-tools:
     #!/usr/bin/env bash
     set -e
-    cargo install cargo-nextest --locked
-    cargo install cargo-llvm-cov --locked
+    # phase-422 W2 (second half) — FORWARDERS. All four were bare
+    # `cargo install <name> --locked`, which resolves against crates.io at
+    # whatever version is current that day; the index pins them and installs
+    # into the versioned store, preferring upstream's prebuilt where there is
+    # one. `cargo-nextest` is the one that mattered: it ran the whole suite,
+    # CI's runners installed it through `just setup native`, and it was the only
+    # tool here with no pin at all while `.config/nextest.toml` is
+    # version-sensitive enough that a stale filter kills every nextest run
+    # (issue 0743).
+    nros setup --tool cargo-nextest
+    nros setup --tool cargo-llvm-cov
     # phase-422 W5 — FORWARDER, not a second producer. `espflash` is
     # `[tool.espflash]` in the index, pinned to `v4.5.0` with a source recipe
     # that installs into the versioned store prefix; `cargo install` put a
@@ -694,8 +703,11 @@ cargo-tools:
     # Still non-fatal: espflash is only needed to FLASH, and a workstation that
     # never touches hardware should not fail its whole tool setup over it.
     nros setup --tool espflash           || echo "WARNING: espflash provisioning failed (non-fatal)"
-    cargo install rustfilt --locked      || echo "WARNING: rustfilt install failed (non-fatal)"
-    cargo install cargo-show-asm --locked || echo "WARNING: cargo-show-asm install failed (non-fatal)"
+    # Non-fatal, as before: both are debugging aids, and a workstation that
+    # never reads disassembly should not fail its tool setup over them. Source
+    # builds (upstream publishes no binaries), so they are also the slow two.
+    nros setup --tool rustfilt           || echo "WARNING: rustfilt provisioning failed (non-fatal)"
+    nros setup --tool cargo-show-asm     || echo "WARNING: cargo-show-asm provisioning failed (non-fatal)"
     # Phase 218 — `nros` lives in-tree at `packages/cli/` (the merge
     # back into nano-ros). Build from source via `just setup-cli`
     # (idempotent: skips if the binary is fresh relative to
