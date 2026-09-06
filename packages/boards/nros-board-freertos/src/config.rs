@@ -31,7 +31,8 @@ pub struct Config {
     // converts on read; `[node.rt.freertos]` is raw.
     /// Application task priority (raw FreeRTOS, default 3).
     pub app_priority: u8,
-    /// Application task stack size in bytes (default 393216).
+    /// Application task stack size in bytes (default 131072 — MEASURED, issue
+    /// 1146; see `nros_board_common::freertos_config::app_stack_bytes`).
     pub app_stack_bytes: u32,
     /// Zenoh-pico read task priority (raw FreeRTOS, default 4).
     pub zenoh_read_priority: u8,

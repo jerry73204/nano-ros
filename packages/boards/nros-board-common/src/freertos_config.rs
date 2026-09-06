@@ -79,8 +79,8 @@ pub struct FreertosScheduling {
 }
 
 /// The default application task stack, in bytes, when the build sets no
-/// override. See [`app_stack_bytes`] for why it is this large.
-pub const DEFAULT_APP_STACK_BYTES: u32 = 393216;
+/// override. See [`app_stack_bytes`] for the measurement it comes from.
+pub const DEFAULT_APP_STACK_BYTES: u32 = 131072;
 
 impl Default for FreertosScheduling {
     fn default() -> Self {
@@ -114,12 +114,67 @@ impl Default for FreertosScheduling {
 /// `build.rs` passes `env::var(..).ok().as_deref()`. Both land here so the
 /// parser cannot drift.
 ///
-/// The default is 384 KiB: the Rust zenoh executor can exceed 160 KiB opening a
-/// FreeRTOS session with lwIP up, and the phase-212 Entry / run-plan Executor
-/// open overflows the older 256 KiB (issue #46). The stack is drawn from the
-/// FreeRTOS heap (heap_4), sized to match in `nros-board-freertos/build.rs`.
-/// A 10-node macro entry's register pass overflows even 384 KiB, hence the
-/// override (issue-0274 follow-up).
+/// The default is **128 KiB, and it is MEASURED** (issue 1146). Every FreeRTOS
+/// task stack here is drawn from the FreeRTOS heap (heap_4, `ucHeap[]` in
+/// `.bss`, sized in `nros-board-freertos/build.rs`), and a spawned tier whose
+/// `stack_bytes` is 0 gets this number too — so it is charged once per task,
+/// not once per image.
+///
+/// What the measurement is: `uxTaskGetStackHighWaterMark` on the app task at
+/// the end of the register pass, which is the deepest point bring-up reaches.
+/// Eight images on qemu mps2-an385, each run to a live zenoh session:
+///
+/// | image | after boot bringup | after `Executor::open` | after register |
+/// | --- | --- | --- | --- |
+/// | rust/talker | 5 040 | 8 952 | 25 160 |
+/// | rust/listener | 5 040 | 8 952 | 24 784 |
+/// | rust/service-server | 5 040 | 8 952 | 25 936 |
+/// | rust/service-client | 5 040 | 8 952 | 26 992 |
+/// | rust/action-server | 5 040 | 8 952 | **36 152** |
+/// | rust/action-client | 5 040 | 8 952 | 33 584 |
+/// | workspaces/rust (2 nodes) | 3 208 | 10 752 | 23 296 |
+/// | workspaces/realtime-rust (2 tiers) | 3 208 | — | 22 184 boot / 22 368 tier |
+///
+/// So the worst in-tree peak is **36 152 bytes** and this default is 3.6x it.
+/// Reproduce it from any image's own boot output: `report_stack_peak` in
+/// `nros-board-freertos/src/entry.rs` prints the line, so nobody has to patch
+/// the board to learn the number again. The table above was taken with a
+/// throwaway probe; the shipped line reads 8 bytes HIGHER (36 160 for
+/// action-server) because the reporting call has a frame of its own — that
+/// delta is the difference between the two, not drift.
+///
+/// The three claims this replaces were each false, and each had outlived its
+/// subject by phases:
+///
+/// - *"the Rust zenoh executor can exceed 160 KiB opening a FreeRTOS session
+///   with lwIP up"* — measured **8 952** bytes at exactly that point, on every
+///   one of the eight images. Off by 18x.
+/// - *"the phase-212 Entry / run-plan Executor open overflows the older
+///   256 KiB (issue #46)"* — whatever issue #46 saw in phase 212, nothing on
+///   this path now comes within 7x of 256 KiB.
+/// - *"a 10-node macro entry's register pass overflows even 384 KiB, hence the
+///   override"* — true, and about an OUT-OF-TREE consumer (the sentinel entry
+///   of `a60b80da3`, which ships 896 KiB). It argued for the override, never
+///   for the default: an entry that overflows 384 KiB is not served by a
+///   384 KiB default either. Nothing in this tree sets the override.
+///
+/// A bigger entry raises it — `NROS_FREERTOS_APP_STACK_KB`, or a `[node.rt]
+/// app_stack_bytes`. Getting it wrong is loud but MISATTRIBUTED, which is worth
+/// knowing before you read the log. The bracketing run, same image, same
+/// router:
+///
+/// - `NROS_FREERTOS_APP_STACK_KB=40` → boots, serves goals, and reports
+///   `app task stack peak 36160 of 40960 bytes (4800 free)`. The measurement
+///   predicts the boundary to within 5 KiB.
+/// - `NROS_FREERTOS_APP_STACK_KB=32` → `*** MALLOC FAILED ***` and a hang.
+///   **NOT** `*** STACK OVERFLOW: <task> ***`, even though the shared
+///   `FreeRTOSConfig.h` sets `configCHECK_FOR_STACK_OVERFLOW 2` and the hook is
+///   wired: heap_4 hands out the task stack, so the overflow lands in the
+///   ADJACENT heap block header and the next `pvPortMalloc` fails before any
+///   context switch can check the pattern. The kernel's own stack check cannot
+///   win that race here.
+///
+/// So the way to know is the boot line, not the failure.
 ///
 /// # Panics
 /// On a non-decimal value — a typo'd stack size must not silently become the

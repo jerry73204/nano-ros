@@ -99,8 +99,9 @@ fn main() {
     //   1. explicit `NROS_FREERTOS_HEAP_KB` build env (any value), else
     //   2. the `rmw-zenoh` feature (forwarded from the board) → 2 MiB. The
     //      FreeRTOS task stacks are allocated *from* this heap (heap_4), so it
-    //      must hold the `nros_app` task stack (now 384 KiB — the Phase 212
-    //      Entry / run-plan Executor open exceeds the old 256 KiB) PLUS lwIP
+    //      must hold the `nros_app` task stack (128 KiB since issue 1146 —
+    //      MEASURED, worst in-tree peak 36 152 bytes; it was 384 KiB, and one
+    //      task stack per TIER comes out of the same heap) PLUS lwIP
     //      (netconns/pbufs/socket semaphores) PLUS zenoh-pico's working set.
     //      512 KiB sufficed for the old *direct* talker but the Entry path
     //      MALLOC-FAILs at it (issue #46); 2 MiB boots cleanly through Executor

@@ -646,9 +646,20 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   mps2_an385 vs 88,328 B on native_sim/native/64 for ONE conf), so a subtrahend copied
   from `nm` drifts on the next knob move and was never right for both boards.
   Gate: `check-executor-backing-arena-pairing`; a statement below what the executor
-  needs is a compile error naming the knob. The
-  companion stale number: `APP_TASK_STACK` was deleted in phase-76; the live default is
-  `app_stack_bytes` = **384 KiB**, and nothing in the tree overrides it.
+  needs is a compile error naming the knob.
+  The companion stale number: `APP_TASK_STACK` was deleted in phase-76, and the
+  `app_stack_bytes` that replaced it was **384 KiB by bisection** until issue 1146
+  MEASURED it — `uxTaskGetStackHighWaterMark` at the end of the register pass, 8
+  in-tree FreeRTOS images, worst peak **36 152 bytes**. Default is **128 KiB** now,
+  charged PER TASK (a tier with `stack_bytes = 0` gets it too), and every image
+  PRINTS its own peak at boot so the next person reads it instead of copying it.
+  Two things the run corrected that reading could not: `Executor::open` costs
+  **8 952** bytes, not the "over 160 KiB" three documents claimed; and an
+  undersized stack lands as `*** MALLOC FAILED ***`, NOT as
+  `*** STACK OVERFLOW ***` — heap_4 hands out the stack, so the overflow reaches
+  the next block header before `configCHECK_FOR_STACK_OVERFLOW 2` gets a context
+  switch. The C/C++ carrier's 512 KiB mirror stays: its C half measures 18 176,
+  its C++ half does not BUILD (issue 1187), and one number serves both.
 - **Tier and transport priorities land in ONE scheduler — they now share ONE vocabulary,
   RAW FreeRTOS (issue 0623, FIXED).** `FreertosScheduling`'s `zenoh_read_priority` /
   `zenoh_lease_priority` / `poll_priority` are raw `0..configMAX_PRIORITIES-1`, the same

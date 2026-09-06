@@ -6,7 +6,7 @@ title: "The FreeRTOS app-task stack is 384 KiB by bisection, its C/C++ mirror sa
 status: open
 type: tech-debt
 area: boards
-related: [phase-392, phase-76, 0271, 0739, 1145]
+related: [phase-392, phase-76, 0271, 0739, 1145, 1187]
 ---
 
 ## Problem
@@ -50,32 +50,134 @@ before the wave was written. Whatever the 384 KiB is holding, it is not the
 arena, and lowering the knob on that reasoning would have been a guess dressed
 as a measurement.
 
-## What deriving it actually requires
+---
 
-A FreeRTOS image, a stack high-water reading, and a run — not a link:
+## MEASURED 2026-09-07 — parts 1 and 3 resolved, part 2 stays open
 
-1. Build `examples/qemu-arm-freertos/rust/action-server` (and the `c`/`cpp`
-   twins, which take a different init path — `Node::global_storage()` rather
-   than the Rust `alloc` constructor, so their frames differ).
-2. Enable `configRECORD_STACK_HIGH_ADDRESS` / `uxTaskGetStackHighWaterMark`
-   and read the app task's mark after the registration pass, which is the
-   deepest point the doc comment names.
-3. Attribute the peak: session open vs `Executor::open_in`'s frame vs the
-   register pass. `Executor::open_in` builds an `Executor` in its own frame and
-   returns it by value, so the header's size is in there too (phase-409 shrank
-   it; that shrink has never been measured against this knob either).
-4. Set the default from the measurement plus a stated margin, reconcile
-   `freertos_app_config.c.in` to it or document why the C carrier differs, and
-   put the command in the commit message.
+Method: `uxTaskGetStackHighWaterMark(NULL)` (the portable
+`nros_platform_task_stack_unused_bytes`, live on this port because the shared
+`FreeRTOSConfig.h` sets `INCLUDE_uxTaskGetStackHighWaterMark 1`), read at four
+points of bring-up. 14 images on `qemu-system-arm -machine mps2-an385`, each
+run 45–90 s against a live `rmw_zenohd` — **not linked, run**, publishing or
+serving.
 
-Acceptance is a booting image that still delivers, at the lower number — the
-failure mode here is `lwIP ASSERT: Invalid mbox` from a stack overflow
-corrupting `tcpip_mbox`, which is silent until it is fatal.
+### Rust path — `app_stack_bytes` = 393216 reserved
 
-## Related
+| image | after boot bringup | after `Executor::open` | after register pass | steady spin |
+| --- | --- | --- | --- | --- |
+| rust/talker | 5 040 | 8 952 | 25 160 | 25 160 |
+| rust/listener | 5 040 | 8 952 | 24 784 | 24 784 |
+| rust/service-server | 5 040 | 8 952 | 25 936 | 25 936 |
+| rust/service-client | 5 040 | 8 952 | 26 992 | 26 992 |
+| rust/action-server | 5 040 | 8 952 | **36 152** | 36 152 |
+| rust/action-client | 5 040 | 8 952 | 33 584 | 33 584 |
+| workspaces/rust (talker+listener) | 3 208 | 10 752 | 23 296 | 23 296 |
+| workspaces/realtime-rust boot tier | 3 208 | — | 22 184 | 22 184 |
+| workspaces/realtime-rust spawned tier | 3 160 | — | — | 22 368 |
 
-- phase-392 W6 — landed the visible-arena half; this is the task-stack half it
-  could not honestly carry.
-- Issue 1145 — the same "the bytes moved, the knob that reserved them did not"
-  shape, one layer over, on the RTOS allocator arena.
-- Issues 0271 / 0739 — the knob-nobody-can-enumerate class this belongs to.
+The register pass is the peak; **90 s of spinning never moved any of them**.
+
+### C carrier — `.app_stack_bytes` = 524288 reserved
+
+| image | app-task peak |
+| --- | --- |
+| c/talker | 5 416 |
+| c/listener | 6 976 |
+| c/service-server | 8 304 |
+| c/service-client | 8 616 |
+| c/action-server | **18 176** |
+| c/action-client | 16 312 |
+
+Shallower than Rust, because that carrier keeps the executor and every node
+struct in `.bss`.
+
+### What the three inherited claims were worth
+
+- *"the Rust zenoh executor can exceed 160 KiB opening a FreeRTOS session with
+  lwIP up"* — **8 952 bytes**, identical on all eight Rust images. Off by 18x.
+- *"the phase-212 Entry / run-plan Executor open overflows the older 256 KiB"* —
+  nothing on this path comes within 7x of 256 KiB.
+- *"a 10-node macro entry's register pass overflows even 384 KiB, hence the
+  override"* — TRUE, and about an **out-of-tree** consumer: `a60b80da3`'s commit
+  message names the "sentinel" entry, which ships 896 KiB via the override. It
+  is an argument for the override and never was one for the default — an entry
+  that overflows 384 KiB is not served by a 384 KiB default either. `issue-0274
+  follow-up`, which the doc comment cites, does not mention stacks at all.
+
+### The change
+
+`DEFAULT_APP_STACK_BYTES` 393216 → **131072** (128 KiB): 3.6x the worst measured
+in-tree peak, 7.2x the worst C one. It is charged **per task** — a spawned tier
+whose `stack_bytes` is 0 takes the app default too — so a 2-tier FreeRTOS image
+stops reserving 768 KiB of its 2 MiB heap_4 and reserves 256 KiB. That is a heap
+BUDGET saving; it becomes a `.bss` saving only when `configTOTAL_HEAP_SIZE`
+follows, which is issue 1145's half.
+
+And the number is now **derivable without patching the board**:
+`report_stack_peak` (`nros-board-freertos/src/entry.rs`) prints
+
+```
+nros: app task stack peak 36160 of 131072 bytes (94912 free) — raise with NROS_FREERTOS_APP_STACK_KB / `[node.rt] app_stack_bytes`
+```
+
+once per task at the end of the register pass. Once, deliberately:
+`uxTaskGetStackHighWaterMark` walks the unpainted region, so on a spin tick it
+costs tens of thousands of byte compares per iteration on an emulated
+Cortex-M3 — which is also why the executor's `stack-headroom-runtime` rule is
+not wired to it (see below).
+
+### Verification — it runs at the new default
+
+All six Rust role examples rebuilt through the real lane
+(`scripts/build/fixtures-build.sh freertos rust zenoh`) and run: **5 of 6 green**
+(talker publishes, service pair round-trips, action pair serves goals). The
+sixth, `listener`, fails on the **arena**, not the stack —
+`arena exhausted: 3844 more bytes needed, 0/8192 in use` — and a control build
+with this change stashed fails identically, so it is a pre-existing red of the
+issue-0900 family, unrelated. Reproduce: build `listener` into a private
+`--target-dir` and run it.
+
+### Bracketing run — and the failure is MISATTRIBUTED
+
+Same image (`action-server`), same router:
+
+| `NROS_FREERTOS_APP_STACK_KB` | result |
+| --- | --- |
+| 40 (40 960 B) | boots, serves goals, reports `peak 36160 of 40960 (4800 free)` |
+| 32 (32 768 B) | `*** MALLOC FAILED ***`, hang |
+
+The measurement predicts the boundary to within 5 KiB. But note **what it does
+NOT print**: `*** STACK OVERFLOW: <task> ***`. The shared `FreeRTOSConfig.h`
+sets `configCHECK_FOR_STACK_OVERFLOW 2` and `vApplicationStackOverflowHook` is
+wired, yet heap_4 hands out the task stack, so the overflow lands in the
+adjacent heap block's header and the next `pvPortMalloc` fails before any
+context switch can check the pattern. `*** MALLOC FAILED ***`, `Invalid mbox`
+and `*** STACK OVERFLOW ***` are three faces of one fault here. The `lwIP
+ASSERT: Invalid mbox` this issue predicted is a possible landing, not the
+landing.
+
+## Still open — part 2, the C/C++ carrier's 512 KiB
+
+`cmake/templates/freertos_app_config.c.in` keeps `.app_stack_bytes = 524288u`.
+One number serves BOTH the C and C++ typed carriers, the C half measures 18 176
+worst, and the C++ half **cannot be built at all**: every embedded C++ FreeRTOS
+target dies in `<string>` → `requires_hosted.h` under `-ffreestanding` with the
+pinned `arm-none-eabi-gcc 13.2-nros4` (**issue 1187**). Reducing it on the
+strength of the half that runs would be exactly the unverified move this issue
+exists to stop. It moves when 1187 is fixed and a
+`examples/qemu-arm-freertos/cpp/*` image has been measured the same way.
+
+## Also found, not fixed
+
+- **`Executor::set_min_stack_headroom_bytes` has no caller anywhere in the
+  tree**, so the `stack-headroom-runtime` monitor rule (`min_bytes == 0`
+  disables it) has never fired and cannot. Its doc says the entry that spawned
+  the thread is the party that must set it. Wiring it needs a probe that is
+  cheap per tick, which `uxTaskGetStackHighWaterMark` is not — it is O(unused
+  bytes). A per-task cached bound, or a port-side watermark that is maintained
+  rather than scanned, is the prerequisite.
+- **`just freertos talker` (and its five siblings) named binaries that do not
+  exist** — `_run-qemu "talker" "qemu-freertos-talker"`, while every leaf's
+  `[[bin]] name` is the bare role (`talker`). Dev-convenience recipes only (the
+  fixtures and tests resolve the real name), and FIXED here since the six call
+  sites are one line each.
