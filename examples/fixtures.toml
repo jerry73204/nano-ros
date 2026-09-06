@@ -1195,12 +1195,19 @@ cmake_defs = { NANO_ROS_PLATFORM = "freertos", NANO_ROS_BOARD = "mps2-an385-free
 # ===========================================================================
 
 # Collapsed role examples — default features, default target dir.
+#
+# These two carry ids because they are also the NATIVE PEERS of the esp32
+# interop tests (`test_esp32_to_native` / `test_native_to_esp32`), which the
+# esp32 lane has to stage by id — building every `linux rust` row to get two of
+# them would be 74 rows for 2. Issue 1112.
 [[fixture]]
+id = "native-rust-talker"
 platform = "linux"
 lang = "rust"
 dir = "examples/native/rust/talker"
 
 [[fixture]]
+id = "native-rust-listener"
 platform = "linux"
 lang = "rust"
 dir = "examples/native/rust/listener"

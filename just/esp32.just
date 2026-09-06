@@ -248,6 +248,21 @@ build-fixtures: build-qemu build-logging-smoke
     # built it, but the test's skip message (correctly) points users to
     # `build-fixtures` — so this lane must stage it too. Idempotent + cached.
     bash scripts/build/workspace-fixtures-build.sh esp32 rust
+    # Issue 1112 — the NATIVE PEERS of the esp32 interop tests.
+    #
+    # `test_esp32_to_native` and `test_native_to_esp32` each start one esp32
+    # image and one HOST binary, so half of each test is a `linux` fixture this
+    # module never builds. In the nightly that read as an esp32 failure —
+    # `BuildFailed("Test fixture binary not prebuilt: .../cargo-fixtures/linux/
+    # nros-relwithdebinfo/listener")`, three retries, 0.4 s each — which points
+    # at the esp32 side and is not about it at all.
+    #
+    # Same reasoning as the workspace entry above: the tests belong to THIS
+    # module, so their prerequisites are this lane's to stage. By ID rather than
+    # `fixtures-build.sh linux rust`, which is 74 rows to obtain two.
+    for _peer in native-rust-talker native-rust-listener; do
+        bash scripts/build/fixtures-build.sh linux rust --id "$_peer"
+    done
     # esp-idf build-stage fixtures (issue 0041): build the idf.py ELF the
     # cli_bringup_esp_idf test consumes, so it doesn't run idf.py at test time.
     # Self-gates on idf.py/IDF env; non-fatal (a failed build leaves no stamp,
