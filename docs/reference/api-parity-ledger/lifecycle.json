@@ -438,7 +438,7 @@
   "cpp:Transition": {
     "verdict": "gap",
     "bucket": "theirs-only",
-    "why": "OUR LANGUAGES DISAGREE: Rust has a full `LifecycleTransition` enum (`from_u8`, `from_shorthand`, `source_state`), C has the `NROS_LIFECYCLE_TRANSITION_*` constants, and C++ has NO transition type or constants at all -- a caller passes a bare `uint8_t` to the protected `trigger()`. rclcpp's `Transition` carries `id`, `label`, `start_state`, `goal_state`. Nothing forbids an `enum class` here: we already ship `enum class LifecycleState` in the same header. Bucket-covered with its members. Phase 379 W3."
+    "why": "OUR LANGUAGES DISAGREE, though less than they did: Rust has a full `LifecycleTransition` enum (`from_u8`, `from_shorthand`, `source_state`), C has the `NROS_LIFECYCLE_TRANSITION_*` constants, and C++ now has `enum class nros::LifecycleTransition` too (issue 1099 -- it had NO transition type or constants at all, so every caller wrote a bare `uint8_t`, and the id space that byte landed in was not `lifecycle_msgs`'. All three languages now carry the SAME `lifecycle_msgs/msg/Transition` numbers, pinned by `nros-cpp/tests/compile/lifecycle_transition_ids.cpp`). Still a gap: rclcpp's `Transition` is an OBJECT carrying `id`, `label`, `start_state` and `goal_state`, and an enum is not that -- the label and the two states are served over `~/get_available_transitions` and have no in-process accessor in any of our three languages (see `cpp:LifecycleNode::get_available_transitions`). Bucket-covered with its members. Phase 379 W3; prose corrected by issue 1099."
   },
   "cpp:Transition::goal_state": {
     "verdict": "declined",
@@ -509,7 +509,7 @@
   },
   "rust:LifecyclePollingNode::trigger_transition": {
     "verdict": "extension",
-    "why": "see `rust:LifecyclePollingNode`. This is rclcpp's word for the operation, and it is public here -- the same operation is `protected trigger()` in our C++ and `nros_lifecycle_change_state` in our C. See `cpp:LifecycleNode::trigger_transition`."
+    "why": "see `rust:LifecyclePollingNode`. This is rclcpp's word for the operation, and it is public here -- as it now is in our C++ (`nros::LifecycleNode::trigger_transition`, public since phase 379 W5; this row used to say `protected trigger()`), and as `nros_lifecycle_change_state` in our C. All three take the same `lifecycle_msgs/msg/Transition` ids since issue 1099; before it, the C and C++ entry points took nano-ros's own numbering, which disagreed with upstream on four of eight values. NOTE: there is no `cpp:LifecycleNode::trigger_transition` row in this ledger to point at, although rclcpp has the method -- the correlator never emitted one, which is the same blind spot that let the id divergence through (`correlate.py:compare()` matches on name and arity and never on VALUES)."
   },
   "rust:LifecyclePollingNodeCtx": {
     "verdict": "extension",
@@ -517,7 +517,7 @@
   },
   "rust:LifecycleTransition": {
     "verdict": "extension",
-    "why": "the REP-2002 transition set as a closed enum, with `from_u8`, `from_shorthand` (so the generic `\"shutdown\"` label a `ChangeState` request may carry resolves against the current state) and `source_state`. **rclrs 0.5.1 has no lifecycle support whatsoever** -- the whole stage reports zero theirs-only rows in the Rust lane -- so every item here is an extension by definition. The RTOS scenario is REP-2002 itself: a device that owns hardware needs a supervisor-driven `configure`/`activate`/`deactivate` protocol so an actuator can be brought up and parked without restarting the image, and `ros2 lifecycle set` is how the rest of the graph asks for it. We implement the state machine once in `nros_core::lifecycle` and surface it in all three languages. See `cpp:Transition` -- this type has no C++ counterpart, which is a gap on that side."
+    "why": "the REP-2002 transition set as a closed enum, with `from_u8`, `from_shorthand` (so the generic `\"shutdown\"` label a `ChangeState` request may carry resolves against the current state) and `source_state`. **rclrs 0.5.1 has no lifecycle support whatsoever** -- the whole stage reports zero theirs-only rows in the Rust lane -- so every item here is an extension by definition. The RTOS scenario is REP-2002 itself: a device that owns hardware needs a supervisor-driven `configure`/`activate`/`deactivate` protocol so an actuator can be brought up and parked without restarting the image, and `ros2 lifecycle set` is how the rest of the graph asks for it. We implement the state machine once in `nros_core::lifecycle` and surface it in all three languages. See `cpp:Transition`: since issue 1099 C++ has a counterpart ENUM with the same discriminants, but not rclcpp's `Transition` object, so that row stays a gap."
   },
   "rust:LifecycleTransition::source_state": {
     "verdict": "extension",

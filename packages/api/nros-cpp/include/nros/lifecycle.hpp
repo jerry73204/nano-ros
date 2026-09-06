@@ -36,6 +36,12 @@ namespace nros {
 /// REP-2002 primary states. Values match `nros_cpp_lifecycle_get_current_state()` /
 /// `nros_core::lifecycle::LifecycleState` (`Unknown` is the `0` sentinel returned for a
 /// null executor or before services are registered).
+///
+/// The four primary states carry their `lifecycle_msgs/msg/State` ids.
+/// `ErrorProcessing` deliberately does not: upstream spells it
+/// `TRANSITION_STATE_ERRORPROCESSING = 15`, but `5` is UNASSIGNED upstream, so
+/// unlike the transition ids (issue 1099) it can never silently name a
+/// different state. The wire mapping in `nros-node` sends 15.
 enum class LifecycleState : uint8_t {
     Unknown = 0,
     Unconfigured = 1,
@@ -45,6 +51,36 @@ enum class LifecycleState : uint8_t {
     ErrorProcessing = 5,
 };
 
+/// REP-2002 transition ids — the values of `lifecycle_msgs/msg/Transition`.
+///
+/// Issue 1099: these ids used to be nano-ros's own numbering, which collided
+/// with upstream's on four of eight values (ours had `Activate = 2`, upstream
+/// has `CLEANUP = 2`). A ported rclcpp file calling
+/// `trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CLEANUP)`
+/// — i.e. `2` — on an Inactive node was silently ACTIVATING it and getting
+/// `Result::ok` back. The numbering is now upstream's everywhere: here, in
+/// `NROS_LIFECYCLE_TRANSITION_*`, in `nros_core::lifecycle`, and on the wire.
+///
+/// Prefer these names over the raw byte; `trigger_transition` accepts either.
+enum class LifecycleTransition : uint8_t {
+    Configure = 1,
+    Cleanup = 2,
+    Activate = 3,
+    Deactivate = 4,
+    /// Shutdown from `Unconfigured`. `LifecycleNode::shutdown()` picks the
+    /// right one of the three for you.
+    ShutdownUnconfigured = 5,
+    /// Shutdown from `Inactive`.
+    ShutdownInactive = 6,
+    /// Shutdown from `Active`.
+    ShutdownActive = 7,
+    /// `ErrorProcessing` -> `Unconfigured`. Upstream models error recovery as
+    /// an implicit transition and gives its success edge id `60`; upstream `8`
+    /// is `TRANSITION_DESTROY`, which nano-ros does not implement and which
+    /// `trigger_transition` rejects.
+    ErrorRecovery = 60,
+};
+
 /// Transition-callback outcome (rclcpp `CallbackReturn` shape). `Failure` rolls
 /// the transition back; `Error` routes to the error-processing transition.
 enum class CallbackReturn : uint8_t {
@@ -52,6 +88,25 @@ enum class CallbackReturn : uint8_t {
     Failure = 1,
     Error = 2,
 };
+
+/// The shutdown transition legal from `state`, or `ShutdownUnconfigured` when
+/// none is (`Unknown`, `Finalized`, `ErrorProcessing`).
+///
+/// REP-2002 gives shutdown three ids, one per legal source state, so no fixed
+/// id can shut down a node in an arbitrary state — which is why
+/// `LifecycleNode::shutdown()` sending `5` unconditionally could not shut down
+/// an Inactive or Active node (issue 1099).
+///
+/// The no-legal-shutdown states fall back to `ShutdownUnconfigured` on purpose:
+/// the state machine already refuses it from those states, so the error comes
+/// from the ONE place that owns the rule instead of being re-derived here.
+///
+/// `constexpr` so a test can pin every arm without building an executor.
+constexpr LifecycleTransition shutdown_transition_for(LifecycleState state) {
+    return state == LifecycleState::Inactive ? LifecycleTransition::ShutdownInactive
+           : state == LifecycleState::Active ? LifecycleTransition::ShutdownActive
+                                             : LifecycleTransition::ShutdownUnconfigured;
+}
 
 /// rclcpp-shape managed node (REP-2002).
 ///
@@ -156,17 +211,48 @@ class LifecycleNode {
         return static_cast<LifecycleState>(nros_cpp_lifecycle_get_current_state(exec_));
     }
 
-    // Programmatic transitions (REP-2002 transition ids).
-    Result configure() { return trigger_transition(1); }
-    Result activate() { return trigger_transition(2); }
-    Result deactivate() { return trigger_transition(3); }
-    Result cleanup() { return trigger_transition(4); }
-    Result shutdown() { return trigger_transition(5); }
+    // Programmatic transitions. Spelled with the enum, never a literal —
+    // issue 1099 is what a literal costs.
+    Result configure() { return trigger_transition(LifecycleTransition::Configure); }
+    Result activate() { return trigger_transition(LifecycleTransition::Activate); }
+    Result deactivate() { return trigger_transition(LifecycleTransition::Deactivate); }
+    Result cleanup() { return trigger_transition(LifecycleTransition::Cleanup); }
+
+    /// Shut the node down from WHEREVER it currently is.
+    ///
+    /// REP-2002 gives shutdown three ids, one per legal source state, so a
+    /// fixed id can only ever shut down a node in one state. This used to send
+    /// `5` (`ShutdownUnconfigured`) unconditionally, which meant `shutdown()`
+    /// could not shut down an Inactive or Active node — the two states a node
+    /// that has done any work is actually in — and returned an
+    /// invalid-transition error instead (issue 1099).
+    ///
+    /// Resolution matches `nros_node::lifecycle`'s own `shutdown()` and the
+    /// generic `"shutdown"` label the `ChangeState` service accepts, so the
+    /// C++ API, the Rust API and `ros2 lifecycle set <node> shutdown` now agree
+    /// about the same node.
+    ///
+    /// The mapping is [`shutdown_transition_for`]; see it for the
+    /// no-legal-shutdown states.
+    Result shutdown() { return trigger_transition(shutdown_transition_for(get_current_state())); }
+
+    /// Drive an arbitrary REP-2002 transition — the type-safe spelling, and the
+    /// one to prefer.
+    Result trigger_transition(LifecycleTransition transition) {
+        return trigger_transition(static_cast<uint8_t>(transition));
+    }
 
     /// Drive an arbitrary REP-2002 transition by id — rclcpp's
     /// `LifecycleNode::trigger_transition(uint8_t)`, and PUBLIC for the same
     /// reason: it is how a ported node reaches a transition that has no named
-    /// helper above. The five helpers are this call with the id filled in.
+    /// helper above. The four helpers are this call with the id filled in.
+    ///
+    /// `transition_id` is a `lifecycle_msgs/msg/Transition` id — the SAME
+    /// number rclcpp means (issue 1099; it was nano-ros's own numbering before,
+    /// which disagreed with upstream on four of eight values and made this
+    /// call silently do the wrong transition). `0` (`TRANSITION_CREATE`) and
+    /// `8` (`TRANSITION_DESTROY`) are not implemented and return
+    /// `InvalidArgument` rather than aliasing onto a transition we do have.
     ///
     /// Phase 379 W5: this was the `protected` `trigger(uint8_t)`, which a
     /// ported rclcpp node could not call at all.
