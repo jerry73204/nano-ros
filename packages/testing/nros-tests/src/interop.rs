@@ -364,6 +364,51 @@ pub const CELLS: &[InteropCell] = &[
     ic("native-multinode-cpp-zenoh",
        c(Linux, Cpp, Zenoh, EntryPubsub, Interop, Runtime),
        NativeFixtures, RosEdition(Zenoh), NanoToRos, "cpp_multi_node_entry"),
+
+    // ── phase-433 W6 — a QoS STATUS EVENT fires against a live peer ──────
+    // tests/qos_event_interop.rs. The four event slots (`publisher_event_init`,
+    // `publisher_take_event`, `subscription_event_init`,
+    // `subscription_take_event`) are `produced` and had never met a peer.
+    //
+    // They are the family least able to be tested in isolation: a QoS event's
+    // input is a REMOTE entity's state. Four of the five kinds our ABI defines
+    // are, in the zenoh shim, comparisons of our own clock against our own
+    // timestamps — `LivelinessLost` and `OfferedDeadlineMissed` on the publisher
+    // are literally self-observations. `LivelinessChanged` is the one whose
+    // trigger is another process: the set of publishers holding an `@ros2_lv`
+    // token matching the topic. That makes it the only INTEROP claim in the
+    // family, because the token is written by `rmw_zenoh_cpp` and matched by our
+    // wildcard, and the tree's only existing check of that wildcard matches it
+    // against a keyexpr OUR OWN builder produced.
+    //
+    // Note what our ABI does NOT have: an incompatible-QoS kind. Upstream's
+    // `RMW_EVENT_OFFERED_QOS_INCOMPATIBLE` / `REQUESTED_QOS_INCOMPATIBLE` have no
+    // counterpart in `rmw_event_type_t`, so the cheapest event to provoke from a
+    // stock peer is not one we can represent.
+    ic("native-qos-event-rust-zenoh-r2n",
+       c(Linux, Rust, Zenoh, QosEvents, Interop, Runtime),
+       NativeFixtures, RosEdition(Zenoh), RosToNano, "qos_event_interop"),
+    // Cyclone's half, carved rather than run — and the carve-out IS the W6
+    // finding for that backend, measured from `vtable.cpp` rather than assumed.
+    //
+    // `subscription_event_init` and `publisher_event_init` are NULL there
+    // (`kRegisterSubscriptionEvent` / `kRegisterPublisherEvent`, "deferred"
+    // since phase 108). The other two slots, `subscription_take_event` and
+    // `publisher_take_event`, ARE implemented and read real
+    // `dds_get_*_status` counters — but nothing calls them: the Rust adapter
+    // sets both to `None`, `nros-node` exposes no poll API, and a repo-wide
+    // grep for `take_event` finds no consumer outside cyclonedds' own
+    // `tests/status_events.cpp`. So a Cyclone application cannot observe a
+    // status event by either half of the surface, and a live peer cannot change
+    // that; the missing piece is a runtime poll path, not a lane.
+    ic("native-qos-event-rust-cyclone-r2n-CARVED",
+       c(Linux, Rust, Cyclonedds, QosEvents, Interop,
+         CarveOut("cyclonedds cannot deliver a QoS status event to an application \
+                   at all: both `*_event_init` slots are NULL, and the \
+                   `*_take_event` pair it does implement has no caller in the \
+                   tree outside its own C++ unit test. A live peer would change \
+                   nothing — the gap is a runtime poll path. Issue 1164.")),
+       NativeFixtures, RosEdition(Cyclonedds), RosToNano, NO_TEST),
 ];
 
 /// Runtime interop/bridge cells only.

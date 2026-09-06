@@ -3248,6 +3248,24 @@ dir = "packages/testing/nros-tests/bins/logging-smoke-esp32-qemu"
 skip_probe = true
 # Budgets live in the leaf config — see the talker row above.
 
+# phase-433 W6 acceptance — the QoS status-event probe. Registers
+# `on_liveliness_changed` on a raw `/chatter` subscription and prints every
+# event it observes, so `qos_event_interop.rs` can assert one FIRED against a
+# stock `demo_nodes_cpp` talker's `@ros2_lv` liveliness token.
+#
+# Zenoh only, and that is the finding rather than a scoping decision:
+# cyclonedds leaves `subscription_event_init` / `publisher_event_init` NULL
+# (`vtable.cpp`, `kRegisterSubscriptionEvent`), and the `*_take_event` pair it
+# DOES implement has no caller anywhere outside its own C++ unit test — the
+# Rust adapter hardcodes both slots to `None` and `nros-node` exposes no poll
+# API. So there is no Cyclone build of this probe to make; see the CARVED cell
+# in `nros_tests::interop::CELLS`.
+[[fixture]]
+platform = "linux"
+lang = "rust"
+rmw = "zenoh"
+dir = "packages/testing/nros-tests/bins/qos-event-probe"
+
 # =============================================================================
 # Compile-check lane (phase-319 W2, issue 0351) — built by
 # `scripts/build/compile-check-fixtures.sh`.

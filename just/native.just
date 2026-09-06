@@ -877,6 +877,22 @@ test-ros2-graph verbose="":
 test-ros2-action verbose="":
     @just _test-focused 'binary(=ros2_action_e2e)' {{verbose}}
 
+# A QoS STATUS EVENT fires against a live peer and reaches an application
+# callback — phase-433 W6. The four event slots are `produced` and had never met
+# one, and they are the family least able to be tested in isolation: a QoS
+# event's input is another process's state. Four of the five kinds our ABI
+# defines are, in the zenoh shim, our own clock against our own timestamps;
+# `LivelinessChanged` on the subscription side is the one whose trigger is a
+# remote `@ros2_lv` token, written by `rmw_zenoh_cpp` and matched by our
+# wildcard. Incompatible-QoS, the cheapest event a stock peer can provoke, has
+# no kind in `rmw_event_type_t` at all. Cyclone is carved, not run — both its
+# `*_event_init` slots are NULL and its `*_take_event` pair has no caller
+# (issue 1164).
+# Runs `qos_event_interop`; needs ROS 2 + `rmw_zenoh_cpp` + the qos-event-probe fixture.
+[group("debug")]
+test-ros2-qos-events verbose="":
+    @just _test-focused 'binary(=qos_event_interop)' {{verbose}}
+
 # A plan-level QoS override reaches the ADVERTISED profile a stock
 # `ros2 topic info --verbose` peer reads (issue #52 / 0303 / 0306). Nextest
 # serializes it with the tree's only other endpoint-profile reader in the

@@ -1,0 +1,29 @@
+[workspace]
+
+[package]
+name = "qos-event-probe"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "phase-433 W6 acceptance fixture — registers a QoS status-event callback on a raw /chatter subscription and prints every event it observes. The peer is a stock `ros2 run demo_nodes_cpp talker`, whose `@ros2_lv` liveliness token is the only thing that can make `LivelinessChanged` fire: a self-contained image has no remote publisher to change state. Pairs with tests/qos_event_interop.rs."
+
+[[bin]]
+name = "qos-event-probe"
+path = "src/main.rs"
+
+[dependencies]
+nros = { path = "../../../../api/nros", default-features = false, features = ["alloc", "rmw-cffi"] }
+# The status-event types (`EventKind`, `LivelinessChangedStatus`) are NOT
+# re-exported by the `nros` façade — `pub use nros_rmw::{...}` at
+# `packages/api/nros/src/lib.rs` lists the QoS policy enums and stops short of
+# the event surface. So a consumer that wants to NAME an event kind has to
+# path-dep `nros-rmw` itself, which is what this line is and what phase-433 W6
+# reports as part of the finding.
+nros-rmw = { path = "../../../../core/nros-rmw", default-features = false, features = ["std"] }
+# Phase 248 C5c — posix `nros_platform_*` symbols via a direct `nros-platform`
+# dep, same as `ros2-string-interop`.
+nros-platform = { path = "../../../../platform/nros-platform", default-features = false, features = ["platform-posix"] }
+nros-rmw-zenoh = { path = "../../../../rmw/zenoh/nros-rmw-zenoh", features = ["std", "platform-posix", "ros-humble"] }
+log = "0.4"
+env_logger = "0.11"
