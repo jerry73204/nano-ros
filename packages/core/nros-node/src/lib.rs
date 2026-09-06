@@ -232,10 +232,10 @@ pub use executor::{
     GoalFeedbackStream, LoanError, NodeHandle, Promise, PublishLoan, RawActionClientSpec,
     RawActionServerSpec, RawActiveGoal, RawServiceClient, RawServiceServer, RawSubscription,
     RecvView, SessionHandle, Subscription, action_channel_type, executor_storage_layout,
-    executor_storage_u64_len,
+    executor_storage_layout_with, executor_storage_u64_len,
 };
 #[cfg(any(has_rmw, test))]
-pub use executor::{ExecutorInlineStorage, ExecutorSizing};
+pub use executor::{ExecutorInlineStorage, ExecutorSizing, RegionUnit, RegionUnits};
 
 // issue 0687 — the selector's CAP (its reader lives at the hosted edge, in
 // `nros::env`) and the hosted wall clock the edge installs on a resolved

@@ -257,7 +257,92 @@ const fn align_up(off: usize, align: usize) -> usize {
     off.div_ceil(align) * align
 }
 
+/// Size and alignment of ONE region's element type.
+///
+/// issue 1197 — the backing size is `arena + tables`, and the table half is a
+/// function of these facts plus the counts. The facts are `repr(Rust)` layout,
+/// which the compiler owns and may change between versions, so they can never be
+/// re-derived outside it (that is the sizes-header mirror class, 0088 -> 0268).
+/// Making them a PARAMETER means the one arithmetic below can be evaluated
+/// against layouts obtained from the compiler for a target that is not this one
+/// — a build script probing an rlib, the way `nros-c` already recovers
+/// `EXECUTOR_OPAQUE_U64S` — without a second implementation of the arithmetic.
+#[derive(Clone, Copy)]
+pub struct RegionUnit {
+    /// `size_of::<T>()`.
+    pub size: usize,
+    /// `align_of::<T>()`.
+    pub align: usize,
+}
+
+impl RegionUnit {
+    /// The compiler's answer for `T`, on the target being compiled.
+    pub const fn of<T>() -> Self {
+        Self {
+            size: size_of::<T>(),
+            align: align_of::<T>(),
+        }
+    }
+}
+
+/// Every element type the backing carves a table of, in declaration order.
+///
+/// `arena` is absent on purpose: it is `[MaybeUninit<u8>]`, size 1 align 1 by
+/// definition, and its LENGTH is a count rather than a unit.
+#[derive(Clone, Copy)]
+pub struct RegionUnits {
+    pub callback_meta: RegionUnit,
+    pub sched_context: RegionUnit,
+    pub sched_context_id: RegionUnit,
+    pub sporadic_state: RegionUnit,
+    /// `alloc` only; ignored when [`ExecutorSizing`] is evaluated without it.
+    pub sporadic_atomic: RegionUnit,
+    pub remap_rule: RegionUnit,
+    pub node_record: RegionUnit,
+    pub concrete_session: RegionUnit,
+    pub extra_session_id: RegionUnit,
+    pub node_sched_entry: RegionUnit,
+    pub dispatch_slot: RegionUnit,
+    pub component_slot: RegionUnit,
+    pub group_name: RegionUnit,
+    pub group_sched_entry: RegionUnit,
+    pub violation: RegionUnit,
+}
+
+impl RegionUnits {
+    /// What this compiler says, for the target it is compiling.
+    pub const NATIVE: Self = Self {
+        callback_meta: RegionUnit::of::<Option<CallbackMeta>>(),
+        sched_context: RegionUnit::of::<Option<SchedContext>>(),
+        sched_context_id: RegionUnit::of::<SchedContextId>(),
+        sporadic_state: RegionUnit::of::<Option<SporadicState>>(),
+        #[cfg(feature = "alloc")]
+        sporadic_atomic: RegionUnit::of::<Option<SporadicAtomic>>(),
+        #[cfg(not(feature = "alloc"))]
+        sporadic_atomic: RegionUnit { size: 0, align: 1 },
+        remap_rule: RegionUnit::of::<Option<RemapRule>>(),
+        node_record: RegionUnit::of::<NodeRecord>(),
+        concrete_session: RegionUnit::of::<ConcreteSession>(),
+        extra_session_id: RegionUnit::of::<ExtraSessionId>(),
+        node_sched_entry: RegionUnit::of::<NodeSchedEntry>(),
+        dispatch_slot: RegionUnit::of::<DispatchSlot>(),
+        component_slot: RegionUnit::of::<ComponentSlot>(),
+        group_name: RegionUnit::of::<GroupName>(),
+        group_sched_entry: RegionUnit::of::<GroupSchedEntry>(),
+        violation: RegionUnit::of::<Violation>(),
+    };
+}
+
 const fn compute_offsets(sizing: ExecutorSizing) -> FieldOffsets {
+    compute_offsets_with(sizing, RegionUnits::NATIVE)
+}
+
+/// The ONE placement arithmetic, evaluated against a supplied unit table.
+///
+/// `compute_offsets` is this with [`RegionUnits::NATIVE`]. Keeping one function
+/// is the point: an external consumer supplies probed units and gets the same
+/// answer by construction rather than by a second implementation agreeing.
+const fn compute_offsets_with(sizing: ExecutorSizing, units: RegionUnits) -> FieldOffsets {
     let ExecutorSizing {
         cbs,
         sc,
@@ -271,35 +356,38 @@ const fn compute_offsets(sizing: ExecutorSizing) -> FieldOffsets {
     let arena_off = 0usize;
     off += arena;
 
+    // Reads its facts from `units` rather than `size_of::<T>()` so the SAME
+    // arithmetic can be evaluated for a target this compiler is not building
+    // (issue 1197). `RegionUnits::NATIVE` restores the old behaviour exactly.
     macro_rules! place {
-        ($n:expr, $ty:ty) => {{
-            let a = align_of::<$ty>();
+        ($n:expr, $u:expr) => {{
+            let RegionUnit { size, align: a } = $u;
             if a > max_align {
                 max_align = a;
             }
             off = align_up(off, a);
             let at = off;
-            off += $n * size_of::<$ty>();
+            off += $n * size;
             at
         }};
     }
 
-    let entries = place!(cbs, Option<CallbackMeta>);
-    let sched_contexts = place!(sc, Option<SchedContext>);
-    let sched_context_bindings = place!(cbs, SchedContextId);
-    let sporadic_states = place!(sc, Option<SporadicState>);
+    let entries = place!(cbs, units.callback_meta);
+    let sched_contexts = place!(sc, units.sched_context);
+    let sched_context_bindings = place!(cbs, units.sched_context_id);
+    let sporadic_states = place!(sc, units.sporadic_state);
     #[cfg(feature = "alloc")]
-    let sporadic_atomic_states = place!(sc, Option<SporadicAtomic>);
-    let remaps = place!(MAX_REMAPS, Option<RemapRule>);
-    let nodes = place!(node_slots, NodeRecord);
-    let extra_sessions = place!(node_slots, ConcreteSession);
-    let extra_session_ids = place!(node_slots, ExtraSessionId);
-    let node_sched_table = place!(node_slots, NodeSchedEntry);
-    let dispatch_slots = place!(node_slots, DispatchSlot);
-    let component_slots = place!(node_slots, ComponentSlot);
-    let active_groups = place!(node_slots, GroupName);
-    let group_sched_table = place!(cbs, GroupSchedEntry);
-    let monitor_violations = place!(MAX_VIOLATIONS, Violation);
+    let sporadic_atomic_states = place!(sc, units.sporadic_atomic);
+    let remaps = place!(MAX_REMAPS, units.remap_rule);
+    let nodes = place!(node_slots, units.node_record);
+    let extra_sessions = place!(node_slots, units.concrete_session);
+    let extra_session_ids = place!(node_slots, units.extra_session_id);
+    let node_sched_table = place!(node_slots, units.node_sched_entry);
+    let dispatch_slots = place!(node_slots, units.dispatch_slot);
+    let component_slots = place!(node_slots, units.component_slot);
+    let active_groups = place!(node_slots, units.group_name);
+    let group_sched_table = place!(cbs, units.group_sched_entry);
+    let monitor_violations = place!(MAX_VIOLATIONS, units.violation);
 
     let size = align_up(off, max_align);
     FieldOffsets {
@@ -323,6 +411,23 @@ const fn compute_offsets(sizing: ExecutorSizing) -> FieldOffsets {
         size,
         align: max_align,
     }
+}
+
+/// Byte [`Layout`] of the backing, evaluated against a SUPPLIED unit table.
+///
+/// issue 1197 — the public half of the split. `executor_storage_layout` is this
+/// with [`RegionUnits::NATIVE`]; an external consumer that has recovered the
+/// units for another target (a build script probing an rlib, the way `nros-c`
+/// recovers `EXECUTOR_OPAQUE_U64S`) gets the same arithmetic rather than a
+/// second implementation of it.
+///
+/// The OFFSETS stay private: only `carve` needs them, and it runs in the crate
+/// that owns the types. A consumer sizing a reservation needs the total.
+pub const fn executor_storage_layout_with(sizing: ExecutorSizing, units: RegionUnits) -> Layout {
+    let o = compute_offsets_with(sizing, units);
+    // SAFETY: as `executor_storage_layout` — `align` is a max of alignments and
+    // `size` is rounded up to it.
+    unsafe { Layout::from_size_align_unchecked(o.size, o.align) }
 }
 
 /// Byte [`Layout`] of the backing a `sizing`-sized executor needs.
@@ -542,6 +647,76 @@ pub(crate) unsafe fn carve<'s>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// issue 1197 — the arithmetic must actually READ `units`, not quietly keep
+    /// calling `size_of::<T>()` behind a parameter it ignores.
+    ///
+    /// A parameter that is accepted and unused is exactly how a "data-driven"
+    /// refactor passes its own tests while delivering nothing: `NATIVE` would
+    /// still be right, every existing assertion would still hold, and the
+    /// external consumer this exists for would get the HOST's layout back.
+    /// So this feeds a table that could not have come from this compiler and
+    /// checks the answer moves by the amount that table implies.
+    #[test]
+    fn the_placement_reads_the_unit_table_it_is_given() {
+        let sizing = ExecutorSizing {
+            cbs: 1,
+            sc: 0,
+            arena: 0,
+            nodes: 0,
+        };
+        let native = executor_storage_layout_with(sizing, RegionUnits::NATIVE);
+
+        // One region is scaled by `cbs`: `callback_meta`. Grow ONLY it, by a
+        // multiple of its own alignment so no padding shifts, and the total must
+        // grow by exactly one element's worth.
+        let mut fatter = RegionUnits::NATIVE;
+        let grown_by = fatter.callback_meta.align * 4;
+        fatter.callback_meta.size += grown_by;
+        let widened = executor_storage_layout_with(sizing, fatter);
+
+        assert_eq!(
+            widened.size(),
+            native.size() + grown_by,
+            "growing one cbs-scaled unit by {grown_by} must grow the backing by \
+             the same, or the table is being ignored"
+        );
+
+        // And a table of ZEROES must collapse the tables entirely, leaving only
+        // the arena. This is the direction that catches a `size_of` still being
+        // read for some region the parameter was threaded past.
+        let zeroed = RegionUnits {
+            callback_meta: RegionUnit { size: 0, align: 1 },
+            sched_context: RegionUnit { size: 0, align: 1 },
+            sched_context_id: RegionUnit { size: 0, align: 1 },
+            sporadic_state: RegionUnit { size: 0, align: 1 },
+            sporadic_atomic: RegionUnit { size: 0, align: 1 },
+            remap_rule: RegionUnit { size: 0, align: 1 },
+            node_record: RegionUnit { size: 0, align: 1 },
+            concrete_session: RegionUnit { size: 0, align: 1 },
+            extra_session_id: RegionUnit { size: 0, align: 1 },
+            node_sched_entry: RegionUnit { size: 0, align: 1 },
+            dispatch_slot: RegionUnit { size: 0, align: 1 },
+            component_slot: RegionUnit { size: 0, align: 1 },
+            group_name: RegionUnit { size: 0, align: 1 },
+            group_sched_entry: RegionUnit { size: 0, align: 1 },
+            violation: RegionUnit { size: 0, align: 1 },
+        };
+        let arena_only = executor_storage_layout_with(
+            ExecutorSizing {
+                cbs: CBS,
+                sc: SC,
+                arena: 4096,
+                nodes: 4,
+            },
+            zeroed,
+        );
+        assert_eq!(
+            arena_only.size(),
+            4096,
+            "with every unit zero-sized the backing is the arena and nothing else"
+        );
+    }
 
     const CBS: usize = crate::config::MAX_CBS;
     const SC: usize = crate::config::MAX_SC;
