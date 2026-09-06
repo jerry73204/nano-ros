@@ -16,6 +16,20 @@
 # cleanup handler so they can mix in extra steps (kill named binaries,
 # unmount, etc.) without fighting an inherited trap.
 
+# issue 1173 — `nros_grep_q` for every consumer, from the one place they all
+# already source. `grep -q` exits on the match, so the writer of a
+# `printf … | grep -q …` takes SIGPIPE, and `set -o pipefail` — which every
+# script here sets — then reports that as the CONDITION. It only ever fires
+# green->red, under load, in the gate fan-out: `check-reconfigure-on-change`
+# claimed "the bound was hit silently" while printing the very warning it was
+# grepping for. `grep`'s error/no-match status conflation (issue 0726) is the
+# same helper's other half.
+#
+# Sourced here rather than per script because the population that matters is
+# "the scripts a check-fast gate invokes", and these are all of them.
+# shellcheck source=scripts/lib/grep-q.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/lib/grep-q.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'

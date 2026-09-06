@@ -31,6 +31,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/grep-q.sh
+source "$root/scripts/lib/grep-q.sh"
 golden="$root/packages/cli/rosidl-codegen/tests/fixtures/fingerprint-corpus/expected/inline/Shapes.h"
 [ -r "$golden" ] || { echo "FAIL: no golden header at $golden" >&2; exit 1; }
 
@@ -68,9 +70,9 @@ else:
 open(sys.argv[2], 'w').write(src[start:end] + '\n')
 PY
 
-grep -q '#define NROS_EMITTED_CODEGEN_VERSION' "$work/stamp.h" \
+nros_grep_q '#define NROS_EMITTED_CODEGEN_VERSION' "$work/stamp.h" \
     || { echo "FAIL: extracted block carries no emitted-version define" >&2; exit 1; }
-if ! grep -q '#elif NROS_EMITTED_CODEGEN_VERSION' "$work/stamp.h"; then
+if ! nros_grep_q '#elif NROS_EMITTED_CODEGEN_VERSION' "$work/stamp.h"; then
     echo "FAIL: the emitted header carries no range check -- the pack's codegen-version" >&2
     echo "      partial has lost its '#elif', so generated C/C++ asserts NOTHING at" >&2
     echo "      compile time (RFC-0090)." >&2
@@ -116,7 +118,7 @@ mkconfig "$work/narrow" $((emitted + 1)) $((emitted + 2))
 for t in "gcc:$work/tu.c:C" "g++:$work/tu.cpp:C++"; do
     IFS=: read -r tool src lang <<< "$t"
     out="$("$tool" -I"$work" -I"$work/narrow" -fsyntax-only "$src" 2>&1 || true)"
-    if grep -q 'codegen version the runtime does not accept' <<< "$out"; then
+    if nros_grep_q 'codegen version the runtime does not accept' <<< "$out"; then
         ok "B  $lang: a version outside the range is REFUSED, naming the remedy"
     else
         bad "B  $lang: out-of-range version was accepted (or the message changed)"
@@ -129,7 +131,7 @@ done
 #     range error about a version nobody set.
 mkconfig "$work/silent" "" ""
 out="$(gcc -I"$work" -I"$work/silent" -fsyntax-only "$work/tu.c" 2>&1 || true)"
-if grep -q 'did not define NROS_CODEGEN_VERSION' <<< "$out"; then
+if nros_grep_q 'did not define NROS_CODEGEN_VERSION' <<< "$out"; then
     ok "C  a silent config header is refused as MISSING, not as out-of-range"
 else
     bad "C  a silent config header did not produce the fail-closed diagnostic"
@@ -171,7 +173,7 @@ RS
     fi
     write_probe "$((emitted + 6))"
     out="$(NROS_CARGO_FLAGS= cargo check -q --manifest-path "$probe/Cargo.toml" 2>&1 || true)"
-    if grep -q 'E0080' <<< "$out"; then
+    if nros_grep_q 'E0080' <<< "$out"; then
         ok "D  Rust: a version outside the range is REFUSED at compile time"
     else
         bad "D  Rust: out-of-range version was accepted (expected error[E0080])"

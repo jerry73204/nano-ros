@@ -80,7 +80,7 @@ assert_contains() {
         fail "$desc — file missing: $file"
         return
     fi
-    if grep -qF -- "$needle" "$file"; then
+    if nros_grep_q -qF -- "$needle" "$file"; then
         pass "$desc"
     else
         fail "$desc — '$needle' not found in $file"
@@ -93,7 +93,14 @@ assert_contains() {
 # that has nothing to do with the guard they are checking.
 log_says() {
     # log_says <file> <needle>
-    tr -s '[:space:]' ' ' < "$1" | grep -qF -- "$2"
+    #
+    # issue 1173 — capture then herestring, never a pipe into `grep -q`: grep
+    # exits on the match and `tr` takes SIGPIPE, which `set -o pipefail` above
+    # turns into this function's return value. The bigger the log, the likelier
+    # it is, which is backwards from how anyone reads a flake.
+    local _collapsed
+    _collapsed="$(tr -s '[:space:]' ' ' < "$1")"
+    nros_grep_q -F -- "$2" <<<"$_collapsed"
 }
 
 assert_not_contains() {
@@ -102,7 +109,7 @@ assert_not_contains() {
         fail "$desc — file missing: $file"
         return
     fi
-    if grep -qF -- "$needle" "$file"; then
+    if nros_grep_q -qF -- "$needle" "$file"; then
         fail "$desc — '$needle' unexpectedly present in $file"
     else
         pass "$desc"
@@ -293,14 +300,14 @@ ORDER="$TEST_TMPDIR/order.txt"
 implicit_inputs "$B1" > "$IMPL"
 order_only_inputs "$B1" > "$ORDER"
 
-if grep -q 'libvendor_init\.a' "$IMPL"; then
+if nros_grep_q 'libvendor_init\.a' "$IMPL"; then
     pass "issue 0475: the archive is an IMPLICIT (|) input of the link edge"
 else
     fail "issue 0475: the archive is NOT an implicit input of the link edge — \
 LINK_DEPENDS missing. Implicit inputs were: $(tr '\n' ' ' < "$IMPL")"
 fi
 
-if grep -q 'frag\.ld' "$IMPL"; then
+if nros_grep_q 'frag\.ld' "$IMPL"; then
     pass "W7.f: the linker fragment is an IMPLICIT input of the link edge"
 else
     fail "W7.f: frag.ld is NOT an implicit input — editing it would not relink. \
@@ -314,7 +321,8 @@ if ! ninja -C "$B1" > "$TEST_TMPDIR/whole-build.log" 2>&1; then
     FAILURES=$((FAILURES + 1))
 else
     pass "the project builds"
-    if nm "$B1/app/image" 2>/dev/null | grep -q 'nros_test_vendor_init_table'; then
+    _syms="$(nm "$B1/app/image" 2>/dev/null)"
+    if nros_grep_q 'nros_test_vendor_init_table' <<<"$_syms"; then
         pass "WHOLE_ARCHIVE kept the unreferenced vendor init table in the image"
     else
         fail "WHOLE_ARCHIVE did NOT keep the unreferenced symbol — force-linking \
@@ -340,7 +348,8 @@ else
         fail "issue 0475 REPRODUCED: the archive rebuilt but the executable did \
 not relink (museum binary)"
     fi
-    if nm "$B1/app/image" 2>/dev/null | grep -q 'nros_test_vendor_second_table'; then
+    _syms="$(nm "$B1/app/image" 2>/dev/null)"
+    if nros_grep_q 'nros_test_vendor_second_table' <<<"$_syms"; then
         pass "the relinked executable carries the NEW object"
     else
         fail "the executable kept the OLD object after a support-source edit"
@@ -363,7 +372,8 @@ elif ! ninja -C "$B2" > "$TEST_TMPDIR/plain-build.log" 2>&1; then
     FAILURES=$((FAILURES + 1))
 else
     pass "the control project (no WHOLE_ARCHIVE) builds"
-    if nm "$B2/app/image" 2>/dev/null | grep -q 'nros_test_vendor_init_table'; then
+    _syms="$(nm "$B2/app/image" 2>/dev/null)"
+    if nros_grep_q 'nros_test_vendor_init_table' <<<"$_syms"; then
         fail "CONTROL BROKEN: the unreferenced table survived WITHOUT \
 WHOLE_ARCHIVE, so assertion A proves nothing on this host/linker"
     else
@@ -422,7 +432,7 @@ else
     assert_contains "prebuilt archive is force-linked" "$A_CMD" "librom.a"
     A_IMPL="$TEST_TMPDIR/archive-implicit.txt"
     implicit_inputs "$B3" > "$A_IMPL"
-    if grep -q 'librom\.a' "$A_IMPL"; then
+    if nros_grep_q 'librom\.a' "$A_IMPL"; then
         pass "issue 0475: the prebuilt archive is an IMPLICIT input of the link edge"
     else
         fail "issue 0475: the prebuilt archive is not an implicit input. \
@@ -430,7 +440,8 @@ Implicit inputs were: $(tr '\n' ' ' < "$A_IMPL")"
     fi
     if ninja -C "$B3" > "$TEST_TMPDIR/archive-build.log" 2>&1; then
         pass "the ARCHIVE project builds"
-        if nm "$B3/app/image" 2>/dev/null | grep -q 'nros_test_prebuilt_rom_table'; then
+        _syms="$(nm "$B3/app/image" 2>/dev/null)"
+        if nros_grep_q 'nros_test_prebuilt_rom_table' <<<"$_syms"; then
             pass "WHOLE_ARCHIVE kept the prebuilt archive's unreferenced table"
         else
             fail "the prebuilt archive's unreferenced table was dropped"
@@ -502,7 +513,7 @@ else
         "$Z_CMD" "-L$P4/support"
     Z_IMPL="$TEST_TMPDIR/zephyr-implicit.txt"
     implicit_inputs "$B4" > "$Z_IMPL"
-    if grep -q 'frag\.ld' "$Z_IMPL"; then
+    if nros_grep_q 'frag\.ld' "$Z_IMPL"; then
         pass "W7.f: the fragment still relinks the image on the Zephyr seam"
     else
         fail "W7.f: frag.ld is not an implicit input on the Zephyr seam. \

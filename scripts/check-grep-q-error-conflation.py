@@ -71,7 +71,15 @@ SUFFIXES = (".sh", ".just", ".py")
 # whole point of this one is that a checker must not report a tool failure as a
 # finding — which is no less true of a checker that happens to live beside the
 # tests it guards.
-SEARCH_ROOTS = ["scripts", "just", "justfile", "packages", "tools"]
+# issue 1173 — `tests` was MISSING, and it is not a marginal directory: 10 of
+# its 12 shell scripts are invoked by a `check-fast` gate, which is exactly the
+# population this gate's own rationale names ("the scripts a `check-fast` gate
+# INVOKES ... the population fan-out actually stresses"). It held 28 piped
+# `grep -q` sites, two of which flaked green->red under `-P12` in the same run,
+# one of them printing the very string it claimed was absent. A gate whose
+# coverage is narrower than the rule it enforces (issue 0196), for the fourth
+# time.
+SEARCH_ROOTS = ["scripts", "just", "justfile", "packages", "tools", "tests"]
 
 
 def tracked():

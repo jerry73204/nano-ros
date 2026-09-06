@@ -70,6 +70,8 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
+# shellcheck source=scripts/lib/grep-q.sh
+source "$repo_root/scripts/lib/grep-q.sh"
 
 CMAKE_PROBE="scripts/test/cmake-fixture-stale.sh"
 RUST_PROBE="scripts/test/rust-fixture-stale.sh"
@@ -234,7 +236,7 @@ echo "== A. cmake: an always-dirty relink is not staleness =="
 # and relink. If cmake/ninja ever stopped doing that, cases A and D would both
 # pass while measuring nothing.
 cmake --build "$work/cell/build-probe" > "$work/relink.log" 2>&1
-if grep -qE 'Building C object' "$work/relink.log" && grep -qE 'Linking C executable' "$work/relink.log"; then
+if nros_grep_q -qE 'Building C object' "$work/relink.log" && nros_grep_q -qE 'Linking C executable' "$work/relink.log"; then
     ok "premise: the cell recompiles and relinks on an unchanged tree"
 else
     fail "premise: the cell did NOT relink — cases A and D no longer model the hazard"
@@ -338,7 +340,7 @@ esac
 
 libleaf_record="$(printf 'linux\x1f%s\x1f\x1f' "$work/libleaf")"
 out="$(bash "$RUST_PROBE" "$libleaf_record")"
-if printf '%s' "$out" | grep -q '^DEGRADED'"$(printf '\t')"; then
+if nros_grep_q '^DEGRADED'"$(printf '\t')" <<<"$out"; then
     ok "a leaf whose artifact the locator cannot find reports DEGRADED"
 else
     fail "the fallback branch stayed SILENT — a layout change would revert every row to the pre-0835 rule with nothing saying so. got: ${out:-<empty>}"
@@ -347,7 +349,7 @@ checks=$((checks + 1))
 
 # And the reason has to be usable: a bare marker with no cause is a line nobody
 # can act on, which is how the silent state survived in the first place.
-if printf '%s' "$out" | grep -q 'falls back to'; then
+if nros_grep_q 'falls back to' <<<"$out"; then
     ok "the DEGRADED line names what the verdict fell back to"
 else
     fail "the DEGRADED line carries no reason: ${out:-<empty>}"
@@ -375,7 +377,7 @@ out="$(cmake --build "$work/cell/build-probe" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then
     fail "the old cmake rule could not be evaluated: the probe BUILD failed (exit $rc). This says nothing about the fixture."
     printf '%s\n' "$out" | tail -20 | sed 's/^/      /' >&2
-elif printf '%s' "$out" | grep -qE "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v"; then
+elif nros_grep_q -qE "Building (C|CXX|ASM) object|Linking (C|CXX|CXX shared)|Compiling [a-z0-9_-]+ v" <<<"$out"; then
     ok "the old cmake rule (grep the build chatter) reports STALE — as it did forever"
 else
     fail "the old cmake rule did NOT fire: this fixture no longer models the defect"
@@ -389,7 +391,7 @@ out="$(cd "$work/leaf" && cargo build --profile "$probe_profile" \
 if [ "$rc" -ne 0 ]; then
     fail "the old cargo rule could not be evaluated: the probe BUILD failed (exit $rc). This says nothing about the fixture."
     tail -20 "$work/negative-control-cargo.stderr" 2>/dev/null | sed 's/^/      /' >&2
-elif printf '%s' "$out" | grep -q '"fresh":false'; then
+elif nros_grep_q '"fresh":false' <<<"$out"; then
     ok "the old cargo rule (\"fresh\":false) reports STALE — as it did forever"
 else
     fail "the old cargo rule did NOT fire: this fixture no longer models the defect"

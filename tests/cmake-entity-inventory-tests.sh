@@ -210,49 +210,49 @@ derive() {
 log_info "A. a derived inventory publishes its numbers"
 OUT="$(derive "$DERIVED_BODY" 0 "$META" "$TEST_TMPDIR/a.cmake")"
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_STATUS=derived" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_STATUS=derived" <<<"$OUT"; then
     fail "A: status not derived -- $OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_EXECUTOR_MAX_CBS=19" <<<"$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_EXECUTOR_MAX_CBS=19" <<<"$OUT"; then
     fail "A: MAX_CBS did not reach the caller's scope -- $OUT"
 fi
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_ENTITY_TOTAL=33" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_ENTITY_TOTAL=33" <<<"$OUT"; then
     fail "A: the entity total did not reach the caller's scope -- $OUT"
 fi
 check
 # The entity total and the slot demand are DIFFERENT numbers and both are
 # published. Collapsing them is the island's 33-vs-19 error.
-if ! grep -q "NROS_ENTITY_COUNT_PUBLISHER=14" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_COUNT_PUBLISHER=14" <<<"$OUT"; then
     fail "A: per-kind counts did not reach the caller's scope -- $OUT"
 fi
 check
-if ! grep -q "publishers, which claim no callback slot" <<<"$OUT"; then
+if ! nros_grep_q "publishers, which claim no callback slot" <<<"$OUT"; then
     fail "A: the status line does not say publishers claim no slot -- $OUT"
 fi
 # phase-403 step 1. The JOIN KEY has to cross the same function boundary the
 # counts do; it is the input `nros_derive_message_bound_knobs` narrows the
 # payload classes with, and an absent list there reads as "receives nothing".
 check
-if ! grep -q "NROS_ENTITY_SUBSCRIBED_TYPES_STATUS=resolved" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_SUBSCRIBED_TYPES_STATUS=resolved" <<<"$OUT"; then
     fail "A: the subscribed-type status did not reach the caller's scope -- $OUT"
 fi
 check
-if ! grep -q "NROS_ENTITY_SUBSCRIBED_TYPE_COUNTS=nav_msgs/msg/Odometry=1;std_msgs/msg/Int32=2" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_SUBSCRIBED_TYPE_COUNTS=nav_msgs/msg/Odometry=1;std_msgs/msg/Int32=2" <<<"$OUT"; then
     fail "A: the per-type ENTITY counts did not reach the caller's scope -- $OUT"
 fi
 # The two views are different sets and both travel. Collapsing them would
 # either price a service request against a pool it never allocates from, or
 # leave the arena blind to four receiving kinds.
 check
-if ! grep -q "NROS_ENTITY_RECEIVED_TYPES=demo/srv/Op_Request;" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_RECEIVED_TYPES=demo/srv/Op_Request;" <<<"$OUT"; then
     fail "A: the wider RECEIVED set did not reach the caller's scope -- $OUT"
 fi
 # phase-403 step 2. Depth MULTIPLIES the type bound above, so the arena cannot
 # be derived without it, and it has to cross the same boundary the rest does.
 check
-if ! grep -q "NROS_ENTITY_DECLARED_DEPTHS=nav_msgs/msg/Odometry|/localization/kinematic_state=1;" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_DECLARED_DEPTHS=nav_msgs/msg/Odometry|/localization/kinematic_state=1;" <<<"$OUT"; then
     fail "A: the declared depths did not reach the caller's scope -- $OUT"
 fi
 # The one that is easy to leave out and expensive to leave out. An image where
@@ -260,7 +260,7 @@ fi
 # and a consumer that reads only the LIST would size it from the two that
 # happened to be annotated.
 check
-if ! grep -q "NROS_ENTITY_UNDECLARED_DEPTH_COUNT=3" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_UNDECLARED_DEPTH_COUNT=3" <<<"$OUT"; then
     fail "A: the UNDECLARED depth count did not reach the caller's scope. \
 Without it a consumer cannot tell a fully-declared image from a partly-declared \
 one, which is the whole reason the count is published -- $OUT"
@@ -272,15 +272,15 @@ fi
 log_info "B. a refusal publishes no number"
 OUT="$(derive "$REFUSED_BODY" 0 "$META" "$TEST_TMPDIR/b.cmake")"
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
     fail "B: status not refused -- $OUT"
 fi
 check
-if grep -q "NROS_DERIVED_EXECUTOR_MAX_CBS=" <<<"$OUT"; then
+if nros_grep_q "NROS_DERIVED_EXECUTOR_MAX_CBS=" <<<"$OUT"; then
     fail "B: a refusal published a MAX_CBS -- $OUT"
 fi
 check
-if ! grep -q "declare no entities" <<<"$OUT"; then
+if ! nros_grep_q "declare no entities" <<<"$OUT"; then
     fail "B: the refusal reason did not reach the caller -- $OUT"
 fi
 # phase-403 step 2 -- and a refusal publishes NO depth list either. An absent
@@ -288,11 +288,11 @@ fi
 # magnitude short, which is the same failure the absent TYPE list would cause
 # one line up.
 check
-if grep -q "NROS_ENTITY_DECLARED_DEPTHS=" <<<"$OUT"; then
+if nros_grep_q "NROS_ENTITY_DECLARED_DEPTHS=" <<<"$OUT"; then
     fail "B: a refusal published a depth list -- $OUT"
 fi
 check
-if ! grep -q "NROS_ENTITY_DECLARED_DEPTH_STATUS=refused" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_DECLARED_DEPTH_STATUS=refused" <<<"$OUT"; then
     fail "B: the depth view published no status, so a reader cannot tell \
 \"refused\" from \"this fragment predates the field\" -- $OUT"
 fi
@@ -315,18 +315,18 @@ message(STATUS "second_depths=[\${NROS_ENTITY_DECLARED_DEPTHS}]")
 EOF
 OUT="$(NROS_STUB_BODY="$DERIVED_BODY" cmake -P "$SEQ" 2>&1)"
 check
-if ! grep -q "first=19" <<<"$OUT"; then
+if ! nros_grep_q "first=19" <<<"$OUT"; then
     fail "C: the first call did not publish -- $OUT"
 fi
 check
-if ! grep -q "second=\[\]" <<<"$OUT"; then
+if ! nros_grep_q "second=\[\]" <<<"$OUT"; then
     fail "C: a refusal left the previous number standing -- $OUT"
 fi
 # phase-403 step 2 -- the depth list is cleared by the same rule. A stale depth
 # table is worse than a stale count: it names topics that may no longer be
 # subscribed, at depths the current declaration never stated.
 check
-if ! grep -q "second_depths=\[\]" <<<"$OUT"; then
+if ! nros_grep_q "second_depths=\[\]" <<<"$OUT"; then
     fail "C: a refusal left the previous DEPTH LIST standing -- $OUT"
 fi
 
@@ -340,16 +340,16 @@ log_info "D. an unrecognised schema refuses to be read"
 flat() { tr '\n' ' ' | tr -s ' '; }
 OUT="$(derive "$BAD_SCHEMA_BODY" 0 "$META" "$TEST_TMPDIR/d1.cmake" | flat)"
 check
-if ! grep -q "states entity-inventory schema version 4" <<<"$OUT"; then
+if ! nros_grep_q "states entity-inventory schema version 4" <<<"$OUT"; then
     fail "D: a future schema was read rather than refused -- $OUT"
 fi
 check
-if ! grep -qi "CMake Error" <<<"$OUT"; then
+if ! nros_grep_q -qi "CMake Error" <<<"$OUT"; then
     fail "D: a future schema did not raise a FATAL_ERROR -- $OUT"
 fi
 OUT="$(derive "$NO_SCHEMA_BODY" 0 "$META" "$TEST_TMPDIR/d2.cmake" | flat)"
 check
-if ! grep -q "sets no NROS_ENTITY_INVENTORY_SCHEMA_VERSION" <<<"$OUT"; then
+if ! nros_grep_q "sets no NROS_ENTITY_INVENTORY_SCHEMA_VERSION" <<<"$OUT"; then
     fail "D: a fragment with no schema was read rather than refused -- $OUT"
 fi
 
@@ -359,15 +359,15 @@ fi
 log_info "E. a missing metadata file refuses rather than fataling"
 OUT="$(derive "$DERIVED_BODY" 0 "$TEST_TMPDIR/absent.json" "$TEST_TMPDIR/e.cmake")"
 check
-if grep -qi "CMake Error" <<<"$OUT"; then
+if nros_grep_q -qi "CMake Error" <<<"$OUT"; then
     fail "E: a missing metadata file was fatal -- $OUT"
 fi
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
     fail "E: a missing metadata file did not refuse -- $OUT"
 fi
 check
-if ! grep -q "nothing in this image called nano_ros_node_register" <<<"$OUT"; then
+if ! nros_grep_q "nothing in this image called nano_ros_node_register" <<<"$OUT"; then
     fail "E: the refusal does not say what is missing -- $OUT"
 fi
 
@@ -377,11 +377,11 @@ fi
 log_info "F. a missing CLI refuses rather than fataling"
 OUT="$(derive "$DERIVED_BODY" 0 "$META" "$TEST_TMPDIR/f.cmake" "$TEST_TMPDIR/no-such-nros")"
 check
-if grep -qi "CMake Error" <<<"$OUT"; then
+if nros_grep_q -qi "CMake Error" <<<"$OUT"; then
     fail "F: a missing CLI was fatal -- $OUT"
 fi
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_STATUS=refused" <<<"$OUT"; then
     fail "F: a missing CLI did not refuse -- $OUT"
 fi
 
@@ -392,11 +392,11 @@ log_info "G. a broken declaration is fatal and names the fix"
 OUT="$(NROS_STUB_STDERR="component \`demo::n\` declares \`publsher\`" \
        derive "" 1 "$META" "$TEST_TMPDIR/g.cmake")"
 check
-if ! grep -q "not readable" <<<"$OUT"; then
+if ! nros_grep_q "not readable" <<<"$OUT"; then
     fail "G: a failing CLI was not fatal -- $OUT"
 fi
 check
-if ! grep -q "publsher" <<<"$OUT"; then
+if ! nros_grep_q "publsher" <<<"$OUT"; then
     fail "G: the CLI's own message was swallowed -- $OUT"
 fi
 
@@ -411,11 +411,11 @@ if [ ! -f "$SEED" ]; then
     fail "H: no fragment was seeded -- a CMAKE_CONFIGURE_DEPENDS input with no rule is a ninja load error"
 fi
 check
-if ! grep -q "NROS_ENTITY_INVENTORY_SCHEMA_VERSION" "$SEED"; then
+if ! nros_grep_q "NROS_ENTITY_INVENTORY_SCHEMA_VERSION" "$SEED"; then
     fail "H: the seeded fragment states no schema version, so reading it later FATALs"
 fi
 check
-if ! grep -q 'NROS_ENTITY_INVENTORY_STATUS "refused"' "$SEED"; then
+if ! nros_grep_q 'NROS_ENTITY_INVENTORY_STATUS "refused"' "$SEED"; then
     fail "H: the seeded fragment does not read as a refusal"
 fi
 KEEP="$TEST_TMPDIR/h-keep.cmake"
@@ -427,7 +427,7 @@ nros_entity_inventory_seed_knobs_file("$KEEP")
 EOF
 cmake -P "$CMD" >/dev/null 2>&1
 check
-if ! grep -q "NROS_DERIVED_EXECUTOR_MAX_CBS 19" "$KEEP"; then
+if ! nros_grep_q "NROS_DERIVED_EXECUTOR_MAX_CBS 19" "$KEEP"; then
     fail "H: seeding overwrote an existing answer"
 fi
 

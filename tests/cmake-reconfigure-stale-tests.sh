@@ -12,6 +12,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/grep-q.sh
+source "$ROOT/scripts/lib/grep-q.sh"
 SCRIPT="$ROOT/scripts/nros-reconfigure-stale.sh"
 
 TMP="$(mktemp -d)"
@@ -64,7 +66,7 @@ echo "  ok: --check detects the wedged dir"
 # `pipefail` that failure would propagate through the pipeline and be read as
 # "grep found nothing".
 check_out="$("$SCRIPT" --check "$TMP" 2>&1 || true)"
-grep -q "$BUILD" <<<"$check_out" || fail "--check did not name the offending dir"
+nros_grep_q "$BUILD" <<<"$check_out" || fail "--check did not name the offending dir"
 echo "  ok: --check names the dir"
 
 # ------------------------------------------------- 3: repair fixes in place
@@ -88,7 +90,7 @@ NOCACHE="$TMP/owned"
 mkdir -p "$NOCACHE"
 printf 'this is not a valid manifest\n' > "$NOCACHE/build.ninja"
 out="$("$SCRIPT" "$TMP" 2>&1 || true)"
-grep -q "no CMakeCache.txt" <<<"$out" \
+nros_grep_q "no CMakeCache.txt" <<<"$out" \
     || fail "a build dir with no CMakeCache was not reported as unrepairable"
 [ -f "$NOCACHE/build.ninja" ] \
     || fail "the unrepairable dir was deleted — it must be left as evidence"
