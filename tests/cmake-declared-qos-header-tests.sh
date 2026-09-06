@@ -186,11 +186,11 @@ at all, silently. Configure said: $OUT"
 fi
 if [ -f "$HDR" ]; then
     check
-    if ! grep -q 'NROS_DECLARED_QOS_ROW("std_msgs::msg::dds_::Int32_", "/chatter", 1)' "$HDR"; then
+    if ! nros_grep_q 'NROS_DECLARED_QOS_ROW("std_msgs::msg::dds_::Int32_", "/chatter", 1)' "$HDR"; then
         fail "A: the header carries no row for the declared endpoint -- $(cat "$HDR")"
     fi
     check
-    if ! grep -q 'NROS_DECLARED_QOS_ROW("std_msgs/msg/Int32", "/chatter", 1)' "$HDR"; then
+    if ! nros_grep_q 'NROS_DECLARED_QOS_ROW("std_msgs/msg/Int32", "/chatter", 1)' "$HDR"; then
         fail "A: the ROS spelling of the type is missing, so a message class carrying
 it would look undeclared -- $(cat "$HDR")"
     fi
@@ -198,25 +198,25 @@ it would look undeclared -- $(cat "$HDR")"
     # The row must be keyed on the TOPIC. The endpoint ref is how the contract
     # ADDRESSES the subscription and is a string no call site ever writes; a
     # table keyed on it matches nothing and asserts nothing.
-    if grep -q '"/listener/chatter"' "$HDR"; then
+    if nros_grep_q '"/listener/chatter"' "$HDR"; then
         fail "A: the table is keyed on the contract's endpoint ref, not on the topic the
 code subscribes to. Every assertion built on it is then vacuous -- $(cat "$HDR")"
     fi
     check
     # The endpoint the contract declares NO depth for must produce no row. A row
     # at some default would be the whole defect this step exists to prevent.
-    if grep -q '"/undeclared"' "$HDR"; then
+    if nros_grep_q '"/undeclared"' "$HDR"; then
         fail "A: an endpoint that declared no depth got a row -- absence became a number"
     fi
 fi
 check
-if ! grep -q "PRIVATE_INCLUDES=\[.*nros-declared-qos/listener\]" <<<"$OUT"; then
+if ! nros_grep_q "PRIVATE_INCLUDES=\[.*nros-declared-qos/listener\]" <<<"$OUT"; then
     fail "B: the generated dir is not on the target's include path, so
 \`__has_include(<nros/nros_declared_qos_generated.h>)\` finds nothing and every
 call site in the component compiles unchecked -- $OUT"
 fi
 check
-if grep -q "IFACE_INCLUDES=\[.*nros-declared-qos" <<<"$OUT"; then
+if nros_grep_q "IFACE_INCLUDES=\[.*nros-declared-qos" <<<"$OUT"; then
     fail "C: the dir leaked onto INTERFACE_INCLUDE_DIRECTORIES. A consumer that
 links this component would then have its OWN NROS_SUBSCRIBE calls checked against
 this component's declaration -- $OUT"
@@ -228,18 +228,18 @@ fi
 log_info "D. an image with no contract gets no table and no error"
 OUT="$(configure undeclared "")"
 check
-if grep -q "CMake Error" <<<"$OUT"; then
+if nros_grep_q "CMake Error" <<<"$OUT"; then
     fail "D: an image with no contract broke the configure. Every image in this tree
 without a contract sidecar is in exactly that state -- $OUT"
 fi
 check
 if [ -f "$TEST_TMPDIR/undeclared/build/nros-declared-qos/listener/nros/nros_declared_qos_generated.h" ] && \
-   grep -q "NROS_DECLARED_QOS_ROWS" \
+   nros_grep_q "NROS_DECLARED_QOS_ROWS" \
         "$TEST_TMPDIR/undeclared/build/nros-declared-qos/listener/nros/nros_declared_qos_generated.h"; then
     fail "D: an image that declared nothing got a table of rows"
 fi
 check
-if ! grep -q "PRIVATE_INCLUDES=\[.*nros-declared-qos/listener\]" <<<"$OUT"; then
+if ! nros_grep_q "PRIVATE_INCLUDES=\[.*nros-declared-qos/listener\]" <<<"$OUT"; then
     fail "D: the include dir must be claimed even with no contract -- it is claimed at
 REGISTER time, before any model exists, and that split is what makes a
 model-driven producer possible at all (issue 1084) -- $OUT"
@@ -267,17 +267,17 @@ contracts:
 EOF
 OUT="$(configure broken "$BAD_MODEL" | tr '\n' ' ' | tr -s ' ')"
 check
-if ! grep -q "CMake Error" <<<"$OUT"; then
+if ! nros_grep_q "CMake Error" <<<"$OUT"; then
     fail "E: a \`depth: 0\` contract configured cleanly. KEEP_LAST(0) holds no sample,
 so it is a typo for \"I did not want to say\" -- and rendering it would fail the
 build at every call site on that topic, naming a number nobody meant -- $OUT"
 fi
 check
-if ! grep -q "demo::listener" <<<"$OUT"; then
+if ! nros_grep_q "demo::listener" <<<"$OUT"; then
     fail "E: the failure does not name the component the user has to fix -- $OUT"
 fi
 check
-if ! grep -q "states nothing" <<<"$OUT"; then
+if ! nros_grep_q "states nothing" <<<"$OUT"; then
     fail "E: the CLI's own reason did not reach the user -- $OUT"
 fi
 
@@ -363,13 +363,13 @@ fi
 # ---------------------------------------------------------------------------
 log_info "G. the register call arms it and the entry feeds it a model"
 check
-if ! grep -q "^ *_nros_declared_qos_arm(" "$MODULE"; then
+if ! nros_grep_q "^ *_nros_declared_qos_arm(" "$MODULE"; then
     fail "G: nothing in $MODULE calls _nros_declared_qos_arm(). No component then
 claims an include dir, no table is ever rendered, and every case above still
 passes -- that is issue 1084 verbatim."
 fi
 check
-if ! grep -q "_nros_declared_qos_record_model(" "$ENTRY_MODULE"; then
+if ! nros_grep_q "_nros_declared_qos_record_model(" "$ENTRY_MODULE"; then
     fail "G: nothing in $ENTRY_MODULE calls _nros_declared_qos_record_model(). The
 deferred render then finds no model, abstains, and every component compiles with
 its declared-depth checks off -- silently."

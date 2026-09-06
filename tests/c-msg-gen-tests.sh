@@ -95,11 +95,11 @@ if [ $RESULT -ne 0 ]; then
 fi
 
 # Check for expected output
-if echo "$OUTPUT" | grep -q "All tests passed"; then
+if nros_grep_q "All tests passed" <<<"$OUTPUT"; then
     log_info "Test executable reported success"
 else
     # Check for individual test results
-    if echo "$OUTPUT" | grep -q "Temperature" && echo "$OUTPUT" | grep -q "SensorData"; then
+    if nros_grep_q "Temperature" <<<"$OUTPUT" && nros_grep_q "SensorData" <<<"$OUTPUT"; then
         log_info "Found expected message types in output"
     else
         log_warn "Test output may not contain expected content"

@@ -267,7 +267,7 @@ test_zephyr_to_native() {
             break
         fi
         # Check for errors
-        if grep -q "Failed to" "$(tmpfile zephyr_talker.txt)" 2>/dev/null; then
+        if nros_grep_q "Failed to" "$(tmpfile zephyr_talker.txt)" 2>/dev/null; then
             break
         fi
         sleep 1

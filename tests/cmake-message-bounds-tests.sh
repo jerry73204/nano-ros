@@ -216,30 +216,30 @@ ROWS
 OUT="$(derive "$T/a1.cmake;$T/a2.cmake")"
 
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_STATUS=derived" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_STATUS=derived" <<< "$OUT"; then
     fail "A: a fully bounded closure did not derive:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=880" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=880" <<< "$OUT"; then
     fail "A: take buffer is not the largest bound in the closure (880):"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT"; then
     fail "A: small class is not the largest bound under the split (880):"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=0" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=0" <<< "$OUT"; then
     fail "G: no type is over the split, so the large count must be 0:"; echo "$OUT"
 fi
 check
-if grep -q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=" <<< "$OUT"; then
+if nros_grep_q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=" <<< "$OUT"; then
     fail "G: the large SIZE must not be derived when the count is 0 (a size for a class that does not exist is an invented number):"; echo "$OUT"
 fi
 check
 # B is the composition claim: the answer came from a1's package AND a2's. A
 # reader that kept only the last fragment would say 880 too, so assert the
 # type COUNT, which only composition can reach.
-if ! grep -q "NROS_MESSAGE_BOUNDS_TYPE_COUNT=4" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_TYPE_COUNT=4" <<< "$OUT"; then
     fail "B: fragments did not compose -- expected 4 types across 2 packages:"; echo "$OUT"
 fi
 
@@ -254,19 +254,19 @@ sensor_msgs/msg/LaserScan|bounded|2500|2600|
 ROWS
 OUT="$(derive "$T/a2.cmake;$T/b1.cmake")"
 check
-if ! grep -q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=2" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=2" <<< "$OUT"; then
     fail "A: two types exceed 2048, so the large count must be 2:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=4208" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=4208" <<< "$OUT"; then
     fail "A: the large class must hold the largest type above the split (4208):"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT"; then
     fail "A: the small class must ignore the types routed large (880):"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=4208" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=4208" <<< "$OUT"; then
     fail "A: the take buffer is one global size and must hold the LARGEST type (4208):"; echo "$OUT"
 fi
 
@@ -275,11 +275,11 @@ fi
 log_header "A -- the class split is an input, not a constant"
 OUT="$(derive "$T/a2.cmake;$T/b1.cmake" -DNROS_BOUNDS_CEILING=512)"
 check
-if ! grep -q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=3" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=3" <<< "$OUT"; then
     fail "A: at a 512 B split, three types are large:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=320" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=320" <<< "$OUT"; then
     fail "A: at a 512 B split, the small class is the largest bound <= 512 (320):"; echo "$OUT"
 fi
 
@@ -292,26 +292,26 @@ std_msgs/msg/Header|unbounded|||unbounded member: frame_id (string)
 ROWS
 OUT="$(derive "$T/a2.cmake;$T/c1.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
     fail "C: an unbounded type in the closure must refuse the derivation:"; echo "$OUT"
 fi
 for v in NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE NROS_DERIVED_SUBSCRIBER_LARGE_SIZE \
          NROS_DERIVED_MAX_LARGE_SUBSCRIBERS NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE; do
     check
-    if grep -q "^-- $v=" <<< "$OUT"; then
+    if nros_grep_q "^-- $v=" <<< "$OUT"; then
         fail "C: $v was published despite an unbounded type -- deriving over the bounded subset publishes a maximum a real sample can exceed:"; echo "$OUT"
     fi
 done
 check
-if ! grep -q "std_msgs/msg/Header" <<< "$OUT"; then
+if ! nros_grep_q "std_msgs/msg/Header" <<< "$OUT"; then
     fail "C: the refusal must NAME the type:"; echo "$OUT"
 fi
 check
-if ! grep -q "frame_id" <<< "$OUT"; then
+if ! nros_grep_q "frame_id" <<< "$OUT"; then
     fail "C: the refusal must name the MEMBER that costs the bound:"; echo "$OUT"
 fi
 check
-if ! grep -qi "nros-codegen.toml" <<< "$OUT"; then
+if ! nros_grep_q -qi "nros-codegen.toml" <<< "$OUT"; then
     fail "C: the refusal must name a remedy the user can act on:"; echo "$OUT"
 fi
 # Negative control: the same closure with that type bounded DOES derive. A
@@ -321,7 +321,7 @@ std_msgs/msg/Header|bounded|84|92|
 ROWS
 OUT="$(derive "$T/a2.cmake;$T/c2.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_STATUS=derived" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_STATUS=derived" <<< "$OUT"; then
     fail "C control: bounding the offending type must let the derivation through:"; echo "$OUT"
 fi
 
@@ -334,11 +334,11 @@ some_pkg/msg/Thing|unresolved|||nested type `other_pkg/Widget` could not be reso
 ROWS
 OUT="$(derive "$T/a2.cmake;$T/d1.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
     fail "D: an unresolved type must refuse the derivation:"; echo "$OUT"
 fi
 check
-if ! grep -q "could not be resolved" <<< "$OUT"; then
+if ! nros_grep_q "could not be resolved" <<< "$OUT"; then
     fail "D: the refusal must carry the unresolved reason verbatim:"; echo "$OUT"
 fi
 
@@ -349,20 +349,20 @@ log_header "E -- an unknown schema version is refused, not read anyway"
 sed 's/SCHEMA_VERSION 1/SCHEMA_VERSION 99/' "$T/a1.cmake" > "$T/e1.cmake"
 OUT="$(derive "$T/e1.cmake")"
 check
-if ! grep -q "CMake Error" <<< "$OUT"; then
+if ! nros_grep_q "CMake Error" <<< "$OUT"; then
     fail "E: schema version 99 must be a FATAL_ERROR:"; echo "$OUT"
 fi
 check
 # `version 99` and not `schema version 99`: cmake hard-wraps a message() body,
 # so an assertion on a phrase that spans the wrap point tests the wrap.
-if ! grep -q "version 99" <<< "$OUT"; then
+if ! nros_grep_q "version 99" <<< "$OUT"; then
     fail "E: the error must state the version it found:"; echo "$OUT"
 fi
 
 grep -v "SCHEMA_VERSION" "$T/a1.cmake" > "$T/e2.cmake"
 OUT="$(derive "$T/e2.cmake")"
 check
-if ! grep -q "CMake Error" <<< "$OUT"; then
+if ! nros_grep_q "CMake Error" <<< "$OUT"; then
     fail "E: a fragment stating NO schema version must be a FATAL_ERROR -- it is indistinguishable from a file that is not a fragment at all:"; echo "$OUT"
 fi
 
@@ -371,7 +371,7 @@ fi
 cat "$T/a1.cmake" > "$T/e3.cmake"
 OUT="$(derive "$T/e3.cmake;$T/e1.cmake")"
 check
-if ! grep -q "CMake Error" <<< "$OUT"; then
+if ! nros_grep_q "CMake Error" <<< "$OUT"; then
     fail "E: the version is checked PER fragment, not once:"; echo "$OUT"
 fi
 
@@ -381,11 +381,11 @@ fi
 log_header "F -- a not-yet-written fragment refuses rather than fataling"
 OUT="$(derive "$T/a1.cmake;$T/does-not-exist.cmake")"
 check
-if grep -q "CMake Error" <<< "$OUT"; then
+if nros_grep_q "CMake Error" <<< "$OUT"; then
     fail "F: a build-time fragment that has not been written must not break the configure -- the canonical lane emits it as a custom-command output:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_STATUS=refused" <<< "$OUT"; then
     fail "F: a missing fragment must refuse:"; echo "$OUT"
 fi
 
@@ -400,19 +400,19 @@ if [ ! -f "$KNOBS" ]; then
     fail "H: OUTPUT_FILE was not written"
 else
     check
-    if ! grep -q "set(NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE 880)" "$KNOBS"; then
+    if ! nros_grep_q "set(NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE 880)" "$KNOBS"; then
         fail "H: the written file must carry the derived value:"; cat "$KNOBS"
     fi
     check
-    if ! grep -q "nav_msgs/msg/Odometry" "$KNOBS"; then
+    if ! nros_grep_q "nav_msgs/msg/Odometry" "$KNOBS"; then
         fail "H: the written file must name the type the number came from -- a number a reader cannot account for is a number they will 'fix':"; cat "$KNOBS"
     fi
     check
-    if ! grep -qi "UPPER BOUND" "$KNOBS"; then
+    if ! nros_grep_q -qi "UPPER BOUND" "$KNOBS"; then
         fail "H: the written file must state the over-approximation where a user reads it, not only in a report:"; cat "$KNOBS"
     fi
     check
-    if ! grep -qi "DEFAULT" "$KNOBS"; then
+    if ! nros_grep_q -qi "DEFAULT" "$KNOBS"; then
         fail "H: the written file must say these are defaults a stated value overrides:"; cat "$KNOBS"
     fi
     BEFORE="$(stat -c '%Y.%y' "$KNOBS")"
@@ -427,7 +427,7 @@ else
     # would be indistinguishable from never writing.
     derive "$T/a2.cmake;$T/b1.cmake" -DNROS_BOUNDS_OUTPUT="$KNOBS" >/dev/null
     check
-    if ! grep -q "set(NROS_DERIVED_SUBSCRIBER_LARGE_SIZE 4208)" "$KNOBS"; then
+    if ! nros_grep_q "set(NROS_DERIVED_SUBSCRIBER_LARGE_SIZE 4208)" "$KNOBS"; then
         fail "H: a changed answer must be written:"; cat "$KNOBS"
     fi
 fi
@@ -436,11 +436,11 @@ fi
 # status and a reason and NO numbers.
 derive "$T/a2.cmake;$T/c1.cmake" -DNROS_BOUNDS_OUTPUT="$T/refused.cmake" >/dev/null 2>&1
 check
-if ! grep -q "set(NROS_MESSAGE_BOUNDS_STATUS \"refused\")" "$T/refused.cmake"; then
+if ! nros_grep_q "set(NROS_MESSAGE_BOUNDS_STATUS \"refused\")" "$T/refused.cmake"; then
     fail "H: a refusal must still write a readable status:"; cat "$T/refused.cmake"
 fi
 check
-if grep -q "set(NROS_DERIVED_" "$T/refused.cmake"; then
+if nros_grep_q "set(NROS_DERIVED_" "$T/refused.cmake"; then
     fail "H: a refusal must publish no derived value at all:"; cat "$T/refused.cmake"
 fi
 
@@ -606,7 +606,7 @@ CMAKEEOF
         fail "J: a refusal after a successful call left the previous derived value standing, got: $(cat "$RB/observed2.txt" 2>/dev/null)"
     fi
     check
-    if grep -q "set(NROS_DERIVED_" "$RB/knobs2.cmake"; then
+    if nros_grep_q "set(NROS_DERIVED_" "$RB/knobs2.cmake"; then
         fail "J: the refusal file carries a value from the previous call:"; cat "$RB/knobs2.cmake"
     fi
 fi
@@ -637,30 +637,30 @@ OUT_BEFORE="$(derive "$T/l1.cmake")"
 OUT_AFTER="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/l-ents.cmake")"
 
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=1496" <<< "$OUT_BEFORE"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=1496" <<< "$OUT_BEFORE"; then
     fail "L: without a declaration the small class must still be the closure's 1496:"; echo "$OUT_BEFORE"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT_BEFORE"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT_BEFORE"; then
     fail "L: the closure answer must be LABELLED as such:"; echo "$OUT_BEFORE"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT_AFTER"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=880" <<< "$OUT_AFTER"; then
     fail "L: with a declaration the small class must be the largest SUBSCRIBED type (880, Odometry) -- a type the image links and never receives cannot set it:"; echo "$OUT_AFTER"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_BASIS=subscribed" <<< "$OUT_AFTER"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_BASIS=subscribed" <<< "$OUT_AFTER"; then
     fail "L: the joined answer must be labelled subscribed:"; echo "$OUT_AFTER"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_SUBSCRIPTION_COUNT=2" <<< "$OUT_AFTER"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_SUBSCRIPTION_COUNT=2" <<< "$OUT_AFTER"; then
     fail "L: the joined answer must record how many subscriptions it saw:"; echo "$OUT_AFTER"
 fi
 # The take buffer does NOT narrow. It is also DEFAULT_TX_BUF and the default
 # buffer of every raw service/client/action entity, so a type this image only
 # publishes still has to fit. Narrowing it is the under-derivation.
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=1496" <<< "$OUT_AFTER"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=1496" <<< "$OUT_AFTER"; then
     fail "L: the take buffer must stay on the CLOSURE basis (1496) -- it is DEFAULT_TX_BUF too:"; echo "$OUT_AFTER"
 fi
 
@@ -675,15 +675,15 @@ entity_frag "$T/l2-ents.cmake" derived resolved \
     "sensor_msgs/msg/JointState=3" "std_msgs/msg/Int32=1"
 OUT="$(derive "$T/l2.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/l2-ents.cmake")"
 check
-if ! grep -q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=3" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=3" <<< "$OUT"; then
     fail "L: three subscriptions on one large type need three blocks, not one:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=4208" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_LARGE_SIZE=4208" <<< "$OUT"; then
     fail "L: the large class size is the largest RECEIVED type over the split:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=8" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=8" <<< "$OUT"; then
     fail "L: the small class is the largest received type UNDER the split:"; echo "$OUT"
 fi
 
@@ -694,15 +694,15 @@ log_header "L -- an image that receives nothing answers ZERO blocks"
 entity_frag "$T/l3-ents.cmake" derived resolved
 OUT="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/l3-ents.cmake")"
 check
-if ! grep -q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=0" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_MAX_LARGE_SUBSCRIBERS=0" <<< "$OUT"; then
     fail "L: an image with no subscriptions reserves no large blocks:"; echo "$OUT"
 fi
 check
-if grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=" <<< "$OUT"; then
+if nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=" <<< "$OUT"; then
     fail "L: nothing is received, so the small class size is not derivable -- naming one would invent a number:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=derived" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=derived" <<< "$OUT"; then
     fail "L: an empty received set is an ANSWER, not a refusal:"; echo "$OUT"
 fi
 
@@ -717,25 +717,25 @@ entity_frag "$T/m1-ents.cmake" derived resolved \
     "nav_msgs/msg/Odometry=1" "tier4_system_msgs/srv/OperateMrm_Request=1"
 OUT="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/m1-ents.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
     fail "M: an unpriced received type must refuse the payload classes:"; echo "$OUT"
 fi
 check
-if grep -qE "NROS_DERIVED_(SUBSCRIBER_BUFFER_SIZE|MAX_LARGE_SUBSCRIBERS|SUBSCRIBER_LARGE_SIZE)=" <<< "$OUT"; then
+if nros_grep_q -qE "NROS_DERIVED_(SUBSCRIBER_BUFFER_SIZE|MAX_LARGE_SUBSCRIBERS|SUBSCRIBER_LARGE_SIZE)=" <<< "$OUT"; then
     fail "M: a refusal published a payload-class number:"; echo "$OUT"
 fi
 check
-if grep -q "NROS_MESSAGE_BOUNDS_BASIS=" <<< "$OUT"; then
+if nros_grep_q "NROS_MESSAGE_BOUNDS_BASIS=" <<< "$OUT"; then
     fail "M: a refusal must NOT widen to the closure -- that is the wrong row wearing a derived status:"; echo "$OUT"
 fi
 check
-if ! grep -q "OperateMrm_Request" <<< "$OUT"; then
+if ! nros_grep_q "OperateMrm_Request" <<< "$OUT"; then
     fail "M: the refusal does not name the type it could not price:"; echo "$OUT"
 fi
 # The take buffer is a different question with a different basis, so it still
 # derives. A reader that collapsed the two statuses would lose it.
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=1496" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE=1496" <<< "$OUT"; then
     fail "M: the take buffer derives over the closure and must survive a payload-class refusal:"; echo "$OUT"
 fi
 
@@ -743,11 +743,11 @@ log_header "M -- an unresolved subscribed set REFUSES the classes"
 entity_frag "$T/m2-ents.cmake" derived refused
 OUT="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/m2-ents.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
     fail "M: an unresolved subscribed set must refuse:"; echo "$OUT"
 fi
 check
-if grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=" <<< "$OUT"; then
+if nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=" <<< "$OUT"; then
     fail "M: an unresolved subscribed set published a small class anyway:"; echo "$OUT"
 fi
 
@@ -758,11 +758,11 @@ log_header "M -- a current schema that states no subscribed set REFUSES"
 } > "$T/m3-ents.cmake"
 OUT="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/m3-ents.cmake")"
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS=refused" <<< "$OUT"; then
     fail "M: a fragment claiming the current schema with no subscribed set must refuse, not read an absent list as an empty one:"; echo "$OUT"
 fi
 check
-if ! grep -q "malformed" <<< "$OUT"; then
+if ! nros_grep_q "malformed" <<< "$OUT"; then
     fail "M: the refusal does not say the fragment is malformed:"; echo "$OUT"
 fi
 
@@ -785,7 +785,7 @@ if [ "$OUT_BEFORE" != "$OUT" ]; then
     diff <(echo "$OUT_BEFORE") <(echo "$OUT") || true
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT"; then
     fail "N: the unchanged answer must still be labelled closure:"; echo "$OUT"
 fi
 
@@ -800,19 +800,19 @@ log_header "N -- a fragment from a STALE CLI warns and keeps the closure answer"
 } > "$T/n2-ents.cmake"
 OUT="$(derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/n2-ents.cmake")"
 check
-if grep -qi "CMake Error" <<< "$OUT"; then
+if nros_grep_q -qi "CMake Error" <<< "$OUT"; then
     fail "N: a stale-schema fragment must not abort the configure -- its producer runs later in it:"; echo "$OUT"
 fi
 check
-if ! grep -q "IGNORED" <<< "$OUT"; then
+if ! nros_grep_q "IGNORED" <<< "$OUT"; then
     fail "N: a stale-schema fragment must say loudly that it was not read:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT"; then
+if ! nros_grep_q "NROS_MESSAGE_BOUNDS_BASIS=closure" <<< "$OUT"; then
     fail "N: a stale-schema fragment must leave the closure answer standing:"; echo "$OUT"
 fi
 check
-if ! grep -q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=1496" <<< "$OUT"; then
+if ! nros_grep_q "NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE=1496" <<< "$OUT"; then
     fail "N: a stale-schema fragment must not change any number:"; echo "$OUT"
 fi
 
@@ -820,25 +820,25 @@ log_header "N -- the OUTPUT FILE records which basis each number used"
 derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/l-ents.cmake" \
     -DNROS_BOUNDS_OUTPUT="$T/n3-knobs.cmake" >/dev/null
 check
-if ! grep -q 'set(NROS_MESSAGE_BOUNDS_BASIS "subscribed")' "$T/n3-knobs.cmake"; then
+if ! nros_grep_q 'set(NROS_MESSAGE_BOUNDS_BASIS "subscribed")' "$T/n3-knobs.cmake"; then
     fail "N: the written answer does not record its basis:"; cat "$T/n3-knobs.cmake"
 fi
 check
-if ! grep -q "2 SUBSCRIPTIONS this image declares" "$T/n3-knobs.cmake"; then
+if ! nros_grep_q "2 SUBSCRIPTIONS this image declares" "$T/n3-knobs.cmake"; then
     fail "N: the written answer does not say what it was derived over:"; cat "$T/n3-knobs.cmake"
 fi
 derive "$T/l1.cmake" -DNROS_BOUNDS_ENTITY_INVENTORY="$T/m1-ents.cmake" \
     -DNROS_BOUNDS_OUTPUT="$T/n4-knobs.cmake" >/dev/null 2>&1
 check
-if grep -q "set(NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE" "$T/n4-knobs.cmake"; then
+if nros_grep_q "set(NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE" "$T/n4-knobs.cmake"; then
     fail "N: a payload-class refusal wrote a class size into the answer file:"; cat "$T/n4-knobs.cmake"
 fi
 check
-if ! grep -q 'set(NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS "refused")' "$T/n4-knobs.cmake"; then
+if ! nros_grep_q 'set(NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS "refused")' "$T/n4-knobs.cmake"; then
     fail "N: the answer file does not record the payload-class refusal:"; cat "$T/n4-knobs.cmake"
 fi
 check
-if ! grep -q "set(NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE 1496)" "$T/n4-knobs.cmake"; then
+if ! nros_grep_q "set(NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE 1496)" "$T/n4-knobs.cmake"; then
     fail "N: the take buffer must still be written on a payload-class refusal:"; cat "$T/n4-knobs.cmake"
 fi
 
@@ -880,19 +880,19 @@ _o_frag "std_msgs/msg/Int32;demo/msg/Open" \
         "std_msgs/msg/Int32=1;demo/msg/Open=1" "$T/o-bad.cmake"
 
 _o_out=$(cmake -DFRAG="$T/o-ok.cmake" -P "$T/o-join.cmake" 2>&1)
-if ! printf '%s' "$_o_out" | grep -q "status=derived"; then
+if ! nros_grep_q "status=derived" <<<"$_o_out"; then
     fail "O: every subscribed type is bounded and the join still refused:"
     printf '%s\n' "$_o_out"
 fi
 check
 _o_out=$(cmake -DFRAG="$T/o-bad.cmake" -P "$T/o-join.cmake" 2>&1)
-if ! printf '%s' "$_o_out" | grep -q "status=refused"; then
+if ! nros_grep_q "status=refused" <<<"$_o_out"; then
     fail "O: a subscribed type with no bound did NOT refuse -- a payload class \
 would be sized from a blank _RX:"
     printf '%s\n' "$_o_out"
 fi
 check
-if ! printf '%s' "$_o_out" | grep -q "demo/msg/Open"; then
+if ! nros_grep_q "demo/msg/Open" <<<"$_o_out"; then
     fail "O: the refusal does not name the offending type:"
     printf '%s\n' "$_o_out"
 fi
@@ -952,27 +952,27 @@ message(STATUS "takebuf=\${NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE}")
 EOF
 _p_out=$(cmake -P "$T/p-run.cmake" 2>&1)
 
-if ! printf '%s' "$_p_out" | grep -q "payload=derived"; then
+if ! nros_grep_q "payload=derived" <<<"$_p_out"; then
     fail "P: every SUBSCRIBED type is bounded, so the payload classes must derive \
 even though the closure refused:"
     printf '%s\n' "$_p_out"
 fi
 check
-if ! printf '%s' "$_p_out" | grep -q "basis=subscribed"; then
+if ! nros_grep_q "basis=subscribed" <<<"$_p_out"; then
     fail "P: the payload classes derived on the wrong basis -- a `closure` basis \
 here would be derived over the bounded types ONLY, which is the under-derivation \
 the refusal exists to prevent:"
     printf '%s\n' "$_p_out"
 fi
 check
-if ! printf '%s' "$_p_out" | grep -q "small=12"; then
+if ! nros_grep_q "small=12" <<<"$_p_out"; then
     fail "P: the small class was not sized from the one subscribed type:"
     printf '%s\n' "$_p_out"
 fi
 check
 # The take buffer must STILL refuse -- that is the half an open closure type
 # genuinely poisons, and the whole reason this is not just "stop refusing".
-if printf '%s' "$_p_out" | grep -q "takebuf=[0-9]"; then
+if nros_grep_q "takebuf=[0-9]" <<<"$_p_out"; then
     fail "P: the take buffer was derived over a closure with an unbounded type -- \
 DEFAULT_TX_BUF aliases it, so a published type could exceed it silently:"
     printf '%s\n' "$_p_out"
@@ -983,27 +983,21 @@ check
 # it does not reach the consumer, which is exactly the gap the in-memory
 # assertions above cannot see. The refused branch of the writer emitted only the
 # reason until issue 0963.
-if ! grep -q 'NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE' "$T/p-out.cmake"; then
+if ! nros_grep_q 'NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE' "$T/p-out.cmake"; then
     fail "P: the payload classes were derived but the OUTPUT FILE does not carry \
 them, so nros_cargo_build.cmake will never see them:"
     cat "$T/p-out.cmake"
 fi
 check
-if grep -q 'NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE' "$T/p-out.cmake"; then
+if nros_grep_q 'NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE' "$T/p-out.cmake"; then
     fail "P: the output file carries the TAKE BUFFER on a refused closure -- that \
 is the knob an unbounded closure type genuinely poisons:"
     cat "$T/p-out.cmake"
 fi
 check
-if ! grep -q 'NROS_MESSAGE_BOUNDS_BASIS "subscribed"' "$T/p-out.cmake"; then
+if ! nros_grep_q 'NROS_MESSAGE_BOUNDS_BASIS "subscribed"' "$T/p-out.cmake"; then
     fail "P: the file does not record WHICH basis the payload classes used:"
     cat "$T/p-out.cmake"
-fi
-check
-# ...and the no-inventory case must still write nothing derived.
-if grep -qE '^set\(NROS_DERIVED_' "$T/p-out2.cmake"; then
-    fail "P: with no entity inventory the output file carries derived knobs:"
-    cat "$T/p-out2.cmake"
 fi
 check
 
@@ -1019,10 +1013,23 @@ message(STATUS "small=\${NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE}")
 message(STATUS "basis=\${NROS_MESSAGE_BOUNDS_BASIS}")
 EOF
 _p_out2=$(cmake -P "$T/p-run2.cmake" 2>&1)
-if printf '%s' "$_p_out2" | grep -q "small=[0-9]"; then
+if nros_grep_q "small=[0-9]" <<<"$_p_out2"; then
     fail "P: with no entity inventory the classes were derived over the BOUNDED \
 types only -- exactly the under-derivation the refusal exists to prevent:"
     printf '%s\n' "$_p_out2"
+fi
+check
+
+# ...and the no-inventory case must still write nothing derived.
+#
+# issue 1173 — this ran BEFORE the `cmake -P` above, so `p-out2.cmake` did not
+# exist yet and `grep` exited 2. The old `if … grep -q …` spelling reads a tool
+# error as "no match", so the assertion silently did not fire, for as long as it
+# has existed. `nros_grep_q` refuses to answer from a grep that did not run,
+# which is how the ordering surfaced.
+if nros_grep_q -qE '^set\(NROS_DERIVED_' "$T/p-out2.cmake"; then
+    fail "P: with no entity inventory the output file carries derived knobs:"
+    cat "$T/p-out2.cmake"
 fi
 check
 
