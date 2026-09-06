@@ -15,7 +15,7 @@
 //! let link = LinkFeatures::from_env().apply(&LinkPolicy::posix());
 //! ```
 
-use std::env;
+use std::{collections::BTreeMap, env};
 
 /// Protocol link features read from Cargo feature flags.
 ///
@@ -211,13 +211,14 @@ impl LinkPolicy {
     ///
     /// phase-337 W7.b — was `orin_spe()`, named for the one board that used it.
     /// The board is gone; the POLICY is not board-specific (any AMP mailbox
-    /// target has this shape), so it keeps the capability name instead. Nothing
-    /// in-tree selects it today: `nros-zpico-build` picks a policy per PLATFORM,
-    /// and IVC-only has no in-tree platform since the SPE board left.
-    #[allow(
-        dead_code,
-        reason = "no in-tree platform selects IVC-only after phase-337 W7.b"
-    )]
+    /// target has this shape), so it keeps the capability name instead.
+    ///
+    /// issue 1143 — selected by [`LinkPolicy::for_board`] from the board's
+    /// `capabilities.ip_stack = false`, which is what the old comment here
+    /// ("`nros-zpico-build` picks a policy per PLATFORM, and IVC-only has no
+    /// in-tree platform") was waiting for. The rung is per-BOARD because the
+    /// fact is: a mailbox-only board sits in the same FreeRTOS family as an
+    /// lwIP one.
     pub const fn ivc_only() -> Self {
         Self {
             tcp: PolicyChoice::Force(false),
@@ -307,5 +308,220 @@ impl LinkPolicy {
             can: PolicyChoice::Follow,
             isotp: PolicyChoice::Follow,
         }
+    }
+
+    /// issue 1143 — the BOARD rung of policy selection, applied on top of the
+    /// per-PLATFORM baseline the caller already chose.
+    ///
+    /// The fact is `capabilities.ip_stack`, RFC-0086's vocabulary, resolved
+    /// through `PlatformsTree::capabilities_with_board` so the board's own
+    /// `[capabilities]` outranks its platform's. `false` means this image has
+    /// no IP stack at all — no MAC, no PHY, no socket layer — and the only
+    /// links that can exist are the mailbox ones, which is exactly
+    /// [`LinkPolicy::ivc_only`].
+    ///
+    /// **Not `supported_netstacks = []`, and this is the whole finding of
+    /// 1143.** That list says WHICH in-image stack a board can be built with,
+    /// and four in-tree boards declare it empty for three different reasons:
+    /// `linux` and `freertos-posix` because the HOST kernel owns the stack
+    /// (sockets exist, they are just not ours to select), the two `nuttx-qemu`
+    /// boards and `zephyr` because the RTOS owns it (likewise), and a
+    /// mailbox-only board would because there is genuinely nothing. Reading
+    /// `[]` as "no links" would have forced TCP off on every one of those and
+    /// broken every native and NuttX zenoh build — a working-board re-policy
+    /// dressed as a fix. `ip_stack` separates "we do not choose the stack"
+    /// from "there is no stack".
+    ///
+    /// **Absent is not false.** A capability neither the platform nor the
+    /// board declares leaves the platform baseline alone, so a build with no
+    /// board rung at all (a plain `cargo build -p zpico-sys`, an out-of-tree
+    /// consumer) resolves byte-identically to what it did before this existed.
+    /// `nros-platform-freertos` and `-posix` / `-nuttx` / `-zephyr` all
+    /// declare `ip_stack = true`, so every in-tree board inherits an explicit
+    /// `true` unless it says otherwise, and no in-tree board says otherwise.
+    pub fn for_board(platform_default: Self, caps: &BTreeMap<String, bool>) -> Self {
+        match caps.get(IP_STACK) {
+            Some(false) => Self::ivc_only(),
+            // `Some(true)` and absent alike: the platform's own policy stands.
+            _ => platform_default,
+        }
+    }
+}
+
+/// The RFC-0086 capability that decides whether a socket-based link can exist
+/// in this image. One spelling, shared by the policy selector above and by the
+/// `[build.zenoh] defines_conditional` / `extra_sources` rows that pick the
+/// matching zenoh-pico `system/` TU set — the two halves of issue 1143 have to
+/// agree about the fact or they pick a socket type and a link policy that
+/// disagree, which is the 0135 class.
+pub const IP_STACK: &str = "ip_stack";
+
+#[cfg(test)]
+mod for_board_tests {
+    use super::*;
+
+    fn caps(pairs: &[(&str, bool)]) -> BTreeMap<String, bool> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    fn shape(p: &LinkPolicy) -> [bool; 4] {
+        [
+            p.tcp.resolve(true),
+            p.udp_unicast.resolve(true),
+            p.serial.resolve(true),
+            p.ivc.resolve(true),
+        ]
+    }
+
+    /// A board declaring `ip_stack = false` is the ONLY thing that reaches
+    /// `ivc_only()` — the state that had no selector at all before 1143.
+    #[test]
+    fn a_board_with_no_ip_stack_selects_ivc_only() {
+        let got = LinkPolicy::for_board(LinkPolicy::freertos_lwip(), &caps(&[("ip_stack", false)]));
+        assert_eq!(shape(&got), shape(&LinkPolicy::ivc_only()));
+        assert!(!got.tcp.resolve(true), "TCP must be forced off");
+        assert!(got.ivc.resolve(true), "IVC must still follow the feature");
+    }
+
+    /// The regression this change most has to avoid: `mps2-an385-freertos`
+    /// inherits the freertos platform's `ip_stack = true`, and must come out
+    /// of the selector holding the same policy it held before.
+    #[test]
+    fn a_board_with_an_ip_stack_keeps_its_platform_policy() {
+        let got = LinkPolicy::for_board(LinkPolicy::freertos_lwip(), &caps(&[("ip_stack", true)]));
+        assert_eq!(shape(&got), shape(&LinkPolicy::freertos_lwip()));
+        assert!(got.tcp.resolve(true));
+        assert!(
+            !got.serial.resolve(true),
+            "freertos still forces serial off"
+        );
+    }
+
+    /// Absent is not false — a plain `cargo build` with no board rung, and an
+    /// out-of-tree platform nobody has described, both keep the baseline.
+    #[test]
+    fn an_undeclared_capability_changes_nothing() {
+        for baseline in [
+            LinkPolicy::posix(),
+            LinkPolicy::freertos_lwip(),
+            LinkPolicy::nuttx(),
+            LinkPolicy::threadx(),
+        ] {
+            let got = LinkPolicy::for_board(baseline, &BTreeMap::new());
+            assert_eq!(shape(&got), shape(&baseline));
+            let other = LinkPolicy::for_board(baseline, &caps(&[("heap", false)]));
+            assert_eq!(shape(&other), shape(&baseline));
+        }
+    }
+
+    /// `supported_netstacks = []` is NOT the predicate: were it, the `linux`,
+    /// `freertos-posix`, `nuttx-qemu-*` and `zephyr` boards — every one of
+    /// which declares the empty list and every one of which has working
+    /// sockets — would lose TCP. Pinned here because the plausible-but-wrong
+    /// rule is the one a reader reaches for first.
+    /// The ladder end to end: a real `nros-board.toml` on disk, resolved
+    /// against a platform declaring `ip_stack = true`, arriving at a
+    /// `LinkPolicy`. The unit cases above pin the selector; this pins the
+    /// path a build actually walks — `NROS_BOARD_TOML` -> `BoardKnobsFile` ->
+    /// `capabilities_with_board` -> `for_board` — because every rung of it is
+    /// somewhere the fact could be dropped instead of read.
+    #[test]
+    fn the_board_rung_resolves_from_a_board_toml_on_disk() {
+        use crate::platform_config::{BoardKnobsFile, PlatformsTree};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The freertos platform's own claim, mirrored rather than read: the
+        // real manifest is checked by `check-capability-conditionals` rule 5,
+        // and a test that reads a file another change is editing is a flake.
+        std::fs::create_dir_all(dir.path().join("freertos")).unwrap();
+        std::fs::write(
+            dir.path().join("freertos/nros-platform.toml"),
+            "[capabilities]\nip_stack = true\n",
+        )
+        .unwrap();
+        let tree = PlatformsTree::load_search_path(&[dir.path().to_path_buf()]).expect("tree");
+
+        let resolve = |board: Option<&BoardKnobsFile>, name: Option<&str>| {
+            let caps = tree
+                .capabilities_with_board("freertos", board, name)
+                .expect("capabilities");
+            (
+                caps.get(IP_STACK).copied(),
+                LinkPolicy::for_board(LinkPolicy::freertos_lwip(), &caps)
+                    .tcp
+                    .resolve(true),
+            )
+        };
+
+        // No board rung at all — a plain `cargo build -p zpico-sys`.
+        assert_eq!(resolve(None, None), (Some(true), true));
+
+        // An lwIP board: says nothing about `ip_stack`, inherits the
+        // platform's `true`, keeps TCP. This is `mps2-an385-freertos`'s shape,
+        // and the regression to avoid.
+        let boards = dir.path().join("boards");
+        std::fs::create_dir_all(&boards).unwrap();
+        let lwip = boards.join("lwip-board.toml");
+        std::fs::write(
+            &lwip,
+            "[[board]]\nnames = [\"lwip-board\"]\nplatform = \"freertos\"\n\
+             supported_netstacks = [\"lwip\"]\n\n[board.capabilities]\nheap = true\n",
+        )
+        .unwrap();
+        let lwip = BoardKnobsFile::load(&lwip).expect("load lwip board");
+        assert_eq!(resolve(Some(&lwip), Some("lwip-board")), (Some(true), true));
+
+        // A host-owned-stack board: `supported_netstacks = []`, and STILL has
+        // sockets. `freertos-posix` and `linux` are both this shape; reading
+        // the empty list as "no links" would have taken TCP off them.
+        let hosted = boards.join("hosted-board.toml");
+        std::fs::write(
+            &hosted,
+            "[[board]]\nnames = [\"hosted-board\"]\nplatform = \"freertos\"\n\
+             supported_netstacks = []\n",
+        )
+        .unwrap();
+        let hosted = BoardKnobsFile::load(&hosted).expect("load hosted board");
+        assert_eq!(
+            resolve(Some(&hosted), Some("hosted-board")),
+            (Some(true), true),
+            "an empty `supported_netstacks` must not move the policy"
+        );
+
+        // A mailbox-only board: declares the fact, and only this reaches
+        // `ivc_only()`.
+        let mailbox = boards.join("mailbox-board.toml");
+        std::fs::write(
+            &mailbox,
+            "[[board]]\nnames = [\"mailbox-board\"]\nplatform = \"freertos\"\n\
+             supported_netstacks = []\n\n\
+             [board.capabilities]\nheap = true\nip_stack = false\n",
+        )
+        .unwrap();
+        let mailbox = BoardKnobsFile::load(&mailbox).expect("load mailbox board");
+        assert_eq!(
+            resolve(Some(&mailbox), Some("mailbox-board")),
+            (Some(false), false)
+        );
+
+        // And the fact travels in the file's OWN board block, so a build that
+        // did not export `NROS_BOARD` still finds it when the file declares
+        // exactly one board — the common case, and the one an out-of-tree
+        // consumer is in.
+        assert_eq!(resolve(Some(&mailbox), None), (Some(false), false));
+    }
+
+    #[test]
+    fn an_empty_netstack_list_is_not_the_predicate() {
+        // What such a board's capability map actually looks like: the stack is
+        // the host's or the RTOS's, so `ip_stack` is true and no netstack is
+        // ours to select.
+        let host_owned = caps(&[("ip_stack", true)]);
+        let got = LinkPolicy::for_board(LinkPolicy::posix(), &host_owned);
+        assert!(
+            got.tcp.resolve(true),
+            "a host-owned stack must keep TCP; reading `supported_netstacks = []` \
+             as `no links` is what this asserts against"
+        );
     }
 }

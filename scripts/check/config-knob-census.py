@@ -155,6 +155,10 @@ KNOB_CLASS = {
     "NROS_ENTRY_SPIN_MS": ("sizing", "entry spin period; a duration, same ladder shape"),
     # --- infra: pointers, flags and orchestration inputs ---
     "NROS_BOARD_TOML": ("infra", "the ladder's own board rung pointer"),
+    # issue 1143 -- names WHICH `[[board]]` entry of a multi-entry file the
+    # rung comes from (`nros-board-nuttx` declares two that differ in ISA).
+    # A selector, never a size.
+    "NROS_BOARD": ("infra", "which board entry the rung reads, beside NROS_BOARD_TOML"),
     # Surfaced when the reader matcher stopped enumerating helper names
     # (READ_CALLEES). These are read through `req`/`list`/`env_get`/`flag`,
     # which the old fixed list did not know, so the census had never counted
