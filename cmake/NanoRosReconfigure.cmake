@@ -73,12 +73,18 @@
 #   |  2   | real            | subscribed (880)| 1496  <- still stale  |
 #   |  3   | real            | subscribed (880)| 880   <- settled      |
 #
-# Issue 1002 measured that and read it as a defect in this mechanism. It is
-# not: ninja re-runs cmake until `build.ninja` stops being stale, so all three
-# passes happen inside ONE `west build` and the build compiles at 880. What was
-# wrong was the DOCUMENTATION -- three call sites said "configure again", which
-# is right for one link and one short for two -- and what is a defect is the
-# bound below, which was counting the wrong thing.
+# Issue 1002 measured that and read it as a defect in this mechanism. It is not
+# a defect in the ARMING -- the bound below was counting the wrong thing, and
+# that half was real.
+#
+# But the claim issue 1002 replaced it with, that "ninja re-runs cmake until
+# `build.ninja` stops being stale, so all three passes happen inside ONE `west
+# build`", IS NOT TRUE, and issue 1119 measures it: a clean island build dir
+# gets 2 configures against 3 arming requests and links with the pass-2 value.
+# The arming works; the third restart does not happen. On the safety island
+# that shipped a 70296-byte arena where 46272 is correct -- silent, because
+# over-sizing always is. Do not read the table below as a description of what
+# one `west build` delivers.
 #
 # The rule, so the next producer does not re-derive it: a fragment needs one
 # arm per producer UPSTREAM of it in the chain, and the number of configures is
