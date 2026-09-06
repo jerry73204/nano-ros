@@ -281,6 +281,28 @@ fn cases() -> Vec<(&'static str, Plan, Lang)> {
     // param-services and lifecycle close a setup function with a fixed block
     // that no other row emits. Both paths carry it — the single setup fn, and
     // TIER 0 only, because they are process facts rather than per-tier ones.
+    // `emit_c`'s QoS block reached NO golden: `c_native_rich` carries params
+    // and remaps but no override, so the one C statement that differs from the
+    // C++ spelling of the same data — a free function on the node's ADDRESS
+    // where C++ calls a method on the node — was recorded nowhere. Two
+    // overrides, so the array's row separator is covered too.
+    let mut c_qos = c_node("c_talker_pkg", "talker");
+    c_qos.qos_overrides = vec![
+        super::QoSOverrideSpec {
+            topic: "/demo/chatter".into(),
+            role: 1,
+            policy: 2,
+            value: 5,
+        },
+        super::QoSOverrideSpec {
+            topic: "/demo/status".into(),
+            role: 0,
+            policy: 1,
+            value: 2,
+        },
+    ];
+    out.push(("c_native_qos", plan("native", vec![c_qos]), Lang::C));
+
     let mut c_svc = plan("native", vec![c_node("c_talker_pkg", "talker")]);
     c_svc.param_services = true;
     c_svc.lifecycle = Some("active".into());
