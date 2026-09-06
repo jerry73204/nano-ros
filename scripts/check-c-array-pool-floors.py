@@ -178,22 +178,48 @@ def scan(files: dict[str, str]) -> dict[str, dict]:
     found: dict[str, dict] = {}
     for path, text in sorted(files.items()):
         lines = text.splitlines()
-        settable = set()
+        settable = {}
         for i, line in enumerate(lines):
             m = IFNDEF.match(line)
             if m and i + 1 < len(lines):
                 d = DEFINE.match(lines[i + 1])
                 if d and d.group(1) == m.group(1):
-                    settable.add(m.group(1))
+                    # Remember where the fallback block ENDS. A guard is only
+                    # reachable after it: before, the macro is undefined and the
+                    # preprocessor reads that as 0, so `#if K < 1` fires on
+                    # EVERY build; inside, a `-D` skips the block and takes the
+                    # guard with it. Both shipped (see `guard_placement`).
+                    depth, end = 0, None
+                    for j in range(i, len(lines)):
+                        t = lines[j].strip()
+                        if t.startswith(("#if", "#ifdef", "#ifndef")):
+                            depth += 1
+                        elif t.startswith("#endif"):
+                            depth -= 1
+                            if depth == 0:
+                                end = j
+                                break
+                    settable[m.group(1)] = end
         arrays = set(ARRAY.findall(text))
-        guards = set()
+        guards = {}
         for i, line in enumerate(lines):
             g = GUARD.search(line)
             # A comparison with no `#error` under it is a number nobody checks.
             if g and ERROR.search("\n".join(lines[i + 1 : i + 4])):
-                guards.add(g.group(1))
-        for macro in sorted(settable & arrays):
-            found[macro] = {"path": path, "guarded": macro in guards}
+                guards.setdefault(g.group(1), i)
+        for macro in sorted(set(settable) & arrays):
+            at = guards.get(macro)
+            fallback_end = settable[macro]
+            found[macro] = {
+                "path": path,
+                "guarded": at is not None,
+                # None when there is no guard, or when the fallback block is
+                # unterminated (a malformed file, reported elsewhere).
+                "reachable": None if at is None or fallback_end is None
+                else at > fallback_end,
+                "guard_line": None if at is None else at + 1,
+                "fallback_end_line": None if fallback_end is None else fallback_end + 1,
+            }
     return found
 
 
@@ -201,6 +227,18 @@ def check_arrays(found: dict[str, dict]) -> list[str]:
     problems = []
 
     for macro, info in sorted(found.items()):
+        if info["guarded"] and info.get("reachable") is False:
+            problems.append(
+                f"{macro} ({info['path']}:{info['guard_line']}) is guarded where the "
+                f"guard CANNOT FIRE.\n"
+                f"      Its `#ifndef` fallback closes at line {info['fallback_end_line']}, "
+                f"and the guard is at {info['guard_line']}.\n"
+                "      Before that line the macro is UNDEFINED, which the preprocessor\n"
+                "      evaluates as 0 — so the guard fires on every build; inside the\n"
+                "      block, a `-D` skips it and takes the guard with it. Both shipped.\n"
+                "      Move the guard AFTER the `#endif` that closes the fallback."
+            )
+            continue
         if info["guarded"]:
             if macro in ZERO_LEGAL:
                 problems.append(
@@ -400,6 +438,31 @@ GOOD_C = """
 struct s { entry_t slots[POOL_MAX]; };
 """
 
+# The guard PRECEDES the fallback, so `POOL_MAX` is undefined where it is
+# tested. The preprocessor reads an undefined macro as 0, so this fires on
+# every build. Shipped as `#607`; broke `just setup tier2`.
+GUARD_BEFORE_DEFINE_C = """
+#if POOL_MAX < 1
+#error "POOL_MAX must be >= 1: it sizes a C array (issue 1015)"
+#endif
+#ifndef POOL_MAX
+#define POOL_MAX 8
+#endif
+struct s { entry_t slots[POOL_MAX]; };
+"""
+
+# The guard is INSIDE the fallback, so a `-D` skips the block and the guard
+# with it — the mirror image, and the first attempted fix for the above.
+GUARD_INSIDE_IFNDEF_C = """
+#ifndef POOL_MAX
+#define POOL_MAX 8
+#if POOL_MAX < 1
+#error "POOL_MAX must be >= 1: it sizes a C array (issue 1015)"
+#endif
+#endif
+struct s { entry_t slots[POOL_MAX]; };
+"""
+
 GOOD_CMAKE = """
 _nros_c_array_pool_floor(_a "${X}" ZPICO_MAX_PUBLISHERS)
 _nros_c_array_pool_floor(_b "${X}" ZPICO_MAX_SUBSCRIBERS)
@@ -430,7 +493,17 @@ def producer_texts(cmake=GOOD_CMAKE, rust=GOOD_RUST, derive=GOOD_DERIVE):
 def selftest() -> int:
     # POSITIVE: a guarded array with an `#ifndef` default is the shape we want.
     found = scan({"a.c": GOOD_C})
-    assert found == {"POOL_MAX": {"path": "a.c", "guarded": True}}, found
+    assert found["POOL_MAX"]["guarded"] and found["POOL_MAX"]["reachable"], found
+
+    # NEGATIVE, both shapes that shipped: a guard the preprocessor can never
+    # reach with the macro defined is not a guard, and grepping for `#if K < 1`
+    # cannot tell the difference. Both of these satisfied the old check.
+    before = scan({"a.c": GUARD_BEFORE_DEFINE_C})["POOL_MAX"]
+    assert before["guarded"] and before["reachable"] is False, before
+    assert check_arrays({"POOL_MAX": before}), "a guard before its #define must FAIL"
+    inside = scan({"a.c": GUARD_INSIDE_IFNDEF_C})["POOL_MAX"]
+    assert inside["guarded"] and inside["reachable"] is False, inside
+    assert check_arrays({"POOL_MAX": inside}), "a guard inside its #ifndef must FAIL"
 
     # NEGATIVE 1 — the guard is gone. This is issue 1015 exactly.
     no_guard = GOOD_C.replace("#if POOL_MAX < 1", "#if POOL_MAX < 0")
