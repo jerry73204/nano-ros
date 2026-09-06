@@ -1,6 +1,6 @@
 ---
 rfc: 0091
-title: "One entry-codegen producer, many language packs — and no two paths to the same entry"
+title: "One codegen producer, many language packs — target-agnostic output, pinned representations"
 status: Draft
 since: 2026-09
 last-reviewed: 2026-09
@@ -9,473 +9,315 @@ supersedes: []
 superseded-by: null
 ---
 
-# RFC-0091 — One entry-codegen producer, many language packs
+# RFC-0091 — One codegen producer, many language packs
 
-> **Relationship to other RFCs.** This is [RFC-0068](0068-language-neutral-codegen-ir.md)'s
-> architecture applied to the OTHER codegen pipeline. RFC-0068 covers messages
-> (`.msg/.srv/.action` → Rust/C/C++/IDL) and is Stable; it never scoped the ENTRY
-> (launch + `system.toml` → the program that boots). Entry generation grew its own
-> shape, and this records what that shape should be. Issue **#1102** is the debt
-> this pays down; issue **#1003** is what the current shape cost.
+**Amends:** [RFC-0068](0068-language-neutral-codegen-ir.md) — retires its
+`TargetProfile` (measured inert, see §5) and extends its four-stage shape to the
+ENTRY pipeline, which it never scoped.
 
-**Goal.** Adding a target language to ENTRY codegen becomes *adding a pack*, never a
-Rust change — and exactly one path produces any given entry.
+> **Goal.** Adding a target language is *adding a pack*. Exactly one path
+> produces any given artifact. Generated code is target-AGNOSTIC: the compiler
+> resolves the target, and where two languages must agree on a representation,
+> the representation is PINNED in the source rather than modelled by codegen.
 
-## The problem, measured
+Issue **#1102** is the debt this pays down. Issue **#1003** is what the current
+shape cost.
+
+---
+
+## 1. The problem, measured
 
 Entry code has **four** producers, not the two issue 1003 assumed:
 
-| # | Producer | Size | Emits | Input |
-| --- | --- | --- | --- | --- |
-| 1 | CMake templates (`nano_ros_add_node`) | 6 `.cpp.in` | the C/C++ entry TU | cmake vars |
-| 2 | CLI emitters (`nros codegen entry`) | 3748 lines | C++, C, Rust entry TUs | `Plan` |
-| 3 | `nros::main!()` proc-macro | **3822 lines** | the Rust entry | launch + `system.toml` |
-| 4 | `builder/entry.rs` | 766 lines | an entry *package* | build plan |
+| # | Producer | Size | Emits |
+| --- | --- | --- | --- |
+| 1 | CMake templates (`nano_ros_add_node`) | 6 `.cpp.in` | the C/C++ entry TU |
+| 2 | CLI emitters (`nros codegen entry`) | 3748 lines | C++, C, Rust entry TUs |
+| 3 | `nros::main!()` proc-macro | **3822 lines** | the Rust entry |
+| 4 | `builder/entry.rs` | 766 lines | an entry *package* |
 
-Two facts about that table matter more than its size.
+**(4) is the model for the fix, not a problem**: it emits a package whose body is
+`nros::main!(...)` — it delegates rather than restating.
 
-**(4) is not a problem and is the model for the fix.** It emits a package whose body is
-`nros::main!(...)` — it *delegates* rather than restating. Its own header asks "Why
-`nros::main!` and not the expanded form".
+**(2) and (3) are two paths to one outcome.** `emit_rust.rs`'s doc says it exists
+"for byte-level diffs against the proc-macro output". That diff does not exist —
+no gate, and the only test naming both never mentions the emitter. Nothing
+consumes it either: `nano_ros_entry` passes `--lang` as `c` or `cpp` only, and
+Rust entries reach the proc-macro via `rust_cargo_application()`.
 
-**(2) and (3) are two paths to the same outcome.** Both take launch input and produce a
-Rust entry. `emit_rust.rs`'s doc says it exists "for byte-level diffs against the
-proc-macro output". **That diff does not exist** — no test, no gate; the only test naming
-both (`native_main_macro_forms.rs`, 46 lines) never mentions the emitter. So the second
-producer's stated justification is a comparison nobody runs. That is issue 1003's shape
-exactly — two spellings of one fact with nothing comparing them — over a ~7500-line
-surface.
+**The duplication is not sloppiness.** Issue **0083** / phase-262 removed the
+macro's `nros-build` dependency because it pulled all of `nros-cli-core` —
+planner, codegen, orchestration, a submodule — into every *user's* entry build.
+**Dependency weight at user-build time is the binding constraint**, and any
+design ignoring it gets rejected the same way. It is the same force that made
+`rosidl-lower` a leaf crate.
 
-And **nothing consumes the Rust one**: `nano_ros_entry` passes `--lang` as `c` or `cpp`
-only; Rust entries reach the proc-macro through `rust_cargo_application()`. The only
-callers of `emit_rust::emit` are the CLI verb dispatch and a golden test.
+### The language vocabulary — three concerns wearing one word
 
-### The language vocabulary is fragmented — but NOT five copies of one enum
-
-A first reading of this counted "six language enums" and proposed collapsing
-them. Reading what each one MEANS says otherwise, and the difference decides
-the design:
-
-| Type | Variants | What it actually is |
+| Type | Variants | What it is |
 | --- | --- | --- |
-| `codegen/entry/mod.rs::Lang` | Rust, Cpp, C | the language enumeration |
-| `orchestration/source_metadata.rs::ComponentLanguage` | Rust, C, Cpp | the same set, but SERIALIZED (serde, snake_case) — a wire format |
-| `cmd/generate.rs::Lang` | Rust, C, Cpp, **All** | a clap argument; `All` is a CLI affordance, not a language |
-| `cmd/codegen_system.rs::ComponentLang` | Rust, **Other** | a binary predicate ("is this component Rust?") |
-| `rosidl-codegen::PayloadLang` | Rust, C | which of TWO emitters is asking, for a storage check |
+| `entry::Lang` | Rust, Cpp, C | the enumeration |
+| `ComponentLanguage` | Rust, C, Cpp | the same set, SERIALIZED — a wire format |
+| `generate::Lang` | + **All** | a clap argument; `All` is not a language |
+| `ComponentLang` | Rust, **Other** | a binary predicate |
+| `PayloadLang` | Rust, C | a narrowing — two emitters, `Cpp` invalid |
 
-So there are **three concerns wearing one word**: the enumeration (twice), an
-argument type that adds a non-language variant, and two narrowings. Collapsing
-all five into one type would be wrong in three separate ways — it would force
-`All` into a language, make `Other` and `Cpp` coexist meaninglessly, and couple
-an on-disk wire format to internal enums.
+Collapsing all five would be wrong three ways: it forces `All` into a language,
+makes `Other` and `Cpp` coexist meaninglessly, and couples an on-disk wire
+format to internal enums. The real defect is that the **enumeration** is declared
+twice and the narrowings re-declare rather than derive. Issue **#1062** is that
+already shipped: two language readers disagreeing, "and the loser is a silent
+`C`".
 
-What IS a defect is that the enumeration is declared twice, and that the
-narrowings re-declare rather than derive. A language added to one is invisible
-to the others, and nothing says they are related. Issue **#1062** is that
-failure already shipped: "`nano_ros_add_node` has two language readers that
-disagree — cmake expands SOURCES, the scanner reads the raw text, and the loser
-is a silent `C`".
+---
 
-### Why the duplication exists (it is not sloppiness)
-
-The proc-macro deliberately does NOT depend on `nros-cli-core`. Issue **0083** /
-phase-262 removed its `nros-build` dependency because that pulled the whole planner,
-codegen and orchestration tree — plus a submodule — into every user's entry build. It now
-depends only on `nros-pkg-index` and `nros-launch-parser`, "the two leaf crates the macro
-needs".
-
-So the constraint is **dependency weight at user-build time**, and any design that says
-"just share the code" without respecting it will be rejected the same way. This is the
-same force that produced `rosidl-lower` as a separate leaf crate for messages.
-
-## Design
-
-RFC-0068's four stages, applied to the entry. The stages already exist in the entry path;
-they are simply implicit, and each renderer re-derives them.
+## 2. Shape
 
 ```
- launch.xml + system.toml + Cargo metadata
-      │  STAGE 0/1  RESOLVE      (exists: plan_from_model, nros-launch-parser)
-      ▼
-   Plan                                    board-neutral · serde
-      │  STAGE 2  LOWER   ( ⊗ BoardProfile )        ←  NEW leaf crate
-      ▼
-   LoweredEntry = per-node and per-tier facts made CONCRETE:
-        boot_shape   : KernelMain | AppMain | HostMain
-        board_path   : resolved through nros-orchestration-ir
-        tiers        : spec rows, groups arrays, per-tier membership
-        boot_config  : the baked blob
-        literals     : every string ALREADY ESCAPED for its target language
-      │                                    LANGUAGE-neutral, BOARD-specific · serde
-      │  STAGE 3  RENDER  ( per language, DATA-driven )
-      ▼
-   generated C++ / C / Rust / <new language>
+                      nros-lang            leaf · serde only
+                     Language {Rust,C,Cpp}
+                          |
+     +--------------------+-----------------+------------------+
+     v                    v                 v                  v
+ nros-cli-core      rosidl-codegen     nros-macros      nros-entry-lower
+ entry + system      message packs     the proc-macro    entry Stage 2
 ```
 
-### Stage -1 — one `Language`, in a crate everyone can afford
+Two pipelines, one architecture, one vocabulary:
 
 ```
-                       nros-lang          (leaf: serde only)
-                          │
-        ┌─────────────────┼──────────────────┬────────────────────┐
-        ▼                 ▼                  ▼                    ▼
-  nros-cli-core     rosidl-codegen      nros-macros        nros-entry-lower
-  entry + system     message packs      the proc-macro      Stage 2 facts
+  MESSAGES                             ENTRY
+  .msg/.srv/.action                    launch.xml + system.toml + Cargo metadata
+    |  PARSE   rosidl-parser             |  RESOLVE  plan_from_model
+    v                                    v           nros-launch-parser
+  Ast                                  Plan
+    |  RESOLVE rosidl-resolve            |
+    v                                    |
+  ResolvedType                           |
+    |  LOWER   rosidl-lower              |  LOWER    nros-entry-lower
+    v          (no TargetProfile)        v           (no target facts)
+  LoweredType                          LoweredEntry
+    |  RENDER  packs/<lang>/             |  RENDER   packs/entry/<lang>/
+    v                                    v
+  generated messages                   generated entry
+    |                                    |
+    +----------> goldens / size corpus <-+   byte-compared every run
 ```
 
-`Language { Rust, C, Cpp }` — the enumeration, declared once, with the
+Both LOWER stages are **target-agnostic** (§5). Both RENDER stages are packs of
+templates. `Language` selects the pack; it is read nowhere else in lowering.
+
+---
+
+## 3. Stage -1 — one `Language`
+
+`Language { Rust, C, Cpp }`, declared once, carrying the
 `serde(rename_all = "snake_case")` representation `ComponentLanguage` already
-writes, so the on-disk source metadata does not change. That repr is a
-compatibility surface and wants a gate, not just care.
+writes — so on-disk source metadata does not change. That repr is a
+compatibility surface and wants a **gate**, not care.
 
-Placement is forced by the dependency budget, not by taste: `rosidl-codegen`
-does not depend on `nros-pkg-index`, and the proc-macro depends on neither
-`nros-orchestration-ir` nor `nros-cli-core` (issue 0083). The only home every
-consumer can afford is a new leaf whose dependency list is `serde` and nothing
-else.
+Placement is forced, not chosen: `rosidl-codegen` does not depend on
+`nros-pkg-index`, and the proc-macro depends on neither `nros-orchestration-ir`
+nor `nros-cli-core`. The only home every consumer can afford is a leaf whose
+dependency list is `serde` and nothing else.
 
-The other three types stay, and stop being independent:
+The other three types stay and stop being independent: `All` becomes a CLI
+affordance over `Language`; `ComponentLang` becomes a comparison; `PayloadLang`
+stays a genuine narrowing and **says** it is one.
 
-- `generate::Lang` becomes a clap argument over `Language` plus `All`, where
-  `All` EXPANDS to the set. It is a CLI affordance and should read as one.
-- `ComponentLang { Rust, Other }` becomes a question asked of `Language`, not a
-  second enum: the call sites want "is this Rust", which is a comparison.
-- `PayloadLang { Rust, C }` is a genuine NARROWING — only two emitters ask that
-  storage question, and `Cpp` is not a valid answer. It keeps its own type, and
-  documents that it is a subset rather than re-deriving the parent.
+> **Rule: one enumeration, many narrowings — and a narrowing DERIVES rather than
+> re-spells.**
 
-The rule this encodes: **one enumeration, many narrowings, and a narrowing must
-be derived from the enumeration rather than re-spelled beside it.**
+---
 
-### Stage 2 — `nros-entry-lower` (new leaf crate)
+## 4. Stage 2 — `nros-entry-lower`
 
-Everything that is *computation*: boot shape, board resolution, tier lowering, QoS
-override lowering, boot-config baking, and escaping. Dependencies limited to
-`nros-pkg-index`, `nros-launch-parser`, `nros-orchestration-ir` — the set the proc-macro
-already accepts. That bound is the design's load-bearing constraint, not an afterthought:
-if `nros-entry-lower` grows a heavy dependency, the proc-macro cannot adopt it and the
-duplication returns.
+All *computation*, inside the proc-macro's dependency budget
+(`nros-pkg-index`, `nros-launch-parser`, `nros-orchestration-ir`): boot shape,
+board path, tier rows, QoS codes, boot config, and **escaping**. If this crate
+grows a heavy dependency the proc-macro cannot adopt it and the duplication
+returns — so the budget is a design constraint, not a preference.
 
-### Stage 3 — language packs
+Escaping in particular stays here: a template that quoted a string wrong emits
+code that compiles into the wrong behaviour, silently, on a target. Templates
+place values; they never compute one.
 
-`packs/entry/<language>/` — templates over `LoweredEntry`, plus a manifest saying which
-template renders which output. This deliberately mirrors the MESSAGE side's layout
-(`rosidl-codegen/packs/<language>/*.jinja`, registered in a `PACKS` table of
-`include_str!` rows) rather than inventing a second convention; that file's own comment
-already states the goal — "Adding a language = adding rows here plus its `.jinja` files —
-no other Rust". The entry renderer landed with a `TEMPLATES` table under `templates/`,
-which should move to `packs/entry/<lang>/` so there is one convention, not two. **Per-language generators are expected and correct**; what
-must not be per-language is the pipeline that feeds them.
+---
 
-Two of three renderers are already here: `templates/rust_entry.rs.jinja` and
-`templates/c_entry.c.jinja` (+ `c_service_trailer.c.jinja`) render through a bundled
-`minijinja` environment, with 20 goldens proving byte-equivalence with the emitters they
-replaced. `emit_cpp.rs` is the remaining one, together with the three `pub(super)`
-`emit_declare_*` helpers it shares with `emit_c`.
+## 5. Target facts — none, and representations are pinned
 
-### The CMake templates are a pack, not a fifth producer
+**Decision: retire `TargetProfile`.**
 
-`cmake/templates/*_entry_main*` render the same artifact from cmake variables rather than
-from `LoweredEntry`. Phase-416 already collapsed six of them into one parameterised RTOS
-template, and `check-entry-session-name` gates both producers for the one fact that
-drifted. They should become a pack rendered from `LoweredEntry` like any other; until
-then the gate is what holds them together.
+RFC-0068 introduced `TargetProfile { ptr_width, enum_width }`. Measured in the
+tree:
 
-## Resolving the duplicate outcome
+- one consumer outside its own crate, passing `TargetProfile::host()`
+  **unconditionally** — no caller ever supplies an embedded profile;
+- `enum_width` read **nowhere**;
+- `ptr_width` read once as "a conservative stand-in" on a path whose own comment
+  says the result never changes an outcome.
 
-Two steps, independently valuable, in this order.
+It is inert, which is why passing `host()` for an ARM build has never broken
+anything. The hazard it was built for cannot occur in the current emitters
+either: `enum_width` guards the short-enums ABI (a `repr(C)` enum is 1 byte on
+armv7a-nuttx, 4 on x86_64), and the C and Rust message packs emit **no `enum`
+at all**.
 
-**Step 1 — delete `emit_rust.rs` (no consumer).** The CLI's Rust story is already
-`builder/entry.rs`: emit a package containing `nros::main!(...)` and let the proc-macro
-expand it. This removes a ~370-line path to an outcome another path already owns, and it
-is verifiable today: nothing but the verb dispatch and a golden calls it.
+**What replaces it.** Generated code is target-agnostic; the compiler resolves
+the target. Where two languages must agree on a representation, the source
+**pins** it — `uint8_t` against `#[repr(u8)]`, widths written down — rather than
+codegen modelling the target's default ABI. A pinned representation is
+target-agnostic by construction; a profile is a model of the toolchain, and a
+model can be wrong silently.
 
-The counter-argument is the byte-diff the doc claims. That diff was never implemented, so
-deleting loses nothing that exists — and if the diff is wanted, it should be built as
-Step 2's parity gate, which is strictly better than an unused emitter.
+**The agreement is gated, not assumed.** The precedent is the sizes-header
+mirror (issues 0088 -> 0268): one side is authoritative and the other consumes,
+rather than both guessing. Its lesson is also its warning — a stale mirror was
+"silent memory corruption", 336 bytes short on freertos C. So: for a corpus of
+generated types, compile the C and the Rust for the SAME non-host target and
+compare `sizeof` against `size_of`. A representation that agrees only on the
+host is exactly what this design must not ship.
 
-**Step 2 — the proc-macro consumes `LoweredEntry`.** It stops re-deriving tiers (91
-references), QoS (23) and board paths (6), and becomes: lower (shared) → render. Two ways
-to render, and the choice is a real trade:
+---
 
-- **(a) Same packs.** The macro renders text through the pack and parses it to a
-  `TokenStream`. One renderer, no drift by construction. Cost: `minijinja` compiles into
-  every user's entry build, and generated-code spans become synthetic.
-- **(b) Keep `quote!`, add a parity gate.** The macro keeps its own backend but consumes
-  the shared `LoweredEntry`, and a gate renders a corpus of plans both ways and compares.
-  Cost: parity is by test rather than by construction — but it is the diff `emit_rust`
-  promised and never delivered.
+## 6. Stage 3 — language packs
 
-**Recommendation: (b).** The dependency-weight constraint is what created this
-duplication once already; (a) reintroduces it in a new form. (b) removes the *derivation*
-duplication — which is where correctness lives — and makes the remaining spelling
-duplication checked rather than assumed.
+`packs/<language>/*.jinja` (messages) and `packs/entry/<language>/` (entry),
+registered in a `PACKS`-style table of `include_str!` rows. This mirrors the
+message side deliberately rather than inventing a second convention — that
+file's own comment already states the goal: *"Adding a language = adding rows
+here plus its `.jinja` files — no other Rust."*
 
-## What stays in Rust
+Two entry renderers exist today (`rust_entry.rs.jinja`, `c_entry.c.jinja` +
+`c_service_trailer.c.jinja`) with 20 goldens proving byte-equivalence with the
+emitters they replaced. They should move from `templates/` to
+`packs/entry/<lang>/` so there is one convention.
 
-Unchanged from RFC-0068 and load-bearing here for the same reason: all computation.
-Escaping in particular — a template that quoted a string wrong would emit code that
-compiles into the wrong behaviour, silently, on a target. Templates place values; they
-never compute one.
+**The tier table must use DESIGNATED initialisers.** It is emitted positionally
+against `nros_native_tier_spec_t`, a struct mirrored across **nine** files whose
+own comment asks a human to keep them in sync — and `check-ffi-struct-mirrors`
+does not cover it (it compares `component.h` against `nros_cpp_ffi.h`). A field
+inserted anywhere but the end silently mis-assigns every generated entry:
+issue 0160's class, ungated. `{ .name = ..., .groups = ... }` makes drift a
+compile error at the generated TU; extending the mirror gate makes it loud at
+the point of edit. Both.
 
-## Acceptance
+### The C pack is PURE C
 
-- `nros-entry-lower` exists as a leaf crate within the proc-macro's dependency budget,
-  and `LoweredEntry` is `serde`-serializable.
-- The proc-macro and the CLI emitters both consume it; neither re-derives boot shape,
-  board path, tier rows or QoS codes.
-- A gate compares the two Rust renderings over a corpus of plans (the diff `emit_rust`
-  promised).
-- Adding a language to entry codegen touches no Rust beyond ONE `Language`
-  variant: a pack directory, a manifest row, and that variant.
-- `Language` is declared once, in a leaf crate whose only dependency is
-  `serde`, and the `snake_case` wire representation of the metadata it replaces
-  is unchanged — gated, because it is an on-disk compatibility surface.
-- No type re-spells the enumeration. A narrowing (`PayloadLang`) derives from
-  it and says so.
-- The goldens (`testdata/entry/*.golden`) stay byte-stable across the whole migration —
-  they are how each step is proven, and they already caught a rebase-introduced field
-  change and three whitespace faults that review missed.
+Today an embedded C entry routes to the C++ emitter and compiles as a `.cpp`
+TU. That costs a C-only shop — MISRA, a certified C compiler, no C++ runtime —
+a C++ toolchain to build an entry whose components are all C.
 
-## Adding a language — the whole procedure
-
-The measure of this design is what a new language costs. Zig, end to end:
-
-1. **`packs/entry/zig/entry.zig.jinja`** — the entry TU shape, over
-   `LoweredEntry`. Boot shape, board path, tier rows, QoS codes and escaped
-   literals arrive already computed; the pack places them.
-2. **One row** in the pack registry (`include_str!`), exactly as the C and Rust
-   packs are registered today.
-3. **One variant** on `Language` in `nros-lang`. Every consumer — the entry
-   pipeline, source metadata, the CLI argument, the proc-macro — sees it,
-   because there is one enumeration rather than five.
-4. **Goldens**: add the coordinate to the harness, run
-   `NROS_UPDATE_GOLDEN=1`, and READ the diff. That is the whole review: the
-   generated source is a file, not a claim.
-
-No lowering code, no emitter, no dispatch arms.
-
-**What this does NOT make cheap, stated plainly.** A language also needs a
-TOOLCHAIN story — how CMake compiles it, how it links against `libnros`, how
-its components declare themselves. That is real work and this design does not
-touch it. The claim here is narrow: the CODEGEN cost of a language becomes a
-pack. The build-integration cost does not.
-
-## Workflow, end to end
-
-```
-  launch.xml + system.toml + Cargo metadata
-        │
-        │  STAGE 0/1  RESOLVE        plan_from_model · nros-launch-parser
-        ▼
-     Plan                                              board-neutral · serde
-        │
-        │  STAGE 2  LOWER  ( ⊗ BoardProfile )          nros-entry-lower
-        │            boot shape · board path · tier rows · QoS codes
-        │            boot config · EVERY literal escaped
-        ▼
-     LoweredEntry                            language-neutral · board-specific
-        │
-        │  STAGE 3  RENDER  ( ⊗ Language )             packs/entry/<lang>/
-        │            templates place values; they compute none
-        ▼
-   generated C++ / C / Rust / <new language>
-        │
-        └── goldens (testdata/entry/*.golden) — byte-compared every run
-
-  Language (nros-lang) is read at Stage 3 to pick the pack, and by the CLI,
-  source metadata and the proc-macro. One enumeration; the narrowings derive.
-
-  The proc-macro enters at Stage 2, not Stage 0: it lowers with the same crate
-  and renders with `quote!`, and a gate compares its output against the pack's.
-```
-
-## Non-goals
-
-- Changing what the entry DOES. This is about who produces it.
-- Merging entry and message codegen. They share an architecture, not a pipeline: the
-  inputs (`.msg` vs launch + `system.toml`) and the lowered facts have nothing in common.
-- Making the CMake path disappear. `nano_ros_add_node` is a supported surface; it becomes
-  a pack, not a casualty.
-
-## The two open questions, answered
-
-Both were raised in the first draft and both have been studied against the
-tree. One dissolves; the other reveals a larger ungated risk than the question
-asked about.
-
-### 1. Does `LoweredEntry` need a `TargetProfile`? — **No, and the reason matters**
-
-`LoweredType` needs one because message layout IS target-specific (pointer
-width, short enums, `repr(C)` order). The entry bakes **no layout fact**. It
-emits a positional initialiser whose types the target compiler resolves:
-
-```c
-static const nros_native_tier_spec_t __nros_tiers[2] = {
-    { "high", __nros_tier_0_groups, 1u, 80LL, 0u, 10000ull,
-      &__nros_entry_setup_tier_0, 0u, -1LL, NULL, 0ull, 0ull, 0ull, NULL },
-};
-```
-
-Every literal suffix is width-SAFE rather than width-ASSUMING: `1u` into a
-`size_t n_groups`, `0u` into `size_t stack_bytes`, `80LL` into `int64_t
-priority`, `10000ull` into `uint64_t spin_period_us`. No literal is wider than
-its field and each converts by the usual arithmetic conversions, so the same
-text compiles correctly on a 32- and a 64-bit target. There is nothing for a
-`TargetProfile` to decide.
-
-**But the study found the real hazard, which is not target width.** That
-initialiser is POSITIONAL, and `nros_native_tier_spec_t` is mirrored across
-**nine files** — the struct's own comment enumerates them: "ABI append-only,
-keep every mirror in sync: main.hpp `NativeTierSpec`, nros-cpp
-`NativeTierSpecC`, the 4 board `nros_tier_spec_t` mirrors, and both entry
-emitters."
-
-Insert a field anywhere but the end and every generated entry silently
-mis-assigns from that point on — `stack_bytes` lands in `priority`, a function
-pointer lands in a `uint64_t`. That is exactly the issue **0160** class, and
-`check-ffi-struct-mirrors` does NOT cover it: that gate compares
-`component.h` against `nros_cpp_ffi.h` and knows nothing about this struct.
-A comment asking nine files to stay in sync, with no gate, is the shape
-issue 0196 named — "gates whose coverage was narrower than the rule they
-enforce".
-
-Two fixes, and the first belongs in the pack, which is the point:
-
-- **Emit designated initialisers** (`{ .name = "high", .groups = …, … }`, C99
-  and valid in the C++ the C++ pack targets from C++20). Field-order drift then
-  becomes a COMPILE ERROR at the generated TU instead of a silent
-  mis-assignment, and a removed field is named in the diagnostic. This is a
-  rendering change — a pack edit and a golden update — which is precisely the
-  kind of change this design is meant to make cheap.
-- **Extend the mirror gate** to `nros_native_tier_spec_t` across its nine
-  sites. Designated initialisers make drift loud at the point of use; the gate
-  makes it loud at the point of edit. They are complementary, not alternatives.
-
-### 2. Is the C path being native-only a defect? — **No; it is routed, and correctly**
-
-The first draft read `emit_c` in isolation, saw `nros_board_native_run_*`
-hardcoded, and inferred a board-blind emitter. Reading the DISPATCH says
-otherwise (`cmd/codegen.rs`):
-
-```rust
-Lang::C if !board_is_embedded(&plan.board) => emit_c::emit_typed(&plan)?,
-// C++ entries, and embedded C entries (routed here for the C++ board runner).
-_ => emit_cpp::emit_typed(&plan)?,
-```
-
-An embedded C entry routes to the C++ emitter, which produces a `.cpp` TU that
-invokes each C node through its `extern "C"` `__nros_c_component_*` seam; cmake
-gives that output a `.cpp` extension and links `NanoRosCpp`. The embedded board
-runners are C++ only, so this is the correct shape and not an omission.
-
-So `emit_c` is native-only BY CONTRACT, the contract is enforced one level up,
-and archived issue **0097** is genuinely resolved. No lowering refusal is
-needed and the C pack should NOT grow RTOS shapes.
-
-**What the study did find is a flaw in the goldens.** The harness calls each
-emitter directly, so `c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`,
-`c_threadx_one` and `c_nuttx_tiers` record output the real pipeline never
-produces — they are byte-identical to the native rows except the board name in
-a comment. They read as board coverage and are not. Either the harness should
-route through the dispatch, or those rows should say what they actually pin:
-that `emit_c` ignores the board, and that the dispatch is what stops that
-mattering. Tracked on issue 1102.
-
-## Two questions the design had assumed away
-
-### Should codegen know target facts at all? — **Almost none, and today it knows none**
-
-The expectation that codegen emits target-AGNOSTIC source and the compiler
-resolves the target is the right default, and measurement says the tree already
-meets it.
-
-RFC-0068 has a `TargetProfile { ptr_width, enum_width }`. In the tree today:
-
-- It has **one** consumer outside its own crate
-  (`rosidl-codegen/generator/common.rs`), which passes `TargetProfile::host()`
-  **unconditionally** — no caller ever supplies an embedded profile.
-- `enum_width` is read **nowhere**.
-- `ptr_width` is read once, as "a conservative stand-in" for a nested struct's
-  alignment, on a path whose own comment says it "never makes a plain struct —
-  nested fields set plain=false". The value it produces changes no output.
-
-So the profile is inert. Nothing target-specific reaches generated code, which
-is why passing `host()` for an ARM build has never broken anything.
-
-And the hazard it was built for cannot occur in the current emitters: the
-`enum_width` field exists for the short-enums ABI (a `repr(C)` enum is 1 byte
-on armv7a-nuttx, 4 on x86_64), but the C and Rust message packs emit **no
-`enum` at all**. There is nothing for the two languages to disagree about.
-
-**The principle this should settle into.** Where two languages must agree on a
-representation, the fix is to PIN it explicitly in the generated source — an
-`uint8_t` and a `#[repr(u8)]`, sizes written down — rather than to teach codegen
-what the target's default ABI is. A pinned representation is target-agnostic by
-construction and needs no profile; a profile is a model of the toolchain that
-can be wrong, and silently. `TargetProfile` should be retired or reduced to
-whatever survives that test, and RFC-0068 amended accordingly rather than left
-describing scaffolding as architecture.
-
-For `LoweredEntry` the answer follows: **no target facts**. The entry already
-emits positional initialisers and width-safe literals that any conforming
-compiler resolves.
-
-### Should the C pack be pure C, or C++ wrapped in `extern "C"`? — **Pure C, and the substrate is already there**
-
-Today an embedded C entry is routed to the C++ emitter and compiled as a `.cpp`
-TU. That is a real constraint on the user's toolchain: a C-only shop — MISRA,
-a certified C compiler, no C++ runtime — cannot build one, and pays for a C++
-toolchain to compile an entry whose components are all C.
-
-The reason is narrower than a design decision, and it is an accident of which
-entry points were exposed. The C-callable board surface today:
+The reason is an accident of which entry points were declared, not a design
+decision. The C-callable board surface:
 
 | board | `run_components` | `run_tiers` |
 | --- | --- | --- |
 | native | yes (+`_named`) | yes |
-| freertos | — | **yes** |
-| zephyr | — | **yes** |
-| nuttx | — | **yes** |
+| freertos / zephyr / nuttx | — | **yes** |
 | threadx | — | — |
 
-Three RTOS families already expose a C entry point for the MULTI-TIER shape and
-none for the single-tier one. And the layering runs the opposite way from the
-assumption: `nros_board_freertos_run_tiers` is **666 lines of C**, and
-`FreertosBoard::run_tiers` in `main.hpp` is the C++ veneer that calls it. The
-board layer is already C at the bottom.
+And the layering runs opposite to the dispatch's justification:
+`nros_board_freertos_run_tiers` is **666 lines of C**, and
+`FreertosBoard::run_tiers` is the C++ veneer calling it. The board layer is
+already C at the bottom.
 
-So "the embedded board runners are C++ only", which the dispatch comment gives
-as the reason for routing, is true of `run_components` and false of the layer
-underneath it. Exposing `nros_board_<rtos>_run_components` alongside the
-existing `run_tiers` is not a new capability — it is the single-tier shape
-declared the way the multi-tier one already is.
+So exposing `nros_board_<rtos>_run_components` beside the existing `run_tiers`
+is not new capability — it is the single-tier shape declared the way the
+multi-tier one already is. That deletes the language-crossing branch from
+`cmd/codegen.rs` and lets the C pack serve every board the C++ one does.
+**ThreadX has no C board API at all and is declared C++-entry-only**, rather
+than silently routed.
 
-**Design position: the C pack should be pure C**, and the routing special-case
-in `cmd/codegen.rs` should disappear once the entry points exist. That deletes
-a language-crossing branch from the pipeline, lets the C pack serve every board
-the C++ one does, and removes a C++ toolchain requirement from users who write
-only C. ThreadX is the exception with no C board API at all, and should be
-stated as unsupported-for-pure-C rather than silently routed.
+---
 
-The counter-argument worth recording: a pure-C entry duplicates whatever the
-C++ runner does per board. It does not, if the C entry point wraps the same C
-implementation the C++ one wraps — which is the arrangement `run_tiers` already
-demonstrates on three boards.
+## 7. One path per outcome
 
-## Remaining open questions
+**Delete `emit_rust.rs`.** No consumer; the CLI's Rust story is
+`builder/entry.rs` emitting `nros::main!(...)`.
 
-- Does retiring `TargetProfile` belong to RFC-0068 (its home) or here? It is
-  inert, but it is THEIR stage, and amending someone else's Stable RFC from a
-  Draft one is the wrong direction.
+**The proc-macro consumes `LoweredEntry`**, so it stops re-deriving tiers (91
+references), QoS (23) and board paths (6). It keeps `quote!` rendering behind a
+**parity gate** that renders a corpus both ways and compares — the diff
+`emit_rust` promised and never delivered.
+
+Rendering through the pack instead (parse text -> `TokenStream`) was considered
+and rejected: it compiles `minijinja` into every user's entry build, which is
+the dependency weight that created this duplication once already.
+
+**The CMake templates become a pack.** Phase-416 already collapsed six into one
+parameterised RTOS template; `check-entry-session-name` gates both producers for
+the fact that drifted. Until they are a pack, that gate is what holds them
+together.
+
+---
+
+## 8. Adding a language — the whole procedure
+
+1. `packs/entry/<lang>/entry.<ext>.jinja` — over `LoweredEntry`. Boot shape,
+   board path, tier rows, QoS codes and escaped literals arrive computed.
+2. One row in the pack registry (`include_str!`).
+3. One variant on `Language`. Every consumer sees it — one enumeration.
+4. Goldens: add the coordinate, `NROS_UPDATE_GOLDEN=1`, **read the diff**. The
+   generated source is a file, not a claim.
+5. If the language shares a representation with another (a C ABI struct, a
+   message layout), add it to the cross-language size corpus in §5.
+
+No lowering code, no emitter, no dispatch arms.
+
+**What this does NOT make cheap, stated plainly:** the toolchain story — how
+CMake compiles it, how it links `libnros`, how its components declare
+themselves. The codegen cost becomes a pack. The build-integration cost does
+not.
+
+---
+
+## 9. Acceptance
+
+- `Language` declared once in a serde-only leaf; the `snake_case` wire repr of
+  the metadata it replaces is unchanged, and gated.
+- No type re-spells the enumeration; a narrowing derives and says so.
+- `nros-entry-lower` exists inside the proc-macro's dependency budget;
+  `LoweredEntry` is `serde`-serializable and carries **no target facts**.
+- `TargetProfile` is gone from `rosidl-lower`, and nothing replaces it.
+- A gate compiles the generated C and Rust for one non-host target and compares
+  `sizeof` against `size_of` over a type corpus.
+- The proc-macro and the CLI share lowering; a gate compares the two Rust
+  renderings.
+- The tier table uses designated initialisers, and the mirror gate covers
+  `nros_native_tier_spec_t` across its nine sites.
+- Adding a language touches no Rust beyond one `Language` variant.
+- Goldens stay byte-stable across the migration — they are how each step is
+  proven, and they already caught a rebase-introduced field change and three
+  whitespace faults review missed.
+
+---
+
+## 10. Non-goals
+
+- Changing what the entry DOES. This is about who produces it.
+- Merging the entry and message pipelines. They share an architecture, not a
+  pipeline: the inputs and the lowered facts have nothing in common.
+- Removing `nano_ros_add_node`. It is a supported surface; it becomes a pack.
+
+## 11. Open questions
+
+- Retiring `TargetProfile` amends RFC-0068, which is **Stable**. Does that edit
+  land there or here? Recorded as an amendment above; the mechanics are a
+  maintainer call.
 - `nros_board_threadx_run_components` does not exist and neither does its
-  `run_tiers` — is pure-C ThreadX worth the shim, or is ThreadX
-  C++-entry-only by declaration?
-- Should the designated-initialiser change land with the C++ pack conversion, or
-  ahead of it as its own step? It is a byte-visible change to every generated
-  entry, so it wants its own goldens diff rather than riding a larger one.
-- Does the mirror gate belong in `check-ffi-struct-mirrors` (extending its
-  scope) or as a sibling keyed on this struct? The existing gate's shape —
-  extract both bodies, normalise, compare — assumes TWO files; this one has
-  nine.
+  `run_tiers` — is pure-C ThreadX worth the shim, or is the declaration enough?
+- Does the designated-initialiser change land with the C++ pack conversion or
+  ahead of it? It is byte-visible in every generated entry, so it wants its own
+  goldens diff.
+- Does the mirror gate extend (`check-ffi-struct-mirrors` assumes TWO files) or
+  get a sibling keyed on a struct with nine?
+
+## 12. Known gap in the current goldens
+
+Five C rows (`c_nuttx_one`, `c_zephyr_one`, `c_freertos_one`, `c_threadx_one`,
+`c_nuttx_tiers`) come from calling `emit_c` directly, which the pipeline never
+does for those boards — an embedded C entry routes to the C++ emitter. They are
+byte-identical to the native rows except a comment and read as board coverage
+they do not have. Route the harness through the dispatch, or relabel them to pin
+what they actually prove. Tracked on issue 1102.
