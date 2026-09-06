@@ -401,6 +401,19 @@ px4-archive-header-pairing:
 retired-platform-clock-symbols:
     @python3 scripts/check-retired-platform-clock-symbols.py
 
+# Issue 1028 — "is this hosted?" and "does `target_os` have a value?" are
+# different questions. NuttX answers the second (`target_os = "nuttx"`,
+# `target_family = "unix"`) while being an RTOS on a fixed-RAM part, so
+# `target_os != "none"` handed it the 32-slot Linux queryable budget: 142,336 B
+# of `.bss` on an image with ZERO queryables, 106,752 B of it waste. Two rules:
+# every triple this tree names resolves to a `target_os` that is accounted for,
+# and every `cfg` mentioning `target_os = "none"` either names the reachable
+# RTOSes beside it or is classified in the script with the OTHER question it
+# asks. Buildless.
+[private]
+rtos-target-os:
+    @python3 scripts/check/check-rtos-target-os.py
+
 # Issue 0589 — `std::println!`/`eprintln!` from a crate Zephyr links does not
 # print on native_sim, it recurses in `zvfs_write` until the stack is gone. Go
 # through `cpp_diag!`, which uses std stdio only where that is safe.

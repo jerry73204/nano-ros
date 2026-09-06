@@ -47,16 +47,31 @@ pub fn normalize_locator(locator: Option<&str>) -> Option<&str> {
 /// endpoint, so zenoh-pico falls back to multicast scouting. Returning `None`
 /// here is what preserves that.
 ///
-/// The gate is `target_os = "none"`, matching `nros-rmw-cffi`'s registration
-/// seam — NOT `feature = "std"`, which this crate leaves off even on hosted
-/// builds (`--features platform-posix` alone), so a `std` gate would have
-/// silently disabled the default everywhere.
+/// The gate is NOT `feature = "std"` — this crate leaves that off even on
+/// hosted builds (`--features platform-posix` alone), so a `std` gate would
+/// have silently disabled the default everywhere.
+///
+/// It is also NOT `target_os = "none"` alone, which is what it said until
+/// issue 1028. "Is this hosted?" and "does `target_os` have a value?" are
+/// different questions, and NuttX is the counterexample that proves it:
+/// `armv7a-nuttx-eabihf` reports `target_os = "nuttx"` and
+/// `target_family = "unix"`, so `not(target_os = "none")` classified an RTOS as
+/// hosted. 1028 measured that same predicate one crate over handing NuttX the
+/// 32-slot Linux queryable budget (106,752 B of `.bss`); here it hands a NuttX
+/// image the host loopback the paragraph above says an embedded image must
+/// never dial. Latent in-tree only because every `examples/qemu-arm-nuttx`
+/// entry supplies an explicit locator, so this arm is not reached today.
+///
+/// The RTOS `target_os` values are the ones `nros-zpico-build`'s
+/// `RTOS_TARGET_OS` names; the spelling here is held to the reachable subset by
+/// `check-rtos-target-os`, so a new named-RTOS target cannot land with only one
+/// of the two sites updated.
 pub fn effective_client_locator(locator: Option<&str>) -> Option<&str> {
     match normalize_locator(locator) {
         Some(l) => Some(l),
-        #[cfg(not(target_os = "none"))]
+        #[cfg(not(any(target_os = "none", target_os = "nuttx")))]
         None => Some(crate::DEFAULT_LOCATOR),
-        #[cfg(target_os = "none")]
+        #[cfg(any(target_os = "none", target_os = "nuttx"))]
         None => None,
     }
 }

@@ -52,6 +52,19 @@ const UNDECLARED_HEADROOM: usize = 8;
 ///
 /// These targets have a `target_os` and even a `target_family = "unix"`, so the
 /// obvious test — `target_os != "none"` — reads them as Linux-class hosts.
+///
+/// This list is the SSoT for the question and `check-rtos-target-os` holds two
+/// other answers to it: every triple this tree names must resolve to a
+/// `target_os` accounted for HERE, and every `cfg` predicate asking the hosted
+/// question must name the reachable subset (a `cfg` cannot call a function, so
+/// it has to re-spell the answer — `nros-macros` and `nros-rmw-zenoh`'s
+/// `effective_client_locator` both do).
+///
+/// The third answer in this crate is [`crate::is_embedded_target`], which takes
+/// the TRIPLE rather than the `target_os` and already names `nuttx`. It is a
+/// different input for a different decision (which C toolchain and sysroot to
+/// use), not a duplicate — but if you are about to write a fourth, it is one of
+/// these two.
 const RTOS_TARGET_OS: &[&str] = &["nuttx", "espidf", "horizon", "vita", "psp"];
 
 /// "Is this a hosted target?" and "does `target_os` have a value?" are
@@ -479,8 +492,10 @@ fn shim_config_from_env() -> ShimConfig {
     // `examples/workspaces/features` died with a bare
     // `Transport(ServiceServerCreationFailed)`.
     //
-    // Hosted targets get headroom; `target_os = "none"` keeps the embedded
-    // budget exactly as before. Override with the env var on either side.
+    // Hosted targets get headroom; everything [`target_os_is_hosted`] calls
+    // embedded keeps the embedded budget exactly as before. That predicate is
+    // NOT `target_os != "none"` — issue 1028 measured that spelling handing
+    // NuttX the 32-slot Linux budget. Override with the env var on either side.
     //
     // issue 0827 — this comment used to say "(6)" and "(6)" and "needs
     // twelve". Lifecycle is FIVE, so it is eleven, and "twelve" propagated
@@ -895,9 +910,13 @@ pub fn run() {
     // Phase 128.D — auto-derive `platform-posix` from `target_os` when
     // no explicit platform feature was selected. The POSIX path is
     // the only one a `cargo build` on a hosted target can infer
-    // unambiguously; embedded RTOSes (FreeRTOS / NuttX / ThreadX /
-    // Zephyr) all share `target_os = "none"` so the user still
-    // disambiguates by enabling the matching feature. The hosts on the
+    // unambiguously; the embedded RTOSes still disambiguate by enabling
+    // the matching feature. NOTE this used to say they "all share
+    // `target_os = "none"`" — issue 1028: NuttX does not
+    // (`armv7a-nuttx-eabihf` is `target_os = "nuttx"`,
+    // `target_family = "unix"`). The inference below is safe anyway
+    // because it is an ALLOWLIST of hosts rather than a `!= "none"`
+    // test, which is exactly the shape 1028 wanted everywhere. The hosts on the
     // list below no longer need an explicit `platform-posix` feature in
     // their `Cargo.toml`. NOTE the list is Linux / *BSD / Android and does
     // NOT include macOS — this comment used to claim macOS as an

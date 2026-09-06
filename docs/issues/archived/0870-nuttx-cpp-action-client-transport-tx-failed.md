@@ -427,7 +427,9 @@ changes what a diagnostic must print to answer the question.
 and it is not a choice: `runner.rs:246` tests `target_os != "none"`, and NuttX
 reports `target_os = "nuttx"`, so an RTOS takes the budget written for Linux.
 Measured cost in this very image: **142,336 B of `.bss`** with zero queryables
-declared. Filed as [#1028](../1028-nuttx-classified-hosted-takes-linux-queryable-budget.md).
+declared. Filed as
+[#1028](1028-nuttx-classified-hosted-takes-linux-queryable-budget.md) (resolved
+2026-09-06; the link moved with it into `archived/`).
 
 ## The client-side analogue of 0460 exists, but not at construction
 
