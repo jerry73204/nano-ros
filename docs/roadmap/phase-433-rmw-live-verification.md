@@ -305,6 +305,46 @@ the eleventh, and `just cyclonedds setup` + `just xrce setup` in the box.
 so nine binaries would skip on "zenohd not found" with a perfectly good router
 sitting in `/opt/ros/humble`.
 
+### W2 — verdicts so far (2026-09-06, in progress)
+
+| cell / binary | verdict | note |
+| --- | --- | --- |
+| `graph_interop` (zenoh) | **PASS** ×2 | 18.8 s. Enumerates a stock `rmw_zenoh_cpp` peer. |
+| `graph_interop` (cyclone) | **FAIL** ×2 | Issue 1137 — identical signature both runs: `NODE_COUNT 1`, `UNSUPPORTED_COUNT 9`, never sees the talker in 20 s. Peer ruled out by control run. |
+| `rust_multi_node_per_node_graph` | **PASS** ×2 | 2/2. One graph node per launch component, seen by a stock peer. |
+| `qos_override_e2e` | blocked | workspace-entry fixture; needs W0 in the box tree. |
+| `declarative_bridge_zenoh_to_cyclonedds` | blocked | as above. |
+| `bridge_zenoh_to_cyclonedds` | blocked | as above. |
+| `declarative_bridge_zenoh_to_xrce` | blocked | as above. |
+| `params` | blocked | issue 1135 — four tests report PASS on an unmet precondition. |
+| `cpp_multi_node_entry` | not yet run | needs `build-compile-check-fixtures`. |
+| `interop_e2e`, `xrce_ros2_interop` | not yet run | reachable, later batch. |
+| `qos_zephyr_ros2_interop_e2e` | deferred | only `ZephyrWestLeaves` cell; second build channel. |
+
+**The box reproduces issue 1136 independently** — `Cannot find source file:
+LAUNCH_ARGS` at `NanoRosEntry.cmake:426`, the same coordinate CI dies on. So
+every workspace-entry cell is blocked in the box until W0 lands and the mirror
+re-syncs; the mirror predates the fix. That is also useful confirmation that
+1136 is not a CI-only artifact.
+
+**The build ORDER is load-bearing and cost a whole batch.** `just native
+build-workspace-fixtures` runs `nros sync`, which rewrites `generated/` trees
+and therefore re-stales every row fixture built before it. The correct sequence
+is **CLI → anything that syncs → row fixtures → tests**, and nothing that
+rewrites sources may run in between. Doing rows first produced a batch where
+every cell failed `Test fixture is STALE — a source is newer than the built
+binary`, which reads exactly like breakage.
+
+All three verdicts above were reproduced on a second, independent run with the
+harness defects fixed — which is the standard this phase should hold itself to,
+given how many first-run reds turned out to be mine.
+
+**Scoreboard for the method, not the code.** Of the reds W2 has produced so far,
+**one** was a real defect (1137) and **four** were harness defects of mine:
+running the container as root, an inconsistently stamped CLI, the PATH order of
+issue 1144, and this ordering. The cells have been honest every time. Filing
+from any of those four would have been an 0859-0862 repeat.
+
 ### W3 — the language-axis correction — **DONE 2026-09-06 (PR #587)**
 
 `scenario_coord` derives the language now. Only the cyclone half was wrong:
