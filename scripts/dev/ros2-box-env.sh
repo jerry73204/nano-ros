@@ -2,7 +2,7 @@
 # (see docs/development/ros2-on-non-ubuntu.md). Source before any nano-ros
 # command INSIDE the box:
 #
-#     distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh; <cmd>'
+#     distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh && <cmd>'
 #
 # On a host with BOTH docker and podman, prefix that with
 # `DBX_CONTAINER_MANAGER=docker` (or podman) — distrobox prefers podman when it
@@ -175,6 +175,43 @@ nros_box_publish() {
     echo "box CLI published: $NROS_BOX_REPO/packages/cli/target/release/nros + $CARGO_INSTALL_ROOT/bin/nros"
 }
 
+# issue 1144 — SEED THE HOST'S CARGO BIN AT THE TAIL FIRST, or the prepend
+# below is undone by the very file it is ordered against. activate.sh prepends
+# `$HOME/.cargo/bin` *conditionally*:
+#
+#     if [ -d "$HOME/.cargo/bin" ]; then
+#         case ":$PATH:" in
+#             *":$HOME/.cargo/bin:"*) ;;
+#             *) export PATH="$HOME/.cargo/bin:$PATH" ;;
+#         esac
+#     fi
+#
+# In a LOGIN shell the container profile already put that dir on PATH, the
+# guard skips, and the box's dir stays in front — which is the only case the
+# comment below was ever tested in. In a NON-login shell (`podman exec … bash
+# -c`, the fast way to drive the box) it is absent, so activate.sh prepends the
+# HOST's glibc-2.39 `just` in front of the box's and it dies with
+# `GLIBC_2.39 not found`, naming neither PATH nor the box.
+#
+# Putting it on the tail ourselves makes that guard a no-op BY CONSTRUCTION, in
+# both shell kinds, while keeping `cargo`/`rustup` reachable (rustup's own shims
+# are old-glibc and do run here — it is the cargo-INSTALLED tools beside them
+# that do not). It is the precondition activate.sh's guard was already written
+# against; we now establish it instead of assuming it.
+#
+# Not "prepend the box dir again AFTER activate.sh": activate.sh also prepends
+# `packages/cli/target/release` (unconditionally), and that ordering is
+# deliberate — a later in-box `just setup-cli` rewrites the CLI there and NOT
+# the `$CARGO_INSTALL_ROOT/bin/nros` copy `nros_box_publish` made, so a box dir
+# in front would shadow a fresh CLI with a stale one. Seeding the tail fixes
+# the ordering without disturbing any of activate.sh's own prepends.
+if [ -d "$HOME/.cargo/bin" ]; then
+    case ":$PATH:" in
+        *":$HOME/.cargo/bin:"*) ;;
+        *) export PATH="$PATH:$HOME/.cargo/bin" ;;
+    esac
+fi
+
 # BEFORE activate.sh: it sources scripts/sdk-env.sh, which shells out to `just`,
 # and the host's ~/.cargo/bin/just would otherwise win the PATH race and print
 # `GLIBC_2.xx not found`. activate.sh prepends packages/cli/target/release after
@@ -183,4 +220,41 @@ export PATH="$CARGO_INSTALL_ROOT/bin:$PATH"
 
 # shellcheck disable=SC1091
 . "$_nros_box_root/activate.sh"
+
+# ASSERT the ordering rather than reasoning about it (issue 1144). Every tool
+# the box installed for itself must beat the host copy of the same name: the
+# host's are glibc-2.39 binaries that cannot exec here, and their failure names
+# the loader, never PATH. Keyed on the HOST dir, not on the box dir, because
+# `nros` legitimately resolves to `packages/cli/target/release/nros` (see
+# above) — what is never legitimate is resolving into `$HOME/.cargo/bin`.
+nros_box_check_path() {
+    [ -d "${CARGO_INSTALL_ROOT:-}/bin" ] || return 0
+    [ -d "$HOME/.cargo/bin" ] || return 0
+    # A box that deliberately installs into the host's dir has nothing to check.
+    [ "$CARGO_INSTALL_ROOT/bin" != "$HOME/.cargo/bin" ] || return 0
+
+    local tool name resolved rc=0
+    for tool in "$CARGO_INSTALL_ROOT"/bin/*; do
+        [ -x "$tool" ] || continue
+        name="$(basename "$tool")"
+        resolved="$(command -v "$name" 2>/dev/null)" || continue
+        case "$resolved" in
+            "$HOME/.cargo/bin/"*)
+                echo "box: PATH is wrong — \`$name\` resolves to the HOST binary" >&2
+                echo "       $resolved" >&2
+                echo "     shadowing the box's $tool" >&2
+                echo "     (host tools are glibc-2.39 and die here as" >&2
+                echo "      \`GLIBC_2.39 not found\`; issue 1144)" >&2
+                rc=1
+                ;;
+        esac
+    done
+    return "$rc"
+}
+
+if ! nros_box_check_path; then
+    unset _nros_box_root
+    return 1 2>/dev/null || exit 1
+fi
+
 unset _nros_box_root

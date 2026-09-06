@@ -142,7 +142,7 @@ host-built build scripts dying on glibc.
 ## Using it
 
 ```sh
-distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh; <command>'
+distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh && <command>'
 ```
 
 **If both docker and podman are installed, say which one holds the box:**
@@ -159,6 +159,26 @@ is still running. Check with `docker ps -a` / `podman ps -a` before believing
 the box is gone. Export the variable for the shell if you use one manager only.
 
 `ros2-box-env.sh` sources `activate.sh` and adds the box-local overrides.
+
+**Join it to the command with `&&`, not `;`.** The script REFUSES two states —
+a shared host tree (issue 0759) and a PATH where a host tool wins (issue 1144,
+below) — by returning non-zero, and a `;` runs the command anyway, which is
+exactly the run whose result cannot be trusted.
+
+**PATH order does not depend on how you entered the box any more, and it used
+to** (issue 1144). `ros2-box-env.sh` prepends `$CARGO_INSTALL_ROOT/bin` before
+sourcing `activate.sh`, but `activate.sh` prepends `$HOME/.cargo/bin` when it is
+not already on PATH — which in a **non-login** shell (`podman exec … bash -c`,
+the fast way to drive the box) put the host's glibc-2.39 `just` back in front,
+and it dies as `GLIBC_2.39 not found` naming neither PATH nor the box. A login
+shell (what `distrobox enter` gives you) already had that dir on PATH, so the
+guard skipped and nobody saw it. `ros2-box-env.sh` now seeds `$HOME/.cargo/bin`
+at the TAIL first, so that guard is a no-op in both shell kinds, and then
+ASSERTS the result: every tool the box installed for itself must not resolve
+into `$HOME/.cargo/bin`, or sourcing fails with the shadowed pair named
+(`nros_box_check_path`, re-runnable by hand). Sourcing `activate.sh` first and
+`ros2-box-env.sh` second also works, but it is a workaround — box-env sources
+`activate.sh` itself.
 
 One-time per box. Every cargo-INSTALLED tool has to be reinstalled here: the
 host's `~/.cargo/bin` copies are host-built and die with `GLIBC_2.xx not found`,
@@ -193,9 +213,9 @@ apt line the whole time; nothing in the box bootstrap said to run it.
 Then the normal tiers, all through the same entry form:
 
 ```sh
-distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh; just build-test-fixtures'
-distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh; just test-unit'
-distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh; just test-all'
+distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh && just build-test-fixtures'
+distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh && just test-unit'
+distrobox enter ros2 -- bash -c '. scripts/dev/ros2-box-env.sh && just test-all'
 ```
 
 The test harness resolves ROS's `rmw_zenohd` — `nros_zenohd_bin` reads
