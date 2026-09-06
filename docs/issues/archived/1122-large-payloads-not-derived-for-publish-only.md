@@ -1,11 +1,12 @@
 ---
 id: 1122
 title: "`LARGE_PAYLOADS` is 131,072 B on an image that subscribes to nothing — CMake derives 0 and no non-Zephyr lane can deliver it"
-status: open
+status: resolved
 type: bug
 area: cmake, rmw-zenoh, memory
 severity: high
 found: 2026-09-06
+resolved: 2026-09-07
 related: [1033, 0827, 1120, 1121]
 ---
 
@@ -219,60 +220,91 @@ derivation appears only on the **second** `nros build`. That is issue 0991/1002'
 chain, and it is not the bug here — the second invocation derives correctly and
 the image is still byte-identical.
 
-## What to do — plan, not landed
+## Fixed — the second road exists now
 
-Not fixed here, and the reasons are worth stating.
+The plan below is what landed, in three parts.
 
-* The number has to cross a lane boundary that lives in `cmake/`
-  (`NanoRosEntityFacts.cmake` or a sibling), which is shared by every CMake lane
-  including Zephyr. There is no fix reachable from `packages/rmw/zenoh/**` alone:
-  the build script has no fact to read.
-* It needs a decision the measurement cannot make: on Zephyr the derived value
-  applies only when Kconfig states the `-1` DERIVE sentinel — an explicit opt-in.
-  A non-Zephyr lane has no Kconfig and therefore no spelling for that opt-in, so
-  delivering the derived value there changes the default for every existing
-  FreeRTOS / ThreadX / NuttX / posix image. Under-sizing this pool is a
-  `SubscriberCreationFailed` at `create_subscription`, and picking that up by
-  accident is worse than 131 KB on one image.
+**1. The carrier.** `_nros_payload_facts_env` in `cmake/NanoRosEntityFacts.cmake`
+reads `${CMAKE_BINARY_DIR}/nros/message_bound_knobs.cmake` — the FILE, at the
+deferred flush, because that runs in the top-level scope where
+`nros_find_interfaces()`'s variables are not visible — and appends
+`NROS_DECLARED_LARGE_SUBSCRIBERS=<n>` to the `corrosion_set_env_vars` call this
+module already makes.
 
-### Proposed shape
+Both guard conditions are enforced and both are mutation-tested: the value
+travels **only** when `NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS` is `derived` **and**
+`NROS_MESSAGE_BOUNDS_BASIS` is `subscribed`. On the `closure` basis the count is
+a count of large TYPES in the linked closure, which under-counts an image with
+two subscriptions on one large type, so we refuse there and leave the crate
+default alone.
 
-1. `cmake/NanoRosEntityFacts.cmake` (or a new `NanoRosPayloadFacts.cmake`) reads
-   `${CMAKE_BINARY_DIR}/nros/message_bound_knobs.cmake` at its deferred flush —
-   the FILE, not a variable, because the flush runs in the top-level scope where
-   `nros_find_interfaces()`'s variables are not visible — and, **only** when
-   `NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS` is `derived` **and**
-   `NROS_MESSAGE_BOUNDS_BASIS` is `subscribed`, appends
-   `NROS_DECLARED_LARGE_SUBSCRIBERS=${NROS_DERIVED_MAX_LARGE_SUBSCRIBERS}` to the
-   `corrosion_set_env_vars` call it already makes.
+The payload fact is computed BEFORE the queryable-table early return, because it
+is independent of it: an image with no LAUNCH entry still links interface
+packages and still gets a derivation.
 
-   The two conditions are the whole safety argument: on the `closure` basis the
-   count is a count of large *types* in the linked closure, which under-counts an
-   image with two subscriptions on one large type. Refuse there, keep the
-   default 2.
+**2. The default, not the value.** `nros-rmw-zenoh/build.rs` reads it through the
+existing `env_usize_rung` ladder, so a consumer who names
+`ZPICO_MAX_LARGE_SUBSCRIBERS` still wins. A bare
+`corrosion_set_env_vars(ZPICO_MAX_LARGE_SUBSCRIBERS=…)` would have set the knob
+in the child environment and made the named override unreachable, silently.
 
-2. `packages/rmw/zenoh/nros-rmw-zenoh/build.rs` gains the
-   `resolve_queryable_default()` shape one crate over: read
-   `NROS_DECLARED_LARGE_SUBSCRIBERS` (with `cargo:rerun-if-env-changed`), use it
-   as the **default** for `env_usize("ZPICO_MAX_LARGE_SUBSCRIBERS", …)`, else 2.
-   A named `ZPICO_MAX_LARGE_SUBSCRIBERS` still wins, so rung 1 of the ladder is
-   preserved — which a bare `corrosion_set_env_vars(ZPICO_MAX_LARGE_SUBSCRIBERS=…)`
-   would silently break, since it sets the variable in the child environment.
+`None` and `0` are kept distinct: the carrier is written only under
+derived+subscribed, so an absent variable means "no answer" and never "zero" —
+and zero is the value this issue is about.
 
-3. A gate. `check-knob-delivery.py` is the right home and does not cover this:
-   its `DERIVED_PAIRS` map omits `NROS_DERIVED_MAX_LARGE_SUBSCRIBERS`,
-   `NROS_DERIVED_SUBSCRIBER_LARGE_SIZE` and
-   `NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE` entirely, and its very first check is
-   `if not cache: return [...]` on a build dir with no `NROS_RESOLVED_*` — i.e.
-   it *cannot* be pointed at a non-Zephyr build dir at all. `just check
-   knob-delivery` runs `--self-test` only, so nothing in CI has ever asserted
-   delivery on any lane. Either extend it to accept the `NROS_DECLARED_*` carrier
-   as a second delivery road, or add a sibling that asserts the negative form:
-   *no `NROS_DERIVED_*` symbol may have its only consumer under `zephyr/`.* That
-   sibling fails today for the entire family, which is the finding.
+**3. A gate, and it is not the one the plan proposed.** `check-knob-delivery`'s
+`DERIVED_PAIRS` gained the payload trio when issue 1125 landed, so the Zephyr
+road is covered. What had no gate at all was the DECLARED road, so
+`check-declared-fact-carriers` asserts the wire end to end for every
+`NROS_DECLARED_*` name: PRODUCED by a cmake file that calls
+`corrosion_set_env_vars`, CONSUMED by a Rust build-side `env::var`, and WATCHED
+with `cargo:rerun-if-env-changed` in the same file that reads it.
 
-4. The rest of the family (§4) is phase-412's remaining work, not this issue's:
-   324,416 bytes on this one image.
+The third rule is the one with history: `resolve_queryable_default` consumed two
+declared facts without declaring either, so cargo never re-ran when a
+declaration changed and the sizing read as applied while being stale.
+
+## Acceptance
+
+The ladder, measured by building the crate four ways:
+
+| | `MAX_LARGE_SUBSCRIBERS` |
+| --- | ---: |
+| nothing declared | 2 (crate default) |
+| `NROS_DECLARED_LARGE_SUBSCRIBERS=0` | **0** |
+| `NROS_DECLARED_LARGE_SUBSCRIBERS=3` | 3 |
+| declared 3 + `ZPICO_MAX_LARGE_SUBSCRIBERS=7` | **7** (named wins) |
+
+The carrier, as six cases in `tests/cmake-message-bounds-tests.sh` §Q — beside
+the writer, driven in `cmake -P`: derived+subscribed crosses (including zero),
+`closure` carries nothing, `refused` carries nothing, a missing count carries
+nothing, a missing file carries nothing. Mutating away either guard fails it.
+
+The gate, against the real tree: deleting the `rerun-if-env-changed` line
+reports the stale-sizing finding, and renaming the produced fact reports both
+halves (produced-unconsumed and consumed-unproduced).
+
+```
+just check declared-fact-carriers   3 facts produced, consumed and watched
+just check message-bound-knobs      98 assertions held
+just check fast                     260 ran, 1 ledger skip, 0 failed
+```
+
+**Not re-measured here: the 131,072 B.** That number comes from building the
+out-of-tree consumer against a cross toolchain, which is this issue's
+Reproduction section and not something the in-tree lanes can do. What is proven
+in-tree is every link in the chain the measurement depends on — the derivation
+already worked, and it is the delivery that was missing.
+
+## Still open: the rest of the family
+
+This closes ONE knob. §4's finding stands for the others — the four payload
+classes, the four session pools, the three executor counts are still published
+lane-independently and consumed Zephyr-only, and `check-declared-fact-carriers`
+does not fail for them because they never reach the DECLARED road at all. Each
+needs the same two-part treatment and the same per-knob safety argument about
+which basis is trustworthy. That is phase-412's remaining work; the shape to
+copy is here.
 
 ## Reproduction
 

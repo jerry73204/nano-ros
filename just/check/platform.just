@@ -298,6 +298,22 @@ kconfig-knob-forwarding:
 kconfig-overridden-values:
     @python3 scripts/check-kconfig-overridden-values.py
 
+# issue 1122 — the OTHER road a derived number takes into cargo. `NROS_DERIVED_*`
+# is the Zephyr one (`nros_resolve_knobs()` -> `NROS_RESOLVED_*`, gated by
+# `check-knob-delivery`); `NROS_DECLARED_*` is the lane-independent one, carried
+# by `corrosion_set_env_vars` and read as a DEFAULT by a build script. Before
+# 1122 the second road carried two facts and every derived POOL knob had only
+# the first, so a FreeRTOS image linked 131,072 B of `LARGE_PAYLOADS` while its
+# own build dir held `set(NROS_DERIVED_MAX_LARGE_SUBSCRIBERS 0)`.
+#
+# Produced / consumed / WATCHED, and the third is the one with history:
+# `resolve_queryable_default` read two declared facts without declaring either,
+# so cargo never re-ran when a declaration changed and the sizing read as
+# applied while being stale.
+[group("checks")]
+declared-fact-carriers:
+    @python3 scripts/check-declared-fact-carriers.py
+
 # phase-412 W4 — the value that reaches the COMPILE is the value the resolver
 # produced. The knob gates beside this one check whether the derived number is
 # RIGHT; this one checks whether it ARRIVED, which is a different question and

@@ -1034,6 +1034,80 @@ fi
 check
 
 # ---------------------------------------------------------------------------
+log_header "Q. the derived count CROSSES THE LANE BOUNDARY (issue 1122)"
+
+# `nros_derive_message_bound_knobs` writes the answer on EVERY lane; before 1122
+# its only consumer was `zephyr/cmake/nros_cargo_build.cmake`, so a FreeRTOS
+# image linked 131,072 B of `LARGE_PAYLOADS` while its own build dir held
+# `set(NROS_DERIVED_MAX_LARGE_SUBSCRIBERS 0)`. `_nros_payload_facts_env` in
+# `cmake/NanoRosEntityFacts.cmake` is the second road. It reads the FILE this
+# module writes, so it is tested here, beside the writer.
+#
+# The two GUARD conditions are the whole safety argument and each gets a case:
+# a `closure` basis counts large TYPES in the linked closure, which under-counts
+# an image with two subscriptions on one large type, and a `refused` status has
+# no answer at all. Getting either wrong under-sizes the pool, which is a
+# `SubscriberCreationFailed` at `create_subscription`.
+FACTS="$PROJECT_ROOT/cmake/NanoRosEntityFacts.cmake"
+
+payload_env() {
+    # payload_env <status> <basis> [count]  -> what the carrier would emit
+    local dir="$T/carrier"
+    rm -rf "$dir"; mkdir -p "$dir/nros"
+    if [ "$1" != "NOFILE" ]; then
+        {
+            printf 'set(NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS "%s")\n' "$1"
+            printf 'set(NROS_MESSAGE_BOUNDS_BASIS "%s")\n' "$2"
+            [ -n "${3:-}" ] && printf 'set(NROS_DERIVED_MAX_LARGE_SUBSCRIBERS %s)\n' "$3"
+        } > "$dir/nros/message_bound_knobs.cmake"
+    fi
+    cat > "$dir/run.cmake" <<EOF
+include("$MODULE")
+include("$FACTS")
+_nros_payload_facts_env(_out)
+message(STATUS "CARRIER=\${_out}")
+EOF
+    # `cmake -P` sets CMAKE_BINARY_DIR to the CWD, and the carrier resolves the
+    # knobs file through `nros_message_bounds_knobs_file()`, which is
+    # `${CMAKE_BINARY_DIR}/nros/message_bound_knobs.cmake`. Run from the fixture
+    # dir so that path lands on the file this case just wrote.
+    (cd "$dir" && cmake -P run.cmake 2>&1) | sed -n 's/^-- CARRIER=//p'
+}
+
+_got="$(payload_env derived subscribed 0)"
+if [ "$_got" != "NROS_DECLARED_LARGE_SUBSCRIBERS=0" ]; then
+    fail "Q: a derived+subscribed answer crosses as a DECLARED fact -- wanted \"NROS_DECLARED_LARGE_SUBSCRIBERS=0\", got ${_got:-<empty>}"
+fi
+check
+# Zero is the whole point: it is a CLAIM (every type fits the small class), not
+# an absence, and it is the value the measured image needed.
+_got="$(payload_env derived subscribed 3)"
+if [ "$_got" != "NROS_DECLARED_LARGE_SUBSCRIBERS=3" ]; then
+    fail "Q: a non-zero count crosses unchanged -- wanted \"NROS_DECLARED_LARGE_SUBSCRIBERS=3\", got ${_got:-<empty>}"
+fi
+check
+_got="$(payload_env derived closure 0)"
+if [ "$_got" != "" ]; then
+    fail "Q: the CLOSURE basis is refused -- it under-counts -- wanted \"\", got ${_got:-<empty>}"
+fi
+check
+_got="$(payload_env refused subscribed 0)"
+if [ "$_got" != "" ]; then
+    fail "Q: a refused status carries nothing -- wanted \"\", got ${_got:-<empty>}"
+fi
+check
+_got="$(payload_env derived subscribed)"
+if [ "$_got" != "" ]; then
+    fail "Q: derived+subscribed with NO count carries nothing -- wanted \"\", got ${_got:-<empty>}"
+fi
+check
+_got="$(payload_env NOFILE)"
+if [ "$_got" != "" ]; then
+    fail "Q: no knobs file at all carries nothing -- wanted \"\", got ${_got:-<empty>}"
+fi
+check
+
+# ---------------------------------------------------------------------------
 log_header "Summary"
 if [ "$FAILURES" -eq 0 ]; then
     log_success "$CHECKS assertions held"
