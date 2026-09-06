@@ -514,6 +514,50 @@ def main():
             "and a board with no directory (a conf bundle) is invisible to the "
             "directory check above, which is why this one exists")
 
+    # phase-375 W4 — THE SMOKE FLOOR, and it is the other direction.
+    #
+    # Above: a platform CI runs must carry a tier promise. Here: a platform that
+    # carries a tier promise must have Runtime evidence for it — at least ONE
+    # cell that boots and delivers a message.
+    #
+    # Measured 2026-09-06 before writing this: every platform already clears the
+    # floor (Linux 72 Runtime, ZephyrNativeSim 39, … QemuBaremetal 1). So this
+    # gate changes nothing today, which is the point — the distribution was
+    # DEFENSIBLE and UNDECLARED, and an undeclared floor is one the next
+    # platform can land beneath without anyone noticing. The minimum was already
+    # exactly 1; this says so.
+    #
+    # `scaffold` and `infra` rows are exempt BY TIER, not by name: scaffold
+    # promises nothing (that is what the tier is for, and phase-375 W2's
+    # `just board-new` starts every board there), and infra rows are not boards.
+    # A tier with a number is a promise, and a promise needs evidence.
+    floor_exempt = {"scaffold", "infra"}
+    for entry in reg:
+        plat = entry.get("matrix_platform")
+        tier = str(entry.get("tier", ""))
+        if not plat or tier in floor_exempt:
+            continue
+        # `execution_class = "hardware"` is the row DECLARING that CI does not
+        # run this platform — a maintainer does, on demand. Requiring a Runtime
+        # cell of it would be requiring evidence the row already says nobody
+        # collects automatically, and the fix would be to fake the cell.
+        #
+        # This is an exemption by DECLARED PROPERTY, not by name: any row can
+        # claim it, and claiming it is visible in the registry and in
+        # `book/src/reference/board-support-tiers.md`. A name-keyed exemption
+        # list would have been the second-spelling antipattern, and would have
+        # hidden which rows had opted out.
+        if entry.get("execution_class") == "hardware":
+            continue
+        if plat not in rt:
+            errors.append(
+                f"{entry.get('crate', '?')}: tier {tier} names matrix_platform "
+                f"{plat}, which has NO Runtime cell. A tier is a promise that the "
+                "platform works; the evidence for that is at least one cell that "
+                "boots and delivers a message (phase-375 W4's smoke floor). Add "
+                "one, or move the row to tier = \"scaffold\", which promises "
+                "nothing.")
+
     # --- per-entry predicates -------------------------------------------------
     baseline = load_baseline(errors)
     unowned = 0

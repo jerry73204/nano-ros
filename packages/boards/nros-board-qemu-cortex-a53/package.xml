@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nros_board_qemu_cortex_a53</name>
+  <version>0.0.0</version>
+  <description>
+    Board support for `qemu-cortex-a53` (zephyr).
+  </description>
+  <maintainer email="dev@example.com">Developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <export>
+    <build_type>nros_cmake</build_type>
+    <!--
+      Provision, NOT consumption: this package IS a board. Must equal the
+      descriptor's `names`, canonical first — `check-provider-announcements`
+      compares them, because two spellings of one fact drift.
+    -->
+    <nano_ros_provides kind="board" name="qemu-cortex-a53"/>
+  </export>
+</package>

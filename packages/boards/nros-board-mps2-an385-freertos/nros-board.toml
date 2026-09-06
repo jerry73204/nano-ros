@@ -4,8 +4,6 @@
 names = ["freertos", "freeRTOS", "FreeRTOS"]
 platform = "freertos"
 toolchain = "stable"
-platform_feature = "platform-freertos"
-link_kind = "none"
 entry_kind = "board-run"
 # phase-351 W4 — the stacks this board can be built with: the `config/freertos` platform manifest builds `system/freertos/lwip/network.c`.
 supported_netstacks = ["lwip"]

@@ -28,8 +28,6 @@
 names = ["mps3-an536-freertos", "an536", "AN536"]
 platform = "freertos"
 toolchain = "stable"
-platform_feature = "platform-freertos"
-link_kind = "none"
 entry_kind = "board-run"
 supported_netstacks = ["lwip"]
 board_crate = "nros-board-mps3-an536-freertos"

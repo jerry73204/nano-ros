@@ -6,9 +6,7 @@
 names = ["esp32-qemu", "esp32dev", "esp32", "esp32c3", "esp32-c3", "qemu-esp32-baremetal"]
 platform = "esp32"
 toolchain = "nightly"
-platform_feature = "platform-bare-metal"
 local_aliases = ["platform-esp32-qemu"]
-link_kind = "none"
 entry_kind = "board-run"
 # phase-351 W4 — the stacks this board can be built with: `Cargo.toml` names the smoltcp network provider (ethernet only).
 supported_netstacks = ["smoltcp"]

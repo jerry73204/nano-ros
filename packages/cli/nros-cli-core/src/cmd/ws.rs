@@ -6893,7 +6893,7 @@ rustflags = [
             toolchain: Toolchain::Nightly,
             platform_feature: "platform-nuttx".into(),
             local_aliases: vec![],
-            link_kind: LinkKind::NuttxStaging,
+            link_kind_stated: Some(LinkKind::NuttxStaging),
             entry_kind: EntryKind::BoardRun,
             supported_netstacks: Vec::new(),
             chip: None,

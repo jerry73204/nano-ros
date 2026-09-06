@@ -34,8 +34,6 @@
 names = ["native", "linux"]
 platform = "posix"
 toolchain = "stable"
-platform_feature = "platform-posix"
-link_kind = "none"
 entry_kind = "hosted-main"
 # phase-351 W4 — this board makes NO netstack choice: the host kernel owns the stack. An empty
 # list is a statement, not an omission: a deploy naming one is refused.

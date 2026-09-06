@@ -149,7 +149,7 @@ fn render_descriptor(args: &NewArgs) -> String {
         platform = args.platform,
     );
     out.push_str(
-        "link_kind = \"none\"\n\
+        "\
          # `hosted-main` when the host OS owns `main`, `zephyr-staticlib` on\n\
          # Zephyr, `board-run` when the board crate's `run()` is the entry.\n\
          # NOT derivable from `platform`: freertos carries both hosted and bare\n\
@@ -233,13 +233,16 @@ fn append_registry_row(root: &Path, args: &NewArgs) -> Result<()> {
     let path = root.join("packages/boards/board-support.toml");
     let mut body =
         std::fs::read_to_string(&path).wrap_err_with(|| format!("read {}", path.display()))?;
+    // Trailing blank line, not just a leading one: the row is inserted BEFORE
+    // an existing section, so without it the next `[[board]]` ends up glued to
+    // this row's last key. Valid TOML, unreadable diff.
     let row = format!(
-        "\n[[board]]\ncrate = \"nros-board-{}\"\ntier = \"scaffold\"\nmaintainers = []\n",
+        "[[board]]\ncrate = \"nros-board-{}\"\ntier = \"scaffold\"\nmaintainers = []\n\n",
         args.name
     );
     // Before the `# ===== infra` section, which is not boards.
     match body.find("# ===== infra") {
-        Some(i) => body.insert_str(i, row.trim_start_matches('\n')),
+        Some(i) => body.insert_str(i, &row),
         None => body.push_str(&row),
     }
     std::fs::write(&path, body)?;

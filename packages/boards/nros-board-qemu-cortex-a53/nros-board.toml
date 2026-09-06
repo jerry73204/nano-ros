@@ -1,0 +1,32 @@
+# Board descriptor for `qemu-cortex-a53`.
+#
+# A board is a PACKAGE (RFC-0064 R5 D1): this file says what the board
+# lowers to, and the `package.xml` beside it announces that the board
+# exists. Both are required — a descriptor with no announcement is
+# refused, because it would resolve here and be invisible to every
+# consumer that reaches providers through `provider_scan`.
+
+[[board]]
+names = ["qemu-cortex-a53"]
+platform = "zephyr"
+toolchain = "stable"
+# `hosted-main` when the host OS owns `main`, `zephyr-staticlib` on
+# Zephyr, `board-run` when the board crate's `run()` is the entry.
+# NOT derivable from `platform`: freertos carries both hosted and bare
+# boards.
+entry_kind = "zephyr-staticlib"
+# An EMPTY list is a statement, not an omission: a deploy naming a
+# netstack this board does not support is refused (phase-351 W4).
+supported_netstacks = []
+
+[board.zephyr]
+west_board = "qemu_cortex_a53/qemu_cortex_a53/smp"
+# Derived, so absent on purpose: prj.conf and
+# `boards/<west_board with / and @ as _>.{conf,overlay}`,
+# present-if-exists. State `runner` only if it differs from what
+# Zephyr's own board definition selects.
+
+[board.capabilities]
+heap = true
+atomics = true
+threads = true

@@ -7,8 +7,6 @@
 names = ["threadx", "threadx-linux"]
 platform = "threadx-linux"
 toolchain = "stable"
-platform_feature = "platform-threadx"
-link_kind = "none"
 entry_kind = "hosted-main"
 # phase-351 W4 — the stacks this board can be built with: the board boots NetX Duo over the NSOS BSD shim.
 supported_netstacks = ["netxduo"]

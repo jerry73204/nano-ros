@@ -19,8 +19,6 @@
 names = ["nuttx", "NuttX", "nuttx-qemu-arm", "qemu-armv7a-nsh"]
 platform = "nuttx"
 toolchain = "nightly"
-platform_feature = "platform-nuttx"
-link_kind = "nuttx-staging"
 entry_kind = "board-run"
 # phase-351 W4 — this board makes NO netstack choice: NuttX owns NIC+IP; the entry only pushes an address. An empty
 # list is a statement, not an omission: a deploy naming one is refused.
@@ -123,8 +121,6 @@ names = ["nuttx-riscv", "NuttX-riscv", "nuttx-qemu-riscv"]
 disambiguate_by_target = "riscv"
 platform = "nuttx"
 toolchain = "nightly"
-platform_feature = "platform-nuttx"
-link_kind = "nuttx-staging"
 entry_kind = "board-run"
 # phase-351 W4 — this board makes NO netstack choice: NuttX owns NIC+IP; the entry only pushes an address. An empty
 # list is a statement, not an omission: a deploy naming one is refused.
