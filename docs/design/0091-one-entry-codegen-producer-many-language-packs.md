@@ -383,8 +383,95 @@ route through the dispatch, or those rows should say what they actually pin:
 that `emit_c` ignores the board, and that the dispatch is what stops that
 mattering. Tracked on issue 1102.
 
+## Two questions the design had assumed away
+
+### Should codegen know target facts at all? — **Almost none, and today it knows none**
+
+The expectation that codegen emits target-AGNOSTIC source and the compiler
+resolves the target is the right default, and measurement says the tree already
+meets it.
+
+RFC-0068 has a `TargetProfile { ptr_width, enum_width }`. In the tree today:
+
+- It has **one** consumer outside its own crate
+  (`rosidl-codegen/generator/common.rs`), which passes `TargetProfile::host()`
+  **unconditionally** — no caller ever supplies an embedded profile.
+- `enum_width` is read **nowhere**.
+- `ptr_width` is read once, as "a conservative stand-in" for a nested struct's
+  alignment, on a path whose own comment says it "never makes a plain struct —
+  nested fields set plain=false". The value it produces changes no output.
+
+So the profile is inert. Nothing target-specific reaches generated code, which
+is why passing `host()` for an ARM build has never broken anything.
+
+And the hazard it was built for cannot occur in the current emitters: the
+`enum_width` field exists for the short-enums ABI (a `repr(C)` enum is 1 byte
+on armv7a-nuttx, 4 on x86_64), but the C and Rust message packs emit **no
+`enum` at all**. There is nothing for the two languages to disagree about.
+
+**The principle this should settle into.** Where two languages must agree on a
+representation, the fix is to PIN it explicitly in the generated source — an
+`uint8_t` and a `#[repr(u8)]`, sizes written down — rather than to teach codegen
+what the target's default ABI is. A pinned representation is target-agnostic by
+construction and needs no profile; a profile is a model of the toolchain that
+can be wrong, and silently. `TargetProfile` should be retired or reduced to
+whatever survives that test, and RFC-0068 amended accordingly rather than left
+describing scaffolding as architecture.
+
+For `LoweredEntry` the answer follows: **no target facts**. The entry already
+emits positional initialisers and width-safe literals that any conforming
+compiler resolves.
+
+### Should the C pack be pure C, or C++ wrapped in `extern "C"`? — **Pure C, and the substrate is already there**
+
+Today an embedded C entry is routed to the C++ emitter and compiled as a `.cpp`
+TU. That is a real constraint on the user's toolchain: a C-only shop — MISRA,
+a certified C compiler, no C++ runtime — cannot build one, and pays for a C++
+toolchain to compile an entry whose components are all C.
+
+The reason is narrower than a design decision, and it is an accident of which
+entry points were exposed. The C-callable board surface today:
+
+| board | `run_components` | `run_tiers` |
+| --- | --- | --- |
+| native | yes (+`_named`) | yes |
+| freertos | — | **yes** |
+| zephyr | — | **yes** |
+| nuttx | — | **yes** |
+| threadx | — | — |
+
+Three RTOS families already expose a C entry point for the MULTI-TIER shape and
+none for the single-tier one. And the layering runs the opposite way from the
+assumption: `nros_board_freertos_run_tiers` is **666 lines of C**, and
+`FreertosBoard::run_tiers` in `main.hpp` is the C++ veneer that calls it. The
+board layer is already C at the bottom.
+
+So "the embedded board runners are C++ only", which the dispatch comment gives
+as the reason for routing, is true of `run_components` and false of the layer
+underneath it. Exposing `nros_board_<rtos>_run_components` alongside the
+existing `run_tiers` is not a new capability — it is the single-tier shape
+declared the way the multi-tier one already is.
+
+**Design position: the C pack should be pure C**, and the routing special-case
+in `cmd/codegen.rs` should disappear once the entry points exist. That deletes
+a language-crossing branch from the pipeline, lets the C pack serve every board
+the C++ one does, and removes a C++ toolchain requirement from users who write
+only C. ThreadX is the exception with no C board API at all, and should be
+stated as unsupported-for-pure-C rather than silently routed.
+
+The counter-argument worth recording: a pure-C entry duplicates whatever the
+C++ runner does per board. It does not, if the C entry point wraps the same C
+implementation the C++ one wraps — which is the arrangement `run_tiers` already
+demonstrates on three boards.
+
 ## Remaining open questions
 
+- Does retiring `TargetProfile` belong to RFC-0068 (its home) or here? It is
+  inert, but it is THEIR stage, and amending someone else's Stable RFC from a
+  Draft one is the wrong direction.
+- `nros_board_threadx_run_components` does not exist and neither does its
+  `run_tiers` — is pure-C ThreadX worth the shim, or is ThreadX
+  C++-entry-only by declaration?
 - Should the designated-initialiser change land with the C++ pack conversion, or
   ahead of it as its own step? It is a byte-visible change to every generated
   entry, so it wants its own goldens diff rather than riding a larger one.
