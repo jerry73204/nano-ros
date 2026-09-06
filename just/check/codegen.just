@@ -332,6 +332,52 @@ pool-inventory:
     # formula, and both still run here; the artifact the book needs falls out.
     @python3 scripts/gen-pool-inventory.py
 
+# phase-432 W1.2 (RFC-0091) — the two packs that describe ONE memory agree.
+#
+# W1.1 deleted `TargetProfile`: codegen models no target. Removing a model of
+# the target without adding a MEASUREMENT of it is worse than either, so this
+# is the measurement. It cross-compiles size/alignment/field-offset probes from
+# the C pack's `typedef struct` and the C++ pack's `#[repr(C)]` Rust glue for
+# one 32-bit non-host target and compares the SYMBOL SIZES — no linking, no
+# execution, and neither side ever reads the other's spelling.
+#
+# The idiomatic Rust pack is deliberately NOT in this pair: it carries no
+# `repr(C)` and shares CDR (a wire format) rather than memory. Neither is the
+# `rmw` pack, whose memory partner is upstream `rosidl_generator_c`. The header
+# of the script has both arguments in full.
+#
+# Skips on a missing cross toolchain or an absent/stale in-tree CLI (the packs
+# are `include_str!`-bundled, so a stale binary would answer for other sources).
+# `--self-test` is its negative control and needs neither.
+[private]
+repr-memory-agreement:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 scripts/check-repr-memory-agreement.py --self-test
+    _missing=""
+    for _t in arm-none-eabi-gcc arm-none-eabi-nm rustc; do
+        command -v "$_t" >/dev/null 2>&1 || _missing="$_missing $_t"
+    done
+    if [ -z "$_missing" ] && [ ! -d "$(rustc --print target-libdir --target armv7a-none-eabi)" ]; then
+        _missing=" rust-std for armv7a-none-eabi (rustup target add armv7a-none-eabi)"
+    fi
+    if [ -n "$_missing" ]; then
+        # shellcheck source=scripts/build/check-skip.sh
+        source scripts/build/check-skip.sh
+        nros_check_skip repr-memory-agreement "missing:$_missing"
+        exit 0
+    fi
+    nros="packages/cli/target/release/nros"
+    # shellcheck source=scripts/build/cli-usable.sh
+    source scripts/build/cli-usable.sh
+    if ! nros_cli_usable "$nros"; then
+        # shellcheck source=scripts/build/check-skip.sh
+        source scripts/build/check-skip.sh
+        nros_check_skip repr-memory-agreement "$nros_cli_unusable_reason"
+        exit 0
+    fi
+    python3 scripts/check-repr-memory-agreement.py --nros "$nros"
+
 # Issue 0268 — the per-build sizes headers (`nros_{,cpp_}config_generated.h`)
 # mirrored onto the consumer include path must equal the copy build.rs wrote.
 # A stale mirror sizes the C `_opaque` buffers from museum data while Rust
