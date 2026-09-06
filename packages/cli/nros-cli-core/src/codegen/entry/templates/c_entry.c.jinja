@@ -10,11 +10,22 @@
                  `nros_native_tier_spec_t` table `run_tiers` walks.
     * setup    — a single `__nros_entry_setup`, the single-tier case.
 
-  Everything arrives ALREADY CORRECT from Rust: `name_lit` is escaped,
-  `decls` is the pre-rendered remap/param/QoS block for a node, `spec_rows`
-  are formatted tier rows, and `boot_config` is the shared
-  `emit_boot_config_static` output. This template chooses layout, never a
-  value — RFC-0068's rule, and the reason a quoting bug cannot originate here.
+  What arrives, and in what form (RFC-0091 §8b):
+
+    * VALUES, spelled here — `name` and `tiers` are raw data. The template
+      quotes strings with the `c_str` FILTER and writes the `LL`/`u`/`ull`
+      suffixes itself, because those spellings are C's, not the IR's. A Zig or
+      Rust pack renders the same rows differently with no lowering change.
+    * ENCODINGS, decided in Rust — `core_plus1` is core-plus-one and `-1` is an
+      unset preempt threshold. Those are C-ABI facts, and a pack must not have
+      to know them.
+    * Still PRE-RENDERED, and deliberately: `decls`, `trailer`, `boot_config`.
+      Their producers are shared with the unconverted `emit_cpp`, so
+      structuring them here alone would give it a second producer of the same
+      text — the duplication this design exists to remove. They convert when it
+      does (issue 1102).
+
+  A quoting bug cannot originate in this file: the filter is Rust.
 
   Whitespace is byte-compared against testdata/entry/c_*.golden.
 -#}
