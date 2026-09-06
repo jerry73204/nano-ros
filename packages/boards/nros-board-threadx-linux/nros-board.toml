@@ -8,7 +8,6 @@ names = ["threadx", "threadx-linux"]
 platform = "threadx-linux"
 toolchain = "stable"
 platform_feature = "platform-threadx"
-local_aliases = ["platform-threadx"]
 link_kind = "none"
 entry_kind = "hosted-main"
 # phase-351 W4 — the stacks this board can be built with: the board boots NetX Duo over the NSOS BSD shim.
@@ -16,8 +15,6 @@ supported_netstacks = ["netxduo"]
 board_crate = "nros-board-threadx-linux"
 
 [board.entry]
-crate_name = "nros_board_threadx_linux"
-comment = "// Phase 126.M5.threadx / 313 W-threadx — ThreadX-Linux is host-hosted:\n// the board boots the ThreadX kernel + NetX Duo stack, then invokes the\n// closure on the application thread. `nros::main!` references\n// `<ThreadxLinux as BoardEntry>::run`/`run_tiers` — REQUIRED — it pins the\n// board rlib (and its build-script-linked ThreadX kernel + NetX archives)\n// into the link graph so `--gc-sections` doesn't drop the platform\n// `nros_platform_*` / `_tx_*` symbols. (Logging/init-only fixtures use the\n// no-session `ThreadxLinux::run_bare`.)"
 signature = "fn main() -> !"
 
 # RFC-0042 D2 / phase-241 wave C — declared capabilities (SSoT).

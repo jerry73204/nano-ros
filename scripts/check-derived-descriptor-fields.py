@@ -133,6 +133,38 @@ def own_crate_name(pkg_dir):
     return name if isinstance(name, str) else None
 
 
+# RFC-0064 R5 D6 / phase-375 W8 — derivations whose input is a SIBLING FIELD in
+# the same entry, rather than the canonical name or the package directory.
+#
+# Boards need this shape and the other two families do not: a board's
+# `crate_name` is a transform of its `board_crate` one line above it, and its
+# `local_aliases` default is its own `platform_feature`. Returning `None` means
+# the input is absent, which is D2's "unavailable" rather than a divergence.
+
+
+def entry_crate_name(entry):
+    """`snake_case(board_crate)` — 7 of 7 boards that state one state this."""
+    bc = entry.get("board_crate")
+    return bc.replace("-", "_") if isinstance(bc, str) else None
+
+
+def entry_local_aliases(entry):
+    """`[platform_feature]` — 8 of 10 stated exactly that.
+
+    The two real overrides (`platform-esp32-qemu`, `platform-threadx-riscv64`)
+    are DIVERGENCES by this rule and are grandfathered in the baseline, which is
+    the correct outcome: they are deliberate, they are few, and a reader who
+    meets one should be able to see that it was noticed.
+    """
+    pf = entry.get("platform_feature")
+    return [pf] if isinstance(pf, str) else None
+
+
+ENTRY_DERIVED = {
+    "crate_name": entry_crate_name,
+    "local_aliases": entry_local_aliases,
+}
+
 # ---------------------------------------------------------------------------
 # Families. A row says where the descriptors are, how to walk their entries,
 # and which fields in each entry are convention.
@@ -158,7 +190,24 @@ def board_entries(data):
     boards = data.get("board")
     if not isinstance(boards, list):
         return []
-    return [(f"board[{i}]", b) for i, b in enumerate(boards) if isinstance(b, dict)]
+    out = []
+    for i, b in enumerate(boards):
+        if not isinstance(b, dict):
+            continue
+        # `[board.entry]`'s fields are flattened in beside the board's own, so a
+        # sibling-field derivation (`crate_name` from `board_crate`) can see
+        # both. Flattening is safe because the two key sets are disjoint; a
+        # collision would silently pick one, so it is asserted.
+        entry = b.get("entry")
+        merged = {k: v for k, v in b.items() if k != "entry"}
+        if isinstance(entry, dict):
+            assert not (set(entry) & set(merged)), (
+                f"board[{i}]: `[board.entry]` and the board share a key "
+                f"({sorted(set(entry) & set(merged))}); flattening would hide one"
+            )
+            merged.update(entry)
+        out.append((f"board[{i}]", merged))
+    return out
 
 
 FAMILIES = {
@@ -180,9 +229,19 @@ FAMILIES = {
         },
     },
     "board": {
-        "glob": "packages/boards/*/nros-board.toml",
+        # TWO globs since phase-375 W6: a bundle board lives one level deeper
+        # (`nros-board-<family>/boards/<bundle>/`). A single-glob version of
+        # this list is how `fvp-aemv8r-smp` went unchecked by several gates at
+        # once.
+        "glob": [
+            "packages/boards/*/nros-board.toml",
+            "packages/boards/*/boards/*/nros-board.toml",
+        ],
         "entries": board_entries,
         "fields": {
+            # RFC-0064 R5 D6.
+            "local_aliases": None,
+            "crate_name": None,
             # The board's own crate. Every board that states one states its own
             # package name; the three crate-less boards (linux, zephyr,
             # freertos-posix) state nothing, which is the right answer.
@@ -196,7 +255,7 @@ FAMILIES = {
 # above stay pure functions of the name.
 PACKAGE_DERIVED = {"crate": own_crate_name, "board_crate": own_crate_name}
 assert all(
-    (conv is None) == (field in PACKAGE_DERIVED)
+    (conv is None) == (field in PACKAGE_DERIVED or field in ENTRY_DERIVED)
     for fam in FAMILIES.values()
     for field, conv in fam["fields"].items()
 ), "a field is derived from the name OR from the package, never neither/both"
@@ -217,10 +276,12 @@ def scan(root):
     """
     rows, checked, notes = [], 0, []
     for kind, fam in sorted(FAMILIES.items()):
-        paths = sorted(Path(root).glob(fam["glob"]))
+        globs = fam["glob"]
+        globs = [globs] if isinstance(globs, str) else list(globs)
+        paths = sorted({p for g in globs for p in Path(root).glob(g)})
         if not paths:
             notes.append(
-                f"family {kind!r}: no descriptor matched {fam['glob']!r} — "
+                f"family {kind!r}: no descriptor matched {globs!r} — "
                 f"refusing to pass on an empty set"
             )
             continue
@@ -249,7 +310,10 @@ def scan(root):
                     stated = entry[field]
                     checked += 1
                     key = f"{key_path}@{label}.{field}"
-                    if field in PACKAGE_DERIVED:
+                    if field in ENTRY_DERIVED:
+                        derived = ENTRY_DERIVED[field](entry)
+                        derived = UNAVAILABLE if derived is None else derived
+                    elif field in PACKAGE_DERIVED:
                         derived = PACKAGE_DERIVED[field](pkg_dir)
                         derived = UNAVAILABLE if derived is None else derived
                     elif attributable and announced:

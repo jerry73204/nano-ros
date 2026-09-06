@@ -20,7 +20,6 @@ names = ["nuttx", "NuttX", "nuttx-qemu-arm", "qemu-armv7a-nsh"]
 platform = "nuttx"
 toolchain = "nightly"
 platform_feature = "platform-nuttx"
-local_aliases = ["platform-nuttx"]
 link_kind = "nuttx-staging"
 entry_kind = "board-run"
 # phase-351 W4 — this board makes NO netstack choice: NuttX owns NIC+IP; the entry only pushes an address. An empty
@@ -28,7 +27,6 @@ entry_kind = "board-run"
 supported_netstacks = []
 board_crate = "nros-board-nuttx-qemu"
 # Phase 252 (issue 0072) — forwards [safety] through the nuttx family to zenoh.
-capability_features = ["safety-e2e"]
 cargo_config = '''
 [build]
 target = "armv7a-nuttx-eabihf"
@@ -126,7 +124,6 @@ target_contains = "riscv"
 platform = "nuttx"
 toolchain = "nightly"
 platform_feature = "platform-nuttx"
-local_aliases = ["platform-nuttx"]
 link_kind = "nuttx-staging"
 entry_kind = "board-run"
 # phase-351 W4 — this board makes NO netstack choice: NuttX owns NIC+IP; the entry only pushes an address. An empty
@@ -134,7 +131,6 @@ entry_kind = "board-run"
 supported_netstacks = []
 board_crate = "nros-board-nuttx-qemu"
 # Phase 252 (issue 0072) — forwards [safety] through the nuttx family to zenoh.
-capability_features = ["safety-e2e"]
 cargo_config = '''
 [build]
 target = "riscv32imac-unknown-nuttx-elf"

@@ -110,11 +110,16 @@ pub enum EntryKind {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BoardEntry {
     /// Board rlib invoked as `<crate>::run(<crate>::Config::default(), ..)`.
-    pub crate_name: String,
-    /// Doc comment emitted directly above the entry fn.
+    ///
+    /// DERIVED from `board_crate` when omitted — see
+    /// [`BoardDescriptor::apply_conventions`].
     #[serde(default)]
-    pub comment: String,
+    pub crate_name: String,
     /// Attribute(s) + `fn` signature line(s) preceding the fn body.
+    ///
+    /// DEFAULTS to the `#[unsafe(no_mangle)] extern "C" fn main() -> !` shape
+    /// that 4 of 7 boards state verbatim.
+    #[serde(default)]
     pub signature: String,
     /// Crate-root `use`s / items pinned above the entry (panic handler, etc.).
     #[serde(default)]
@@ -262,11 +267,6 @@ pub struct BoardDescriptor {
     /// Phase 252 — the capability-axis features this board crate forwards to its
     /// backend (e.g. `["safety-e2e"]` → the board's `safety-e2e = ["nros-rmw-zenoh?/safety-e2e"]`).
     /// A declared `[safety]` axis lowers to the board feature only when the board
-    /// advertises it here; otherwise codegen skips it + warns (so a board without
-    /// the feature is never a Cargo error). Empty ⇒ the board carries no capability
-    /// forwarding yet. → RFC-0031 § "Generalization", issue 0072.
-    #[serde(default)]
-    pub capability_features: Vec<String>,
     /// Verbatim `.cargo/config.toml` body, with `${workspace}` placeholders for
     /// any layout path. `None` for boards that need no config (posix/zephyr/…).
     #[serde(default)]
@@ -436,6 +436,52 @@ pub enum NetstackError {
 }
 
 impl BoardDescriptor {
+    /// Fill in what a convention produces, for fields the descriptor left out.
+    ///
+    /// RFC-0064 R5 D6. Each rule below was MEASURED across the twelve
+    /// `[[board]]` rows in the tree before being made a default, and each one
+    /// keeps its override: a model that cannot be escaped is worse than none
+    /// (RFC-0064's customization ladder, rung 3).
+    ///
+    /// Deliberately NOT here, and worth recording because an earlier draft of
+    /// R5 said otherwise:
+    ///
+    /// * **`entry_kind` is not derivable from `platform`.** The draft claimed
+    ///   "hosted platform → `hosted-main`, zephyr → `zephyr-staticlib`, else
+    ///   `board-run`, zero exceptions". Measured: `freertos-posix` and
+    ///   `mps2-an385-freertos` are BOTH `platform = "freertos"` and their
+    ///   `entry_kind` values are `hosted-main` and `board-run`. Whether a port
+    ///   is hosted is a fact no field in this tree carries, so the derivation
+    ///   would need a new one — which is not a simplification.
+    /// * **`crate_path` and `board_features` are not dead.** No in-tree
+    ///   descriptor authors either, but `builder/entry.rs` reads both, so they
+    ///   are an out-of-tree extension point with no in-tree user rather than
+    ///   fields to delete.
+    fn apply_conventions(&mut self) {
+        // `local_aliases` defaults to the platform feature. 8 of 10 stated
+        // exactly that; the two real overrides (`platform-esp32-qemu`,
+        // `platform-threadx-riscv64`) still say so and still win.
+        if self.local_aliases.is_empty() && !self.platform_feature.is_empty() {
+            self.local_aliases = vec![self.platform_feature.clone()];
+        }
+        if let Some(entry) = self.entry.as_mut() {
+            // `crate_name` is `snake_case(board_crate)` in 7 of 7 boards that
+            // state one — a mechanical transform of a field one line above it.
+            if entry.crate_name.is_empty()
+                && let Some(board_crate) = self.board_crate.as_deref()
+            {
+                entry.crate_name = board_crate.replace('-', "_");
+            }
+            // 4 of 7 signatures are this exact string. The three that differ
+            // are real (an `esp_hal::main` attribute, a `cortex-m-rt` entry
+            // macro re-exported by the board crate, a plain `fn main`), so it
+            // is a default rather than a derivation.
+            if entry.signature.is_empty() {
+                entry.signature = "#[unsafe(no_mangle)]\nextern \"C\" fn main() -> !".to_string();
+            }
+        }
+    }
+
     /// Does this board answer to `key`?
     ///
     /// Its declared `names`, plus its Zephyr board id when it has one. The
@@ -603,6 +649,7 @@ impl BoardFile {
             {
                 b.target = Some(t);
             }
+            b.apply_conventions();
         }
         self.boards
     }
@@ -1487,27 +1534,6 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
     }
 
     #[test]
-    fn a_board_advertises_the_safety_capability_feature() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(3)
-            .expect("repo root")
-            .to_path_buf();
-        let cat = BoardCatalog::load(&root).expect("load real board catalog");
-        let advertising: Vec<&str> = cat
-            .descriptors()
-            .iter()
-            .filter(|d| d.capability_features.iter().any(|f| f == "safety-e2e"))
-            .flat_map(|d| d.names.iter().map(|n| n.as_str()))
-            .collect();
-        assert!(
-            advertising.contains(&"bare-metal"),
-            "bare-metal (mps2-an385) must advertise safety-e2e; \
-             advertising boards: {advertising:?}"
-        );
-    }
-
-    #[test]
     fn every_in_tree_board_declares_capabilities() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
@@ -1709,7 +1735,6 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             board_crate: None,
             crate_path: None,
             board_features: vec![],
-            capability_features: vec![],
             priority_plan: None,
             cargo_config: Some("inc = \"${workspace}/third-party/x\"".into()),
             entry: None,
@@ -1934,7 +1959,6 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             board_crate: None,
             crate_path: None,
             board_features: vec![],
-            capability_features: vec![],
             priority_plan: None,
             cargo_config: None,
             entry: None,

@@ -1,3 +1,9 @@
 {
+  "packages/boards/nros-board-esp32-qemu/nros-board.toml@board[0].local_aliases": [
+    "platform-esp32-qemu"
+  ],
+  "packages/boards/nros-board-threadx-qemu-riscv64/nros-board.toml@board[0].local_aliases": [
+    "platform-threadx-riscv64"
+  ],
   "packages/rmw/xrce/nros-rmw-xrce/nros-rmw.toml@rmw.crate": "nros-rmw-xrce-cffi"
 }
