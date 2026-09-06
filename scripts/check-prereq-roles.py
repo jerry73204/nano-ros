@@ -28,7 +28,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX = os.path.join(ROOT, "nros-sdk-index.toml")
-VALID = {"package", "workspace", "infra", "vendor"}
+# RFC-0062 amendment 4 (phase-435 W1) added `buildtool`: a tool the BUILDER
+# shells out to. It is not `package`, because no `package.xml` names it —
+# `<build_type>` already implies it — and it is not `infra`, which is about
+# where you DEPLOY. Amendment 3's own table had grouped 16 such keys; the
+# vocabulary simply lacked the value, so seven sat under `package` and
+# `nros setup --workspace` reported `cargo` as something a workspace "names".
+VALID = {"package", "workspace", "infra", "vendor", "buildtool"}
 
 
 def entries(text):
