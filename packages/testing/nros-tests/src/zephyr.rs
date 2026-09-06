@@ -912,24 +912,12 @@ fn decode_alias(
         "zephyr-dds-cpp-service-client" => ("cpp", "service-client", "cyclonedds", ""),
         "zephyr-dds-cpp-action-server" => ("cpp", "action-server", "cyclonedds", ""),
         "zephyr-dds-cpp-action-client" => ("cpp", "action-client", "cyclonedds", ""),
-        "zephyr-dds-cpp-talker-a9" => ("cpp", "talker", "cyclonedds", "-a9"),
-        "zephyr-dds-cpp-listener-a9" => ("cpp", "listener", "cyclonedds", "-a9"),
-        "zephyr-dds-cpp-service-server-a9" => ("cpp", "service-server", "cyclonedds", "-a9"),
-        "zephyr-dds-cpp-service-client-a9" => ("cpp", "service-client", "cyclonedds", "-a9"),
-        "zephyr-dds-cpp-action-server-a9" => ("cpp", "action-server", "cyclonedds", "-a9"),
-        "zephyr-dds-cpp-action-client-a9" => ("cpp", "action-client", "cyclonedds", "-a9"),
         "zephyr-dds-c-talker" => ("c", "talker", "cyclonedds", ""),
         "zephyr-dds-c-listener" => ("c", "listener", "cyclonedds", ""),
         "zephyr-dds-c-service-server" => ("c", "service-server", "cyclonedds", ""),
         "zephyr-dds-c-service-client" => ("c", "service-client", "cyclonedds", ""),
         "zephyr-dds-c-action-server" => ("c", "action-server", "cyclonedds", ""),
         "zephyr-dds-c-action-client" => ("c", "action-client", "cyclonedds", ""),
-        "zephyr-dds-c-talker-a9" => ("c", "talker", "cyclonedds", "-a9"),
-        "zephyr-dds-c-listener-a9" => ("c", "listener", "cyclonedds", "-a9"),
-        "zephyr-dds-c-service-server-a9" => ("c", "service-server", "cyclonedds", "-a9"),
-        "zephyr-dds-c-service-client-a9" => ("c", "service-client", "cyclonedds", "-a9"),
-        "zephyr-dds-c-action-server-a9" => ("c", "action-server", "cyclonedds", "-a9"),
-        "zephyr-dds-c-action-client-a9" => ("c", "action-client", "cyclonedds", "-a9"),
         // DDS Rust legacy aliases — Phase 169.4 retired the old Rust DDS
         // backend. These
         // map to cyclonedds for now; the build dir + example path
@@ -952,17 +940,29 @@ fn decode_alias(
         }
         // `service-client-async` zephyr/rust example dropped 2026-06-02 per
         // Phase 212.M-F.5 — pending async-`Node` trait decision.
-        "zephyr-dds-rs-talker-a9" => ("rust", "talker", "cyclonedds", "-a9"),
-        "zephyr-dds-rs-listener-a9" => ("rust", "listener", "cyclonedds", "-a9"),
-        "zephyr-dds-rs-service-server-a9" => ("rust", "service-server", "cyclonedds", "-a9"),
-        "zephyr-dds-rs-service-client-a9" => ("rust", "service-client", "cyclonedds", "-a9"),
-        "zephyr-dds-rs-action-server-a9" => ("rust", "action-server", "cyclonedds", "-a9"),
-        "zephyr-dds-rs-action-client-a9" => ("rust", "action-client", "cyclonedds", "-a9"),
+        //
+        // issue 1016 — the eighteen `zephyr-dds-*-a9` arms are gone. No test
+        // named one, no `[[fixture]]` row modelled one, and no recipe built
+        // one, so each was a build-dir name (`build-<lang>-<case>-cyclonedds-a9`)
+        // this resolver could produce and `west-leaves` could not explain.
+        // `require_west_leaf_in_lane` fails OPEN on a name it cannot find —
+        // "run it" — so an alias like that is by construction a leaf the run
+        // demands at every lane and no lane builds, which is exactly the
+        // STALE-verdict shape issue 1016 reported. The vocabulary is now a
+        // subset of the manifest's, and `check-west-leaf-vocabulary.py` keeps
+        // it one.
         _ => return None,
     })
 }
 
-/// Build-dir slot for the alias: `build-<lang>-<case>-<rmw>[-a9]`.
+/// Build-dir slot for the alias: `build-<lang>-<case>-<rmw>[<-board>]`.
+///
+/// Every name this can return must be one `fixtures-manifest.py west-leaves`
+/// models, or `require_west_leaf_in_lane` cannot decide the leaf's lane and
+/// falls open — see [`decode_alias`]'s closing note and
+/// `scripts/check-west-leaf-vocabulary.py`. The board suffix is empty for every
+/// live alias today; it stays in the shape because a second board's leaves would
+/// reuse it, and the gate would then require the matching rows.
 ///
 /// issue 0539 — this used to map `rust` -> `rs` here, and
 /// `fixtures-manifest.py::west_lang_tag` carried the same mapping on the BUILD

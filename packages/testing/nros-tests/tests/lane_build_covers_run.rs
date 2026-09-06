@@ -552,6 +552,127 @@ fn a_narrow_build_is_refused_when_the_run_is_not_narrowed() {
     let _ = std::fs::remove_file(&full);
 }
 
+/// The same property for the WEST table — issue 1016.
+///
+/// `every_unskippable_row_is_in_its_lane_build` below cannot see west leaves and
+/// never could: `row_artifact_root` returns `""` for them (west writes into the
+/// Zephyr build root, not under the row's `dir`), so `row_is_lane_skippable`
+/// calls every one of them skippable and the check has nothing to compare. Their
+/// skippability is real, but it is enforced somewhere else entirely — in
+/// `fixtures::lane::require_west_leaf_in_lane`, by looking the leaf's BUILD-DIR
+/// NAME up in `fixtures-manifest.py west-leaves`.
+///
+/// That lookup FAILS OPEN. A name the manifest does not model is therefore:
+///
+///   * never emitted by `west-leaves`, so no lane's build produces it; and
+///   * never skippable by the run, because the lookup misses.
+///
+/// Which is exactly 0828's shape one table over, and it arrives as
+/// `BuildFailed("Zephyr fixture is STALE …")` — indistinguishable from a cell
+/// that ran and failed. Issue 0968 reasoned about six such cells as failures.
+///
+/// MEMBERSHIP, and named: for every build-dir name the run can produce, either
+/// the lane BUILDS it or the manifest models it at a coordinate outside the
+/// lane (so the run skips it). "Counts agree" would pass with the property
+/// broken, which is the mistake 0828's first test made.
+#[test]
+fn every_west_leaf_the_run_can_name_is_built_or_skippable() {
+    let repo = nros_tests::project_root();
+
+    // The run's vocabulary, harvested by the gate that owns that harvest — one
+    // spelling, so this test cannot drift from what `just check fast` enforces.
+    let vocab = Command::new("python3")
+        .arg("-c")
+        .arg(
+            r#"
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("g", "scripts/check-west-leaf-vocabulary.py")
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+names = g.alias_build_names(g.ZEPHYR_RS.read_text()) | g.literal_build_names(g.TEST_CRATE)
+print("\n".join(sorted(names)))
+"#,
+        )
+        .current_dir(&repo)
+        .output()
+        .expect("harvest the resolver's west build-dir vocabulary");
+    assert!(
+        vocab.status.success(),
+        "vocabulary harvest failed:\n{}",
+        String::from_utf8_lossy(&vocab.stderr)
+    );
+    let vocab: BTreeSet<String> = String::from_utf8_lossy(&vocab.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(str::to_string)
+        .collect();
+    // A harvest that silently returned nothing would make every assertion below
+    // vacuously true — the failure mode a source-scraping check has.
+    assert!(
+        vocab.len() >= 30,
+        "harvested only {} west build-dir name(s) from the resolvers; the \
+         harvest has broken and this test is checking nothing",
+        vocab.len()
+    );
+
+    let west_build_names = |coords: Option<&str>| -> BTreeSet<String> {
+        let mut cmd = Command::new("python3");
+        cmd.arg("scripts/build/fixtures-manifest.py")
+            .arg("west-leaves");
+        if let Some(c) = coords {
+            cmd.arg("--coords-from").arg(c);
+        }
+        let out = cmd.current_dir(&repo).output().expect("run west-leaves");
+        assert!(
+            out.status.success(),
+            "west-leaves failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.split('\x1f').nth(6).unwrap_or_default().to_string())
+            .collect()
+    };
+
+    let modelled = west_build_names(None);
+    assert!(
+        !modelled.is_empty(),
+        "the manifest models no west leaves at all — `west-leaves` has broken"
+    );
+
+    for lane in ["tier1", "tier2", "tier2-nightly"] {
+        let coords = lane_coords_file(lane);
+        let built = west_build_names(Some(&coords));
+        let stranded: Vec<&String> = vocab
+            .iter()
+            .filter(|name| !built.contains(*name) && !modelled.contains(*name))
+            .collect();
+        assert!(
+            stranded.is_empty(),
+            "{lane}: {} west build-dir name(s) the run can resolve are neither \
+             built by this lane nor modelled by the manifest, so \
+             `require_west_leaf_in_lane` fails open on them and the run demands \
+             a leaf no lane produces (issue 1016). Add the `[[fixture]] builder \
+             = \"west\"` row, or delete the resolver name:\n  {}",
+            stranded.len(),
+            stranded
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+        // …and the lane must actually narrow, or the assertion above would hold
+        // for the uninteresting reason that everything is built.
+        assert!(
+            built.len() < modelled.len(),
+            "{lane}: the west lane built {} of {} leaves — it is not narrowing, \
+             so this test proves nothing about skippability",
+            built.len(),
+            modelled.len()
+        );
+    }
+}
+
 /// A row the RUN cannot skip must be in the lane's BUILD — issue 0828.
 ///
 /// `--coords-from <lane>` narrows the build to a lane's cell cover, on the

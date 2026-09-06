@@ -359,9 +359,13 @@ if [ -n "${NROS_FIXTURE_COORDS:-}" ]; then
 fi
 
 selected=0
+# `_row_coord` is read but unused HERE: this script's narrowing already happened
+# in `--coords-from` above, on the same `row_coord`. It is named so the trailing
+# field cannot be absorbed by `row_nros_image` — `read` puts the remainder in the
+# last variable, so an unnamed column silently corrupts the one before it.
 while IFS=$'\x1f' read -r board lang lang_tag rmw role src build_name id \
     row_zenoh_locator row_xrce_port row_cyclone_domain row_conf_files _row_reserved \
-    row_ws_dir row_nros_image; do
+    row_ws_dir row_nros_image _row_coord; do
     [ -n "$board" ] || continue
 
     # Host gating, unchanged: cyclonedds leaves need an idlc. The manifest lists

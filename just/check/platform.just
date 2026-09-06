@@ -464,3 +464,11 @@ zephyr-kconfig-symbols:
 [private]
 zephyr-knob-agreement:
     @python3 scripts/check-zephyr-knob-agreement.py
+
+# Issue 1016 — `require_west_leaf_in_lane` fails OPEN on a build-dir name the
+# manifest does not model, so such a name is a leaf every lane's RUN demands and
+# no lane's BUILD produces. The verdict is a STALE message nobody can tell from a
+# cell that ran and failed; issue 0968 read six of them as failures. 18 existed.
+[private]
+west-leaf-vocabulary:
+    @python3 scripts/check-west-leaf-vocabulary.py

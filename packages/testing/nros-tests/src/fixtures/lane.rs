@@ -242,43 +242,60 @@ pub fn west_leaves() -> &'static [WestLeaf] {
             Err(e) => panic!("could not run fixtures-manifest.py west-leaves: {e}"),
         };
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        let mut rows = Vec::new();
-        for line in text.lines().filter(|l| !l.is_empty()) {
-            let f: Vec<&str> = line.split('\x1f').collect();
-            // 15 since phase-383 W9.b appended `ws_dir` and `nros_image` —
-            // EMPTY on an unmigrated leaf, set on one the west lane builds
-            // through `nros build <bringup>:<image>`. Kept as an exact count
-            // rather than a lower bound: this assertion is the only thing that
-            // notices when the emitter and its readers drift, and it is what
-            // caught this very addition.
-            assert_eq!(
-                f.len(),
-                15,
-                "unexpected `west-leaves` record shape (expected 15 \\x1f-separated \
-                 fields): {line:?}"
-            );
-            // board, lang, lang_tag, rmw, role, dir, build_name, id, ...
-            //
-            // The leaf's rmw LABEL is not always its coordinate: the
-            // logging-smoke leaf spells `default` and coordinates at the
-            // `zenoh` fallback, exactly as `row_coord` resolves it.
-            let rmw = if f[3] == "default" { "zenoh" } else { f[3] };
-            // The board discriminates the platform token the same way the rows
-            // do — the mps2 witness leaves are `zephyr-cortex-m`, or they would
-            // share a coordinate with their native_sim siblings.
-            let platform = if f[0] == "mps2_an385" {
-                "zephyr-cortex-m"
-            } else {
-                "zephyr"
-            };
-            rows.push(WestLeaf {
-                build_name: f[6].to_string(),
-                coord: (platform.to_string(), f[1].to_string(), rmw.to_string()),
-                dir: f[5].to_string(),
-            });
-        }
-        rows
+        text.lines()
+            .filter(|l| !l.is_empty())
+            .map(parse_west_leaf)
+            .collect()
     })
+}
+
+/// One `west-leaves` record → a [`WestLeaf`].
+///
+/// Split out of [`west_leaves`] so the property that matters can be tested on
+/// an input the shipped manifest does not contain — a record whose BOARD and
+/// whose COORDINATE disagree. Any implementation that derives the coordinate
+/// from the board answers differently on such a record, which is the whole
+/// point: this side is the RUN's skip predicate and `--coords-from` is the
+/// BUILD's, and the two must be one computation.
+fn parse_west_leaf(line: &str) -> WestLeaf {
+    let f: Vec<&str> = line.split('\x1f').collect();
+    // 16 since issue 1016 appended `coord` (phase-383 W9.b appended `ws_dir`
+    // and `nros_image` before it). Kept as an exact count rather than a lower
+    // bound: this assertion is the only thing that notices when the emitter and
+    // its readers drift, and it is what caught both additions.
+    assert_eq!(
+        f.len(),
+        16,
+        "unexpected `west-leaves` record shape (expected 16 \\x1f-separated \
+         fields): {line:?}"
+    );
+    // board, lang, lang_tag, rmw, role, dir, build_name, id, …, coord
+    //
+    // issue 1016 — the coordinate is READ, not re-derived. This used to rebuild
+    // the triple from `board` and the rmw LABEL with two local special cases
+    // (`mps2_an385` → `zephyr-cortex-m`, so the witness leaves do not share
+    // their native_sim siblings' coordinate; `default` → `zenoh`, which is how
+    // logging-smoke spells its absent rmw). Both were faithful mirrors of
+    // `row_coord` and nothing held them there — a drift would be a leaf the
+    // lane omits and the run demands, i.e. issue 0828's shape for the west
+    // table, arriving as a STALE verdict nobody can distinguish from a failure.
+    let coord: Vec<&str> = f[15].split(',').collect();
+    assert_eq!(
+        coord.len(),
+        3,
+        "west leaf {:?}: `coord` must be `platform,lang,rmw`, got {:?}",
+        f[6],
+        f[15]
+    );
+    WestLeaf {
+        build_name: f[6].to_string(),
+        coord: (
+            coord[0].to_string(),
+            coord[1].to_string(),
+            coord[2].to_string(),
+        ),
+        dir: f[5].to_string(),
+    }
 }
 
 /// Skip when the west leaf built into `build_name` is outside this run's lane.
@@ -832,6 +849,48 @@ mod tests {
         assert!(coords.contains(&("linux".to_string(), "rust".to_string(), "zenoh".to_string())));
         assert!(coords.contains(&("nuttx".to_string(), "c".to_string(), "zenoh".to_string())));
         assert_eq!(coords.len(), 2);
+    }
+
+    /// A west leaf's coordinate is READ from the record, never re-derived — issue 1016.
+    ///
+    /// The record below is deliberately self-contradictory: its BOARD is
+    /// `mps2_an385` and its rmw LABEL is `default`, the two inputs the old
+    /// derivation special-cased, while its `coord` column says
+    /// `zephyr,rust,xrce`. Anything that computes the triple from board+label
+    /// answers `("zephyr-cortex-m", "rust", "zenoh")` here; only reading the
+    /// column gives the manifest's answer.
+    ///
+    /// That is the property, not a formatting detail: this side is the RUN's
+    /// skip predicate and `fixtures-manifest.py --coords-from` is the BUILD's.
+    /// A leaf the two disagree about is one the lane omits and the run demands,
+    /// which surfaces as `BuildFailed("Zephyr fixture is STALE …")` — the
+    /// verdict issue 0968 read six times as a failure.
+    #[test]
+    fn a_west_leaf_takes_its_coordinate_from_the_manifest_not_from_its_board() {
+        let mut f = vec![""; 16];
+        f[0] = "mps2_an385"; // board — the old platform special case
+        f[1] = "rust";
+        f[3] = "default"; // rmw LABEL — the old rmw special case
+        f[5] = "examples/zephyr/rust/talker";
+        f[6] = "build-rust-talker-xrce";
+        f[15] = "zephyr,rust,xrce"; // …and what `row_coord` actually says
+        let leaf = parse_west_leaf(&f.join("\x1f"));
+        assert_eq!(
+            leaf.coord,
+            ("zephyr".to_string(), "rust".to_string(), "xrce".to_string()),
+            "the coordinate must come from the record's `coord` column; a \
+             board-derived answer would be (zephyr-cortex-m, rust, zenoh)"
+        );
+        assert_eq!(leaf.build_name, "build-rust-talker-xrce");
+        assert_eq!(leaf.dir, "examples/zephyr/rust/talker");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected 16")]
+    fn a_west_leaf_record_of_the_wrong_width_is_refused() {
+        // The emitter and this reader drifting apart silently would shift every
+        // column; both prior appends were caught by this assertion.
+        parse_west_leaf(&vec![""; 15].join("\x1f"));
     }
 
     #[test]
