@@ -336,7 +336,7 @@ def ours_c(tmpdir):
         # `nros_`-only filter dropped them from OUR surface and every one of
         # them then read as a theirs-only GAP -- 14 of them, for symbols whose
         # names match upstream character for character. Issue 1188.
-        prefixes={"nros_", "NROS_", "rclc_", "RCLC_"},
+        prefixes={"nros_", "NROS_", "rclc_", "RCLC_", "rcl_", "RCL_"},
     )
 
 

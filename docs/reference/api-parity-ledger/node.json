@@ -58,6 +58,11 @@
     "verdict": "declined",
     "why": "rcl's pimpl. `nros_node_t` carries its state inline because there is no allocator to put it behind a pointer; same shape as `nros_support_t` in the init stage."
   },
+  "c:node_init": {
+    "disposition": "adopt",
+    "verdict": "declined",
+    "why": "rcl's first node constructor, `rcl_node_init(node, name, namespace_, context, options)`. The CAPABILITY is present twice: `nros_node_init_ex(node, support, name, const struct nros_node_options_t *)` is `rcl_node_init_with_options`'s counterpart (see `c:node_init_with_options`), and rclc's default form ships under rclc's exact name as `rclc_node_init_default`.\n\nThe rcl NAME is absent on purpose, and node is the one entry point in the C surface where that was a deliberate act rather than a spelling choice. `nros_node_init` existed as a `static inline` forwarder and phase-417 stage 6 step B RETIRED it, because the rename landed together with a parameter PERMUTATION (`rclc_node_init_default(node, name, namespace_, support)` against the old `nros_node_init(node, support, name, namespace_)`) -- and in C an incompatible pointer argument is a WARNING, not an error, even under `-Wall -Wextra`. A reorder alone is silent by default for an out-of-tree caller who does not build with our flags; deleting the identifier makes a stale call fail on the NAME, which C does diagnose fatally. The forwarder was never a macro for the same reason: a macro would have forwarded positionally and silently built a node with its name in the support slot (`nros_generated.h`, the `rclc_node_init_default` doc comment)."
+  },
   "c:node_init_default": {
     "disposition": "adopt",
     "verdict": "declined",
