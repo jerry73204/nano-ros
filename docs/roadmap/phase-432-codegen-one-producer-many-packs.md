@@ -276,10 +276,30 @@ to remove.
   fingerprint), and `FilterSet::register` takes an `&mut Environment` so both
   can share one registry when W2.5/W2.6 make the entry templates packs.
 
-- **W2.5 — packs move to `packs/<surface>/` and `packs/entry/<surface>/`.** Mirrors the message side's
-  `rosidl-codegen/packs/<lang>/*.jinja` registry rather than the `templates/`
-  layout the renderer shipped with. One convention or it drifts, which is the
-  whole point.
+- **W2.5 — packs move to `packs/<surface>/` and `packs/entry/<surface>/`. DONE.**
+  The message side already had the convention; the entry side had a flat
+  `templates/` directory with the language in the FILE name. Now
+  `packs/entry/{c,cpp,rust,shared}/`, and the registry KEYS follow the message
+  side too: an output is `<artifact>_<surface>.<ext>` (`entry_cpp.cpp`, beside
+  the message side's `message_rmw.rs`), a partial keeps its `.jinja` suffix so
+  the two kinds cannot be confused at a call site.
+
+  `shared/` is a real surface rather than a dumping ground: `boot_config` and
+  `declare_calls` are identical C that a C++ entry compiles unchanged, so they
+  are one file rather than two spellings (W2.3).
+
+  **"One convention or it drifts" is now checked, not just written down.**
+  `every_pack_file_is_registered` walks the pack directory and compares against
+  the registry — an unregistered pack file parses, looks wired and emits
+  nothing, and that failure would otherwise surface as a missing output on some
+  board. `registry_keys_follow_the_message_side_convention` holds the naming.
+  Both mutation-tested: an orphan file and a key without its surface each go
+  red.
+
+  Two gates went RED on the move and were repointed, which is what naming a
+  producer rather than globbing it buys: `check-ffi-struct-mirrors` (the tier
+  initialisers) and `check-entry-session-name` (the boot wrapper). Every entry
+  golden is byte-identical — this is a move, and the bytes say so.
 
 - **W2.6 — the CMake templates become a pack. LANDED.** The six
   `cmake/templates/*_entry_main*.cpp.in` are DELETED;

@@ -69,8 +69,8 @@ ROOT = Path(__file__).resolve().parent.parent
 PRODUCERS: list[tuple[str, str, str]] = [
     # (glob, marker that proves a session name is passed, human name)
     (
-        "packages/cli/nros-cli-core/src/codegen/entry/templates/"
-        "cpp_boot_wrapper.cpp.jinja",
+        "packages/cli/nros-cli-core/src/codegen/entry/packs/entry/cpp/"
+        "boot_wrapper.jinja",
         "nros_boot_config_node_name",
         "the shared entry pack's boot wrapper",
     ),
@@ -367,7 +367,7 @@ def main() -> int:
         print(
             "\n  `nano_ros_node_register()` renders through the SHARED entry\n"
             "  pack now (`nros codegen entry-node` ->\n"
-            "  codegen/entry/templates/cpp_entry.cpp.jinja), so a template here\n"
+            "  codegen/entry/packs/entry/cpp/entry.cpp.jinja), so a template here\n"
             "  is a SECOND producer of the entry TU — the shape that let the\n"
             "  session name be right in some images and wrong in others for\n"
             "  three months. Extend the pack instead.",

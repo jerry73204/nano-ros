@@ -298,9 +298,12 @@ byte-equivalence with the emitters they replaced. Two partials are SHARED by
 the C and C++ packs rather than duplicated, because their bytes are identical C
 that a C++ entry compiles unchanged: `declare_calls.c.jinja` (the remap and
 param calls, with the executor expression as a field) and `boot_config.c.jinja`
-(the `NROS_BOOT_CONFIG` blob). They should move from `templates/` to
-`packs/entry/<lang>/`, with the shared pair somewhere that says it is shared,
-so there is one convention.
+(the `NROS_BOOT_CONFIG` blob). They now live at `packs/entry/<surface>/` with the shared pair under
+`packs/entry/shared/`, and the registry keys follow the message side's
+convention as well (`entry_cpp.cpp` beside `message_rmw.rs`; partials keep
+`.jinja`). Two tests hold it — every pack file is registered, and every output
+key names its surface — because a convention nothing enforces is two
+conventions with a preference (phase-432 W2.5).
 
 **The tier table must use DESIGNATED initialisers.** It was emitted positionally
 against `nros_native_tier_spec_t` — mirrored by hand across **eight** sites, not

@@ -643,7 +643,7 @@ pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String,
     };
 
     super::render::render(
-        "cpp_entry.cpp.jinja",
+        "entry_cpp.cpp",
         &CppEntryView {
             bringup: plan.bringup.clone(),
             launch: plan.launch_file.display().to_string(),

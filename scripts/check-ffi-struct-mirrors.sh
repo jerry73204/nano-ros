@@ -140,11 +140,15 @@ TIER_NAME_ONLY = [
 
 # The two entry packs. Each emits ONE `.field = value` row inside a `{% for %}`,
 # so each field name appears exactly once, in emission order.
-ENTRY_TEMPLATES = "packages/cli/nros-cli-core/src/codegen/entry/templates"
+# phase-432 W2.5 — the entry packs moved from a flat `templates/` directory to
+# `packs/entry/<surface>/`, mirroring the message side. This gate went RED on
+# the move, which is what it is for: it names its producers rather than
+# globbing them, so a pack that walks away from it fails loudly.
+ENTRY_PACKS = "packages/cli/nros-cli-core/src/codegen/entry/packs/entry"
 TIER_INITIALISERS = [
-    (f"{ENTRY_TEMPLATES}/c_entry.c.jinja", "nros_native_tier_spec_t __nros_tiers["),
+    (f"{ENTRY_PACKS}/c/entry.c.jinja", "nros_native_tier_spec_t __nros_tiers["),
     (
-        f"{ENTRY_TEMPLATES}/cpp_entry.cpp.jinja",
+        f"{ENTRY_PACKS}/cpp/entry.cpp.jinja",
         "::nros::board::NativeTierSpec __nros_tiers[",
     ),
 ]

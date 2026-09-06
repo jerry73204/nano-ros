@@ -228,7 +228,7 @@ pub fn emit_typed(plan: &Plan) -> Result<String, String> {
         boot_config,
     };
 
-    crate::codegen::entry::render::render("c_entry.c.jinja", &view)
+    crate::codegen::entry::render::render("entry_c.c", &view)
 }
 
 #[cfg(test)]

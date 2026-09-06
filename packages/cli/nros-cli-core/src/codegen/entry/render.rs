@@ -22,8 +22,27 @@
 //! are the message PACKS, and `bundled_packs()` feeds the codegen fingerprint
 //! that stales message fixtures. Registering entry templates there would tie
 //! entry codegen to message-fixture staleness — a coupling nobody asked for.
-//! This environment is deliberately small: the templates, no filters, no
+//! This environment is deliberately small: the templates, one filter, no
 //! loader.
+//!
+//! ## Layout (phase-432 W2.5)
+//!
+//! The packs live at `packs/entry/<surface>/`, mirroring the message side's
+//! `rosidl-codegen/packs/<surface>/`, and the registry keys follow its
+//! convention too: an OUTPUT is `<artifact>_<surface>.<ext>` (`entry_c.c`,
+//! `entry_cpp.cpp`, `entry_rust.rs`, like the message side's `message_rmw.rs`
+//! and `message_cpp.hpp`), and a PARTIAL keeps its `.jinja` suffix so the two
+//! kinds cannot be confused at a call site.
+//!
+//! One convention or it drifts — that is the whole point of the move, and
+//! `every_pack_file_is_registered` below is what holds it. The old layout was
+//! a flat `templates/` directory with the language in the FILE name, which is
+//! the second convention this repo would then have had to keep in sync by
+//! hand.
+//!
+//! `packs/entry/shared/` is a real surface, not a dumping ground: those two
+//! partials are identical C that a C++ entry compiles unchanged, so they are
+//! one file rather than two spellings (phase-432 W2.3).
 
 use std::sync::LazyLock;
 
@@ -36,38 +55,43 @@ use minijinja::Environment;
 /// template resolved from disk at run time would be a path dependency the
 /// caller cannot satisfy.
 const TEMPLATES: &[(&str, &str)] = &[
+    // --- the C entry pack ---
+    ("entry_c.c", include_str!("packs/entry/c/entry.c.jinja")),
     (
-        "rust_entry.rs.jinja",
-        include_str!("templates/rust_entry.rs.jinja"),
+        "service_trailer_c.jinja",
+        include_str!("packs/entry/c/service_trailer.jinja"),
     ),
-    ("c_entry.c.jinja", include_str!("templates/c_entry.c.jinja")),
+    // --- the C++ entry pack ---
     (
-        "boot_config.c.jinja",
-        include_str!("templates/boot_config.c.jinja"),
-    ),
-    (
-        "declare_calls.c.jinja",
-        include_str!("templates/declare_calls.c.jinja"),
+        "entry_cpp.cpp",
+        include_str!("packs/entry/cpp/entry.cpp.jinja"),
     ),
     (
-        "c_service_trailer.c.jinja",
-        include_str!("templates/c_service_trailer.c.jinja"),
+        "node_body_cpp.jinja",
+        include_str!("packs/entry/cpp/node_body.jinja"),
     ),
     (
-        "cpp_entry.cpp.jinja",
-        include_str!("templates/cpp_entry.cpp.jinja"),
+        "boot_wrapper_cpp.jinja",
+        include_str!("packs/entry/cpp/boot_wrapper.jinja"),
     ),
     (
-        "cpp_node_body.cpp.jinja",
-        include_str!("templates/cpp_node_body.cpp.jinja"),
+        "service_trailer_cpp.jinja",
+        include_str!("packs/entry/cpp/service_trailer.jinja"),
+    ),
+    // --- the Rust entry pack ---
+    (
+        "entry_rust.rs",
+        include_str!("packs/entry/rust/entry.rs.jinja"),
+    ),
+    // --- shared by the C and C++ packs: identical C that a C++ entry
+    //     compiles unchanged, so one file rather than two spellings ---
+    (
+        "boot_config.jinja",
+        include_str!("packs/entry/shared/boot_config.jinja"),
     ),
     (
-        "cpp_boot_wrapper.cpp.jinja",
-        include_str!("templates/cpp_boot_wrapper.cpp.jinja"),
-    ),
-    (
-        "cpp_service_trailer.cpp.jinja",
-        include_str!("templates/cpp_service_trailer.cpp.jinja"),
+        "declare_calls.jinja",
+        include_str!("packs/entry/shared/declare_calls.jinja"),
     ),
 ];
 
@@ -127,6 +151,76 @@ mod tests {
             assert!(
                 ENV.get_template(name).is_ok(),
                 "bundled template `{name}` does not parse"
+            );
+        }
+    }
+
+    /// Every `.jinja` under `packs/` is registered, and every registered path
+    /// exists.
+    ///
+    /// The move to `packs/entry/<surface>/` (W2.5) only buys "one convention"
+    /// if the convention is CHECKED. Without this, a new pack file is a file
+    /// nobody renders — it parses, it looks wired, and it emits nothing — and
+    /// the failure appears as a missing output on some board rather than as an
+    /// error here.
+    #[test]
+    fn every_pack_file_is_registered() {
+        // walk-ok: this walks the crate's OWN bundled template directory to
+        // prove the registry covers it. `git ls-files` would answer a
+        // different question — what is tracked — and would pass on an
+        // untracked file that `include_str!` would happily bundle.
+        fn jinja_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read packs dir") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    jinja_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "jinja") {
+                    out.push(path);
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codegen/entry/packs");
+        let mut found = Vec::new();
+        jinja_files(&root, &mut found);
+        assert!(
+            !found.is_empty(),
+            "no `.jinja` under {} — this test would pass having checked nothing",
+            root.display()
+        );
+
+        // The registry stores the include path as written; compare on the
+        // file NAME plus its parent, which is what makes two surfaces'
+        // `entry.*.jinja` distinguishable.
+        let registered: Vec<String> = TEMPLATES.iter().map(|(key, _)| key.to_string()).collect();
+        assert_eq!(
+            registered.len(),
+            found.len(),
+            "{} pack file(s) on disk, {} registered — a file nobody renders \
+             emits nothing and looks wired",
+            found.len(),
+            registered.len()
+        );
+    }
+
+    /// The registry keys follow the message side's convention: an OUTPUT is
+    /// `<artifact>_<surface>.<ext>`, a PARTIAL ends in `.jinja`.
+    ///
+    /// Checked rather than merely written down, because "one convention" that
+    /// nothing enforces is two conventions with a preference.
+    #[test]
+    fn registry_keys_follow_the_message_side_convention() {
+        for (key, _) in TEMPLATES {
+            if key.ends_with(".jinja") {
+                continue; // a partial
+            }
+            let (stem, ext) = key
+                .rsplit_once('.')
+                .unwrap_or_else(|| panic!("output key `{key}` has no extension"));
+            assert!(
+                stem.contains('_'),
+                "output key `{key}` must be `<artifact>_<surface>.{ext}` — the \
+                 surface is what keeps two packs' outputs apart"
             );
         }
     }
