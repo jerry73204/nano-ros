@@ -1273,5 +1273,15 @@
     "verdict": "gap",
     "disposition": "adopt",
     "why": "phase-428 W5 (2026-09-06) — ledgering a recorded sweep finding. RANKED-25, and the type is a stronger finding than the default.\n\nUPSTREAM'S CONTRACT: `template<typename RepT, typename RatioT> bool wait_for_service(std::chrono::duration<RepT, RatioT> timeout = duration(-1))` — the default is -1, BLOCK INDEFINITELY, and the return is a bare `bool`.\n\nOURS (`packages/api/nros-cpp/include/nros/client.hpp:261`): `Result wait_for_service(uint32_t timeout_ms = 5000)`. Two differences, and they are discovered differently:\n  * a ported `wait_for_service(1s)` is a COMPILE ERROR — no `std::chrono` -> `uint32_t` conversion. Loud, and correct under the rule.\n  * a ported no-argument `client->wait_for_service()` is SILENTLY WRONG: it returns `Timeout` after five seconds where upstream would still be waiting. `[[nodiscard]]` catches a bare-statement discard but not `if (!client->wait_for_service())`, which is what upstream code actually writes.\n  * and being `uint32_t`, ours CANNOT EXPRESS \"forever\" at all — there is no value to port -1 to.\n\nDisposition ADOPT: nothing about a fixed arena forbids a blocking wait (RFC-0021 governs where blocking is allowed, and this call is already a blocking one), and nothing forbids a sentinel for it. If a bounded wait is the only thing we will offer, the rule says say so at the earliest knowable point — refuse the un-timed call — rather than substituting a budget the caller did not choose. Re-verified by hand against the current worktree before this row was written."
+  },
+  "c:service_init": {
+    "verdict": "divergence",
+    "disposition": "absent",
+    "why": "phase-428 Q1 (2026-09-06) -- `rcl_service_init(service, node, type_support, service_name, options)`. No symbol answers to this key. The six-argument `nros_service_init` (callback and context in positions 5 and 6) was retired at phase-417 stage 6 step B (`packages/api/nros-c/src/service.rs:303-322`): the callback moved to registration, where rclc puts it (`nros_executor_add_service_raw` <-> `rclc_executor_add_service`). What remains is `rclc_service_init_default` at rclc's arity (`c:service_init_default`, adopt-bounded on the typesupport type) and `nros_service_init_with_qos` / `_with_options` / `_polling` (`packages/api/nros-c/include/nros/nros_generated.h:6194`, `:6246`, `:6293`) for the options-shaped and RFC-0022 polling forms.\n\nABSENT, not adopt-bounded: see `c:node_init` for why the label is the rcl-layer name's, not the rclc-layer name's."
+  },
+  "c:client_init": {
+    "verdict": "divergence",
+    "disposition": "absent",
+    "why": "phase-428 Q1 (2026-09-06) -- `rcl_client_init(client, node, type_support, service_name, options)`. No symbol answers to this key; the rclc spelling `rclc_client_init_default` does (`c:client_init_default`, `packages/api/nros-c/src/service.rs:1164`), and the options-shaped forms are `nros_client_init_with_qos` / `_with_options` / `_polling` (`packages/api/nros-c/include/nros/nros_generated.h:6448`, `:6470`, `:6519`). Same reasoning as `c:service_init`, one entity over."
   }
 }
