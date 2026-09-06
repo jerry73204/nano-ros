@@ -69,18 +69,38 @@ fn shell_escape(s: &str) -> String {
 /// (see the `strip_goal_id_len_at` note below). When discovery is fast the
 /// sleep is six seconds of nothing.
 ///
-/// `--no-daemon`, for the reason every query helper in `nros_tests::ros2`
-/// passes it: the ros2cli daemon is a singleton keyed on `ROS_DOMAIN_ID` alone
-/// and serves a stale `RMW_IMPLEMENTATION` snapshot to whoever asks second.
+/// **NO `--no-daemon` here, and it is the one verb that cannot take it.**
+/// Every other query helper in `nros_tests::ros2` passes it, for a real reason
+/// — the ros2cli daemon is a singleton keyed on `ROS_DOMAIN_ID` alone and
+/// serves a stale `RMW_IMPLEMENTATION` snapshot to whoever asks second — and
+/// this helper copied the habit without checking. Measured on Humble:
+/// `topic info`, `topic list`, `service list`, `param {list,get,set,describe}`,
+/// `node {list,info}` all accept it; `ros2 action list` answers
+/// `error: unrecognized arguments: --no-daemon` and its `-h` never mentions it.
+///
+/// Dropping it is safe HERE, which is not the same as safe: the hazard is two
+/// RMWs sharing one domain, and every case in this file runs on its own
+/// `unique_ros_domain_id()`, so the daemon it talks to is keyed to a domain
+/// nobody else is using.
 fn await_fibonacci_action(env: &HostRosEnv, whose: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut last;
     loop {
         last = env
-            .run_text("timeout --foreground 10 ros2 action list --no-daemon 2>&1")
+            .run_text("timeout --foreground 10 ros2 action list 2>&1")
             .unwrap_or_else(|e| format!("<`ros2 action list` failed: {e}>"));
         if last.lines().any(|l| l.trim() == "/fibonacci") {
             return;
+        }
+        // Fail FAST when the command itself could not run. Polling a usage
+        // error 40 times spends the whole 20 s budget and then reports it as a
+        // discovery timeout — which is how an unsupported FLAG spent a full
+        // box run looking like an actions defect.
+        if last.contains("unrecognized arguments")
+            || last.contains("ros2: error:")
+            || last.starts_with("<`ros2 action list` failed:")
+        {
+            panic!("`ros2 action list` could not run, so discovery was never measured:\n{last}");
         }
         if Instant::now() >= deadline {
             break;
