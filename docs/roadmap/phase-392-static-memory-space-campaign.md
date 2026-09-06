@@ -9,7 +9,8 @@ is RESOLVED. Open: W6, and amendment B's wave.**
 than an omission — read its wave entry before quoting it.** The default now
 derives; no image in the tree can show that in `mem-report`, because every
 consumer of the derived number is a RUNTIME arena allocation inside a
-build-time-sized static.**
+build-time-sized static.
+
 Opened from a memory-allocation review that measured a real 320 KiB-class board
 image.
 
