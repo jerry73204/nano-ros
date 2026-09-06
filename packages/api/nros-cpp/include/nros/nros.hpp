@@ -706,8 +706,8 @@ class Node : public std::enable_shared_from_this<Node> {
         auto t = std::make_shared<detail::WallTimer>();
         t->callback = std::move(cb);
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(period).count();
-        (void)node_.create_timer(t->timer, ms > 0 ? static_cast<uint64_t>(ms) : uint64_t(0),
-                                 &detail::WallTimer::trampoline, t.get());
+        (void)node_.create_wall_timer(t->timer, ms > 0 ? static_cast<uint64_t>(ms) : uint64_t(0),
+                                      &detail::WallTimer::trampoline, t.get());
         // The arena holds `t.get()`; the node keeps the cell alive, and
         // `~nros::Timer` cancels the slot when it finally drops.
         timers_.push_back(t);
