@@ -24,6 +24,7 @@
 #ifndef NROS_VIEW_H
 #define NROS_VIEW_H
 
+#include <stdint.h>
 #include <string.h>
 
 #include "nros/cdr.h"
@@ -83,6 +84,19 @@ static inline int32_t nros_cdr_borrow_bytes(const uint8_t** ptr, const uint8_t* 
  *   nros_le_slice_view_<t>_get()    — decode element `i` by value (no alignment)
  * Integer elements are assembled byte-by-byte as little-endian (portable across
  * host endianness); float/double bit-cast from the assembled unsigned bits.
+ *
+ * "Alignment-agnostic" is a statement about the HOST, not the wire: no `T*` is
+ * ever formed into the buffer, so the buffer base may sit at any address. The
+ * WIRE still places the first element on a sizeof(T) boundary of the stream
+ * (measured from `origin`), and the borrow consumes that padding through
+ * `nros_cdr_align` exactly as the owned readers and the Rust `CdrReader` do —
+ * taking `*ptr` straight after the count read the padding as data for every
+ * 8-byte element type and left the cursor short for every field after (issue
+ * 1148). The count is wire data, so its byte length goes through
+ * `nros_cdr_seq_byte_len`, which refuses a product that would wrap `size_t`;
+ * on every 32-bit target a bare `(size_t)cnt * sizeof(T)` wraps to a length
+ * that passes the bounds check (issue 1149). `_get` returns the zero value for
+ * an index at or past `count` rather than reading outside the view.
  */
 
 #define NROS__LE_VIEW_COMMON(SUFFIX, CT)                                                           \
@@ -94,8 +108,13 @@ static inline int32_t nros_cdr_borrow_bytes(const uint8_t** ptr, const uint8_t* 
         const uint8_t** ptr, const uint8_t* end, const uint8_t* origin,                            \
         nros_le_slice_view_##SUFFIX##_t* out) {                                                    \
         uint32_t cnt;                                                                              \
+        size_t bytelen;                                                                            \
         if (nros_cdr_read_u32(ptr, end, origin, &cnt) < 0) return -1;                              \
-        size_t bytelen = (size_t)cnt * sizeof(CT);                                                 \
+        /* Element 0 starts on a sizeof(CT) boundary of the STREAM (issue 1148); the   */          \
+        /* writer pads before an element, so an empty sequence carries no padding.    */           \
+        if (cnt > 0 && nros_cdr_align(ptr, end, origin, sizeof(CT)) < 0) return -1;                \
+        /* cnt is wire data: the product must be checked, not trusted (issue 1149). */             \
+        if (nros_cdr_seq_byte_len(cnt, sizeof(CT), SIZE_MAX, &bytelen) < 0) return -1;             \
         if ((size_t)(end - *ptr) < bytelen) return -1;                                             \
         out->bytes = *ptr;                                                                         \
         out->count = (size_t)cnt;                                                                  \
@@ -108,8 +127,13 @@ static inline int32_t nros_cdr_borrow_bytes(const uint8_t** ptr, const uint8_t* 
     NROS__LE_VIEW_COMMON(SUFFIX, CT)                                                               \
     static inline CT nros_le_slice_view_##SUFFIX##_get(nros_le_slice_view_##SUFFIX##_t v,          \
                                                        size_t i) {                                 \
-        const uint8_t* p = v.bytes + i * sizeof(CT);                                               \
         UT u = 0;                                                                                  \
+        if (i >= v.count) {                                                                        \
+            CT zero;                                                                               \
+            memcpy(&zero, &u, sizeof(CT));                                                         \
+            return zero;                                                                           \
+        }                                                                                          \
+        const uint8_t* p = v.bytes + i * sizeof(CT);                                               \
         for (size_t b = 0; b < sizeof(CT); ++b)                                                    \
             u |= (UT)p[b] << (8u * b);                                                             \
         CT out;                                                                                    \
@@ -122,8 +146,13 @@ static inline int32_t nros_cdr_borrow_bytes(const uint8_t** ptr, const uint8_t* 
     NROS__LE_VIEW_COMMON(SUFFIX, CT)                                                               \
     static inline CT nros_le_slice_view_##SUFFIX##_get(nros_le_slice_view_##SUFFIX##_t v,          \
                                                        size_t i) {                                 \
-        const uint8_t* p = v.bytes + i * sizeof(CT);                                               \
         UT u = 0;                                                                                  \
+        if (i >= v.count) {                                                                        \
+            CT zero;                                                                               \
+            memcpy(&zero, &u, sizeof(CT));                                                         \
+            return zero;                                                                           \
+        }                                                                                          \
+        const uint8_t* p = v.bytes + i * sizeof(CT);                                               \
         for (size_t b = 0; b < sizeof(CT); ++b)                                                    \
             u |= (UT)p[b] << (8u * b);                                                             \
         CT out;                                                                                    \

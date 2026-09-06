@@ -3197,6 +3197,23 @@ int32_t nros_cdr_read_string(const uint8_t **ptr,
                              size_t max_len);
 
 /**
+ * Advance the cursor to the next `alignment`-byte boundary of the CDR STREAM
+ * (relative to `origin`, never to the buffer pointer), consuming the padding
+ * the writer emitted. This is [`CdrReader::align`] behind the C ABI, so it
+ * carries the same edition rule (XCDR2 caps 8-byte primitives at 4) and the
+ * header-only readers in `<nros/view.h>` agree with the Rust reader byte for
+ * byte instead of re-deriving the arithmetic (issue 1148).
+ *
+ * Returns 0 on success, -1 if `alignment` is 0 or the padding would run past
+ * `end`.
+ */
+NROS_PUBLIC
+int32_t nros_cdr_align(const uint8_t **ptr,
+                       const uint8_t *end,
+                       const uint8_t *origin,
+                       size_t alignment);
+
+/**
  * Get a zero-initialized clock.
  */
 NROS_PUBLIC struct nros_clock_t nros_clock_get_zero_initialized(void);

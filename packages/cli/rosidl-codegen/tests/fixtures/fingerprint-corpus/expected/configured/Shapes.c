@@ -135,7 +135,11 @@ int32_t fingerprint_corpus_msg_shapes_deserialize_inline(fingerprint_corpus_msg_
         // fingerprint_corpus_msg_shapes_fini. A re-deserialize leaks the prior buffer unless
         // the caller _fini's first.
         if (len > 0) {
-            msg->seq_prim.data = nros_platform_malloc((size_t)len * sizeof(*msg->seq_prim.data));
+            // `len` is wire data: a bare `(size_t)len * sizeof` wraps on a
+            // 32-bit target and under-allocates (issue 1149's class).
+            size_t bytelen;
+            if (nros_cdr_seq_byte_len(len, sizeof(*msg->seq_prim.data), SIZE_MAX, &bytelen) < 0) return -1;
+            msg->seq_prim.data = nros_platform_malloc(bytelen);
             if (msg->seq_prim.data == NULL) return -1;
         } else {
             msg->seq_prim.data = NULL;
@@ -238,7 +242,11 @@ int32_t fingerprint_corpus_msg_shapes_deserialize_view(fingerprint_corpus_msg_sh
         // fingerprint_corpus_msg_shapes_fini. A re-deserialize leaks the prior buffer unless
         // the caller _fini's first.
         if (len > 0) {
-            out->seq_prim.data = nros_platform_malloc((size_t)len * sizeof(*out->seq_prim.data));
+            // `len` is wire data: a bare `(size_t)len * sizeof` wraps on a
+            // 32-bit target and under-allocates (issue 1149's class).
+            size_t bytelen;
+            if (nros_cdr_seq_byte_len(len, sizeof(*out->seq_prim.data), SIZE_MAX, &bytelen) < 0) return -1;
+            out->seq_prim.data = nros_platform_malloc(bytelen);
             if (out->seq_prim.data == NULL) return -1;
         } else {
             out->seq_prim.data = NULL;

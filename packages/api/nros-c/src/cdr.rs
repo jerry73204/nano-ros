@@ -697,6 +697,28 @@ pub unsafe extern "C" fn nros_cdr_read_string(
     })
 }
 
+/// Advance the cursor to the next `alignment`-byte boundary of the CDR STREAM
+/// (relative to `origin`, never to the buffer pointer), consuming the padding
+/// the writer emitted. This is [`CdrReader::align`] behind the C ABI, so it
+/// carries the same edition rule (XCDR2 caps 8-byte primitives at 4) and the
+/// header-only readers in `<nros/view.h>` agree with the Rust reader byte for
+/// byte instead of re-deriving the arithmetic (issue 1148).
+///
+/// Returns 0 on success, -1 if `alignment` is 0 or the padding would run past
+/// `end`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cdr_align(
+    ptr: *mut *const u8,
+    end: *const u8,
+    origin: *const u8,
+    alignment: usize,
+) -> i32 {
+    if alignment == 0 {
+        return -1;
+    }
+    with_reader(ptr, end, origin, |r| r.align(alignment))
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

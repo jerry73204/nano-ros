@@ -117,7 +117,11 @@
         // {{ sname }}_fini. A re-deserialize leaks the prior buffer unless
         // the caller _fini's first.
         if (len > 0) {
-            {{ var }}->{{ field.name }}.data = nros_platform_malloc((size_t)len * sizeof(*{{ var }}->{{ field.name }}.data));
+            // `len` is wire data: a bare `(size_t)len * sizeof` wraps on a
+            // 32-bit target and under-allocates (issue 1149's class).
+            size_t bytelen;
+            if (nros_cdr_seq_byte_len(len, sizeof(*{{ var }}->{{ field.name }}.data), SIZE_MAX, &bytelen) < 0) return -1;
+            {{ var }}->{{ field.name }}.data = nros_platform_malloc(bytelen);
             if ({{ var }}->{{ field.name }}.data == NULL) return -1;
         } else {
             {{ var }}->{{ field.name }}.data = NULL;

@@ -12,7 +12,7 @@
 #
 # Regenerate after a DELIBERATE surface move (bump the constant first):
 #     python3 scripts/check-codegen-version-surface.py --write-baseline
-version 2
+version 3
 2415963024c63037 cpp|fn|component.hpp|bind_subscription_sized
 4e2616f1497bc854 cpp|struct|fixed_sequence.hpp|FixedSequence
 05b2ecfd67796b30 cpp|struct|fixed_string.hpp|FixedString
@@ -22,6 +22,7 @@ c2bd21803d713aa0 cpp|struct|heap_sequence.hpp|HeapSequence
 c3a4962bef9b0e39 cpp|struct|span.hpp|LeSpan
 3ac972908fe3dcf7 cpp|struct|span.hpp|Span
 bdb092b497ccb841 cpp|struct|span.hpp|StringView
+9b6de8e43824a14a c|fn|cdr.h|nros_cdr_align
 c8095aa07ee088a0 c|fn|cdr.h|nros_cdr_begin_dheader
 757326358289c886 c|fn|cdr.h|nros_cdr_begin_dheader_read
 0ab1e2ce14d2754f c|fn|cdr.h|nros_cdr_end_dheader
@@ -53,6 +54,7 @@ a91f1c4466f597cb c|fn|cdr.h|nros_cdr_write_bool
 8460cb2ce1b9fa02 c|fn|cdr.h|nros_cdr_write_u64
 71b87a12f9b2731d c|fn|cdr.h|nros_cdr_write_u8
 97ef03f55dc6ed4d c|fn|component.h|nros_cpp_publish_raw
+7172b9f6f5aae245 c|fn|nros_generated.h|nros_cdr_align
 27d97d2f6f4d17a9 c|fn|nros_generated.h|nros_cdr_begin_dheader
 953680f7c86afbb7 c|fn|nros_generated.h|nros_cdr_begin_dheader_read
 756b60c3869abdf0 c|fn|nros_generated.h|nros_cdr_end_dheader

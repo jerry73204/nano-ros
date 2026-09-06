@@ -374,6 +374,49 @@ NROS_PUBLIC
 int32_t nros_cdr_read_string(const uint8_t** ptr, const uint8_t* end, const uint8_t* origin,
                              char* value, size_t max_len);
 
+/**
+ * @brief Advance the cursor to the next @p alignment boundary of the CDR
+ * stream, consuming the writer's padding.
+ *
+ * Alignment is measured from @p origin (the stream origin after the
+ * encapsulation header), never from the buffer pointer: a `float64[]` whose
+ * 4-byte count lands at stream offset 4 has its first element at offset 8,
+ * whatever address the buffer happens to sit at. This is the Rust reader's
+ * `CdrReader::align` behind the C ABI, so it carries the same edition rule
+ * (XCDR2 caps 8-byte primitives at 4) and the header-only borrow readers in
+ * `<nros/view.h>` cannot drift from it (issue 1148).
+ *
+ * @param ptr       Pointer to the cursor (advanced on success).
+ * @param end       Pointer past the end of the buffer.
+ * @param origin    Buffer origin (for alignment calculations).
+ * @param alignment Boundary in bytes (1, 2, 4 or 8).
+ * @return 0 on success, negative if @p alignment is 0 or the padding would run
+ *         past @p end.
+ */
+NROS_PUBLIC
+int32_t nros_cdr_align(const uint8_t** ptr, const uint8_t* end, const uint8_t* origin,
+                       size_t alignment);
+
+/**
+ * @brief The byte length of @p count wire elements of @p elem_size bytes, or
+ * failure if the product does not fit below @p limit.
+ *
+ * @p count is untrusted — it came off the wire — and on every 32-bit target
+ * `(size_t)count * elem_size` wraps for a count as small as `0x40000000`
+ * (issue 1149): the wrapped length passes any bounds check, and the view then
+ * reads far past the buffer while reporting success. Call sites pass
+ * `SIZE_MAX` as @p limit; a test may pass a 32-bit limit to exercise the wrap
+ * on a 64-bit host, which is the only way the native lane can see it.
+ *
+ * @return 0 and @p *out on success, -1 when `count * elem_size > limit`.
+ */
+static inline int32_t nros_cdr_seq_byte_len(uint32_t count, size_t elem_size, size_t limit,
+                                            size_t* out) {
+    if (elem_size == 0 || (size_t)count > limit / elem_size) return -1;
+    *out = (size_t)count * elem_size;
+    return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

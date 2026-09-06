@@ -92,7 +92,11 @@ int32_t fingerprint_corpus_srv_probe_request_deserialize(fingerprint_corpus_srv_
         // fingerprint_corpus_srv_probe_request_fini. A re-deserialize leaks the prior buffer unless
         // the caller _fini's first.
         if (len > 0) {
-            msg->items.data = nros_platform_malloc((size_t)len * sizeof(*msg->items.data));
+            // `len` is wire data: a bare `(size_t)len * sizeof` wraps on a
+            // 32-bit target and under-allocates (issue 1149's class).
+            size_t bytelen;
+            if (nros_cdr_seq_byte_len(len, sizeof(*msg->items.data), SIZE_MAX, &bytelen) < 0) return -1;
+            msg->items.data = nros_platform_malloc(bytelen);
             if (msg->items.data == NULL) return -1;
         } else {
             msg->items.data = NULL;
