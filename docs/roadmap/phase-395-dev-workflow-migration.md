@@ -885,6 +885,6 @@ holds the evidence, the item is *close it*.
 | [#0895](../issues/0895-format-walks-unbuilt-colcon-workspace-leaves.md) | `just format` is red or green depending on whether a migrated colcon workspace has been BUILT |
 | [#0925](../issues/0925-box-sync-copies-generated-manifests.md) | `ros2-box-sync.sh` copies the GENERATED workspace manifests, so the box and the host disagree |
 | [#0957](../issues/0957-format-blocked-by-unexcluded-workspace-leaf.md) | `just format` fails whole-tree — a workspace leaf is in neither the root members nor the excludes |
-| [#0986](../issues/0986-pre-push-hook-corrupts-the-repo-it-guards.md) | the pre-push hook writes into the repository it is guarding |
-| [#0988](../issues/0988-hook-scripts-never-exercised-under-a-hook-environment.md) | no gate runs a hook the way git runs it — with `GIT_DIR` set — so a hook can pass every check and still fail in git's hands |
+| [#0986](../issues/archived/0986-pre-push-hook-corrupts-the-repo-it-guards.md) | **CLOSED 2026-09-06** — the pre-push hook wrote into the repository it was guarding. One clearing helper (`nros_clear_inherited_git_env`, list taken from `git rev-parse --local-env-vars`) replaces four divergent hand-written `unset`s |
+| [#0988](../issues/archived/0988-hook-scripts-never-exercised-under-a-hook-environment.md) | **CLOSED 2026-09-06** — no gate ran a hook the way git runs it. `check-hook-repo-side-effects` now runs the hook and every `git init`-ing script under both hook environments against a victim repo compared byte for byte |
 

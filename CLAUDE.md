@@ -587,6 +587,24 @@ One-liners; detail in the linked doc. (Many also captured in agent memory.)
   conflicting path in three of five open branches, so one merge ejected the rest.
   A custom merge driver cannot fix it: GitHub rebases queue entries SERVER-SIDE,
   where `.gitattributes` drivers do not run.
+- **A script a git hook reaches must clear the inherited git environment first**
+  (issues 0986/0988). `GIT_DIR` & co. override BOTH a path argument and
+  `git -C`, so `git init "$tmp/x"` in a selftest builds nothing and instead
+  writes `core.bare=true` into the CALLER's config and stages the selftest's
+  invalid gitlink into its index — from `pre-push`, the hook whose job is
+  refusing bad submodule pins. One spelling:
+  `scripts/lib/git-hook-env.sh`'s `nros_clear_inherited_git_env` (list from
+  `git rev-parse --local-env-vars`, so it cannot drift; four hand-written copies
+  already had). **It does not reproduce by hand and it is self-masking** — an
+  interactive shell has no `GIT_DIR`, and from run 2 the hook dies at
+  `rev-parse --show-toplevel` before reaching the cause, so it reads as a broken
+  repo rather than a bad script. Measured: an ordinary `git push` sets only
+  `GIT_PREFIX`; a push **from a linked worktree** sets `GIT_DIR` — which is how
+  parallel agent sessions work here, and that gitdir's `index` is live state.
+  Gate: `check-hook-repo-side-effects` (runs the hook and every `git init`-ing
+  script under both environment shapes against a victim repo compared byte for
+  byte, mtimes included — a hook that rewrites a tracked file re-stales every
+  fixture).
 - **A red CI lane answers one of two questions and they look identical** — the
   lane RAN and the code is broken (a verdict), or it never ran (no verdict). A
   uniformly-red lane has NO signal capacity: a regression landing in it looks

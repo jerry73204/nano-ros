@@ -123,6 +123,7 @@ generated-leaf-regenerable
 generated-schema-coverage
 goal-cdr-stripped
 grep-q-error-conflation
+hook-repo-side-effects
 host-platform-vocabulary
 host-triple-literals
 image-panic-policy

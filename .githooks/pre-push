@@ -22,20 +22,28 @@
 
 set -euo pipefail
 
-# git runs a hook with GIT_DIR set (and, in a worktree or submodule, often
-# GIT_WORK_TREE / GIT_INDEX_FILE too). Those override BOTH a path argument and
-# `git -C`, so every command this hook invokes -- the gate tier, the selftests
-# that build throwaway repositories -- gets silently redirected at the repo
-# being pushed. Observed: `git init <tmp>` rewrote this repo's config with
-# core.bare=true, which then broke `rev-parse --show-toplevel` below for every
-# later push, and `update-index --add --cacheinfo 160000,...` staged a bogus
-# submodule pin into this repo's index -- from the hook whose job is to refuse
-# bogus submodule pins (issue 0986).
+# A hook can inherit a repository-local git environment (GIT_DIR, and with it
+# GIT_WORK_TREE / GIT_INDEX_FILE / GIT_CONFIG / ...), and those override BOTH a
+# path argument and `git -C`. Every command this hook invokes -- the gate tier,
+# the selftests that build throwaway repositories -- would then be silently
+# redirected at the repo being pushed. Observed: `git init <tmp>` rewrote this
+# repo's config with core.bare=true, which broke `rev-parse --show-toplevel`
+# below for every later push, and `update-index --add --cacheinfo 160000,...`
+# staged a bogus submodule pin into this repo's index -- from the hook whose job
+# is to refuse bogus submodule pins (issue 0986).
 #
-# Everything below resolves from the working tree, so clear them here. This is
-# also why running this hook by hand never reproduced the failure: an
-# interactive shell has no GIT_DIR.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+# Everything below resolves from the working directory, which is where git puts
+# a hook, so clear them here. Measured: an ordinary `git push` sets only
+# GIT_PREFIX, but a push from a LINKED WORKTREE sets GIT_DIR -- which is the
+# normal shape for the parallel agent sessions this repo runs. That is also why
+# running this hook by hand never reproduced the failure.
+#
+# The variable list is git's own (`git rev-parse --local-env-vars`) and has ONE
+# spelling, shared with the scripts below; `check-hook-repo-side-effects` proves
+# the property rather than the spelling.
+# shellcheck source=scripts/lib/git-hook-env.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/git-hook-env.sh"
+nros_clear_inherited_git_env
 
 repo_root="$(git rev-parse --show-toplevel)"
 check="$repo_root/scripts/ci/issue-ids-check.sh"

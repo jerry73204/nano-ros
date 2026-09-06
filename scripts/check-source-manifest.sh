@@ -21,16 +21,14 @@
 # failure here can never leave the real worktree dirty.
 set -uo pipefail
 
-# A hook runs with GIT_DIR (and sometimes GIT_WORK_TREE / GIT_INDEX_FILE) set by
-# git, and those override BOTH a path argument and `git -C`. This script builds
-# throwaway repositories, so an inherited GIT_DIR silently redirects that work
-# into the CALLER'S repository: `git init <tmp>` rewrites the caller's config
-# (setting core.bare=true, which then breaks `rev-parse --show-toplevel` for
-# everything downstream), and `git -C <tmp> update-index --add` stages entries
-# into the caller's index. Observed as a pre-push hook that corrupted the repo
-# it was guarding. The variables are cleared here because every git invocation
-# below names its target explicitly.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+# This script builds a throwaway repository (and runs `git add -A` inside it),
+# so an inherited repository-local git environment (GIT_DIR and friends)
+# silently redirects that work into the CALLER'S repository. Observed as a
+# pre-push hook that corrupted the repo it was guarding (issue 0986). Cleared
+# here because every git invocation below names its target explicitly.
+# shellcheck source=scripts/lib/git-hook-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/git-hook-env.sh"
+nros_clear_inherited_git_env
 
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
