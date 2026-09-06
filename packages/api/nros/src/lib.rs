@@ -42,8 +42,11 @@
 //! - **`NROS_EXECUTOR_ARENA_SIZE`** (default 4096) — byte budget for storing
 //!   callback closures inline.
 //!
-//! For messages larger than the default 1024-byte receive buffer, size the
-//! subscription via the builder's `.rx_buffer::<N>()` knob (e.g.
+//! A subscription's arena receive buffer is sized from the MESSAGE TYPE's own
+//! serialized bound (phase-392 W3c), not from that knob, wherever the bound is
+//! reachable. `.rx_buffer::<N>()` is the opt-out: it says "give me exactly `N`
+//! bytes per slot" and skips the derivation, which is what a peer that pads or
+//! a `.msg` bound looser than the traffic needs (e.g.
 //! `node_mut(id).subscription(t).typed::<M>().rx_buffer::<4096>().build(cb)`).
 //!
 //! ## Transport Backends
@@ -639,6 +642,14 @@ pub use nros_macros::main;
 /// (`report_dropped_take`, and the 13.4 KiB Autoware trajectory case). This
 /// expands to the type's own bound, computed from its schema by phase 380, so
 /// appending a field moves the buffer with it.
+///
+/// **phase-392 W3c narrowed what this is FOR.** A plain
+/// `.typed::<M>().build()` now derives its arena receive buffer from `M` on its
+/// own, and `.rx_buffer::<N>()` is the opt-out, so the macro is no longer how a
+/// buffered subscription gets a type-sized buffer. What still needs it is the
+/// entry shapes whose buffer is a real inline `[u8; RX]` and therefore a
+/// const-generic argument: `.message_info()` and `.safety()`. Those are the
+/// call sites this expands for.
 ///
 /// **Why a macro and not a method.** The builder cannot do this for you:
 /// inside `impl<M> TypedSubscriptionBuilder<M>` the type is a generic

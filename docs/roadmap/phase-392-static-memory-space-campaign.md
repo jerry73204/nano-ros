@@ -1,9 +1,15 @@
 # Phase 392 — 27% of a safety-island image is message buffers nobody can price
 
-**Status (2026-09-06). W1, W2, W4 and W5.a-W5.g landed. W3 is complete except
-W3c: W3a/W3b landed here, W3d landed as phase-408 W1, W3g as phase-403 W0/W6,
-W3e is superseded by phase 408 and W3f was delivered as a recorded refusal. W2
-IS issue 0900, which is RESOLVED. Open: W3c, W6, and amendment B's wave.**
+**Status (2026-09-07). W1, W2, W3, W4 and W5.a-W5.g landed. W3a/W3b/W3c landed
+here, W3d landed as phase-408 W1, W3g as phase-403 W0/W6, W3e is superseded by
+phase 408 and W3f was delivered as a recorded refusal. W2 IS issue 0900, which
+is RESOLVED. Open: W6, and amendment B's wave.**
+
+**W3c landed with its acceptance NOT met, and the reason is a finding rather
+than an omission — read its wave entry before quoting it.** The default now
+derives; no image in the tree can show that in `mem-report`, because every
+consumer of the derived number is a RUNTIME arena allocation inside a
+build-time-sized static.**
 Opened from a memory-allocation review that measured a real 320 KiB-class board
 image.
 
@@ -469,6 +475,15 @@ written to prevent — the sample is received, ACKed and dropped. Making the
 derived size the DEFAULT at a site that names the type, with the global as the
 explicit opt-out, is the whole of W3c.
 
+**RESOLVED by W3c (2026-09-07), on the backends that can reach the bound.** The
+derivation is what a subscription gets without asking and `.rx_buffer::<N>()`
+is the opt-out. The residue is issue 1179: at a type-erased registration site
+the only bound in scope is `MessageForRmw`, which requires
+`nros_serdes::schema::Message` only on a backend declaring `type-descriptors`
+(Cyclone), so on zenoh and XRCE the default is unchanged and
+`.rx_buffer_from_type()` / `rx_buffer_for!` — which name the schema themselves
+— remain the route.
+
 **2. C/C++ has no site that names the type — and this is the design fork.**
 RFC-0043 typed components subscribe RAW: the type reaches the runtime as a
 STRING. `add_arena_subscription_c_callback::<BUF>` therefore takes
@@ -520,6 +535,78 @@ whole lever exists to stop.
 subscription gets without asking; the global becomes the opt-out. Acceptance:
 an example that subscribes to a bounded type over the small class shows the
 change in `mem-report --baseline` without its source being edited.
+
+**LANDED 2026-09-07, and the acceptance is NOT met. Three things about the
+wave were different from what this entry assumed, and all three were measured
+before any code was written.**
+
+*1. The mechanism moved.* `rx_buffer_for!` is no longer the thing to make
+default. phase-403 W2 landed `.rx_buffer_from_type()`, a RUNTIME-sized sibling
+that sizes the arena ALLOCATION rather than a const-generic array, and its own
+doc named this wave as the decision it was deferring: "sizing every
+subscription from its type by default would move every image's arena occupancy
+at once, which is a decision, not a refactor". W3c is that decision, taken on
+that mechanism. `rx_buffer_for!` keeps a narrower job — `.message_info()` and
+`.safety()` entries hold a real inline `[u8; RX]`, so their size can still only
+come from a const-generic argument named at the call site.
+
+*What landed:* the derivation moved into
+`Executor::register_subscription_buffered_on`, the ONE choke point all four
+default registration sites funnel through (`create_subscription`,
+`create_subscription_in`, the builder's `build()`, and the `/clock` time
+source), so it is the default at all four rather than at whichever one a wave
+happened to touch. `rx_bytes: None` there means DERIVE; `.rx_buffer::<N>()`
+passes `Some(N)` and is the opt-out. Naming a number is now the only way to
+spend more arena than the type needs, which is the direction that should
+require saying so.
+
+*The saving, measured* (`cargo test -p nros-node --features
+std,alloc,needs-type-descriptors --lib`, positive control = revert the
+choke-point line and watch the same test go red at `left: 5376, right: 2340`):
+a 12-byte bounded type at `QoSProfile::default().depth` costs **13,632 -> 2,500
+bytes** of arena per registration, 11,132 recovered; at depth 2, **5,376 ->
+2,340**.
+
+*2. The acceptance names an example that does not exist.* "A bounded type over
+the small class" means a bound above `SMALL_CLASS_CEILING` (2048). Every Rust
+subscription in `examples/` was enumerated: `StringMsg` (`FieldType::String`,
+unbounded — so no bound to derive), `Int32` (4 bytes), `SensorReading`
+(hand-written, no schema), the px4 types (all well under 2048). None is over
+the small class. This wave's own W3 section already recorded the fact —
+"no example in the tree has one today, which is its own finding about the
+fixture corpus rather than about the wave" — and W3c's acceptance was written
+as though it had been fixed.
+
+*3. `mem-report` cannot see this saving on ANY image, and that is structural.*
+The derived number reaches `buffered_region_size` / `TripleBuffer::init` /
+`SpscRing::init` — runtime allocations out of the executor arena. The arena is
+`nros_node::executor::backing::EXECUTOR_BACKING`, a `.bss` static whose size is
+`config::ARENA_SIZE`, derived in `nros-node/build.rs` from KNOBS and declared
+entity COUNTS. No registration can move it. Measured directly, before and
+after, on a real ELF containing a derived-default registration:
+`EXECUTOR_BACKING` is **86,216 bytes on both sides**, and every other RAM
+symbol is unchanged. Positive control for that probe: rebuilding with
+`NROS_SUBSCRIPTION_BUFFER_SIZE=2048` moves the same symbol to **98,504**
+(+12,288), so the probe detects exactly the class of change W3c would have had
+to produce.
+
+So a mem-report delta from this lever needs the BUILD-TIME arena derivation to
+learn the per-type bounds, which is `nros-node/build.rs`'s `rx_recv_size` term
+and `nros_derive_message_bound_knobs` — phase-403 step 3's lane, not this one,
+and deliberately deferred there ("a DESIGN choice with two bad options").
+
+*Filed:* [issue 1179](../issues/1179-derived-rx-default-unreachable-without-schema.md)
+— the default derives only on a backend declaring `type-descriptors` (today:
+Cyclone alone, verified across all four `nros-rmw.toml`), because
+`MessageForRmw` carries no schema on the other arm and phase-380 W4 refused to
+tighten it. The same constraint makes W3a inert on zenoh, which is worth
+knowing before quoting W3a's "a Rust subscription to a 4 KiB type now routes
+large" — true on Cyclone, false on the backend that has the size classes.
+[issue 1180](../issues/1180-mem-report-baseline-cannot-match-llvm-suffixed-symbols.md)
+— `mem-report --baseline` matches symbols by name including the per-build
+`.llvm.<hash>` suffix, so it silently prints "no delta" for `EXECUTOR_BACKING`
+whatever happened to it. That one nearly turned this wave's measurement into a
+probe that could only return nothing.
 
 **W3d — emit the constants, and retarget the publish helper.** 0896 layers 1-3.
 Acceptance: the emitted constant equals the Rust const for every type in the

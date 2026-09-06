@@ -2055,6 +2055,7 @@ impl<'c, 'e, 't, 's> SubscriptionBuilder<'c, 'e, 't, 's> {
             topic: self.topic,
             qos: self.qos,
             sched: None,
+            rx_explicit: false,
             _phantom: PhantomData,
         }
     }
@@ -2090,6 +2091,13 @@ pub struct TypedSubscriptionBuilder<
     topic: &'t str,
     qos: QoSProfile,
     sched: Option<super::sched_context::SchedContextId>,
+    /// phase-392 W3c -- did the CONSUMER name `RX`, or is it just the default?
+    ///
+    /// The two are the same const generic and mean opposite things now: an
+    /// unnamed `RX` is a ceiling the derivation clamps to, a named one is the
+    /// number the consumer asked for. `.rx_buffer::<N>()` is the only thing that
+    /// sets this, so the flag cannot drift from "somebody wrote a number".
+    rx_explicit: bool,
     _phantom: PhantomData<M>,
 }
 
@@ -2108,12 +2116,24 @@ impl<'c, 'e, 't, 's, M: MessageForRmw + 'static, const RX: usize>
     }
 
     /// Set the staging-buffer size (const-generic).
+    ///
+    /// phase-392 W3c -- **this is the opt-out.** A subscription that does not
+    /// call it is sized from `M`'s own serialized bound; calling it says "give
+    /// me exactly `N` bytes per slot" and the derivation is skipped. Naming a
+    /// number is the only way to spend more arena than the type needs, which is
+    /// the direction that should require saying so.
+    ///
+    /// It stays the way to raise a buffer above the type's bound -- for a peer
+    /// that pads, or a type whose `.msg` bound is looser than what it really
+    /// sends -- and `.rx_buffer_from_type()` after it re-enters the derivation
+    /// with `N` as the ceiling.
     pub fn rx_buffer<const N: usize>(self) -> TypedSubscriptionBuilder<'c, 'e, 't, 's, M, N> {
         TypedSubscriptionBuilder {
             ctx: self.ctx,
             topic: self.topic,
             qos: self.qos,
             sched: self.sched,
+            rx_explicit: true,
             _phantom: PhantomData,
         }
     }
@@ -2128,12 +2148,25 @@ impl<'c, 'e, 't, 's, M: MessageForRmw + 'static, const RX: usize>
     ///     .build(on_msg)?;
     /// ```
     ///
-    /// **Opt-in, and that is the design.** A subscription that does not call
-    /// this claims exactly the bytes it claimed before the knob existed, so an
-    /// image that does not opt in is byte-identical -- the same rule issue 0900's
-    /// arena knob keeps (`the_default_derivation_is_unchanged`). Sizing every
-    /// subscription from its type by default would move every image's arena
-    /// occupancy at once, which is a decision, not a refactor.
+    /// **No longer the only way to get it (phase-392 W3c).** This was opt-in,
+    /// and its own doc said making it the default "would move every image's
+    /// arena occupancy at once, which is a decision, not a refactor". W3c is
+    /// that decision: a plain `.typed::<M>().build()` now derives too, wherever
+    /// the bound is reachable, and `.rx_buffer::<N>()` is the opt-out.
+    ///
+    /// Two jobs are left, and they are why this method stays:
+    ///
+    /// * **It REFUSES an unbounded `M` at build time.** The default path cannot
+    ///   -- erroring there would make a bound mandatory for every message type
+    ///   in every image at once -- so it keeps `RX` for a type with no bound.
+    ///   Calling this says the bound must exist, and the `const` assert below
+    ///   is the error that says so.
+    /// * **It reaches the derivation where `MessageForRmw` carries no schema.**
+    ///   Only a backend declaring `type-descriptors` makes the type-erased
+    ///   default site able to read a bound at all (see
+    ///   [`default_subscription_rx_bytes`](crate::rmw_type_registry::default_subscription_rx_bytes));
+    ///   this method names `M: nros_serdes::schema::Message` itself, so it works
+    ///   on every backend.
     ///
     /// **What it costs and what it buys.** The buffered path stores `depth <= 1
     /// ? 3 : depth+1` slots of this size in the executor arena, so a bounded
@@ -2230,7 +2263,10 @@ impl<'c, 'e, 't, 's, M: MessageForRmw + 'static, const RX: usize>
                 self.qos,
                 callback,
                 None, // group threaded via create_subscription_in; builder uses sched override
-                None, // phase-403 W2: `RX` verbatim, the pre-knob behaviour
+                // phase-392 W3c -- `None` asks the choke point to DERIVE from
+                // `M`; `Some(RX)` is the consumer's own number, and only
+                // `.rx_buffer::<N>()` sets that flag.
+                if self.rx_explicit { Some(RX) } else { None },
             )?;
         if let Some(sc) = self.sched {
             self.ctx.executor.bind_handle_to_sched_context(handle, sc)?;
