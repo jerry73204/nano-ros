@@ -113,6 +113,33 @@ watched by the collision gate.
   `Context::default_from_env()` and no `ExecutorConfig` literal; hosted tests
   cover the domain override and the `--ros-args` refusal; `just check
   api-parity` green with the rows flipped.
+  **DONE 2026-09-07.** `init.rs` is ungated; `Context` (`alloc` floor — its
+  `locator`/`rmw` are owned `String`s), `ContextSource { Env, Launch, Baked }`,
+  `InitError` (+ `DomainIdOutOfRange`) and `InitOptions` compile on every
+  target; `env` gates only `read_env_context` / `init` / `init_with_args` /
+  `init_with_launch*` / `Context::new`. ONE `option_env!` site for the pair:
+  `Context::baked()`, with `from_baked(locator, domain)` as the injectable
+  parse and `with_locator_override` for the harness's `-testargs` override —
+  and because a leaf's `cargo:rustc-env` never reaches a dependency's build,
+  `nros`'s own `build.rs` now calls `nros_zephyr_build::bake_nros_config()`
+  (the issue-0460 `$DOTCONFIG` channel). Both entry macros call
+  `$crate::Context::default_from_env()` then `ctx.config(name)`; the
+  `nros::main!` Zephyr arm thereby GAINS the baked domain it had dropped
+  (issue 0161's class — it ran domain 0 whatever Kconfig said). Measured:
+  `cargo test -p nros --features env,std --lib init` 19 passed;
+  `--no-default-features --features alloc --lib init` 9 passed (the `alloc`
+  floor, `freestanding_default_from_env_is_the_bake` among them); clippy
+  `-D warnings` clean at both floors and for `--all-targets`. The Zephyr
+  `examples/zephyr/rust/talker` leaf (`zephyr_component_main!`) checked with
+  the west build's own recorded cargo step against this tree
+  (`aarch64-unknown-none`, `DOTCONFIG` from the `build-rust-talker-zenoh`
+  configure): `nros`'s build-script output carries
+  `rustc-env=NROS_LOCATOR=tcp/127.0.0.1:7400` / `NROS_DOMAIN_ID=0`, so the
+  bake reaches the constructor. Ledger: `rust:Context::default_from_env`
+  `rename` -> `divergence`+`adopt`; `rust:init` -> `extension` (the C++
+  anchor); `rust:Context::from_env` / `rust:Context::new` / `rust:InitOptions`
+  -> `divergence`+`adopt-bounded`; new `rust:Context::baked` and
+  `rust:ContextSource::Baked` (`extension`).
 
 * **W10 [rust] — the executor opens a session, the node is named after.**
   `Context::create_executor()` (`alloc`) and `create_executor_in(backing)`
