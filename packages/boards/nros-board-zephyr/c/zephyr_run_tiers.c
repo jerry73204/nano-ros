@@ -178,10 +178,11 @@ extern uint64_t nros_tier_spin_gap_step(uint64_t state, uint64_t iter_start_ns, 
 extern uint64_t nros_platform_clock_ns(void);
 
 
-/* nros_board_network_wait: weak no-op in main.hpp; strong override on boards
- * that must block for DHCP / link-up. On the canonical Zephyr path
- * (CONFIG_NET_CONFIG_AUTO_INIT) this is a no-op — the kernel brings up
- * networking before main() runs. */
+/* nros_board_network_wait: weak no-op in <nros/main.h> (phase-432 W3.1 moved
+ * it there from the C++ sibling main.hpp so a pure C entry links); strong
+ * override on boards that must block for DHCP / link-up. On the canonical
+ * Zephyr path (CONFIG_NET_CONFIG_AUTO_INIT) this is a no-op — the kernel
+ * brings up networking before main() runs. */
 extern void nros_board_network_wait(void);
 
 /* RFC-0034 — the sole sanctioned allocation seam (wraps the Zephyr heap); a

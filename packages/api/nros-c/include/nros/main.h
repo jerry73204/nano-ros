@@ -112,6 +112,43 @@ NROS_PUBLIC int32_t nros_board_native_run_tiers(const char* session_name,
                                                 const nros_native_tier_spec_t* tiers,
                                                 size_t n_tiers);
 
+/* Phase 235.B — weak network-readiness hook for embedded board runners.
+ *
+ * Default: no-op. The canonical in-tree Zephyr path auto-brings-up networking
+ * at boot (`CONFIG_NET_CONFIG_AUTO_INIT` — static IP / DHCP), and NuttX brings
+ * eth0 up before `app_main`, so neither needs an explicit wait. A board crate
+ * or Entry app that must block until the link / DHCP lease is ready (e.g.
+ * ASI's `configure_network()` prologue) provides a STRONG definition of this
+ * symbol, which the linker prefers over the weak default. Mirrors the
+ * weak-default discipline already used for `nros_app_register_backends`.
+ *
+ * WHY THE DEFINITION LIVES IN THIS C HEADER (phase-432 W3.1 prerequisite).
+ * It used to sit in `<nros/main.hpp>`, the C++ sibling, while the three RTOS
+ * `run_tiers.c` files below call it `extern`. That linked only because every
+ * generated embedded entry is a `.cpp` including `main.hpp`, so the weak body
+ * arrived through the C++ TU. A pure C entry — the whole point of W3.1 —
+ * compiles fine and then fails at LINK with `undefined reference to
+ * nros_board_network_wait`, because nothing else in the image defines it.
+ *
+ * `main.hpp` includes this header, so there is still exactly ONE definition
+ * and the C++ path is byte-for-byte what it was; the C path now reaches the
+ * same one. A separate C stub TU would have been a SECOND spelling of one
+ * symbol — the defect class phase-432 exists to remove — and would also have
+ * depended on archive extraction pulling a member nothing else references.
+ * A header-emitted weak definition has no link-graph dependency at all: the
+ * entry TU that includes this header emits it, exactly as the C++ TU did.
+ *
+ * Nothing in this tree overrides it today (measured: zero strong definitions
+ * across `packages/`, `examples/`, `third-party/`) — the override is an
+ * out-of-tree board affordance, and it keeps working because a strong
+ * definition in any TU still beats a weak one. */
+void nros_board_network_wait(void);
+#if defined(__GNUC__) || defined(__clang__)
+/* The prototype above is not redundant: without it every C TU that includes
+ * this header trips `-Wmissing-prototypes`, which the RTOS builds turn on. */
+__attribute__((weak)) void nros_board_network_wait(void) {}
+#endif
+
 /* Phase 274.W3 (RFC-0015 Model 1) — run a multi-tier embedded C/C++ entry on
  * FreeRTOS: open ONE RMW session, spawn one FreeRTOS task per non-boot tier
  * (each with a borrowed executor sharing the session), run the boot tier on the
