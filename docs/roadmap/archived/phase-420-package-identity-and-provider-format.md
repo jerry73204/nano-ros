@@ -9,8 +9,8 @@ disjoint. Three issues were filed on the way and are NOT part of this phase:
 1096 (a third compiler of zenoh-pico, in a readiness script), 1097 (a debug
 recipe that cannot work) and 1078 (five XRCE pool knobs missing from the
 inventory). Implements
-[RFC-0087](../design/0087-package-identity-and-provider-format.md). Sequenced
-with [phase-421](phase-421-serialization-format-provider.md), which implements
+[RFC-0087](../../design/0087-package-identity-and-provider-format.md). Sequenced
+with [phase-421](../phase-421-serialization-format-provider.md), which implements
 RFC-0088 and needs **W1 of this phase only** — the rest of this phase can land
 around it.
 
@@ -1118,7 +1118,7 @@ in-tree packages; a Python plugin ABI; rosdep. RFC-0087 D8 records why for each.
 
 ## Adopted issue (2026-09-04)
 
-* **[#1054](../issues/archived/1054-provider-scan-prunes-the-nano-ros-root.md)** —
+* **[#1054](../../issues/archived/1054-provider-scan-prunes-the-nano-ros-root.md)** —
   `provider_scan` reads `.nros-ignore` on the root it was handed, so scanning the
   nano-ros tree finds nothing. The marker's own header (issue 0621) says it
   prunes a tree from any walk that starts ABOVE it; honouring it at the root

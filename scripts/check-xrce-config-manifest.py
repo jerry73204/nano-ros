@@ -111,7 +111,14 @@ _LANE_SYMBOL = re.compile(r"\b(UCLIENT_[A-Z0-9_]+|XRCE_(?:MAX|MIN|BUFFER|STREAM|
 # `_nros_resolve_knob(NROS_XRCE_X` / `_nros_resolve_derivable_knob(NROS_XRCE_X`
 _FORWARDED = re.compile(r"_nros_resolve(?:_derivable)?_knob\(\s*(NROS_XRCE_[A-Z0-9_]+)")
 # `Maps to A, B.` inside a Kconfig help block.
-_MAPS_TO = re.compile(r"^\s*Maps to ([A-Za-z0-9_, ]+?)\.\s*$", re.M)
+#
+# NOT anchored to the start of a line. issue 1033 added
+# `NROS_XRCE_SUBSCRIBER_RING_DEPTH`, whose help ends "... drops the newest.
+# Maps to XRCE_SUBSCRIBER_RING_DEPTH." — the contract is present and correct,
+# and a `^\s*` anchor called it missing. What this gate checks is that the help
+# SAYS what the knob maps to; where the sentence begins is prose, not contract,
+# and a gate that constrains prose will keep being right about nothing.
+_MAPS_TO = re.compile(r"Maps to ([A-Za-z0-9_, ]+?)\.(?:\s|$)", re.M)
 # `config NROS_XRCE_FOO` … up to the next `config`/`endif` at column 0-ish.
 _KCONFIG_OPTION = re.compile(
     r"^config (NROS_XRCE_[A-Z0-9_]+)\n(.*?)(?=^config |^endif)", re.M | re.S

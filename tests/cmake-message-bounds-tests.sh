@@ -960,27 +960,27 @@ message(STATUS "takebuf=\${NROS_DERIVED_SUBSCRIPTION_BUFFER_SIZE}")
 EOF
 _p_out=$(cmake -P "$T/p-run.cmake" 2>&1)
 
-if ! printf '%s' "$_p_out" | grep -q "payload=derived"; then
+if ! nros_grep_q "payload=derived" <<<"${_p_out}"; then
     fail "P: every SUBSCRIBED type is bounded, so the payload classes must derive \
 even though the closure refused:"
     printf '%s\n' "$_p_out"
 fi
 check
-if ! printf '%s' "$_p_out" | grep -q "basis=subscribed"; then
+if ! nros_grep_q "basis=subscribed" <<<"${_p_out}"; then
     fail "P: the payload classes derived on the wrong basis -- a `closure` basis \
 here would be derived over the bounded types ONLY, which is the under-derivation \
 the refusal exists to prevent:"
     printf '%s\n' "$_p_out"
 fi
 check
-if ! printf '%s' "$_p_out" | grep -q "small=12"; then
+if ! nros_grep_q "small=12" <<<"${_p_out}"; then
     fail "P: the small class was not sized from the one subscribed type:"
     printf '%s\n' "$_p_out"
 fi
 check
 # The take buffer must STILL refuse -- that is the half an open closure type
 # genuinely poisons, and the whole reason this is not just "stop refusing".
-if printf '%s' "$_p_out" | grep -q "takebuf=[0-9]"; then
+if nros_grep_q "takebuf=[0-9]" <<<"${_p_out}"; then
     fail "P: the take buffer was derived over a closure with an unbounded type -- \
 DEFAULT_TX_BUF aliases it, so a published type could exceed it silently:"
     printf '%s\n' "$_p_out"
@@ -1027,7 +1027,7 @@ message(STATUS "small=\${NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE}")
 message(STATUS "basis=\${NROS_MESSAGE_BOUNDS_BASIS}")
 EOF
 _p_out2=$(cmake -P "$T/p-run2.cmake" 2>&1)
-if printf '%s' "$_p_out2" | grep -q "small=[0-9]"; then
+if nros_grep_q "small=[0-9]" <<<"${_p_out2}"; then
     fail "P: with no entity inventory the classes were derived over the BOUNDED \
 types only -- exactly the under-derivation the refusal exists to prevent:"
     printf '%s\n' "$_p_out2"
