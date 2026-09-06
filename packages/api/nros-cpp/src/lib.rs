@@ -1243,9 +1243,64 @@ pub struct NrosCppSessionSpec {
     pub namespace_: *const c_char,
 }
 
+/// Is this storage a LIVE nros context?
+///
+/// phase-432 W3.1 (option A) — the one answer to "is the global session up".
+///
+/// It used to be `Node::GlobalStorageHolder<>::initialized`, a C++ template
+/// static emitted by `node.hpp`: `nros::init` set it true, `nros::shutdown` set
+/// it false, `nros::ok()` read it. That made the flag unreachable from C, which
+/// is what blocked a pure-C `run_components` — its spin loop's EXIT CONDITION
+/// is `ok()`, and C had no way to ask.
+///
+/// The state was also duplicated. The tag below already says whether the
+/// storage holds a live `CppContext`; the C++ flag was a second answer,
+/// maintained by hand at four sites, and the two could disagree — a `fini`
+/// called directly (as `run_tiers.c` does) tore the context down without
+/// touching the flag, so `ok()` kept saying yes.
+///
+/// So the tag IS the flag now, and it has one owner: `nros_cpp_init*` stamps
+/// it, `nros_cpp_fini` clears it, this reads it.
+///
+/// # Safety
+/// `storage` must be NULL or point to at least `size_of::<CppContext>()` bytes
+/// the caller owns. Only the leading tag word is read, and only that word is
+/// trusted before the pointer is.
+#[cfg(feature = "rmw-cffi")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_context_is_live(storage: *const c_void) -> bool {
+    if storage.is_null() {
+        return false;
+    }
+    let ctx = storage as *const CppContext;
+    unsafe { core::ptr::read(core::ptr::addr_of!((*ctx).tag)) == CPP_CONTEXT_TAG }
+}
+
 /// Shut down an nros executor session.
 ///
-/// Drops the executor in-place within the caller's storage.
+/// Drops the executor in-place within the caller's storage, and UNSTAMPS the
+/// tag so the storage stops reading as a live context.
+///
+/// phase-432 W3.1 — this used to blind-cast on the way in and leave the tag
+/// stamped on the way out, and both halves were wrong.
+///
+/// **On the way in**: every other entry point that takes a `void*` executor
+/// handle goes through `cpp_ctx_checked`, which is issue 0436's fix — two
+/// different structs travel as `void*` here, both beginning with the same
+/// `Executor<'static>`, so a mixed-up handle READ correctly and then wrote this
+/// struct's later fields over the other's `Vec`. That was memory corruption
+/// seen as PX4 dumping core. This function was the one that skipped the check.
+///
+/// **On the way out**: `drop_in_place` runs the field drops and `tag: u64` has
+/// none, so its bytes survived teardown. `cpp_ctx_checked` would then hand out
+/// a `&mut CppContext` over a dropped executor — a use-after-free that passes
+/// the very check written to prevent one. A second `nros_cpp_fini` would
+/// re-close and re-drop it.
+///
+/// Nothing in the tree is known to have hit either, and that is not a reason to
+/// leave them: the tag exists precisely so a wrong handle fails cleanly, and a
+/// tag that outlives its object is worse than no tag, because it converts a
+/// null-check into a confident wrong answer.
 ///
 /// # Safety
 /// `storage` must point to a live `CppContext` written by `nros_cpp_init()`, or NULL (no-op).
@@ -1255,11 +1310,22 @@ pub unsafe extern "C" fn nros_cpp_fini(storage: *mut c_void) -> nros_cpp_ret_t {
     if storage.is_null() {
         return NROS_CPP_RET_OK;
     }
+    // Tag-checked like every sibling. A foreign or already-finalised handle is
+    // refused rather than closed — returning OK for a double-fini would make
+    // the second call indistinguishable from the first.
+    if unsafe { cpp_ctx_checked(storage) }.is_none() {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    }
 
     unsafe {
-        let ctx = &mut *(storage as *mut CppContext);
-        let _ = ctx.executor.close();
-        core::ptr::drop_in_place(storage as *mut CppContext);
+        let ctx = storage as *mut CppContext;
+        let _ = (*ctx).executor.close();
+        core::ptr::drop_in_place(ctx);
+        // AFTER the drop: the storage is now uninitialised memory the caller
+        // still owns, and this write is what stops it reading as ours. Written
+        // through the raw pointer, not a reference — there is no live
+        // `CppContext` here to borrow.
+        core::ptr::write(core::ptr::addr_of_mut!((*ctx).tag), 0);
     }
 
     NROS_CPP_RET_OK

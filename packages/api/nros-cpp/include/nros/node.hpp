@@ -1017,10 +1017,31 @@ class Node {
     // the linker, sidestepping the guarded-init path entirely.
     template <int = 0> struct GlobalStorageHolder {
         alignas(8) static uint8_t storage[NROS_CPP_EXECUTOR_STORAGE_SIZE];
-        static bool initialized;
     };
     static uint8_t* global_storage() { return GlobalStorageHolder<>::storage; }
-    static bool& global_initialized() { return GlobalStorageHolder<>::initialized; }
+
+    /// phase-432 W3.1 — DERIVED, not stored.
+    ///
+    /// This used to be a `static bool` beside the storage, set by `init` and
+    /// cleared by `shutdown`. Two problems, one fix.
+    ///
+    /// It was a SECOND answer: the context's own tag already says whether the
+    /// storage is live, and the flag was maintained by hand at four sites. They
+    /// could disagree — a direct `nros_cpp_fini` (which `run_tiers.c` does)
+    /// tore the context down without touching the flag, so `ok()` kept saying
+    /// yes over a dropped executor.
+    ///
+    /// And it was UNREACHABLE FROM C, being a C++ template static emitted by
+    /// this header. That is what blocked a pure-C `run_components`: its spin
+    /// loop's exit condition is `ok()`, and C had nothing to ask.
+    ///
+    /// Now both languages ask the same function. The call is not on any hot
+    /// path — every `ok()` call site in the tree is a spin-loop condition
+    /// paired with a millisecond-scale blocking `spin_once`, so a load became a
+    /// call once per tick.
+    static bool global_initialized() {
+        return nros_cpp_context_is_live(GlobalStorageHolder<>::storage);
+    }
 };
 
 // Out-of-class definitions for Node::GlobalStorageHolder<> — the template
@@ -1028,7 +1049,6 @@ class Node {
 // including this header all collapse to a single .bss allocation.
 template <int N>
 alignas(8) uint8_t Node::GlobalStorageHolder<N>::storage[NROS_CPP_EXECUTOR_STORAGE_SIZE] = {};
-template <int N> bool Node::GlobalStorageHolder<N>::initialized = false;
 
 // -- Free function implementations --
 
@@ -1117,9 +1137,8 @@ inline Result init(const char* locator, uint8_t domain_id, const char* session_n
 #endif
     nros_cpp_ret_t ret =
         nros_cpp_init_rmw(rmw, locator, domain_id, session_name, nullptr, Node::global_storage());
-    if (ret == 0) {
-        Node::global_initialized() = true;
-    }
+    // No flag to set: `nros_cpp_init_rmw` stamps the context tag, and
+    // `global_initialized()` reads it.
     return Result(ret);
 }
 
@@ -1145,9 +1164,8 @@ inline Result init_with_rmw(const char* rmw, const char* locator, uint8_t domain
     // bake would make this overload unable to express that.
     nros_cpp_ret_t ret =
         nros_cpp_init_rmw(rmw, locator, domain_id, session_name, nullptr, Node::global_storage());
-    if (ret == 0) {
-        Node::global_initialized() = true;
-    }
+    // No flag to set: `nros_cpp_init_rmw` stamps the context tag, and
+    // `global_initialized()` reads it.
     return Result(ret);
 }
 
@@ -1155,9 +1173,9 @@ inline Result shutdown() {
     if (!Node::global_initialized()) {
         return Result::success();
     }
-    nros_cpp_ret_t ret = nros_cpp_fini(Node::global_storage());
-    Node::global_initialized() = false;
-    return Result(ret);
+    // No flag to clear: `nros_cpp_fini` unstamps the tag, which is what
+    // `global_initialized()` reads. One owner of the fact.
+    return Result(nros_cpp_fini(Node::global_storage()));
 }
 
 // -- Phase 212.L.5 launch-aware init --

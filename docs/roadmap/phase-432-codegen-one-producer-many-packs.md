@@ -414,20 +414,53 @@ settled work.
   "the state a C runner must observe does not exist in C, and cannot be
   relocated". It needs a decision, not a move:
 
-  - **(a) Move the global-initialized flag behind the CFFI**, into Rust beside
-    `nros_cpp_init` / `nros_cpp_fini`, so `ok()` becomes a call. This is the
-    right shape — one owner of "is the global session up" — and it touches a
-    hot header path every C++ consumer inlines.
+  - **(a) Move the global-initialized flag behind the CFFI** — CHOSEN, DONE.
   - **(b) Add a shipped C++ TU to `nros-cpp` exporting
-    `extern "C" bool nros_cpp_global_ok(void)`.** Ten lines, but it puts a C++
-    TU in a crate that deliberately has none, and adds a second READER of a
-    flag that would still have one owner.
-  - **(c) Give the C `run_components` a different exit condition entirely.**
-    Cheapest and worst: a second answer to "should this loop stop", which is
-    this phase's own defect class.
+    `extern "C" bool nros_cpp_global_ok(void)`** — rejected on measurement.
+  - **(c) Give the C `run_components` a different exit condition** — rejected:
+    a second answer to "should this loop stop", this phase's own defect class.
 
-  Estimate (a) or (b) before the ~35-50 lines this item quotes for the runner
-  itself; the runner is not the work.
+  **(b) was the first recommendation and measuring inverted it.** Two numbers
+  were wrong. Its cost is not "ten lines": `NanoRos::NanoRosCpp` is an
+  INTERFACE (header-only) library, so adding a translation unit changes the
+  library KIND for every consumer — link lines, PUBLIC/INTERFACE semantics and
+  installs — which is a build-system change, not a file. And (a)'s objection,
+  that `ok()` is on a hot path every C++ consumer inlines, does not survive
+  looking at the call sites: EVERY `ok()` in the tree is a spin-loop condition
+  paired with a millisecond-scale blocking `spin_once`. A load became a call
+  once per tick.
+
+  **(a) also turned out to be a duplicate-state fix, not just an accessor.**
+  The context's own tag already recorded whether the storage was live; the C++
+  `initialized` flag was a SECOND answer maintained by hand at four sites, and
+  the two could disagree — a direct `nros_cpp_fini`, which `run_tiers.c` does,
+  tore the context down without touching the flag, so `ok()` kept saying yes
+  over a dropped executor. The tag is the flag now: `nros_cpp_init*` stamps it,
+  `nros_cpp_fini` clears it, `nros_cpp_context_is_live` reads it, and
+  `Node::global_initialized()` is derived rather than stored.
+
+  **`nros_cpp_fini` needed hardening for (a) to be correct, and was wrong on
+  both sides independently.** It blind-cast on the way in — alone among the
+  entry points that take a `void*` executor handle, all of which go through
+  `cpp_ctx_checked` because issue 0436 was memory corruption seen as PX4
+  dumping core — and it left the tag STAMPED on the way out, because
+  `drop_in_place` runs field drops and `tag: u64` has none. A finalised context
+  therefore still read as live, and `cpp_ctx_checked` would hand out a `&mut`
+  over a dropped executor. It now checks on entry and unstamps on exit.
+
+  **What is NOT verified, and why.** No affordable lane links an archive
+  carrying `nros_cpp_fini`, so there is no runtime probe for the refusal or the
+  unstamp — building one needs `nros-cpp` with `rmw-cffi`, which fails on the
+  same pre-existing feature-combination break that has `check-workspace-features`
+  red on `main` (`TransportError::BackendDynamic` is `alloc`-gated; adding
+  `alloc` then wants a global allocator). The change is verified by `just check
+  c`, `just check cpp` and the full fast line, and by reading — not by
+  executing a double-fini. A Rust unit test is not available either: `nros-cpp`
+  links `nros-c`, which is `no_std` panic=abort, so `cargo test` fails with
+  "unwinding panics are not supported without std".
+
+  With the flag reachable from C, the ~35-50 lines this item quotes for the
+  runner itself are now the remaining work.
 
   **Two prerequisites, and they are the real risk — do them FIRST and
   separately:**
