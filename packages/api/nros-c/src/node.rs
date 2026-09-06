@@ -665,6 +665,15 @@ pub unsafe extern "C" fn nros_get_fully_qualified_name(
 /// As [`nros_get_fully_qualified_name`], plus `NROS_RET_NOT_INIT` when the node
 /// is not initialised.
 ///
+/// The composition is NOT written here. It is `nros_node::names::
+/// fully_qualified_name`, which is `expand_name` with the private-name source
+/// `~` — the same seam every entity name on this node goes through
+/// (`Executor::resolve_entity_name_for`), so a node's FQN and its entities'
+/// FQNs can never disagree about namespace normalisation. A second
+/// `push(namespace); push('/'); push(name)` in the C layer is exactly
+/// RFC-0020's violation class 4, name construction in a wrapper, and it is
+/// what the four sibling implementations of this already spelled differently.
+///
 /// # Safety
 /// * `node` must be a valid pointer to an initialised node
 /// * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
@@ -675,19 +684,23 @@ pub unsafe extern "C" fn nros_node_get_fully_qualified_name(
     buf_len: usize,
     out_len: *mut usize,
 ) -> nros_ret_t {
-    if node.is_null() || buf.is_null() || buf_len == 0 {
+    validate_not_null!(node, buf);
+    if buf_len == 0 {
         return NROS_RET_INVALID_ARGUMENT;
     }
-    let node = &*node;
-    if node.state != nros_node_state_t::NROS_NODE_STATE_INITIALIZED {
+    let node_ref = &*node;
+    validate_state!(node_ref, nros_node_state_t::NROS_NODE_STATE_INITIALIZED);
+
+    // `inline_str` and not `CStr::from_ptr`: the name is an inline array with a
+    // stored length, and a name that fills it need not be NUL-terminated. This
+    // half came from the duplicate definition #417 landed (issue 1162) — it was
+    // the better read, and keeping it is most of why that collision was worth
+    // resolving by hand rather than by deleting one side.
+    let name = inline_str(&node_ref.name, node_ref.name_len);
+    if name.is_empty() {
         return NROS_RET_NOT_INIT;
     }
-    let (Ok(name), Ok(ns)) = (
-        core::ffi::CStr::from_ptr(node.name.as_ptr() as *const c_char).to_str(),
-        core::ffi::CStr::from_ptr(node.namespace.as_ptr() as *const c_char).to_str(),
-    ) else {
-        return NROS_RET_INVALID_ARGUMENT;
-    };
+    let ns = inline_str(&node_ref.namespace, node_ref.namespace_len);
     write_fqn(name, ns, buf, buf_len, out_len)
 }
 
@@ -948,53 +961,6 @@ pub unsafe extern "C" fn nros_node_get_domain_id(
     {
         let _ = node_ref;
         NROS_RET_UNSUPPORTED
-    }
-}
-
-/// The node's namespace and name as one string — `/ns/name`, the form that
-/// appears on the wire.
-///
-/// rcl's `rcl_node_get_fully_qualified_name`. Gap
-/// `c:node_get_fully_qualified_name` records that we exposed
-/// `rcl_node_get_name` and `rcl_node_get_namespace` separately and never
-/// their composition.
-///
-/// The composition is NOT written here. It is `nros_node::names::expand_name`
-/// with the private-name source `~`, which is by definition
-/// `/<ns>/<node>` — the same seam every entity name on this node goes
-/// through (`Executor::resolve_entity_name_for`), so a node's FQN and its
-/// entities' FQNs can never disagree about namespace normalisation. A second
-/// `push(namespace); push('/'); push(name)` in the C layer is exactly
-/// RFC-0020's violation class 4 (name construction in a wrapper), and it is
-/// what the four sibling implementations of this already spelled differently.
-///
-/// **Divergence from rcl, deliberate:** rcl returns `const char *` into
-/// node-owned storage. We have no allocator and the node struct holds no
-/// composed buffer, so the caller supplies one. `NROS_RET_FULL` when it is
-/// too small — a truncated FQN names a different node.
-///
-/// # Safety
-/// * `node` must be NULL or point to a valid `nros_node_t`.
-/// * `output_name` must be NULL or writable for `output_size` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_node_get_fully_qualified_name(
-    node: *const nros_node_t,
-    output_name: *mut c_char,
-    output_size: usize,
-) -> nros_ret_t {
-    validate_not_null!(node, output_name);
-    let node_ref = &*node;
-    validate_state!(node_ref, nros_node_state_t::NROS_NODE_STATE_INITIALIZED);
-
-    let name = inline_str(&node_ref.name, node_ref.name_len);
-    if name.is_empty() {
-        return NROS_RET_NOT_INIT;
-    }
-    let namespace = inline_str(&node_ref.namespace, node_ref.namespace_len);
-
-    match nros_node::names::expand_name("~", name, namespace) {
-        Ok(fqn) => write_cstr_out(fqn.as_str(), output_name, output_size),
-        Err(()) => NROS_RET_FULL,
     }
 }
 
