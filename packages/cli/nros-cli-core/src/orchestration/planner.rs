@@ -219,6 +219,7 @@ pub fn plan_system(options: PlanOptions) -> Result<PlanningOutput> {
         ));
     }
 
+    let declared_concurrency = declared_concurrency_from_record(&record);
     let plan = schema_plan_json(
         &options,
         &record_path,
@@ -227,6 +228,7 @@ pub fn plan_system(options: PlanOptions) -> Result<PlanningOutput> {
         &metadata,
         system_toml_path.as_deref(),
         build_json,
+        declared_concurrency.as_ref(),
     );
 
     let plan_path = options.out_root.join("nros-plan.json");
@@ -619,6 +621,35 @@ fn preserve_metadata(metadata: &[JsonArtifact], metadata_dir: &Path) -> Result<(
     Ok(())
 }
 
+/// Phase 434 — the exclusion relation a model-derived record carries. `None`
+/// for a legacy record (no key): the planner's own inference is then all
+/// there is. `Some(empty)` for a model where no node declared anything: the
+/// contract's default — everything serialises — applies to every node.
+#[allow(clippy::type_complexity)]
+fn declared_concurrency_from_record(record: &Value) -> Option<BTreeMap<String, Vec<Vec<String>>>> {
+    let map = record.get("node_concurrency")?.as_object()?;
+    Some(
+        map.iter()
+            .map(|(fqn, groups)| {
+                let groups: Vec<Vec<String>> = groups
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|g| {
+                        g.as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|s| s.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .collect();
+                (fqn.clone(), groups)
+            })
+            .collect(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn schema_plan_json(
     options: &PlanOptions,
     record_path: &Path,
@@ -627,6 +658,7 @@ fn schema_plan_json(
     metadata: &[JsonArtifact],
     system_toml: Option<&Path>,
     build: Value,
+    declared_concurrency: Option<&BTreeMap<String, Vec<Vec<String>>>>,
 ) -> Value {
     let components = schema_components(metadata);
     // Phase 256 W4.2 — the planner emits no scheduling tiers: tiers resolve in the
@@ -636,7 +668,11 @@ fn schema_plan_json(
     let plan_instances = instances.iter().map(schema_instance).collect::<Vec<_>>();
     let interfaces = schema_interfaces(&plan_instances);
     let callback_chains = infer_callback_chains(&plan_instances);
-    let callback_groups = infer_callback_groups(&plan_instances, &callback_chains);
+    let callback_groups = infer_callback_groups_with_declarations(
+        &plan_instances,
+        &callback_chains,
+        declared_concurrency,
+    );
     let sched_contexts = vec![default_sched_context()];
 
     let mut plan = json!({
@@ -1995,7 +2031,50 @@ fn infer_callback_chains(instances: &[Value]) -> Vec<Value> {
 /// emit in `chains` order (already id-sorted by component root), then
 /// reentrant singletons in callback-id order. Overridable by an explicit
 /// `[[group]]`.
+/// The legacy-record form, kept for the tests that pin the inference alone.
+#[cfg(test)]
 fn infer_callback_groups(instances: &[Value], chains: &[Value]) -> Vec<Value> {
+    infer_callback_groups_with_declarations(instances, chains, None)
+}
+
+/// The node FQN a plan instance stands for, the way the model keys it.
+fn instance_fqn(instance: &Value) -> String {
+    let ns = instance
+        .get("namespace")
+        .and_then(Value::as_str)
+        .unwrap_or("/")
+        .trim_end_matches('/');
+    let name = instance
+        .get("launch_name")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    format!("{ns}/{name}")
+}
+
+/// Phase 434 — group inference that prefers a DECLARATION over its own
+/// guess, closing the seam play_launch's phase 68 W5 found: this planner
+/// gave every chainless callback its own `reentrant` group, while the
+/// contract's absent `concurrency:` means everything serialises — the same
+/// default `rclcpp`'s implicit callback group and `default_cbg_type` already
+/// use. Opposite answers, each picked silently, deciding whether a summed
+/// chain latency is sound and whether a per-thread reservation is.
+///
+/// With `declared` present (a model-derived record):
+///
+/// - a node with NO entry: every chainless callback of that node lands in
+///   ONE mutually-exclusive group — the contract's default, not a guess;
+/// - a node with an entry: each `exclusive` set whose path names match
+///   callback names becomes a mutually-exclusive group, and a callback in no
+///   declared set is `reentrant`, because the author claimed exactly that.
+///
+/// Chains keep their mutually-exclusive groups either way: dataflow coupling
+/// is a fact the contract does not override. With `declared` absent (a
+/// legacy record) the behaviour is unchanged.
+fn infer_callback_groups_with_declarations(
+    instances: &[Value],
+    chains: &[Value],
+    declared: Option<&BTreeMap<String, Vec<Vec<String>>>>,
+) -> Vec<Value> {
     use std::collections::BTreeSet;
 
     let mut grouped: BTreeSet<String> = BTreeSet::new();
@@ -2022,20 +2101,68 @@ fn infer_callback_groups(instances: &[Value], chains: &[Value]) -> Vec<Value> {
         }));
     }
 
-    // One reentrant singleton group per callback outside any chain.
+    // Callbacks outside any chain.
     let mut singles: Vec<String> = Vec::new();
     for instance in instances {
-        for cb in instance
+        let chainless: Vec<String> = instance
             .get("callbacks")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-        {
-            let Some(id) = cb.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if !grouped.contains(id) {
-                singles.push(id.to_string());
+            .filter_map(|cb| cb.get("id").and_then(Value::as_str))
+            .filter(|id| !grouped.contains(*id))
+            .map(str::to_string)
+            .collect();
+        if chainless.is_empty() {
+            continue;
+        }
+        let Some(declared) = declared else {
+            singles.extend(chainless);
+            continue;
+        };
+        let fqn = instance_fqn(instance);
+        match declared.get(&fqn) {
+            None => {
+                // The contract's default: no declaration means the node's
+                // paths serialise. One group, the whole node.
+                let instance_id = instance.get("id").and_then(Value::as_str).unwrap_or("");
+                groups.push(json!({
+                    "id": format!("group/{instance_id}"),
+                    "kind": "mutually_exclusive",
+                    "callbacks": chainless,
+                    "inferred": false,
+                    "declared": "default",
+                }));
+            }
+            Some(sets) => {
+                let mut claimed: BTreeSet<String> = BTreeSet::new();
+                for set in sets {
+                    // A declared set names PATHS; callback ids end in the
+                    // callback name. Match on that name.
+                    let members: Vec<String> = chainless
+                        .iter()
+                        .filter(|id| {
+                            set.iter()
+                                .any(|p| id.rsplit('/').next().is_some_and(|tail| tail == p))
+                        })
+                        .cloned()
+                        .collect();
+                    if members.is_empty() {
+                        continue;
+                    }
+                    claimed.extend(members.iter().cloned());
+                    let head = members.first().cloned().unwrap_or_default();
+                    groups.push(json!({
+                        "id": format!("group/{head}"),
+                        "kind": "mutually_exclusive",
+                        "callbacks": members,
+                        "inferred": false,
+                        "declared": "exclusive",
+                    }));
+                }
+                // Everything the author left out of every set may run
+                // concurrently — that is the claim a declaration makes.
+                singles.extend(chainless.into_iter().filter(|id| !claimed.contains(id)));
             }
         }
     }
@@ -5927,6 +6054,60 @@ topics:
         assert_eq!(groups[0]["kind"], json!("reentrant"));
         assert_eq!(groups[0]["callbacks"], json!(["a/tick"]));
         assert_eq!(groups[0]["inferred"], json!(true));
+    }
+
+    /// Phase 434 — the contract's default beats the planner's guess.
+    #[test]
+    fn a_model_record_without_a_declaration_serialises_the_node() {
+        let instances = vec![json!({
+            "id": "a",
+            "namespace": "/",
+            "launch_name": "a",
+            "callbacks": [{ "id": "a/tick" }, { "id": "a/work" }],
+            "nodes": [{ "entities": [
+                { "role": "timer", "id": "a/timer", "callback": "a/tick" },
+                { "role": "timer", "id": "a/timer2", "callback": "a/work" },
+            ]}]
+        })];
+        let chains = infer_callback_chains(&instances);
+        assert!(chains.is_empty());
+        // Legacy record: two reentrant singletons, as before.
+        let legacy = infer_callback_groups_with_declarations(&instances, &chains, None);
+        assert_eq!(legacy.len(), 2);
+        assert!(legacy.iter().all(|g| g["kind"] == json!("reentrant")));
+        // Model record, nothing declared for /a: ONE mutually-exclusive group.
+        let declared = BTreeMap::new();
+        let groups = infer_callback_groups_with_declarations(&instances, &chains, Some(&declared));
+        assert_eq!(groups.len(), 1, "got {groups:?}");
+        assert_eq!(groups[0]["kind"], json!("mutually_exclusive"));
+        assert_eq!(groups[0]["callbacks"], json!(["a/tick", "a/work"]));
+        assert_eq!(groups[0]["declared"], json!("default"));
+    }
+
+    /// Phase 434 — a declared exclusion set is honoured, and what it leaves
+    /// out is the concurrency the author claimed.
+    #[test]
+    fn a_declared_exclusion_set_groups_its_members_and_frees_the_rest() {
+        let instances = vec![json!({
+            "id": "a",
+            "namespace": "/",
+            "launch_name": "a",
+            "callbacks": [{ "id": "a/plan" }, { "id": "a/replan" }, { "id": "a/telemetry" }],
+            "nodes": [{ "entities": [] }]
+        })];
+        let chains = infer_callback_chains(&instances);
+        let mut declared = BTreeMap::new();
+        declared.insert(
+            "/a".to_string(),
+            vec![vec!["plan".to_string(), "replan".to_string()]],
+        );
+        let groups = infer_callback_groups_with_declarations(&instances, &chains, Some(&declared));
+        assert_eq!(groups.len(), 2, "got {groups:?}");
+        assert_eq!(groups[0]["kind"], json!("mutually_exclusive"));
+        assert_eq!(groups[0]["callbacks"], json!(["a/plan", "a/replan"]));
+        assert_eq!(groups[0]["declared"], json!("exclusive"));
+        assert_eq!(groups[1]["kind"], json!("reentrant"));
+        assert_eq!(groups[1]["callbacks"], json!(["a/telemetry"]));
     }
 
     #[test]

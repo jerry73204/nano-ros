@@ -1427,7 +1427,24 @@ pub fn plan_record_from_model(model: &SystemModel) -> serde_json::Value {
             }));
         }
     }
-    serde_json::json!({ "node": nodes, "container": containers, "load_node": load_nodes })
+    // Phase 434 — the exclusion relation rides the record, because the
+    // planner infers callback groups from a record and never sees the model.
+    // The KEY is always present when the record came from a model, even when
+    // no node declares anything: its presence is what tells the planner the
+    // contract's default applies (everything serialises), as opposed to a
+    // legacy record where the planner's own inference is all there is.
+    let node_concurrency: serde_json::Map<String, serde_json::Value> = model
+        .contracts
+        .node_concurrency
+        .iter()
+        .map(|(fqn, c)| (fqn.clone(), serde_json::json!(c.exclusive)))
+        .collect();
+    serde_json::json!({
+        "node": nodes,
+        "container": containers,
+        "load_node": load_nodes,
+        "node_concurrency": node_concurrency,
+    })
 }
 
 pub fn plan_transports(
