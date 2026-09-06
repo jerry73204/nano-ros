@@ -330,7 +330,13 @@ def ours_c(tmpdir):
         extract_cxx.nros_c_include_args(),
         {""},
         tmpdir,
-        prefixes={"nros_", "NROS_"},
+        # `rclc_`/`RCLC_` too: nros-c deliberately ships rclc-COMPATIBLE
+        # entry points under upstream's exact spelling (`rclc_executor_spin`,
+        # `rclc_support_fini`, the whole `rclc_executor_*` family), so a
+        # `nros_`-only filter dropped them from OUR surface and every one of
+        # them then read as a theirs-only GAP -- 14 of them, for symbols whose
+        # names match upstream character for character. Issue 1188.
+        prefixes={"nros_", "NROS_", "rclc_", "RCLC_"},
     )
 
 
