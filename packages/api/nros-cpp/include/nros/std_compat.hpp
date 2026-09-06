@@ -47,6 +47,27 @@ inline void std_function_trampoline(void* context) {
 
 } // namespace detail
 
+/// A node's fully-qualified name as a `std::string` — the shape
+/// `rclcpp::Node::get_fully_qualified_name` returns.
+///
+/// Takes the two halves rather than a node, because the case that needs it is
+/// a node you DISCOVERED: `Executor::get_node_names` hands a visitor a name and
+/// a namespace, and this is the step that makes them one. Neither rcl nor
+/// rclcpp has a counterpart — their graph APIs return two parallel arrays and
+/// leave both the correlation and the join to the caller.
+///
+/// Returns an empty string if the join cannot be represented, which for a name
+/// and namespace that came from the graph cannot happen; a caller that builds
+/// its own inputs should use the `Result`-returning C entry point.
+inline std::string get_fully_qualified_name(const char* node_name, const char* node_namespace) {
+    char buf[256];
+    size_t len = 0;
+    if (nros_get_fully_qualified_name(node_name, node_namespace, buf, sizeof(buf), &len) != 0) {
+        return std::string();
+    }
+    return std::string(buf, len);
+}
+
 /// Create a repeating timer with a std::function callback.
 ///
 /// The closure is owned by the `Timer` — it is freed automatically

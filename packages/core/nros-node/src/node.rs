@@ -233,15 +233,16 @@ impl<const MAX_PUBS: usize, const MAX_SUBS: usize> Node<MAX_PUBS, MAX_SUBS> {
     /// bytes, one over the `String<128>` capacity, so a maxed name+namespace
     /// would otherwise silently truncate the FQN.
     pub fn fully_qualified_name(&self) -> Result<heapless::String<128>, NodeError> {
-        let mut fqn = heapless::String::new();
-        fqn.push_str(&self.namespace)
-            .map_err(|_| NodeError::NamespaceTooLong)?;
-        if !self.namespace.ends_with('/') {
-            fqn.push('/').map_err(|_| NodeError::NamespaceTooLong)?;
-        }
-        fqn.push_str(&self.name)
-            .map_err(|_| NodeError::NameTooLong)?;
-        Ok(fqn)
+        // Delegates rather than joining again: `crate::names::fully_qualified_name`
+        // is the one implementation, and this used to be the second of three.
+        //
+        // The old body agreed with it on the cases anyone tested — `/my_ns` +
+        // `my_node`, and a root `/` collapsed correctly — and differed on a
+        // namespace with NO leading slash: it returned `my_ns/my_node`, which is
+        // not fully qualified. ROS 2 namespaces are absolute, so the shared
+        // helper adds the slash.
+        crate::names::fully_qualified_name(&self.name, &self.namespace)
+            .map_err(|()| NodeError::NameTooLong)
     }
 
     /// Create a publisher with the given options
@@ -424,6 +425,28 @@ mod tests {
             node.fully_qualified_name().unwrap().as_str(),
             "/my_ns/my_node"
         );
+    }
+
+    /// The two cases that separate a correct join from a plausible one, and
+    /// the reason this delegates to `names::fully_qualified_name` instead of
+    /// keeping its own three lines.
+    #[test]
+    fn fully_qualified_name_collapses_root_and_absolutises() {
+        for (ns, want) in [
+            // Root must not double the slash.
+            ("/", "/my_node"),
+            ("/my_ns", "/my_ns/my_node"),
+            // A namespace without a leading slash is still absolute. The
+            // hand-rolled body this replaced returned `my_ns/my_node`.
+            ("my_ns", "/my_ns/my_node"),
+        ] {
+            let node = Node::<4, 4>::new(NodeConfig::new("my_node", ns)).unwrap();
+            assert_eq!(
+                node.fully_qualified_name().unwrap().as_str(),
+                want,
+                "namespace {ns:?}"
+            );
+        }
     }
 
     #[test]

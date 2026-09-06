@@ -197,7 +197,9 @@ impl SourceNameKind {
 /// `nros_node::names` so both the Rust `ExecutorSink` and the C-ABI
 /// executor-side remap table share one lowering; re-exported here next to
 /// [`SourceNameKind`] as the source-metadata-level entry point.
-pub use nros_node::names::{MAX_RESOLVED_NAME_LEN, ResolvedName, expand_name, resolve_name};
+pub use nros_node::names::{
+    MAX_RESOLVED_NAME_LEN, ResolvedName, expand_name, fully_qualified_name, resolve_name,
+};
 
 /// Stable source-level identifier required for component-mode declarations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

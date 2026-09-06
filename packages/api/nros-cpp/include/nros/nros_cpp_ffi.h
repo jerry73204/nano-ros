@@ -941,6 +941,24 @@ const char *nros_cpp_node_get_name(const struct nros_cpp_node_t *node);
 const char *nros_cpp_node_get_namespace(const struct nros_cpp_node_t *node);
 
 /**
+ * This node's fully-qualified name — `rclcpp::Node::get_fully_qualified_name`.
+ *
+ * Writes `<namespace>/<name>` into `buf`, null-terminated, collapsing the root
+ * namespace. `out_len` receives the length written, or on `NROS_CPP_RET_FULL`
+ * the length that WOULD be written; it may be NULL.
+ *
+ * The join itself is `nros_node::names::fully_qualified_name`, the one
+ * implementation this and the C API and the Rust `Node` all reach.
+ *
+ * # Safety
+ * `node` must be valid; `buf` must be writable for `buf_len` bytes.
+ */
+nros_cpp_ret_t nros_cpp_node_get_fully_qualified_name(const struct nros_cpp_node_t *node,
+                                                      char *buf,
+                                                      size_t buf_len,
+                                                      size_t *out_len);
+
+/**
  * RFC-0088 D4 / phase-421 W2 — the serialization format the backend behind
  * THIS node speaks, as its cross-image identity string (`"cdr"`, `"uorb"`).
  *

@@ -1774,6 +1774,12 @@ fn test_add_timer_and_fire() {
 /// the same globals, which is issue 1104. `SimTimeGuard` does that -- it orders
 /// this against them and restores the override on the way out, replacing the
 /// hand-written clear this test used to end with.
+// Gated to match `SimTimeGuard` and `register_timer_on_clock`, both of which
+// are `sim-time`-only. Issue 1104 added the guard to an UNGATED test, so
+// `cargo test -p nros-node --features std` — no `sim-time` — stopped compiling
+// with `cannot find type SimTimeGuard`. Invisible to `check node-std-tests`,
+// which passes `std,sim-time,param-services` and therefore always has it.
+#[cfg(feature = "sim-time")]
 #[test]
 fn ros_time_timer_follows_the_simulated_clock() {
     let _sim_time = SimTimeGuard::acquire();

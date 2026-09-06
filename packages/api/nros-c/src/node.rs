@@ -572,6 +572,132 @@ pub unsafe extern "C" fn nros_node_get_namespace(node: *const nros_node_t) -> *c
     node.namespace.as_ptr() as *const c_char
 }
 
+/// Join a node name and namespace into a fully-qualified name.
+///
+/// `/robot` + `talker` -> `/robot/talker`. The root namespace collapses, so
+/// `/` + `talker` is `/talker` and never `//talker`, and a namespace given
+/// without a leading `/` is absolutised.
+///
+/// # Why this exists, and why it takes two strings rather than a handle
+///
+/// `nros_executor_get_node_names` hands a visitor the name and namespace of a
+/// DISCOVERED node as two borrowed strings; this is the step that makes them
+/// one. ROS 2 has no counterpart: `rcl_get_node_names` returns two parallel
+/// arrays and leaves the correlation and the join to the caller, and
+/// `rcl_node_get_fully_qualified_name` answers only for the caller's OWN node
+/// (that one is [`nros_node_get_fully_qualified_name`]). rclcpp is the only
+/// upstream layer that joins for you, and it is not available in C.
+///
+/// # Parameters
+/// * `node_name` - the bare node name, null-terminated
+/// * `node_namespace` - the namespace, null-terminated; `""` and `"/"` are root
+/// * `buf` - destination for the null-terminated result
+/// * `buf_len` - capacity of `buf`, INCLUDING the terminator
+/// * `out_len` - receives the length written, excluding the terminator.
+///   On `NROS_RET_FULL` it receives the length that WOULD be written, so a
+///   caller can size a second attempt.
+///
+/// # Returns
+/// * `NROS_RET_OK`
+/// * `NROS_RET_INVALID_ARGUMENT` — a NULL pointer, a non-UTF-8 input, or a
+///   name so long the join cannot be represented
+/// * `NROS_RET_FULL` — `buf_len` is too small; `out_len` says what is needed.
+///   `FULL` and not `BUFFER_TOO_SMALL` because `nros_ret_t` has no such code:
+///   that one exists on the RMW ABI (`nros_rmw_ret_t`) and is CITED by a doc
+///   comment on `nros_publisher_publish_raw` that returns
+///   `NROS_RET_PUBLISH_FAILED` instead. Naming a constant the header does not
+///   define would make that two wrong references rather than one.
+///
+/// # Safety
+/// * `node_name` and `node_namespace` must be valid null-terminated strings
+/// * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_get_fully_qualified_name(
+    node_name: *const c_char,
+    node_namespace: *const c_char,
+    buf: *mut c_char,
+    buf_len: usize,
+    out_len: *mut usize,
+) -> nros_ret_t {
+    if node_name.is_null() || node_namespace.is_null() || buf.is_null() || buf_len == 0 {
+        return NROS_RET_INVALID_ARGUMENT;
+    }
+    let (Ok(name), Ok(ns)) = (
+        core::ffi::CStr::from_ptr(node_name).to_str(),
+        core::ffi::CStr::from_ptr(node_namespace).to_str(),
+    ) else {
+        return NROS_RET_INVALID_ARGUMENT;
+    };
+    write_fqn(name, ns, buf, buf_len, out_len)
+}
+
+/// This node's fully-qualified name — `rcl_node_get_fully_qualified_name`.
+///
+/// A buffer rather than upstream's `const char *`, and the difference is not
+/// cosmetic: rcl can hand back a pointer because it STORES the joined string,
+/// and storing it here would cost up to `MAX_NAME_LEN + MAX_NAMESPACE_LEN`
+/// bytes per node on a target that counts them, to cache something two strings
+/// already hold. Same shape as [`nros_get_fully_qualified_name`], which is the
+/// other half of this pair.
+///
+/// # Returns
+/// As [`nros_get_fully_qualified_name`], plus `NROS_RET_NOT_INIT` when the node
+/// is not initialised.
+///
+/// # Safety
+/// * `node` must be a valid pointer to an initialised node
+/// * `buf` must be writable for `buf_len` bytes; `out_len` must be valid or NULL
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_node_get_fully_qualified_name(
+    node: *const nros_node_t,
+    buf: *mut c_char,
+    buf_len: usize,
+    out_len: *mut usize,
+) -> nros_ret_t {
+    if node.is_null() || buf.is_null() || buf_len == 0 {
+        return NROS_RET_INVALID_ARGUMENT;
+    }
+    let node = &*node;
+    if node.state != nros_node_state_t::NROS_NODE_STATE_INITIALIZED {
+        return NROS_RET_NOT_INIT;
+    }
+    let (Ok(name), Ok(ns)) = (
+        core::ffi::CStr::from_ptr(node.name.as_ptr() as *const c_char).to_str(),
+        core::ffi::CStr::from_ptr(node.namespace.as_ptr() as *const c_char).to_str(),
+    ) else {
+        return NROS_RET_INVALID_ARGUMENT;
+    };
+    write_fqn(name, ns, buf, buf_len, out_len)
+}
+
+/// The shared tail of the two entry points above: join, then copy out.
+///
+/// One function so the two cannot disagree about the terminator, the
+/// too-small report, or what `out_len` means — which is the same argument that
+/// put the join itself in `nros_node::names`.
+unsafe fn write_fqn(
+    name: &str,
+    ns: &str,
+    buf: *mut c_char,
+    buf_len: usize,
+    out_len: *mut usize,
+) -> nros_ret_t {
+    let Ok(fqn) = nros_node::names::fully_qualified_name(name, ns) else {
+        return NROS_RET_INVALID_ARGUMENT;
+    };
+    let bytes = fqn.as_bytes();
+    if !out_len.is_null() {
+        *out_len = bytes.len();
+    }
+    // `buf_len` counts the terminator, so the text must fit in one less.
+    if bytes.len() + 1 > buf_len {
+        return NROS_RET_FULL;
+    }
+    ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, bytes.len());
+    *(buf as *mut u8).add(bytes.len()) = 0;
+    NROS_RET_OK
+}
+
 /// RFC-0088 D4 / phase-421 W2 — the serialization format the backend behind
 /// THIS node speaks, as its cross-image identity string (`"cdr"`, `"uorb"`).
 ///
@@ -841,6 +967,82 @@ pub(crate) unsafe fn resolve_session_and_domain(
         // issue 0972 — decode, do not read the raw byte.
         let domain_id = resolve_domain_from_c_abi(raw_domain, session.domain_id())?;
         Some((session, domain_id))
+    }
+}
+
+#[cfg(test)]
+mod fqn_tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::{string::String, vec};
+
+    fn join(name: &[u8], ns: &[u8], cap: usize) -> (nros_ret_t, String, usize) {
+        let mut buf = vec![0u8; cap.max(1)];
+        let mut out_len = 0usize;
+        let ret = unsafe {
+            nros_get_fully_qualified_name(
+                name.as_ptr() as *const c_char,
+                ns.as_ptr() as *const c_char,
+                buf.as_mut_ptr() as *mut c_char,
+                cap,
+                &mut out_len,
+            )
+        };
+        let text = String::from_utf8_lossy(&buf[..buf.iter().position(|&b| b == 0).unwrap_or(0)])
+            .into_owned();
+        (ret, text, out_len)
+    }
+
+    /// The three cases that separate a correct join from a plausible one. The
+    /// root collapse is the one a hand-rolled `sprintf("%s/%s")` gets wrong.
+    #[test]
+    fn joins_the_two_halves_a_visitor_hands_out() {
+        for (ns, want) in [
+            (&b"/\0"[..], "/talker"),
+            (&b"/robot\0"[..], "/robot/talker"),
+            // Absolute even when the caller's namespace is not spelled that way.
+            (&b"robot/arm\0"[..], "/robot/arm/talker"),
+            (&b"\0"[..], "/talker"),
+        ] {
+            let (ret, text, len) = join(b"talker\0", ns, 64);
+            assert_eq!(ret, NROS_RET_OK, "ns={ns:?}");
+            assert_eq!(text, want, "ns={ns:?}");
+            assert_eq!(len, want.len(), "out_len must exclude the terminator");
+        }
+    }
+
+    /// A too-small buffer must SAY how much is needed, or a caller cannot
+    /// retry without guessing.
+    #[test]
+    fn a_short_buffer_reports_the_length_it_wanted() {
+        let (ret, _, len) = join(b"talker\0", b"/robot\0", 4);
+        assert_eq!(ret, NROS_RET_FULL);
+        assert_eq!(len, "/robot/talker".len());
+        // And the boundary: exactly the text plus its terminator fits.
+        let (ret, text, _) = join(b"talker\0", b"/robot\0", "/robot/talker".len() + 1);
+        assert_eq!(ret, NROS_RET_OK);
+        assert_eq!(text, "/robot/talker");
+        let (ret, _, _) = join(b"talker\0", b"/robot\0", "/robot/talker".len());
+        assert_eq!(
+            ret, NROS_RET_FULL,
+            "no room for the terminator is still too small"
+        );
+    }
+
+    #[test]
+    fn a_null_argument_is_rejected_rather_than_dereferenced() {
+        let mut buf = [0u8; 32];
+        let mut n = 0usize;
+        let ret = unsafe {
+            nros_get_fully_qualified_name(
+                core::ptr::null(),
+                b"/\0".as_ptr() as *const c_char,
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len(),
+                &mut n,
+            )
+        };
+        assert_eq!(ret, NROS_RET_INVALID_ARGUMENT);
     }
 }
 
