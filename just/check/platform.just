@@ -168,6 +168,20 @@ board-descriptor-single-source:
 fixture-boards-declared:
     @python3 scripts/check-fixture-boards-declared.py
 
+# phase-375 W8 — a board's `cargo_config` is a TOML document inside a TOML
+# document, and nothing checked the inner one. A typo (`runnner`, `[targets.x]`)
+# travels into a generated `.cargo/config.toml` where cargo silently ignores it,
+# and the leaf then builds for the wrong target or links without its flags.
+#
+# The wave asked for the blob to be DECOMPOSED into fields instead. Measured
+# across the seven blobs: they also carry `[unstable]`, `[env]` compiler vars
+# and `[patch.crates-io]`, so four fields would cover part of every blob and all
+# of none — leaving each board with both fields AND a blob, which is worse than
+# the problem. The blob stays and gets the schema check it was missing.
+[private]
+board-cargo-config-shape:
+    @python3 scripts/check-board-cargo-config-shape.py
+
 # built (the packages/cli phase215_f integration test still covers it).
 [private]
 board-manifest-drift:

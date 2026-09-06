@@ -90,6 +90,23 @@ pub struct PlatformConfigFile {
     /// typed, closed part of the schema.
     #[serde(default)]
     pub capabilities: BTreeMap<String, bool>,
+    /// `[priority_plan]` — ACKNOWLEDGED here, interpreted elsewhere.
+    ///
+    /// phase-375 W8 gave RFC-0079's priority address plan a per-platform home
+    /// (`config/freertos/nros-platform.toml`), and its readers are
+    /// `scripts/lib/priority_plan.py` and its two consumers — not this crate.
+    ///
+    /// Modelled as an OPAQUE value on purpose, the same way
+    /// `BoardDescriptor::priority_plan` is: `deny_unknown_fields` above must
+    /// not come to mean "every consumer's schema is restated here", which would
+    /// make this struct the union of several readers and guarantee drift.
+    /// Declaring it says "this key is real and someone else owns it"; omitting
+    /// it said "typo", and that is exactly what happened — adding the table
+    /// broke every embedded build with `unknown field `priority_plan``, in a
+    /// build script, where the fast lane cannot see it because it does not
+    /// compile.
+    #[serde(default)]
+    pub priority_plan: Option<toml::Value>,
     #[serde(default)]
     pub knobs: Knobs,
     #[serde(default)]
