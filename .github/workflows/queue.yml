@@ -58,7 +58,28 @@ concurrency:
   # context, and a cancelled required check is the frozen-repo failure this
   # workflow's own header warns about.
   group: queue-l3
-  cancel-in-progress: true
+  # NOT cancel-in-progress -- corrected 2026-09-06, and the measurement is the
+  # reason. The constant GROUP was the fix; the cancellation was a mistake I
+  # bundled with it.
+  #
+  # The three configurations, all observed on this repo:
+  #
+  #   per-ref group, no cancel   every entry its own group, nothing dedupes,
+  #                              the queue grows without bound: 30 -> 40 -> 59
+  #                              runs, ZERO completed, ever.
+  #   constant group, cancel     the backlog drained once, then every new merge
+  #                              cancelled the RUNNING job. 19 of the last 20
+  #                              runs cancelled, none completed. Still no
+  #                              verdict, by a different route.
+  #   constant group, no cancel  GitHub keeps one RUNNING plus at most one
+  #                              PENDING per group and cancels older pending
+  #                              ones. Bounded like the second, and the running
+  #                              job finishes.
+  #
+  # The lane takes ~10 minutes and merges arrive more often than that, which is
+  # what makes cancellation self-defeating here: the newest entry always wins
+  # the race and never survives long enough to report.
+  cancel-in-progress: false
 
 permissions:
   contents: read
