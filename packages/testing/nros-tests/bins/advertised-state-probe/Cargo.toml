@@ -1,0 +1,42 @@
+[workspace]
+
+[package]
+name = "advertised-state-probe"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "phase-433 W6 acceptance fixture — holds a Cyclone publisher and subscription open and prints what the four ADVERTISED-STATE vtable slots say about them (matched counts, publisher GID, actual QoS read-back, serialization format), so `advertised_state_interop.rs` can compare each answer against what a stock ROS 2 peer reads for the same entities. Every one of those slots is `produced` and has never met a peer."
+
+[[bin]]
+name = "advertised-state-probe"
+path = "src/main.rs"
+
+[dependencies]
+# The BACKEND. Cyclone is the only backend in the tree that fills the four
+# slots this probe reads (`check-rmw-slot-producers` calls them `produced`
+# because Cyclone's `vtable.cpp` fills them; zenoh, XRCE and uORB leave all
+# four NULL), so this fixture has exactly one coordinate and it is
+# linux/rust/cyclonedds.
+nros-rmw-cyclonedds-sys = { path = "../../../../rmw/cyclonedds/nros-rmw-cyclonedds-sys", features = [
+    "platform-posix",
+] }
+# The vtable TYPES and `nros_rmw_cffi_lookup`. This probe drives the C ABI
+# directly — see the module doc for why there is no higher layer to drive.
+nros-rmw-cffi = { path = "../../../../rmw/cffi", default-features = false, features = [
+    "std",
+] }
+# `register_type_descriptor` — Cyclone refuses a raw topic whose type has no
+# registered `dds_topic_descriptor_t`. Same staging step, same reason, as
+# `bridge-zenoh-to-cyclonedds-fwd`.
+nros-rmw = { path = "../../../../core/nros-rmw", default-features = false, features = [
+    "std",
+] }
+nros-serdes = { path = "../../../../core/nros-serdes", default-features = false, features = [
+    "std",
+] }
+# posix `nros_platform_*` symbols; the Cyclone backend's C++ links against
+# them and `nros-rmw-cyclonedds-sys[platform-posix]` re-anchors the archive.
+nros-platform = { path = "../../../../platform/nros-platform", default-features = false, features = [
+    "platform-posix",
+] }

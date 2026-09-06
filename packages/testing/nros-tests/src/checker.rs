@@ -61,6 +61,12 @@ pub fn delivery_marker(workload: Workload) -> &'static str {
         // Also a verdict rather than delivery: a discovery workload proves it
         // SAW the peer, which no message count can express.
         Workload::Graph => output::GRAPH_PROBE_SAW,
+        // Also a verdict rather than delivery, and a two-sided one: the probe
+        // reaching READY means every advertised-state slot answered, which is
+        // what the test then puts to a live peer. It says nothing about
+        // whether the peer agreed — that comparison is the test's, not a
+        // marker count's.
+        Workload::AdvertisedState => output::ADV_PROBE_READY,
     }
 }
 

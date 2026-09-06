@@ -364,6 +364,28 @@ pub const CELLS: &[InteropCell] = &[
     ic("native-multinode-cpp-zenoh",
        c(Linux, Cpp, Zenoh, EntryPubsub, Interop, Runtime),
        NativeFixtures, RosEdition(Zenoh), NanoToRos, "cpp_multi_node_entry"),
+
+    // ── phase-433 W6 (jobs 3–5) — what we ADVERTISE about ourselves ──────
+    // tests/advertised_state_interop.rs. Matched counts, the publisher GID,
+    // the actual-QoS read-back (issue 0823) and `get_serialization_format`:
+    // six slots that are `produced` and had never met a peer. The same trap
+    // phase-381 walked into — produced, mutation-tested, parity-clean, and the
+    // feature did not work (issue 0903).
+    //
+    // Cyclonedds is not a choice. It is the only backend that fills any of
+    // them: zenoh reaches the vtable through `RustBackendAdapter::VTABLE`,
+    // which ends `..EMPTY_VTABLE`, and the XRCE / uORB initialisers stop
+    // before them. There is no zenoh sibling to carve, because there is no
+    // zenoh implementation to run.
+    //
+    // BiDir: the publisher half needs a peer that SUBSCRIBES (to move
+    // `publisher_count_matched_subscriptions`) and the subscription half needs
+    // one that PUBLISHES, on separate topics — a writer and a reader on one
+    // topic in one participant match EACH OTHER, which would make the rise
+    // from zero unobservable.
+    ic("native-advertised-state-rust-cyclone-bidir",
+       c(Linux, Rust, Cyclonedds, AdvertisedState, Interop, Runtime),
+       NativeFixtures, RosEdition(Cyclonedds), BiDir, "advertised_state_interop"),
 ];
 
 /// Runtime interop/bridge cells only.

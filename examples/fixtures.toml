@@ -1416,6 +1416,25 @@ dir = "packages/testing/nros-tests/bins/graph-probe"
 no_default_features = true
 features = ["rmw-cyclonedds"]
 
+# phase-433 W6 — the advertised-state probe. Holds a Cyclone publisher and
+# subscription open and prints what the matched-count, GID, actual-QoS and
+# serialization-format slots say about them, so `advertised_state_interop.rs`
+# can ask a stock ROS 2 peer the same questions about the same entities.
+#
+# ONE row, and cyclonedds is not a choice: Cyclone is the only backend in the
+# tree that fills those slots. zenoh reaches the vtable through
+# `RustBackendAdapter::VTABLE`, which ends `..EMPTY_VTABLE` and names none of
+# them; XRCE's and uORB's initialisers stop before them. A zenoh build of this
+# probe would assert against NULL pointers, which is why there isn't one.
+#
+# No `no_default_features` / `features` line: this bin has no RMW feature axis
+# — it deps the Cyclone backend unconditionally.
+[[fixture]]
+platform = "linux"
+lang = "rust"
+rmw = "cyclonedds"
+dir = "packages/testing/nros-tests/bins/advertised-state-probe"
+
 # Generic Int32 sink (phase-277 W4 — was the example listener's
 # `NROS_SUB_TOPIC` escape hatch; the example flipped to the official
 # std_msgs/String chatter, so the Int32 side-topic observer role moved here).

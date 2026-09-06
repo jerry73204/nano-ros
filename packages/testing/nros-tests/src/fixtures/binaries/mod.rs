@@ -3667,6 +3667,30 @@ pub fn build_graph_probe_rmw(rmw: Rmw) -> TestResult<&'static Path> {
     .map(|p| p.as_path())
 }
 
+/// phase-433 W6 — resolve the prebuilt `advertised-state-probe` fixture.
+///
+/// Holds a Cyclone publisher and subscription open and prints what the
+/// matched-count, GID, actual-QoS and serialization-format slots say about
+/// them, so `advertised_state_interop.rs` can put the same questions to a live
+/// ROS 2 peer.
+///
+/// No `rmw` parameter, unlike [`build_graph_probe_rmw`]: Cyclone is the only
+/// backend that fills any of those slots, so there is one row and one binary.
+/// A zenoh build would assert against NULL pointers.
+pub fn build_advertised_state_probe() -> TestResult<&'static Path> {
+    static BIN: OnceCell<PathBuf> = OnceCell::new();
+    BIN.get_or_try_init(|| {
+        let row = crate::fixtures::groups::select_row(
+            "packages/testing/nros-tests/bins/advertised-state-probe",
+            &crate::fixtures::groups::FixtureVariant::rmw(Rmw::Cyclonedds),
+        )?;
+        let profile = cargo_target_profile_dir();
+        let rel = PathBuf::from(format!("{profile}/advertised-state-probe"));
+        require_prebuilt_row_binary_fresh(row, &rel)
+    })
+    .map(|p| p.as_path())
+}
+
 pub fn build_int32_sink_rmw(rmw: Rmw) -> TestResult<&'static Path> {
     static ZENOH_BIN: OnceCell<PathBuf> = OnceCell::new();
     static XRCE_BIN: OnceCell<PathBuf> = OnceCell::new();

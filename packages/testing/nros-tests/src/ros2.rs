@@ -1044,6 +1044,91 @@ pub fn await_topic_endpoints(
     }
 }
 
+/// phase-433 W6 — `ros2 topic info --verbose` on a CYCLONE domain.
+///
+/// The sibling of [`ros2_topic_info_verbose`], and it needs its own body
+/// rather than a parameter because the two bus vocabularies do not overlap:
+/// the zenoh form is addressed by a router LOCATOR and the DDS form by a
+/// `ROS_DOMAIN_ID`, and `ros2_env_setup_cyclonedds_with_domain` additionally
+/// folds in [`crate::dds_isolation`]'s loopback profile, which the zenoh path
+/// deliberately does not get (issue 1009 — a `CYCLONEDDS_URI` whitelist is how
+/// a DDS test stops reading a foreign participant on the LAN, and half a pin
+/// is no discovery at all).
+pub fn ros2_topic_info_verbose_cyclonedds(
+    distro: &str,
+    domain_id: u8,
+    topic: &str,
+) -> TestResult<String> {
+    let env_setup = ros2_env_setup_cyclonedds_with_domain(distro, domain_id);
+    let cmd = format!(
+        "{env_setup} && timeout --foreground 15 ros2 topic info --verbose --no-daemon {topic} 2>&1"
+    );
+
+    let output = Command::new("bash")
+        .args(["-c", &cmd])
+        .output()
+        .map_err(|e| TestError::ProcessFailed(format!("Failed to run ros2 topic info: {e}")))?;
+
+    Ok(format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
+
+/// The Cyclone-domain twin of [`await_topic_endpoints`], with the same
+/// contract — poll to a deadline, return the LAST report plus the per-want
+/// matches, propagate an errored `ros2` rather than retrying it, and stop
+/// early on an ambiguous match so the caller can name it.
+///
+/// The reason for polling is the reason there: a single-shot query is a race
+/// by construction (issues 0705, 0761), and "not there yet" prints exactly
+/// like "not there".
+pub fn await_topic_endpoints_cyclonedds(
+    distro: &str,
+    domain_id: u8,
+    topic: &str,
+    want: &[(&str, &str)],
+    timeout: Duration,
+) -> TestResult<(String, Vec<Vec<TopicEndpoint>>)> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let report = ros2_topic_info_verbose_cyclonedds(distro, domain_id, topic)?;
+        let found: Vec<Vec<TopicEndpoint>> = want
+            .iter()
+            .map(|(kind, node)| topic_endpoints_for_node(&report, kind, node))
+            .collect();
+        let all_present = found.iter().all(|m| !m.is_empty());
+        let ambiguous = found.iter().any(|m| m.len() > 1);
+        if all_present || ambiguous || std::time::Instant::now() >= deadline {
+            return Ok((report, found));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// The `GID:` line of one `ros2 topic info --verbose` endpoint block, as bytes.
+///
+/// `None` when the block carries no `GID:` line — which is a real possibility,
+/// not defensive coding: [`topic_endpoints`] keys only on `Node name:` and
+/// `Endpoint type:` precisely because a `GID:`/`Node namespace:` line appears
+/// on some distros and not others. A caller that wants to compare GIDs must
+/// treat the absence as "this tooling cannot answer", never as a mismatch.
+///
+/// rclpy renders the gid as dot-separated lowercase hex bytes
+/// (`01.0f.28.6b.…`); its WIDTH is distro-dependent (24 bytes through Humble,
+/// 16 in later editions), so the bytes are returned as a `Vec` and the caller
+/// decides how many of them are load-bearing.
+pub fn endpoint_gid_bytes(block: &str) -> Option<Vec<u8>> {
+    let line = block.lines().find_map(|l| l.trim().strip_prefix("GID:"))?;
+    let bytes: Option<Vec<u8>> = line
+        .trim()
+        .split('.')
+        .map(|b| u8::from_str_radix(b.trim(), 16).ok())
+        .collect();
+    bytes.filter(|b| !b.is_empty())
+}
+
 /// Run `ros2 service list` and return the output
 pub fn ros2_service_list(locator: &str, distro: &str) -> TestResult<String> {
     let (env_setup, _config_dir) = ros2_env_setup_with_locator(distro, locator);
