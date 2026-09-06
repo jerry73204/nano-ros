@@ -122,3 +122,34 @@ describes for uniformly-red lanes, seen from the other side.
   commit).
 - (2) — `check-api-parity` on `pull_request`/`merge_group` — waits on #557's
   CI image; not attempted here.
+
+**2026-09-07** — item 2 attempted; BLOCKED twice over, both prerequisites
+measured rather than assumed. Neither is "add the step".
+
+- The image #557 waited on was never going to arrive. `images.yml` had
+  failed on every push to `main` since 2026-09-04 (`436035894` made the
+  Dockerfile COPY two repo-relative files while the workflow's build context
+  was still the Dockerfile's own directory), so `ghcr.io/newslabntu/
+  nano-ros-ci:humble` was 2026-08-29 content with no `clang` — issue 1201,
+  fixed and archived alongside this note; the fixed workflow was dispatched
+  from the fix branch and the published image probed for `clang` before the
+  PR was opened.
+- `just check api-parity` is RED on `main`, and identically red in the
+  post-submit lane (51 `UNLEDGERED` rows, local run and CI run `diff`
+  IDENTICAL): 48 `theirs-only` rows in `c vs rclc+rcl` (`node_init`,
+  `executor_spin`, `timer_cancel`, `publisher_init`, every
+  `*_get_default_options`, the ROS-time-override family, …), plus
+  `cpp:LifecycleTransition`, `cpp:shutdown_transition_for` and
+  `rust:throttle_decide`. Red since `8dd7b3bc4` (2026-09-06 07:04) put
+  `--require-disposition` on the gate. PR #629 touches all 17 shards and
+  ledgers NONE of these 51. Per the rule gate.yml already states — a lane
+  cannot start gating pull requests while it is red — the step is NOT added
+  until those rows carry dispositions. The exact list is one `just check
+  api-parity` away; it needs an author who can write the verdicts, not a
+  CI edit.
+
+Once both hold, the step is the `node-std-tests` shape in `gate.yml`'s
+`check` job on `pull_request` + `merge_group`; the post-submit `api-parity`
+job then duplicates it and goes (its apt-install of `clang` is redundant the
+moment the image carries it).
+
