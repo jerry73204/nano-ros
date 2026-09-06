@@ -1,0 +1,94 @@
+# Arm auto-merge on every pull request that is ready for one.
+#
+# WHY THIS EXISTS
+#
+# `main` requires a pull request and the merge queue, so a PR reaches `main`
+# only if someone arms auto-merge. Nobody does it reliably, and the cost was
+# measured on 2026-09-06: of 23 open pull requests, **16 were not armed**. An
+# unarmed PR never enters the queue, so it sits while `main` moves -- 56 to 71
+# commits in a day at the current rate -- until it conflicts and needs a
+# rebase that nobody asked for.
+#
+# The loop closes on itself, which is the part worth naming: **a force-push
+# CANCELS auto-merge.** So the rebase that unsticks a stale PR also disarms it,
+# and the PR goes straight back to rotting. Nine PRs were rebased by hand that
+# morning and every one came out unarmed. Work in, no throughput out.
+#
+# `synchronize` in the trigger list is what closes it: a rebase re-arms.
+#
+# WHY `pull_request_target`
+#
+# `pull_request` from a fork gets a READ-ONLY token, so it cannot arm
+# anything -- which is the case that most needs arming. `pull_request_target`
+# runs with the base repository's token.
+#
+# That trigger is dangerous when a workflow CHECKS OUT the pull request's code,
+# because untrusted code then runs with a writable token. This one checks out
+# NOTHING and runs no code from the PR: it makes a single API call, by number.
+# Do not add `actions/checkout` here.
+#
+# NO `branches:` OR `paths:` FILTER, deliberately
+#
+# The same trap `gate.yml` documents at length. A `branches: [main]` filter
+# silently drops every event from a STACKED pull request (base is not `main`),
+# and retargeting a PR emits `edited`, which is not in the default type list --
+# so PR #71 sat thirteen hours with zero check suites. A filter here would fail
+# the same way, and the failure looks like "auto-merge just doesn't work
+# sometimes".
+#
+# WHAT IT DOES NOT CHANGE
+#
+# Arming auto-merge is not merging. The PR still waits for the required `CI`
+# context and still goes through the merge queue, which runs `test-unit` and
+# the rest before anything lands. This changes WHO pushes the button, not what
+# the button checks.
+#
+# Opt out per-PR with the `no-auto-merge` label, or by leaving the PR a draft.
+
+name: arm auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  # One arm per PR; a burst of pushes does not need a queue of identical calls.
+  group: arm-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  arm:
+    name: arm auto-merge
+    # A draft is a statement that the author is not done. `no-auto-merge` is
+    # the same statement for a PR that must not land on its own -- a spike, a
+    # discussion, anything wanting a human at the end.
+    if: >-
+      ${{ github.event.pull_request.draft == false
+          && !contains(github.event.pull_request.labels.*.name, 'no-auto-merge') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # `--rebase` names the method for repositories without a queue; where
+          # a queue IS configured GitHub owns the method and `gh` says so on
+          # stderr ("The merge strategy for main is set by the merge queue")
+          # while arming correctly. That notice is not an error.
+          #
+          # Already-armed is also not an error, and `synchronize` will re-run
+          # this on every push, so the common case is a no-op.
+          if gh pr merge "$NUMBER" --auto --rebase 2>&1 | tee /tmp/arm.log; then
+            echo "armed #$NUMBER"
+          else
+            # Never fail the workflow for this. A PR that cannot be armed yet
+            # (queued, closed, conflicting) is a state to report, not a red X
+            # on someone's pull request -- and a red check here would be a
+            # second, confusing signal beside the real `CI` one.
+            echo "::warning::could not arm auto-merge on #$NUMBER"
+            sed 's/^/  /' /tmp/arm.log
+          fi
