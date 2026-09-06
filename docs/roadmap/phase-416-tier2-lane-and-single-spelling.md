@@ -62,7 +62,7 @@ tier-2 from three broken modules to six of seven green.
   Zephyr lane against a struct with default member initializers, which is not an
   aggregate before C++14. Unmasked by #0998's fix, not caused by it. This is the
   last module standing between the lane and green, so it is first.
-* **W2 — [issue 1016](../issues/1016-tier2-lane-omits-zephyr-west-leaves.md),
+* **W2 — [issue 1016](../issues/archived/1016-tier2-lane-omits-zephyr-west-leaves.md),
   `lane=tier2` does not build the zephyr rust/c west leaves.** Their cells then
   report as failures that are really skips, with a summary line identical to a
   real result. This is the tier-2 half of #0828's class and it already caused one

@@ -303,11 +303,15 @@ fn every_west_leaf_is_placeable_by_coordinate() {
 
     let mut unplaceable = Vec::new();
     for leaf in leaves {
-        // The resolver's own lookup, by the key both halves share.
-        if !leaves.iter().any(|l| l.build_name == leaf.build_name) {
-            unplaceable.push(format!("{} (build dir not in the export)", leaf.dir));
-            continue;
-        }
+        // issue 1016 — a `leaves.iter().any(|l| l.build_name == leaf.build_name)`
+        // check stood here, over `leaf ∈ leaves`. Always true, and it read as
+        // the membership assertion this file is about. The direction that can
+        // actually fail is the OTHER one — every name the RESOLVERS can produce
+        // is in this export, because `require_west_leaf_in_lane` fails open on
+        // a miss — and it is asserted in
+        // `lane_build_covers_run::every_west_leaf_the_run_can_name_is_built_or_skippable`.
+        // What remains here is what the export itself can get wrong: an
+        // incomplete coordinate, and a build-dir name claimed by two leaves.
         let (p, l, r) = &leaf.coord;
         if p.is_empty() || l.is_empty() || r.is_empty() {
             unplaceable.push(format!(

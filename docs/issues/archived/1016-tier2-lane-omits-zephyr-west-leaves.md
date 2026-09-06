@@ -185,14 +185,123 @@ build, not a gate.
       not attempt them — it does not attempt them, measured above, and that
       property is now checked by name for every lane rather than resting on a
       fail-open lookup.
-* [~] A run whose cells were never built cannot report a count identical to one
-      whose cells ran and failed. **Under the harness this already holds**:
+* [x] A run whose cells were never built cannot report a count identical to one
+      whose cells ran and failed. **Under the harness this already held**:
       `just test-all`'s junit rewrite reports a `skip!` as skipped, and an
       out-of-lane leaf panics through `skip_class!(lane, …)` naming its
-      coordinate. Under a bare `cargo nextest` it cannot — nextest has no skip
-      verdict — which is CLAUDE.md's documented "bare `cargo nextest` counts
-      `nros_tests::skip!` panics as FAILURES", not a property of this repo's
-      lane machinery. Nothing is changed for that case, deliberately.
+      coordinate, which is counted apart from `capability` (issue 0584). What
+      did NOT hold is the case this issue was actually measured in — a narrow
+      BUILD and an un-narrowed RUN — and that is closed below.
 
 The `probe: examined 0 input(s)` note in the report above is untouched and
 belongs to issue 0445's family.
+
+---
+
+## Second pass, same day — three more spellings and the unread stamp
+
+The pass above stopped at the `decode_alias` table and the names handed to
+`require_west_leaf_in_lane`. Auditing the same rule against the REST of the
+resolvers found three more, and the reported scenario turned out to have a
+half nobody had read.
+
+### The vocabulary had a third producer
+
+A west build-dir name reaches the filesystem three ways, not two: the alias
+table, the `require_west_leaf_in_lane` call sites, and **every string literal
+that spells a west image path** — the component before `/zephyr/` IS the name.
+The gate now harvests all three, turning `{…}` into a wildcard so a
+`format!` template is checked as a SHAPE. Two more dead spellings fell out:
+
+* **`build_zephyr_rust_example_rmw`** named `build-rs-<case>-<rmw>`. That is the
+  `rs` lang tag **issue 0539 retired from both producers**; the west lane writes
+  `build-rust-…` and only that is modelled. No callers — it was
+  `get_prebuilt_zephyr_example("zephyr-rs-<case>", …)` spelt a second, wrong
+  way. Deleted.
+* **`build_dir_for_example`'s `"build"` fallback** for an alias `decode_alias`
+  has no arm for. An alias typo would have surfaced as a fixture verdict with
+  the real fault nowhere in it. It panics now, naming the rule.
+
+And `decode_alias`'s fourth field — a free-form BOARD SUFFIX — went with the
+`-a9` arms that used it. A free-form suffix is precisely a way to spell a name
+the manifest cannot explain; a second board's leaves reintroduce it together
+with their rows, which is the pairing the gate requires.
+
+### `lane_run_narrowing::every_west_leaf_is_placeable_by_coordinate` was a tautology
+
+```rust
+if !leaves.iter().any(|l| l.build_name == leaf.build_name) { … }
+```
+
+over `leaf ∈ leaves`. Always true, and it read as the membership check. Removed,
+with a pointer to the case above that asserts the direction which can fail.
+
+### Defect 3 — a narrow BUILD and a wide RUN, with nothing reading the stamp
+
+`nros_fixtures_stamp_write` records `lane=` plus one `coord=` per coordinate the
+build was scoped to. **No test process read it.** So in exactly the state this
+issue was measured in — `lane=tier2` build, bare `cargo nextest` — every omitted
+coordinate produced a verdict about the ARTIFACT for a fact about the LANE.
+`_require-fixtures` refuses that pairing, but only for `just test-all`.
+
+`fixtures::lane::recorded_build_omits()` now reads it, consulted **only on the
+failure path**, so it can never turn a present, fresh fixture into a skip (the
+issue-0445 hazard, and the reason it is not folded into `run_coords`):
+
+* a MISSING artifact outside the recorded cover, in an UNGATED run, becomes
+  `skip_class!(lane, …)` — `[SKIPPED:lane]`, counted apart from `capability`;
+* a STALE one gains a `NOT BUILT BY THIS LANE:` line naming the stamp's lane and
+  the artifact's coordinate. Deliberately a MESSAGE and not a reclassification:
+  `tests/zephyr_leaf_staleness.rs` asserts on the `Err` `stale_error` returns,
+  and a panic there would break the probe's own regression test. The reading was
+  wrong, not the verdict.
+
+"Cannot tell" stays `None` — no stamp, a pre-0393 bare timestamp, or a
+module-level `lane=all`/`lane=native` build (no `coord=` lines) makes no claim.
+`west_build_name` moved from `fixtures::binaries` to `fixtures::lane` so the
+path shape has one spelling for both lane questions.
+
+### Measurement, both directions
+
+```text
+$ python3 scripts/check-west-leaf-vocabulary.py
+check-west-leaf-vocabulary: 72 resolver build-dir name(s)/shape(s), all modelled
+by 71 west leaves.                                                     exit 0
+
+# mutation A — one alias arm the manifest cannot explain
++ "zephyr-dds-rs-talker-a9" => ("rust", "talker", "cyclonedds-a9"),
+  gate:  build-rust-talker-cyclonedds-a9                               exit 1
+  test:  every_west_leaf_the_run_can_name_is_built_or_skippable FAILED (tier1)
+
+# mutation B — the retired `rs` lang tag back in a resolver PATH literal
+- "build-ws-c-entry-zenoh/zephyr/zephyr.exe"
++ "build-rs-{}-{}/zephyr/zephyr.exe"
+  gate:  build-rs-{}-{}                                                exit 1
+  test:  FAILED, naming build-rs-{}-{}
+
+# restored: gate exit 0, test ok
+```
+
+Two of the gate's own bounds were themselves mutation-tested and were WRONG
+first time, which is the point of running the mutation rather than reasoning
+about it:
+
+* an `rmw` field bound of `[a-z]+` let mutation A's `"cyclonedds-a9"` arm
+  through **silently** — every harvested field is `[a-z0-9+-]`-shaped now;
+* `resolver_concrete_names` expanded a shape to the leaves it matches, so a
+  shape matching NOTHING expanded to the empty set and DELETED itself from the
+  vocabulary. Mutation B went green in the binding test on the first run. An
+  unmatched shape now survives as itself.
+
+Unit coverage for the stamp reader is in `fixtures::lane`'s own tests, on this
+issue's own coordinates: `build-cpp-listener-xrce` is inside a `lane=tier2`
+cover and `build-c-listener-xrce` is not.
+
+### Still not done
+
+Defect 3's runtime effect is unit-tested at the decision (`parse_stamp`,
+`coord_of_artifact`, `recorded_build_omits`) and **not** observed end-to-end
+against a real narrow-build/wide-run pair — the host was memory-constrained with
+other sessions building, so nothing here built a fixture. Whoever next runs
+`just build-test-fixtures lane=tier2` should run the nine zephyr XRCE cells bare
+and confirm the six now say `NOT BUILT BY THIS LANE` instead of only `STALE`.
