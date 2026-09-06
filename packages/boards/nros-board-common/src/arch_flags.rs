@@ -194,6 +194,62 @@ mod tests {
         );
     }
 
+    /// phase-418 418.3 — the Orin SPE profile resolves for the SOFT-float
+    /// ARMv7-R triple, and carries the vendor FSP's `softfp` flags.
+    ///
+    /// The vendor BSP (`spe-freertos-bsp/rt-aux-cpu-demo-fsp/Makefile`, L4T
+    /// 36.4.4) compiles AND links `-mcpu=cortex-r5 -mthumb-interwork
+    /// -mfloat-abi=softfp -mfpu=vfpv3-d16`. Our objects join that image, so
+    /// the ABI is not ours to choose.
+    #[test]
+    fn freertos_resolves_cortex_r5_with_the_vendor_softfp_abi() {
+        let root = config_root().expect("in-tree checkout");
+        let r5 = cflags_for_target(&root, "freertos", "armv7r-none-eabi")
+            .expect("readable")
+            .expect("armv7r-none-eabi must select an arch profile — 418.3");
+        assert!(
+            r5.iter().any(|f| f == "-mcpu=cortex-r5"),
+            "armv7r-none-eabi selected {r5:?}, expected the cortex-r5 profile"
+        );
+        assert!(
+            r5.iter().any(|f| f == "-mfloat-abi=softfp"),
+            "the SPE FSP is softfp; got {r5:?}"
+        );
+        assert!(
+            !r5.iter().any(|f| f == "-mfloat-abi=hard"),
+            "hard float against a soft-float-ABI FSP passes floats in the \
+             wrong registers; got {r5:?}"
+        );
+    }
+
+    /// `armv7r-none-eabi` is a SUBSTRING of `armv7r-none-eabihf`, so without
+    /// `target_exclude = "eabihf"` the soft-float profile would silently claim
+    /// the hard-float triple. Selecting nothing is the correct answer: the
+    /// FreeRTOS platform does not describe a hard-float ARMv7-R C half.
+    #[test]
+    fn cortex_r5_does_not_claim_the_hard_float_triple() {
+        let root = config_root().expect("in-tree checkout");
+        let got = cflags_for_target(&root, "freertos", "armv7r-none-eabihf").expect("readable");
+        assert!(
+            got.is_none(),
+            "armv7r-none-eabihf must select no profile, not the softfp one; got {got:?}"
+        );
+    }
+
+    /// ARMv7-R and ARMv8-R must not claim each other. `armv8r` is the
+    /// discriminator and it appears in neither armv7r triple.
+    #[test]
+    fn cortex_r5_and_r52_do_not_claim_each_others_triples() {
+        let root = config_root().expect("in-tree checkout");
+        let r52 = cflags_for_target(&root, "freertos", "armv8r-none-eabihf")
+            .expect("readable")
+            .expect("armv8r-none-eabihf must still select cortex-r52");
+        assert!(
+            r52.iter().any(|f| f == "-mcpu=cortex-r52"),
+            "armv8r-none-eabihf selected {r52:?}, expected the cortex-r52 profile"
+        );
+    }
+
     /// `target_exclude` is what keeps M3 from claiming the M4/M7 triple.
     #[test]
     fn exclude_predicate_separates_m3_from_m7() {
