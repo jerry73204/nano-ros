@@ -1244,6 +1244,50 @@ static.
   under the Rust `nros` crate, and plain C's `app` struct under
   `(C / asm / no path)`. → **issue 1147**.
 
+### W6 on Zephyr — MEASURED 2026-09-06, and the pairing is now real
+
+W6's native measurement showed the arena becoming VISIBLE (+21,568 B of `.bss`,
+a move rather than a saving). On an RTOS the second half exists, and issue 1145
+asked for it: the allocator arena the backing used to come out of is itself a
+fixed static, so an image built after W6 without lowering that knob reserves the
+bytes twice.
+
+Done for `examples/zephyr/rust/talker` (zenoh), both boards it builds for.
+`malloc_arena` is an `nm`-visible symbol, so both halves read off one ELF:
+
+| symbol | before | after |
+| --- | ---: | ---: |
+| `malloc_arena` (mps2_an385) | 1,048,576 | 961,320 |
+| `EXECUTOR_BACKING` (mps2_an385) | 87,256 | 87,256 |
+| `EXECUTOR_BACKING` (native_sim/native/64) | 88,328 | 88,328 |
+
+Whole-image RAM on mps2/an385, from west's own report:
+
+    before   RAM: 1789196 B / 4 MB  (42.66%)
+    after    RAM: 1701940 B / 4 MB  (40.58%)
+    delta         -87,256 B
+
+Exactly the backing size, to the byte — which is the claim, not a coincidence:
+the arena was lowered by the smaller of the two boards' measured backings so
+neither loses headroom it had before W6.
+
+**It boots and delivers, not merely links.** `native_sim/native/64` published 20
+messages in 25 s (identical to the pre-change control), and a stock ROS 2
+consumer received them:
+
+    $ ros2 topic echo /chatter std_msgs/msg/String --once
+    data: 'Hello World: 9'
+
+So on this leaf W6 is now free rather than costing 87,256 B, and the executor's
+storage is priceable for the first time.
+
+**Scope, stated plainly.** ONE leaf, ONE platform. Every other Zephyr Rust leaf
+still reserves twice, and FreeRTOS, NuttX, ThreadX and ESP32 are untouched —
+1145 asks for one platform per commit precisely because the failure mode is a
+runtime allocation failure that a six-platform diff makes unattributable. The
+subtrahend is also a HAND-COPIED literal, so an executor knob change makes it
+stale with nothing to say so: issue 1171.
+
 **Interaction with amendment B.** Unchanged: this does not decide whether
 payload buffers become heap-backed, it makes the question measurable. A `.bss`
 arena is the better starting point for that measurement.
