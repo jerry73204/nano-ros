@@ -210,6 +210,10 @@ pub struct ParameterServer<'s> {
     table: ParameterTable<'s>,
     /// Number of parameters currently stored
     count: usize,
+    /// May a wire-facing set ([`apply`](Self::apply)) DECLARE a name it does
+    /// not hold? Off by default, as upstream (`allow_undeclared_parameters`
+    /// in rclcpp's `NodeOptions`, `allow_undeclared` in rclrs) — issue 1151.
+    allow_undeclared: bool,
 }
 
 impl<'s> ParameterServer<'s> {
@@ -225,7 +229,25 @@ impl<'s> ParameterServer<'s> {
     /// and starts at zero.
     pub fn new_in(table: ParameterTable<'s>) -> Self {
         let count = table.occupied();
-        Self { table, count }
+        Self {
+            table,
+            count,
+            allow_undeclared: false,
+        }
+    }
+
+    /// Let a wire-facing set ([`apply`](Self::apply)) create a parameter that
+    /// was never declared. Default `false`: a remote set on a misspelled
+    /// name used to report success and create the misspelling (issue 1151);
+    /// now it is refused with a reason unless this is switched on, as
+    /// upstream.
+    pub fn set_allow_undeclared(&mut self, allow: bool) {
+        self.allow_undeclared = allow;
+    }
+
+    /// Whether [`apply`](Self::apply) may declare an unknown name.
+    pub fn allows_undeclared(&self) -> bool {
+        self.allow_undeclared
     }
 
     /// Get the number of parameters stored
@@ -288,6 +310,12 @@ impl<'s> ParameterServer<'s> {
             return false;
         }
 
+        // Issue 1150 — an ill-formed range, or a default the range rejects,
+        // is refused at declaration, as upstream. Same predicate as every set.
+        if !Self::declaration_is_consistent(descriptor.as_ref(), &value) {
+            return false;
+        }
+
         // Find an empty slot
         let slot = match self.find_empty_slot() {
             Some(idx) => idx,
@@ -303,6 +331,75 @@ impl<'s> ParameterServer<'s> {
         self.table.entries[slot] = Some(ParameterEntry { param, descriptor });
         self.count += 1;
         true
+    }
+
+    /// The declare-time half of issue 1150: the range must be well-formed
+    /// and the initial value must satisfy it (rclrs `InvalidRange` /
+    /// `InitialValueOutOfRange`). ONE spelling for both declare paths.
+    fn declaration_is_consistent(
+        descriptor: Option<&ParameterDescriptor>,
+        value: &ParameterValue,
+    ) -> bool {
+        match descriptor {
+            Some(desc) => desc.range.is_valid() && desc.validate_range(value),
+            None => true,
+        }
+    }
+
+    /// Would `set(name, value)` succeed on an EXISTING entry? Read-only,
+    /// then type, then range — the one ordering every set path uses.
+    fn check_set_existing(entry: &ParameterEntry, value: &ParameterValue) -> SetParameterResult {
+        if let Some(ref desc) = entry.descriptor {
+            if desc.read_only {
+                return SetParameterResult::ReadOnly;
+            }
+            if !desc.dynamic_typing && desc.param_type != value.param_type() {
+                return SetParameterResult::TypeMismatch;
+            }
+            if !desc.validate_range(value) {
+                return SetParameterResult::OutOfRange;
+            }
+        }
+        SetParameterResult::Success
+    }
+
+    /// Dry-run of [`apply`](Self::apply): the verdict a wire-facing set would
+    /// get, without changing anything. `SetParametersAtomically` runs this
+    /// over the whole batch before applying any of it.
+    pub fn check_apply(&self, name: &str, value: &ParameterValue) -> SetParameterResult {
+        match self
+            .find_index(name)
+            .and_then(|idx| self.table.entries[idx].as_ref())
+        {
+            Some(entry) => Self::check_set_existing(entry, value),
+            None if !self.allow_undeclared => SetParameterResult::Undeclared,
+            None if self.is_full() => SetParameterResult::StorageFull,
+            None if name.len() > MAX_PARAM_NAME_LEN => SetParameterResult::StorageFull,
+            None => SetParameterResult::Success,
+        }
+    }
+
+    /// THE wire-facing set — what one element of `SetParameters` /
+    /// `SetParametersAtomically` does (issue 1151).
+    ///
+    /// An existing parameter is set through [`set`](Self::set). An unknown
+    /// name is [`Undeclared`](SetParameterResult::Undeclared) unless
+    /// [`set_allow_undeclared`](Self::set_allow_undeclared) was switched on,
+    /// in which case it is declared (or `StorageFull`). Every service handler
+    /// goes through here so the by-value oracle, the streaming path and the
+    /// atomic pre-check cannot disagree about what "undeclared" means.
+    pub fn apply(&mut self, name: &str, value: ParameterValue) -> SetParameterResult {
+        let verdict = self.check_apply(name, &value);
+        if !verdict.is_success() {
+            return verdict;
+        }
+        if self.find_index(name).is_some() {
+            self.set(name, value)
+        } else if self.declare(name, value) {
+            SetParameterResult::Success
+        } else {
+            SetParameterResult::StorageFull
+        }
     }
 
     /// Get a parameter value by name
@@ -340,21 +437,11 @@ impl<'s> ParameterServer<'s> {
             None => return SetParameterResult::NotFound,
         };
 
-        // Check if read-only
-        if let Some(ref desc) = entry.descriptor {
-            if desc.read_only {
-                return SetParameterResult::ReadOnly;
-            }
-
-            // Check type compatibility
-            if !desc.dynamic_typing && desc.param_type != value.param_type() {
-                return SetParameterResult::TypeMismatch;
-            }
-
-            // Check range constraints
-            if !desc.validate_range(&value) {
-                return SetParameterResult::OutOfRange;
-            }
+        // Read-only, type, range (min/max/step) — one predicate, shared with
+        // the atomic pre-check.
+        let verdict = Self::check_set_existing(entry, &value);
+        if !verdict.is_success() {
+            return verdict;
         }
 
         entry.param.value = value;
@@ -387,9 +474,13 @@ impl<'s> ParameterServer<'s> {
         SetParameterResult::Success
     }
 
-    /// Set or declare a parameter
+    /// Set or declare a parameter — an EXPLICIT auto-declare for in-image
+    /// callers.
     ///
-    /// If the parameter exists, sets its value. Otherwise, declares it.
+    /// If the parameter exists, sets its value. Otherwise, declares it. This
+    /// ignores `allow_undeclared` on purpose: the flag governs what a REMOTE
+    /// set may do; a Rust caller naming this method has opted in by naming
+    /// it. Nothing on the wire path reaches here (issue 1151).
     pub fn set_or_declare(&mut self, name: &str, value: ParameterValue) -> SetParameterResult {
         if self.find_index(name).is_some() {
             self.set(name, value)
@@ -505,13 +596,18 @@ impl<'s> ParameterServer<'s> {
             return Err(SetParameterResult::TypeMismatch); // Indicates already declared
         }
 
+        let param_value = initial_value.cloned().unwrap_or_default();
+
+        // Issue 1150 — same declare-time check as `declare_with_descriptor`.
+        if !Self::declaration_is_consistent(Some(&descriptor), &param_value) {
+            return Err(SetParameterResult::InvalidRange);
+        }
+
         // Find an empty slot
         let slot = match self.find_empty_slot() {
             Some(idx) => idx,
             None => return Err(SetParameterResult::StorageFull),
         };
-
-        let param_value = initial_value.cloned().unwrap_or_default();
 
         let param = Parameter::new(name, param_value).ok_or(SetParameterResult::StorageFull)?; // name too long
 
@@ -628,6 +724,170 @@ impl<'a, 's> LegacyParameterBuilder<'a, 's> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ParameterDescriptor, ParameterType};
+
+    // ── issue 1150: step reaches `set`, and declare validates its range ──
+
+    #[test]
+    fn set_rejects_a_value_off_the_integer_step() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        let desc = ParameterDescriptor::new("rate", ParameterType::Integer)
+            .unwrap()
+            .with_integer_range(0, 100, 10);
+        assert!(server.declare_with_descriptor("rate", ParameterValue::Integer(20), Some(desc)));
+
+        assert_eq!(
+            server.set("rate", ParameterValue::Integer(30)),
+            SetParameterResult::Success
+        );
+        // In range by min/max, off the lattice: the old `contains` said yes.
+        assert_eq!(
+            server.set("rate", ParameterValue::Integer(35)),
+            SetParameterResult::OutOfRange
+        );
+        assert_eq!(server.get_integer("rate"), Some(30));
+    }
+
+    #[test]
+    fn set_rejects_a_value_off_the_float_step() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        let desc = ParameterDescriptor::new("gain", ParameterType::Double)
+            .unwrap()
+            .with_float_range(0.0, 1.0, 0.25);
+        assert!(server.declare_with_descriptor("gain", ParameterValue::Double(0.5), Some(desc)));
+
+        assert_eq!(server.set_double("gain", 0.75), SetParameterResult::Success);
+        assert_eq!(
+            server.set_double("gain", 0.6),
+            SetParameterResult::OutOfRange
+        );
+        assert_eq!(server.get_double("gain"), Some(0.75));
+    }
+
+    #[test]
+    fn declare_refuses_an_ill_formed_range() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        let desc = ParameterDescriptor::new("bad", ParameterType::Integer)
+            .unwrap()
+            .with_integer_range(0, 100, -1);
+        assert!(!server.declare_with_descriptor(
+            "bad",
+            ParameterValue::Integer(0),
+            Some(desc.clone())
+        ));
+        assert!(!server.has("bad"));
+        assert_eq!(
+            server.declare_parameter(desc, Some(&ParameterValue::Integer(0))),
+            Err(SetParameterResult::InvalidRange)
+        );
+        assert!(!server.has("bad"));
+    }
+
+    #[test]
+    fn declare_refuses_a_default_its_own_range_rejects() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        let desc = ParameterDescriptor::new("odd", ParameterType::Integer)
+            .unwrap()
+            .with_integer_range(0, 100, 2);
+        assert!(!server.declare_with_descriptor(
+            "odd",
+            ParameterValue::Integer(3),
+            Some(desc.clone())
+        ));
+        assert!(server.declare_with_descriptor("odd", ParameterValue::Integer(4), Some(desc)));
+    }
+
+    // ── issue 1151: a wire-facing set on an undeclared name is refused ──
+
+    #[test]
+    fn apply_rejects_an_undeclared_name_by_default() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        assert!(server.declare("max_speed", ParameterValue::Double(1.0)));
+        assert!(!server.allows_undeclared());
+
+        // The typo from the issue: reported success and created a parameter
+        // nobody reads.
+        assert_eq!(
+            server.check_apply("max_speeed", &ParameterValue::Double(5.0)),
+            SetParameterResult::Undeclared
+        );
+        assert_eq!(
+            server.apply("max_speeed", ParameterValue::Double(5.0)),
+            SetParameterResult::Undeclared
+        );
+        assert!(!server.has("max_speeed"));
+        assert_eq!(server.len(), 1);
+        assert_eq!(server.get_double("max_speed"), Some(1.0));
+
+        // A declared name still sets.
+        assert_eq!(
+            server.apply("max_speed", ParameterValue::Double(5.0)),
+            SetParameterResult::Success
+        );
+        assert_eq!(server.get_double("max_speed"), Some(5.0));
+    }
+
+    #[test]
+    fn apply_declares_an_unknown_name_under_allow_undeclared() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        server.set_allow_undeclared(true);
+        assert!(server.allows_undeclared());
+
+        assert_eq!(
+            server.check_apply("fresh", &ParameterValue::Integer(7)),
+            SetParameterResult::Success
+        );
+        assert_eq!(
+            server.apply("fresh", ParameterValue::Integer(7)),
+            SetParameterResult::Success
+        );
+        assert_eq!(server.get_integer("fresh"), Some(7));
+    }
+
+    #[test]
+    fn apply_under_allow_undeclared_still_reports_a_full_store() {
+        let mut storage: ParameterStorage<1> = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        server.set_allow_undeclared(true);
+        assert!(server.declare("only", ParameterValue::Bool(true)));
+        assert_eq!(
+            server.check_apply("second", &ParameterValue::Bool(true)),
+            SetParameterResult::StorageFull
+        );
+        assert_eq!(
+            server.apply("second", ParameterValue::Bool(true)),
+            SetParameterResult::StorageFull
+        );
+    }
+
+    #[test]
+    fn apply_enforces_the_existing_entry_rules_through_the_same_predicate() {
+        let mut storage: ParameterStorage = ParameterStorage::new();
+        let mut server = ParameterServer::new_in(storage.as_table());
+        let desc = ParameterDescriptor::new("rate", ParameterType::Integer)
+            .unwrap()
+            .with_integer_range(0, 100, 10);
+        assert!(server.declare_with_descriptor("rate", ParameterValue::Integer(20), Some(desc)));
+        assert_eq!(
+            server.check_apply("rate", &ParameterValue::Integer(35)),
+            SetParameterResult::OutOfRange
+        );
+        assert_eq!(
+            server.apply("rate", ParameterValue::Integer(35)),
+            SetParameterResult::OutOfRange
+        );
+        assert_eq!(
+            server.apply("rate", ParameterValue::Double(30.0)),
+            SetParameterResult::TypeMismatch
+        );
+        assert_eq!(server.get_integer("rate"), Some(20));
+    }
 
     #[test]
     fn test_new_server() {

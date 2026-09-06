@@ -199,10 +199,58 @@ impl FloatingPointRange {
         Self { min, max, step }
     }
 
-    /// Check if a value is within this range
-    pub fn contains(&self, value: f64) -> bool {
-        value >= self.min && value <= self.max
+    /// A range is well-formed when `min <= max` and `step >= 0` (0 = no step).
+    ///
+    /// Upstream refuses to DECLARE with an ill-formed range
+    /// (`DeclarationError::InvalidRange`); a negative step here would also go
+    /// on the wire as a huge `u64` in `DescribeParameters` (issue 1150).
+    pub fn is_valid(&self) -> bool {
+        self.min <= self.max && self.step >= 0.0 && !self.step.is_nan()
     }
+
+    /// Check if a value is within this range.
+    ///
+    /// Issue 1150: `step` is ENFORCED, mirroring rclrs `range.rs`. A value is
+    /// in range iff `min <= v <= max` and, when `step != 0`, `v` lies on the
+    /// lattice `min + k*step` within floating tolerance. Either endpoint is
+    /// always accepted, exactly as upstream (the upper bound need not be on
+    /// the lattice). The tolerance is upstream's: 100 ULP, relative to the
+    /// magnitude of the two operands.
+    pub fn contains(&self, value: f64) -> bool {
+        if are_close(value, self.min) || are_close(value, self.max) {
+            return true;
+        }
+        if !(value >= self.min && value <= self.max) {
+            return false;
+        }
+        if self.step == 0.0 {
+            return true;
+        }
+        let nearest = round_to_nearest((value - self.min) / self.step) * self.step + self.min;
+        are_close(nearest, value)
+    }
+}
+
+/// rclrs `ParameterRange<f64>::are_close`: equal within 100 ULP of the
+/// operands' magnitude. One spelling, shared by the endpoint and lattice
+/// checks so they cannot drift apart.
+#[inline]
+fn are_close(a: f64, b: f64) -> bool {
+    const ULP_TOL: f64 = 100.0;
+    (a - b).abs() <= f64::EPSILON * (a + b).abs() * ULP_TOL
+}
+
+/// Round half away from zero without `std` (`f64::round` is not in `core`
+/// on every toolchain this crate targets). Saturates through the `i64` cast
+/// for a quotient beyond `2^63`, where the lattice is not representable
+/// anyway.
+#[inline]
+fn round_to_nearest(q: f64) -> f64 {
+    if !q.is_finite() {
+        return q;
+    }
+    let shifted = if q < 0.0 { q - 0.5 } else { q + 0.5 };
+    (shifted as i64) as f64
 }
 
 /// Integer range constraints for parameters
@@ -222,9 +270,35 @@ impl IntegerRange {
         Self { min, max, step }
     }
 
-    /// Check if a value is within this range
+    /// A range is well-formed when `min <= max` and `step >= 0` (0 = no step).
+    /// See [`FloatingPointRange::is_valid`].
+    pub fn is_valid(&self) -> bool {
+        self.min <= self.max && self.step >= 0
+    }
+
+    /// Check if a value is within this range.
+    ///
+    /// Issue 1150: `step` is ENFORCED, mirroring rclrs `range.rs`: in range
+    /// iff `min <= v <= max` and, when `step != 0`, `(v - min)` is a multiple
+    /// of `step`. The upper bound is always accepted even when off-lattice,
+    /// exactly as upstream. Arithmetic is checked so an extreme `min` cannot
+    /// overflow into a panic.
     pub fn contains(&self, value: i64) -> bool {
-        value >= self.min && value <= self.max
+        if !(value >= self.min && value <= self.max) {
+            return false;
+        }
+        if value == self.max || self.step == 0 {
+            return true;
+        }
+        match value
+            .checked_sub(self.min)
+            .and_then(|d| d.checked_rem(self.step))
+        {
+            Some(rem) => rem == 0,
+            // `value - min` does not fit an `i64`, so it is not `k * step`
+            // for any representable `k` the caller could have meant.
+            None => false,
+        }
     }
 }
 
@@ -238,6 +312,34 @@ pub enum ParameterRange {
     FloatingPoint(FloatingPointRange),
     /// Integer range
     Integer(IntegerRange),
+}
+
+impl ParameterRange {
+    /// Well-formed: `None`, or an arm whose `min <= max` and `step >= 0`.
+    pub fn is_valid(&self) -> bool {
+        match self {
+            Self::None => true,
+            Self::FloatingPoint(r) => r.is_valid(),
+            Self::Integer(r) => r.is_valid(),
+        }
+    }
+
+    /// THE range predicate. Every set — `ParameterServer::set`, the six
+    /// service handlers, the typed API — and every declare-time default check
+    /// reaches this one function, so an integer and a floating-point value
+    /// cannot be judged by two different rules (issue 1150 class).
+    ///
+    /// A value whose type does not match the arm (a string against an
+    /// integer range, a `NotSet`) is not the range's business and passes; the
+    /// type check is a separate, earlier verdict.
+    pub fn contains(&self, value: &ParameterValue) -> bool {
+        match (self, value) {
+            (Self::None, _) => true,
+            (Self::Integer(range), ParameterValue::Integer(v)) => range.contains(*v),
+            (Self::FloatingPoint(range), ParameterValue::Double(v)) => range.contains(*v),
+            _ => true,
+        }
+    }
 }
 
 /// Parameter descriptor containing metadata
@@ -305,14 +407,11 @@ impl ParameterDescriptor {
         self
     }
 
-    /// Check if a value satisfies the range constraints
+    /// Check if a value satisfies the range constraints — min, max AND step.
+    ///
+    /// Forwards to [`ParameterRange::contains`], the single predicate.
     pub fn validate_range(&self, value: &ParameterValue) -> bool {
-        match (&self.range, value) {
-            (ParameterRange::None, _) => true,
-            (ParameterRange::Integer(range), ParameterValue::Integer(v)) => range.contains(*v),
-            (ParameterRange::FloatingPoint(range), ParameterValue::Double(v)) => range.contains(*v),
-            _ => true,
-        }
+        self.range.contains(value)
     }
 }
 
@@ -379,6 +478,18 @@ pub enum SetParameterResult {
     NotFound,
     /// Storage is full
     StorageFull,
+    /// A set on a name that was never declared, and the server does not
+    /// allow undeclared parameters (issue 1151; rclrs `parameter.rs`).
+    ///
+    /// Distinct from [`NotFound`](Self::NotFound): that is what a DIRECT
+    /// `ParameterServer::set` says about a missing name; this is what the
+    /// wire-facing [`ParameterServer::apply`](crate::ParameterServer::apply)
+    /// says when the only remaining option — declaring it — is switched off.
+    Undeclared,
+    /// A declaration whose range is ill-formed (`min > max` or `step < 0`),
+    /// or whose default does not satisfy its own range (issue 1150; rclrs
+    /// `DeclarationError::InvalidRange` / `InitialValueOutOfRange`).
+    InvalidRange,
 }
 
 impl SetParameterResult {
@@ -627,6 +738,128 @@ impl ParameterVariant for alloc::vec::Vec<alloc::string::String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── issue 1150: step is ENFORCED, min/max/step as rclrs `range.rs` ──
+
+    #[test]
+    fn integer_step_accepts_lattice_points_and_rejects_the_rest() {
+        let r = IntegerRange::new(10, 20, 5);
+        assert!(r.contains(10));
+        assert!(r.contains(15));
+        assert!(r.contains(20));
+        // Inside min..max but off the lattice: this is the case the old
+        // `min <= v <= max` accepted and upstream rejects.
+        assert!(!r.contains(11));
+        assert!(!r.contains(14));
+        assert!(!r.contains(19));
+        // Bounds still apply.
+        assert!(!r.contains(5));
+        assert!(!r.contains(25));
+    }
+
+    #[test]
+    fn integer_upper_bound_is_accepted_even_off_lattice() {
+        // rclrs: `if upper == value { return true }` before the step test.
+        let r = IntegerRange::new(0, 7, 3);
+        assert!(r.contains(6));
+        assert!(!r.contains(5));
+        assert!(r.contains(7));
+    }
+
+    #[test]
+    fn integer_step_zero_means_unconstrained() {
+        let r = IntegerRange::new(0, 100, 0);
+        for v in [0, 1, 37, 99, 100] {
+            assert!(r.contains(v), "{v}");
+        }
+        assert!(!r.contains(101));
+    }
+
+    #[test]
+    fn integer_step_does_not_overflow_at_the_extremes() {
+        let r = IntegerRange::new(i64::MIN, i64::MAX, 2);
+        // `v - min` overflows for every positive v; that must be a verdict,
+        // not a panic.
+        let _ = r.contains(1);
+        let _ = r.contains(i64::MAX - 1);
+        assert!(r.contains(i64::MIN));
+        assert!(r.contains(i64::MAX));
+    }
+
+    #[test]
+    fn float_step_accepts_lattice_points_within_tolerance() {
+        let r = FloatingPointRange::new(0.0, 1.0, 0.1);
+        // 0.3 is not exactly representable and 0.1 * 3 != 0.3 in binary;
+        // upstream's 100-ULP tolerance is what makes this pass.
+        for v in [0.0, 0.1, 0.3, 0.7, 1.0] {
+            assert!(r.contains(v), "{v}");
+        }
+        assert!(r.contains(0.1 + 0.2));
+        // Off the lattice by more than the tolerance.
+        assert!(!r.contains(0.05));
+        assert!(!r.contains(0.35));
+        assert!(!r.contains(0.999));
+        // Bounds.
+        assert!(!r.contains(-0.1));
+        assert!(!r.contains(1.1));
+    }
+
+    #[test]
+    fn float_endpoints_are_accepted_even_off_lattice() {
+        let r = FloatingPointRange::new(0.0, 1.0, 0.3);
+        assert!(r.contains(0.9));
+        assert!(!r.contains(0.95));
+        assert!(r.contains(1.0));
+    }
+
+    #[test]
+    fn float_step_zero_means_unconstrained() {
+        let r = FloatingPointRange::new(0.0, 10.0, 0.0);
+        for v in [0.0, 0.001, 3.25, 9.999, 10.0] {
+            assert!(r.contains(v), "{v}");
+        }
+        assert!(!r.contains(10.001));
+    }
+
+    #[test]
+    fn float_step_with_a_nonzero_min_is_relative_to_min() {
+        let r = FloatingPointRange::new(0.5, 2.5, 0.5);
+        assert!(r.contains(1.5));
+        assert!(!r.contains(1.25));
+        assert!(r.contains(0.5));
+    }
+
+    #[test]
+    fn range_validity_is_min_le_max_and_step_ge_zero() {
+        assert!(IntegerRange::new(0, 10, 0).is_valid());
+        assert!(IntegerRange::new(0, 10, 3).is_valid());
+        assert!(IntegerRange::new(5, 5, 1).is_valid());
+        assert!(!IntegerRange::new(10, 0, 1).is_valid());
+        assert!(!IntegerRange::new(0, 10, -1).is_valid());
+        assert!(FloatingPointRange::new(0.0, 1.0, 0.0).is_valid());
+        assert!(!FloatingPointRange::new(1.0, 0.0, 0.1).is_valid());
+        assert!(!FloatingPointRange::new(0.0, 1.0, -0.1).is_valid());
+        assert!(!FloatingPointRange::new(0.0, 1.0, f64::NAN).is_valid());
+        assert!(ParameterRange::None.is_valid());
+    }
+
+    #[test]
+    fn descriptor_validate_range_enforces_step_on_both_arms() {
+        let int_desc = ParameterDescriptor::new("i", ParameterType::Integer)
+            .unwrap()
+            .with_integer_range(0, 100, 10);
+        assert!(int_desc.validate_range(&ParameterValue::Integer(30)));
+        assert!(!int_desc.validate_range(&ParameterValue::Integer(31)));
+        // A value of the other type is not the range's business.
+        assert!(int_desc.validate_range(&ParameterValue::Double(31.0)));
+
+        let f_desc = ParameterDescriptor::new("f", ParameterType::Double)
+            .unwrap()
+            .with_float_range(0.0, 10.0, 0.5);
+        assert!(f_desc.validate_range(&ParameterValue::Double(2.5)));
+        assert!(!f_desc.validate_range(&ParameterValue::Double(2.7)));
+        assert!(f_desc.validate_range(&ParameterValue::Integer(3)));
+    }
 
     #[test]
     #[allow(clippy::approx_constant)]

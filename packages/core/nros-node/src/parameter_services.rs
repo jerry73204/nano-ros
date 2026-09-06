@@ -297,16 +297,8 @@ pub fn conversion_failure_result(err: ValueConversionError) -> SetParametersResu
 }
 
 pub fn to_rcl_set_result(result: SetParameterResult) -> SetParametersResult {
-    let reason = match result {
-        SetParameterResult::Success => "",
-        SetParameterResult::ReadOnly => "Parameter is read-only",
-        SetParameterResult::TypeMismatch => "Type mismatch",
-        SetParameterResult::OutOfRange => "Value out of range",
-        SetParameterResult::NotFound => "Parameter not found",
-        SetParameterResult::StorageFull => "Parameter storage full",
-    };
     let mut reason_str = heapless::String::new();
-    let _ = reason_str.push_str(reason);
+    let _ = reason_str.push_str(set_result_reason(result));
     SetParametersResult {
         successful: result.is_success(),
         reason: reason_str,
@@ -610,7 +602,8 @@ fn write_set_result(
     writer.write_string(fit_or_empty(reason))
 }
 
-/// The reason string `to_rcl_set_result` puts on the wire for each outcome.
+/// The reason string every `SetParametersResult` carries for each outcome —
+/// the ONE table, used by the streaming handlers and `to_rcl_set_result`.
 #[inline]
 fn set_result_reason(result: SetParameterResult) -> &'static str {
     match result {
@@ -620,18 +613,25 @@ fn set_result_reason(result: SetParameterResult) -> &'static str {
         SetParameterResult::OutOfRange => "Value out of range",
         SetParameterResult::NotFound => "Parameter not found",
         SetParameterResult::StorageFull => "Parameter storage full",
+        // Issue 1151 — rclrs's wording, verbatim.
+        SetParameterResult::Undeclared => UNDECLARED_REASON,
+        SetParameterResult::InvalidRange => "Invalid range",
     }
 }
 
+/// What a remote set reports for a name the node never declared (issue
+/// 1151). rclrs `parameter.rs` `validate_parameter_setting`, verbatim.
+pub const UNDECLARED_REASON: &str =
+    "Parameter was not declared and undeclared parameters are not allowed";
+
 /// Apply one already-converted parameter, exactly as `handle_set_parameters` does.
+///
+/// Issue 1151 — the "declare it if missing" branch that used to live here is
+/// gone; `ParameterServer::apply` is the single place that decides, and it
+/// refuses an undeclared name unless the server was told to allow it.
+#[inline]
 fn apply_one(server: &mut ParameterServer, name: &str, value: InternalValue) -> SetParameterResult {
-    if server.has(name) {
-        server.set(name, value)
-    } else if server.declare(name, value) {
-        SetParameterResult::Success
-    } else {
-        SetParameterResult::StorageFull
-    }
+    server.apply(name, value)
 }
 
 /// `GetParameters` — no scratch at all.
@@ -729,15 +729,11 @@ pub(crate) fn stream_set_parameters_atomically(
             can_set_all = false;
             continue;
         };
-        if server.has(name) {
-            if let Some(desc) = server.get_descriptor(name)
-                && (desc.read_only
-                    || (!desc.dynamic_typing && desc.param_type != value.param_type())
-                    || !desc.validate_range(&value))
-            {
-                can_set_all = false;
-            }
-        } else if server.is_full() {
+        // The same verdict `apply_one` would reach — read-only, type,
+        // min/max/step, and issue 1151's undeclared refusal — without
+        // applying it. One predicate, so the pre-check cannot pass a value the
+        // apply would then refuse.
+        if !server.check_apply(name, &value).is_success() {
             can_set_all = false;
         }
     }
@@ -752,11 +748,7 @@ pub(crate) fn stream_set_parameters_atomically(
             let Ok(value) = read_parameter_value(&mut pass).map_err(deser_failed)? else {
                 continue;
             };
-            if server.has(name) {
-                let _ = server.set(name, value);
-            } else {
-                let _ = server.declare(name, value);
-            }
+            let _ = apply_one(server, name, value);
         }
         write_set_result(writer, true, "").map_err(ser_failed)
     } else {
@@ -1003,16 +995,7 @@ pub fn handle_set_parameters(
                 continue;
             }
         };
-        let result = if server.has(param.name.as_str()) {
-            server.set(param.name.as_str(), value)
-        } else {
-            // Try to declare new parameter
-            if server.declare(param.name.as_str(), value) {
-                SetParameterResult::Success
-            } else {
-                SetParameterResult::StorageFull
-            }
-        };
+        let result = apply_one(server, param.name.as_str(), value);
         let _ = response.results.push(to_rcl_set_result(result));
     }
 
@@ -1042,24 +1025,8 @@ pub fn handle_set_parameters_atomically(
             break;
         };
 
-        // Check if setting would succeed
-        if server.has(param.name.as_str()) {
-            // Check read-only and type constraints
-            if let Some(desc) = server.get_descriptor(param.name.as_str()) {
-                if desc.read_only {
-                    can_set_all = false;
-                    break;
-                }
-                if !desc.dynamic_typing && desc.param_type != value.param_type() {
-                    can_set_all = false;
-                    break;
-                }
-                if !desc.validate_range(&value) {
-                    can_set_all = false;
-                    break;
-                }
-            }
-        } else if server.is_full() {
+        // Check if setting would succeed — the same predicate the apply uses.
+        if !server.check_apply(param.name.as_str(), &value).is_success() {
             can_set_all = false;
             break;
         }
@@ -1073,11 +1040,7 @@ pub fn handle_set_parameters_atomically(
             let Ok(value) = from_rcl_value(&param.value) else {
                 continue;
             };
-            if server.has(param.name.as_str()) {
-                let _ = server.set(param.name.as_str(), value);
-            } else {
-                let _ = server.declare(param.name.as_str(), value);
-            }
+            let _ = apply_one(server, param.name.as_str(), value);
         }
         response.result.successful = true;
     } else {
@@ -1804,37 +1767,56 @@ mod tests {
     #[inline(never)]
     fn described_server() -> ParameterServer<'static> {
         let mut server = leaked_server();
-        server.declare_with_descriptor(
-            "speed",
-            InternalValue::Double(1.0),
-            Some(
-                InternalDescriptor::new("speed", InternalType::Double)
-                    .expect("name fits")
-                    .with_description("wheel speed")
-                    .with_float_range(0.0, 10.0, 0.5),
-            ),
+        // Every declare is asserted: since issue 1150 a default off its own
+        // step lattice is REFUSED at declare, and a fixture that silently
+        // lost an entry would make every oracle comparison below vacuous.
+        assert!(
+            server.declare_with_descriptor(
+                "speed",
+                InternalValue::Double(1.0),
+                Some(
+                    InternalDescriptor::new("speed", InternalType::Double)
+                        .expect("name fits")
+                        .with_description("wheel speed")
+                        .with_float_range(0.0, 10.0, 0.5),
+                ),
+            )
         );
-        server.declare_with_descriptor(
-            "count",
-            InternalValue::Integer(3),
-            Some(
-                InternalDescriptor::new("count", InternalType::Integer)
-                    .expect("name fits")
-                    .with_integer_range(0, 100, 2)
-                    .with_read_only(true),
-            ),
+        assert!(
+            server.declare_with_descriptor(
+                "count",
+                InternalValue::Integer(4),
+                Some(
+                    InternalDescriptor::new("count", InternalType::Integer)
+                        .expect("name fits")
+                        .with_integer_range(0, 100, 2)
+                        .with_read_only(true),
+                ),
+            )
         );
-        server.declare_with_descriptor(
-            "mode",
-            InternalValue::from_string("idle").unwrap(),
-            Some(
-                InternalDescriptor::new("mode", InternalType::String)
-                    .expect("name fits")
-                    .with_dynamic_typing(true),
-            ),
+        assert!(
+            server.declare_with_descriptor(
+                "mode",
+                InternalValue::from_string("idle").unwrap(),
+                Some(
+                    InternalDescriptor::new("mode", InternalType::String)
+                        .expect("name fits")
+                        .with_dynamic_typing(true),
+                ),
+            )
         );
         // No descriptor: DescribeParameters must synthesise a minimal one.
-        server.declare("bare", InternalValue::Bool(true));
+        assert!(server.declare("bare", InternalValue::Bool(true)));
+        server
+    }
+
+    /// An empty store that ALLOWS undeclared parameters — the shape the
+    /// "everything declares" oracle comparisons need since issue 1151 made
+    /// the default refuse them.
+    #[inline(never)]
+    fn permissive_server() -> ParameterServer<'static> {
+        let mut server = leaked_server();
+        server.set_allow_undeclared(true);
         server
     }
 
@@ -2057,6 +2039,10 @@ mod tests {
             let mut in_range = wire_value_of(3);
             in_range.double_value = 4.0;
             out.push(("speed", in_range)); // success on an EXISTING parameter
+            let mut off_step = wire_value_of(3);
+            off_step.double_value = 4.2;
+            out.push(("speed", off_step)); // issue 1150: inside 0..10, off the 0.5 step
+            out.push(("max_speeed", wire_value_of(3))); // issue 1151: undeclared
             let oversize = every_wire_value()
                 .into_iter()
                 .find(|(name, _)| *name == "v_oversize")
@@ -2075,10 +2061,13 @@ mod tests {
                 push_param!(request, &too_long, wire_value_of(1));
             }
 
-            // Once against an empty store (everything declares) and once
-            // against one with descriptors (read-only, ranges, fixed types).
+            // Once against an empty PERMISSIVE store (everything declares),
+            // once against an empty default one (issue 1151: everything is
+            // refused as undeclared), and once against one with descriptors
+            // (read-only, ranges, fixed types).
             for build in [
-                (leaked_server as fn() -> ParameterServer<'static>),
+                (permissive_server as fn() -> ParameterServer<'static>),
+                leaked_server,
                 described_server,
             ] {
                 let mut streaming_server = build();
@@ -2163,6 +2152,115 @@ mod tests {
                 "atomic apply left the two stores in different states"
             );
         }
+    }
+
+    /// Issue 1151 — `ros2 param set /node max_speeed 5.0` on a node that
+    /// declared `max_speed` used to answer "successful" and create
+    /// `max_speeed`. Now it is refused with rclrs's reason, and the store is
+    /// untouched. Asserted on the LIVE streaming path, decoded with the
+    /// generated message type so the reason string is checked on the wire.
+    #[test]
+    fn set_parameters_refuses_an_undeclared_name_with_a_reason() {
+        let mut server = leaked_server();
+        assert!(server.declare("max_speed", InternalValue::Double(1.0)));
+
+        let mut request = Box::new(SetParametersRequest::default());
+        let mut typo = wire_value_of(3);
+        typo.double_value = 5.0;
+        push_param!(request, "max_speeed", typo);
+
+        let streamed = run_streaming(&encode(&*request), |reader, writer| {
+            stream_set_parameters(&mut server, reader, writer)
+        });
+        let reply: Box<SetParametersResponse> = decode_boxed(&streamed);
+        assert_eq!(reply.results.len(), 1);
+        assert!(!reply.results[0].successful);
+        assert_eq!(reply.results[0].reason.as_str(), UNDECLARED_REASON);
+
+        assert!(!server.has("max_speeed"), "the typo must not be created");
+        assert_eq!(server.len(), 1);
+        assert_eq!(server.get_double("max_speed"), Some(1.0));
+    }
+
+    /// Issue 1151 — the opt-in. With `allow_undeclared` on, the same request
+    /// declares the name, which is upstream's `allow_undeclared_parameters`.
+    #[test]
+    fn set_parameters_declares_an_unknown_name_under_allow_undeclared() {
+        let mut server = permissive_server();
+
+        let mut request = Box::new(SetParametersRequest::default());
+        let mut v = wire_value_of(3);
+        v.double_value = 5.0;
+        push_param!(request, "fresh", v);
+
+        let streamed = run_streaming(&encode(&*request), |reader, writer| {
+            stream_set_parameters(&mut server, reader, writer)
+        });
+        let reply: Box<SetParametersResponse> = decode_boxed(&streamed);
+        assert!(reply.results[0].successful, "{}", reply.results[0].reason);
+        assert_eq!(reply.results[0].reason.as_str(), "");
+        assert_eq!(server.get_double("fresh"), Some(5.0));
+    }
+
+    /// Issue 1150 on the wire — a value inside min..max but off the step is
+    /// refused as out of range by the streaming `SetParameters`.
+    #[test]
+    fn set_parameters_refuses_a_value_off_the_step() {
+        let mut server = described_server();
+        let mut request = Box::new(SetParametersRequest::default());
+        let mut off_step = wire_value_of(3);
+        off_step.double_value = 4.2; // 0..10 step 0.5
+        push_param!(request, "speed", off_step);
+
+        let streamed = run_streaming(&encode(&*request), |reader, writer| {
+            stream_set_parameters(&mut server, reader, writer)
+        });
+        let reply: Box<SetParametersResponse> = decode_boxed(&streamed);
+        assert!(!reply.results[0].successful);
+        assert_eq!(reply.results[0].reason.as_str(), "Value out of range");
+        assert_eq!(server.get_double("speed"), Some(1.0));
+    }
+
+    /// Issue 1151, atomic variant — one undeclared name in the batch rejects
+    /// the WHOLE batch: the declared sibling keeps its old value.
+    #[test]
+    fn set_parameters_atomically_rejects_the_batch_on_an_undeclared_name() {
+        let mut server = leaked_server();
+        assert!(server.declare("max_speed", InternalValue::Double(1.0)));
+
+        let mut request = Box::new(SetParametersAtomicallyRequest::default());
+        let mut good = wire_value_of(3);
+        good.double_value = 2.0;
+        push_param!(request, "max_speed", good);
+        let mut typo = wire_value_of(3);
+        typo.double_value = 5.0;
+        push_param!(request, "max_speeed", typo);
+
+        let streamed = run_streaming(&encode(&*request), |reader, writer| {
+            stream_set_parameters_atomically(&mut server, reader, writer)
+        });
+        let reply: Box<SetParametersAtomicallyResponse> = decode_boxed(&streamed);
+        assert!(!reply.result.successful);
+        assert!(!reply.result.reason.is_empty());
+
+        assert_eq!(
+            server.get_double("max_speed"),
+            Some(1.0),
+            "atomic: the good half must not have applied"
+        );
+        assert!(!server.has("max_speeed"));
+        assert_eq!(server.len(), 1);
+
+        // Same batch, permissive store: applies whole.
+        let mut server = permissive_server();
+        assert!(server.declare("max_speed", InternalValue::Double(1.0)));
+        let streamed = run_streaming(&encode(&*request), |reader, writer| {
+            stream_set_parameters_atomically(&mut server, reader, writer)
+        });
+        let reply: Box<SetParametersAtomicallyResponse> = decode_boxed(&streamed);
+        assert!(reply.result.successful, "{}", reply.result.reason);
+        assert_eq!(server.get_double("max_speed"), Some(2.0));
+        assert_eq!(server.get_double("max_speeed"), Some(5.0));
     }
 
     /// The streaming readers refuse a sequence or string the generated
