@@ -1065,9 +1065,34 @@ fn generate_entry(
             // nobody read it, which is what a warning is worth on a build that
             // continues.
             //
-            // The RMW and ROS edition stay a WARNING: both have defaults the
-            // Entry can build against, so the tolerance the original comment
-            // describes still holds for them.
+            // The RMW and ROS edition USED to stay a warning, on the grounds
+            // that "both have defaults the Entry can build against". Issue 0831
+            // took that away and the warning did not follow.
+            //
+            // The board crate's `default = ["rmw-zenoh"]` was that default. It
+            // is gone: 0831 made the facade the ONE place that names the RMW,
+            // so `builder::entry` now emits the board dep
+            // `default-features = false` (cargo cannot subtract a default —
+            // issue 0270 — so both declarations have to be silent about it).
+            // Measured on this tree, `[image.native_cyclonedds] rmw =
+            // "cyclonedds"` with no facade:
+            //
+            //     nros-board-linux = { path = "…", default-features = false }
+            //
+            // No `rmw-*` at all, and no `ethernet` / `image-runtime` either —
+            // the facade is what re-supplies the board's non-RMW defaults. So
+            // the Entry that warning lets through has NO backend, NO ROS
+            // edition and none of the board's own defaults, while the message
+            // says "nothing else is lost". That is 0831's shape exactly, one
+            // door over: `[image.<id>].rmw` is declared, cannot take effect,
+            // and the build says so in a line that reads like reassurance.
+            //
+            // So there is no tolerable case left, and the split goes away. The
+            // heal below is what makes that affordable — it WRITES the facade
+            // from the entry just generated, so nothing is refused that can be
+            // repaired, and only a facade that cannot be written is fatal.
+            // `declares_capability` survives because it makes the refusal name
+            // the right remedy.
             let declares_capability = declared_capabilities(bringup_dir);
 
             if !declares_capability.is_empty() {
@@ -1119,13 +1144,29 @@ fn generate_entry(
                         .join(", "),
                 ));
             } else {
-                eprintln!(
-                    "nros build: warning: no selection facade at {} — building `{image_id}` \
-                     without its RMW and ROS edition. Run `nros sync` first if this Entry \
-                     needs them (issue 0937). Its system declares no capabilities, so nothing \
-                     else is lost.",
-                    d.display()
-                );
+                // Issue 0831. Same deferral, same self-heal, different reason:
+                // the facade carries the RMW this image DECLARED and the ROS
+                // edition, and since 0831 the Entry has no other way to get
+                // either.
+                facade_missing_fatal = Some(format!(
+                    "nros build: `{image_id}` needs a selection facade and there is none at {}.\n\
+                     \n\
+                     The facade is the one place that names {} and the ROS edition: the\n\
+                     generated entry declares its board crate `default-features = false`\n\
+                     precisely so the facade can name the backend once (issue 0831), so\n\
+                     without it the entry links NO RMW backend, no ROS edition and none of\n\
+                     the board's own defaults. It would compile and then refuse to select a\n\
+                     backend at run time, in a build directory named for the one it declared.\n\
+                     \n\
+                     The entry package HAS been generated, so `nros sync` can see it now.\n\
+                     Run `nros sync` in the workspace, then build again (or `just build\n\
+                     <scope>`, which runs codegen for you).",
+                    d.display(),
+                    match image.rmw.as_deref() {
+                        Some(r) => format!("this image's `rmw = \"{r}\"`"),
+                        None => "the bringup's `[system] rmw`".to_string(),
+                    },
+                ));
             }
             None
         }
@@ -1236,12 +1277,28 @@ fn generate_entry(
         //
         // Still fatal if the facade cannot be written: that is a real problem
         // and the message already names it.
+        //
+        // Issue 0831 — this now runs for EVERY missing facade, not only the
+        // capability case. Once the board dep is emitted
+        // `default-features = false`, a facade-less entry has no backend at
+        // all, so there is nothing left for a warning to be tolerant of; and
+        // healing is two file writes against inputs this function already
+        // holds, so nothing that can be repaired is refused.
+        //
+        // The heal's own failure is REPORTED, not swallowed. It used to be
+        // `.ok().flatten()`, which was tolerable while this ran only for a
+        // workspace that declares capabilities; now that every missing facade
+        // comes through here, "could not write it" is a message a user will
+        // actually meet, and `resolve_rmw` refusing an unknown `rmw` is one of
+        // the ways to get it. Naming sync when the real answer is a typo in
+        // `[image.<id>] rmw` is the diagnostic this issue is about.
         let facade_root = root.join("generated/nros-selection");
         let entry_name = crate::builder::entry::package_name(image_id);
         let healed = std::fs::read_to_string(bringup_dir.join("system.toml"))
-            .ok()
+            .map_err(|e| eyre::eyre!("reading {}: {e}", bringup_dir.join("system.toml").display()))
             .and_then(|raw| {
-                toml::from_str::<crate::orchestration::cargo_metadata_schema::SystemToml>(&raw).ok()
+                toml::from_str::<crate::orchestration::cargo_metadata_schema::SystemToml>(&raw)
+                    .map_err(|e| eyre::eyre!("parsing the bringup's system.toml: {e}"))
             })
             .and_then(|sys| {
                 crate::orchestration::facade::write_facade(
@@ -1251,10 +1308,13 @@ fn generate_entry(
                     &sys,
                     &facade_root,
                 )
-                .ok()
-                .flatten()
             });
 
+        let healed = match healed {
+            Ok(Some(f)) => Some(f),
+            Ok(None) => None,
+            Err(e) => eyre::bail!("{msg}\n\nWriting it here failed too: {e}"),
+        };
         let Some(_) = healed else {
             eyre::bail!("{msg}");
         };

@@ -202,12 +202,18 @@ setup:
 #
 # A workspace entry reaches its RMW, its ROS edition and its CAPABILITY features
 # only through the `generated/nros-selection/<entry>` facade that `nros sync`
-# writes. Without it `nros build` emits the Entry with none of them — and only
-# WARNS, because an unsynced workspace is a state it is documented to tolerate:
+# writes. Without it `nros build` emitted the Entry with none of them — and only
+# WARNED, because an unsynced workspace was a state it was documented to
+# tolerate:
 #
 #   nros build: warning: no selection facade at …/generated/nros-selection/… —
 #   building `native_rust_qos` without its RMW, ROS edition and capability
 #   features. Run `nros sync` first if this Entry needs them (issue 0937).
+#
+# That warning is GONE (issue 0831): a missing facade is now written from the
+# entry `nros build` just generated, and refused only if it cannot be. Keep the
+# codegen step anyway — sync is also what produces the generated message crates,
+# and healing per image is a repair, not the intended order.
 #
 # `host-tests` called this recipe directly and ran NO codegen step anywhere in
 # the job, so the facades never existed there. The features workspace declares
