@@ -72,7 +72,7 @@ static int32_t __nros_entry_setup_tier_{{ t.index }}(void* executor) {
         nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
 {%- with decls = n.decls %}
-{%- include "declare_calls.c.jinja" %}
+{%- include "declare_calls.jinja" %}
 {%- endwith %}
 {%- if n.qos %}
         static const nros_cpp_qos_override_t __nros_qos_{{ n.index }}[] = {
@@ -91,7 +91,7 @@ static int32_t __nros_entry_setup_tier_{{ t.index }}(void* executor) {
     }
 {%- endfor %}
 {%- if t.emits_services %}
-{%- include "c_service_trailer.c.jinja" %}
+{%- include "service_trailer_c.jinja" %}
 {%- endif %}
     return 0;
 }
@@ -124,7 +124,7 @@ static const nros_native_tier_spec_t __nros_tiers[{{ tiers.n }}] = {
 {%- endfor %}
 };
 
-{% include "boot_config.c.jinja" %}
+{% include "boot_config.jinja" %}
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -142,7 +142,7 @@ static int32_t __nros_entry_setup(void* executor) {
         nros_cpp_ret_t nrc = nros_cpp_node_create(executor, "{{ n.name|c_str }}", "/", &__nros_node_{{ n.index }});
         if (nrc != NROS_CPP_RET_OK) return (int32_t)nrc;
 {%- with decls = n.decls %}
-{%- include "declare_calls.c.jinja" %}
+{%- include "declare_calls.jinja" %}
 {%- endwith %}
 {%- if n.qos %}
         static const nros_cpp_qos_override_t __nros_qos_{{ n.index }}[] = {
@@ -160,11 +160,11 @@ static int32_t __nros_entry_setup(void* executor) {
         if (crc != 0) return crc;
     }
 {%- endfor %}
-{%- include "c_service_trailer.c.jinja" %}
+{%- include "service_trailer_c.jinja" %}
     return 0;
 }
 
-{% include "boot_config.c.jinja" %}
+{% include "boot_config.jinja" %}
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;

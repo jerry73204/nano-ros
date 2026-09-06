@@ -96,14 +96,14 @@ static int32_t __nros_entry_setup_tier_{{ setup.index }}(void* executor) {
 {%- for n in setup.nodes %}
     {
 {%- with decls = n.decls %}
-{%- include "declare_calls.c.jinja" %}
+{%- include "declare_calls.jinja" %}
 {%- endwith %}
-{%- include "cpp_node_body.cpp.jinja" %}
+{%- include "node_body_cpp.jinja" %}
     }
 {%- endfor %}
 {%- if setup.emits_services %}
 {%- with tiered = true %}
-{%- include "cpp_service_trailer.cpp.jinja" %}
+{%- include "service_trailer_cpp.jinja" %}
 {%- endwith %}
 {%- endif %}
     return 0;
@@ -137,8 +137,8 @@ static const ::nros::board::NativeTierSpec __nros_tiers[{{ tiers.n }}] = {
 {%- endfor %}
 };
 
-{% include "boot_config.c.jinja" %}
-{% include "cpp_boot_wrapper.cpp.jinja" -%}
+{% include "boot_config.jinja" %}
+{% include "boot_wrapper_cpp.jinja" -%}
 {%- else -%}
 static int32_t __nros_entry_setup() {
 {%- if sched %}
@@ -174,13 +174,13 @@ static int32_t __nros_entry_setup() {
 {%- for n in setup_nodes %}
     {
 {%- with decls = n.decls %}
-{%- include "declare_calls.c.jinja" %}
+{%- include "declare_calls.jinja" %}
 {%- endwith %}
-{%- include "cpp_node_body.cpp.jinja" %}
+{%- include "node_body_cpp.jinja" %}
     }
 {%- endfor %}
 {%- with tiered = false %}
-{%- include "cpp_service_trailer.cpp.jinja" %}
+{%- include "service_trailer_cpp.jinja" %}
 {%- endwith %}
     return 0;
 }
@@ -207,7 +207,7 @@ int main(int /*argc*/, char** /*argv*/) {
     return nros_cpp_metadata_dump("{{ probe.package | c_str }}", "{{ probe.component | c_str }}", "{{ probe.executable | c_str }}", "{{ probe.language | c_str }}", "{{ probe.out_path | c_str }}");
 }
 {% else -%}
-{% include "boot_config.c.jinja" %}
-{% include "cpp_boot_wrapper.cpp.jinja" -%}
+{% include "boot_config.jinja" %}
+{% include "boot_wrapper_cpp.jinja" -%}
 {%- endif -%}
 {%- endif -%}

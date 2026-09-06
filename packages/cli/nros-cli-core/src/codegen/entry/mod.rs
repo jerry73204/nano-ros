@@ -1082,7 +1082,7 @@ contracts: {}
             boot_config: BootConfigView,
         }
         super::render::render(
-            "boot_config.c.jinja",
+            "boot_config.jinja",
             &Ctx {
                 boot_config: boot_config_view(plan)?,
             },

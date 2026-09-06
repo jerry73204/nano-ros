@@ -114,7 +114,7 @@ pub fn emit_lowered(entry: &LoweredEntry) -> String {
 
     // A render failure is a bug in a template compiled INTO this binary, so it
     // cannot be handled meaningfully at a call site that only has a plan.
-    crate::codegen::entry::render::render("rust_entry.rs.jinja", &view)
+    crate::codegen::entry::render::render("entry_rust.rs", &view)
         .expect("bundled rust entry template must render")
 }
 
