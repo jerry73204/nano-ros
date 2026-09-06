@@ -1225,6 +1225,35 @@ pub fn run() {
     } else {
         LinkPolicy::passthrough()
     };
+    // issue 1143 — the BOARD rung. The chain above answers "which network
+    // backend does this PLATFORM's system TU set provide", which is the right
+    // question for a family and the wrong one for a member of it: the FreeRTOS
+    // family holds both an lwIP board and (phase-418) a mailbox-only one, and
+    // before this the second could not be expressed at all —
+    // `LinkPolicy::ivc_only()` had existed, correct and unreachable, since the
+    // SPE board left.
+    //
+    // The fact is `capabilities.ip_stack` (RFC-0086), resolved through the
+    // RFC-0049 ladder with the board's own `[capabilities]` over its
+    // platform's. Absent leaves the platform policy exactly as it was, so a
+    // build with no `NROS_BOARD_TOML` — a plain `cargo build -p zpico-sys`, an
+    // out-of-tree consumer — is byte-identical to before. See
+    // `LinkPolicy::for_board` for why `supported_netstacks = []` is NOT the
+    // predicate: four in-tree boards declare it and all four have sockets.
+    //
+    // `NROS_BOARD` rides beside `NROS_BOARD_TOML` from the same seam
+    // (`nros board-facts`) and names WHICH `[[board]]` when a file declares
+    // several — `packages/boards/nros-board-nuttx` declares two that differ in
+    // ISA, so a file-level answer would be issue 0606 one table over.
+    println!("cargo:rerun-if-env-changed=NROS_BOARD");
+    let board_name = env_get("NROS_BOARD");
+    let board_capabilities = match (&platforms_tree, platform_name) {
+        (Some(tree), Some(name)) => tree
+            .capabilities_with_board(name, board_knobs.as_ref(), board_name.as_deref())
+            .unwrap_or_else(|e| panic!("nros-board.toml capabilities: {e}")),
+        _ => std::collections::BTreeMap::new(),
+    };
+    let link_policy = LinkPolicy::for_board(link_policy, &board_capabilities);
     let link_features = link_features.apply(&link_policy);
     generate_config_header(
         &out_dir,
@@ -1283,6 +1312,7 @@ pub fn run() {
                 &target,
                 &link_features,
                 &shim_config,
+                &board_capabilities,
             );
         }
     }
@@ -2212,9 +2242,17 @@ fn build_zenoh_pico_unified(
     target: &str,
     link: &LinkFeatures,
     shim: &ShimConfig,
+    caps: &std::collections::BTreeMap<String, bool>,
 ) {
+    let is_embedded = is_embedded_target(target);
     // Step 1 — validate required env vars (loud panic with help).
     for req in &plat.required_env {
+        // issue 1143 — an SDK is required only where this build uses it. A
+        // FreeRTOS board with no netstack must not have to invent an
+        // `LWIP_DIR` before its build will start.
+        if !manifest::matches(&req.when, target, is_embedded, caps) {
+            continue;
+        }
         let val = env::var(&req.name).unwrap_or_else(|_| {
             panic!("{} not set. {}", req.name, req.help);
         });
@@ -2265,6 +2303,12 @@ fn build_zenoh_pico_unified(
     // Step 4 — core sources + per-platform extra C files.
     add_zenoh_pico_core_sources(&mut build, zenoh_pico_src);
     for extra in &plat.extra_sources {
+        // issue 1143 — the `when` gate, composed with `if_env` (both must
+        // pass). An empty matcher is always true, which is every row that
+        // predates it.
+        if !manifest::matches(&extra.when, target, is_embedded, caps) {
+            continue;
+        }
         if let Some(env_var) = &extra.if_env {
             if env::var(env_var).is_err() {
                 continue;
@@ -2291,7 +2335,6 @@ fn build_zenoh_pico_unified(
         .include(zenoh_pico_src.join("include"))
         .include(&version_include_dir);
     build.include(nros_build_paths::nros_platform_cffi_include());
-    let is_embedded = is_embedded_target(target);
     for raw in &plat.include_paths {
         let path = manifest::interpolate(raw, interp).unwrap_or_else(|e| {
             panic!(
@@ -2308,7 +2351,7 @@ fn build_zenoh_pico_unified(
         build.include(&path);
     }
     for cond in &plat.include_paths_conditional {
-        if !manifest::matches(&cond.when, target, is_embedded) {
+        if !manifest::matches(&cond.when, target, is_embedded, caps) {
             continue;
         }
         let path = manifest::interpolate(&cond.path, interp).unwrap_or_else(|e| {
@@ -2344,6 +2387,18 @@ fn build_zenoh_pico_unified(
             continue;
         }
         build.define(define, None);
+    }
+    // issue 1143 — `when`-gated defines. This is how the FreeRTOS family
+    // picks its zenoh-pico platform header: `ZENOH_FREERTOS_LWIP` selects
+    // `freertos/lwip.h`, whose `_z_sys_net_socket_t` is `{ int _socket; }` and
+    // which `#include`s `lwip/sockets.h`; a board with no IP stack takes
+    // `ZENOH_ORIN_SPE` and the placeholder socket instead. One define, one
+    // socket ABI, every TU in the archive agreeing — the 0135 rule.
+    for cond in &plat.defines_conditional {
+        if !manifest::matches(&cond.when, target, is_embedded, caps) {
+            continue;
+        }
+        build.define(&cond.name, None);
     }
     for (key, value) in &plat.defines_kv {
         build.define(key, value.as_str());

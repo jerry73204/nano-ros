@@ -22,13 +22,35 @@ names = ["freertos", "freertos-lwip"]
 ip_stack = true    # lwIP / FreeRTOS-Plus-TCP, both named in [build]
 
 [build.zenoh]
-defines = ["ZENOH_GENERIC", "ZENOH_FREERTOS_LWIP"]
+defines = ["ZENOH_GENERIC"]
+# issue 1143 — the zenoh-pico PLATFORM header is a BOARD fact, not a platform
+# one. `system/common/platform.h` dispatches on exactly one `ZENOH_*` macro and
+# the two FreeRTOS arms pick INCOMPATIBLE socket types: `freertos/lwip.h`
+# declares `_z_sys_net_socket_t = { int _socket; }` and `#include`s
+# `lwip/sockets.h` at line 21, so an lwIP-less board cannot even PARSE it;
+# `freertos/orin_spe.h` degenerates the same union to a one-byte placeholder and
+# includes no netstack at all. That is why the DEFINE has to branch and not just
+# the source list. `ZENOH_GENERIC` stays unconditional — its live role is the
+# `#ifdef` in `zenoh-pico/config.h` selecting the generated
+# `zenoh_generic_config.h`, and in the `#elif` chain both FreeRTOS arms are
+# tested BEFORE it, so it never competes for the type header.
+defines_conditional = [
+  { name = "ZENOH_FREERTOS_LWIP", when = { capability = { ip_stack = true } } },
+  { name = "ZENOH_ORIN_SPE", when = { capability = { ip_stack = false } } },
+]
+# Phase 154 — `Z_FEATURE_LINK_UDP_MULTICAST = 0` disables the
+# vendor `_z_close_udp_multicast` codepath in
+# `system/freertos/lwip/network.c`, which has a vendor
+# `sockrecv->socket` typo (the struct field is `_socket`).
+# nano-ros doesn't use UDP multicast over zenoh-pico on
+# FreeRTOS (router is TCP-only on this slirp path), so the
+# feature loss is harmless and the typo stops mattering.
 defines_kv = { ZENOH_DEBUG = "0", Z_FEATURE_MULTI_THREAD = "1", Z_FEATURE_LINK_UDP_MULTICAST = "0" }
 # Phase 154 — pull vendor's FreeRTOS+lwIP `system/freertos/lwip`
 # subtree + the top-level `system/freertos/system.c` so vendor's
 # native `_z_send_tcp` / `_z_read_tcp` / `_z_task_*` / `_z_mutex_*`
 # impls are compiled. Vendor's `system/common/platform.h`
-# dispatch picks `platform/freertos/freertos_plus_tcp.h`
+# dispatch picks `platform/freertos/lwip.h` on an lwIP board
 # (`{int _socket;}` struct) — having the matching network /
 # system impls in the same TU set keeps caller / callee ABI
 # coherent without needing the alias TU's opaque socket
@@ -43,7 +65,7 @@ extra_sources = [
   # path. build.rs skips the alias TU entirely on FreeRTOS via
   # `if !use_freertos { ... alias_build.compile(...) }`.
   { path = "{src}/system/freertos/system.c" },
-  { path = "{src}/system/freertos/lwip/network.c" },
+  { path = "{src}/system/freertos/lwip/network.c", when = { capability = { ip_stack = true } } },
   { path = "{nros}/c/zpico/zpico.c" },
 ]
 # RFC-0062 — list form (Phase 148): the first arch whose `target_match` matches
@@ -66,7 +88,7 @@ compile = { opt_level = "s", warnings = false, cflags = ["-ffunction-sections", 
 required_env = [
   { name = "FREERTOS_DIR", help = "FreeRTOS kernel source. just setup-freertos; export FREERTOS_DIR=$PWD/third-party/freertos/kernel", validate_subdir = "include" },
   { name = "FREERTOS_PORT", help = "FreeRTOS portable layer. Examples: export FREERTOS_PORT=GCC/ARM_CM3 (Cortex-M3) | GCC/ARM_CM7/r0p1 (Cortex-M7)" },
-  { name = "LWIP_DIR", help = "lwIP source. just setup-freertos; export LWIP_DIR=$PWD/third-party/freertos/lwip", validate_subdir = "src/include" },
+  { name = "LWIP_DIR", help = "lwIP source. just setup-freertos; export LWIP_DIR=$PWD/third-party/freertos/lwip", validate_subdir = "src/include", when = { capability = { ip_stack = true } } },
   { name = "FREERTOS_CONFIG_DIR", help = "Directory containing FreeRTOSConfig.h + lwipopts.h. Example: packages/boards/nros-board-mps2-an385-freertos/config" },
 ]
 include_paths = [
@@ -74,12 +96,17 @@ include_paths = [
   "{env:FREERTOS_DIR}/include",
   "{env:FREERTOS_DIR}/portable/{env:FREERTOS_PORT}",
   "{env:FREERTOS_CONFIG_DIR}",
-  "{env:LWIP_DIR}/src/include",
-  "{env:LWIP_DIR}/contrib/ports/freertos/include",
   # Phase 154 — `nros-platform-api/include` carries
   # `<nros/platform_net.h>` (the canonical `nros_platform_*` ABI).
   # `zpico.c` includes it unconditionally.
   "{nros}/../../platform/nros-platform-api/include",
+]
+# issue 1143 — the lwIP headers move with the lwIP TU. A board with no IP stack
+# has no `LWIP_DIR` to point at, and an unconditional entry here would make one
+# a hard requirement of every FreeRTOS zenoh build.
+include_paths_conditional = [
+  { path = "{env:LWIP_DIR}/src/include", when = { capability = { ip_stack = true } } },
+  { path = "{env:LWIP_DIR}/contrib/ports/freertos/include", when = { capability = { ip_stack = true } } },
 ]
 # issue 0491 — VALUE knobs only. `FREERTOS_PORT` is a port NAME and stays; the
 # three PATH variables were dropped, because cargo compares an env value as

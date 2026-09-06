@@ -41,6 +41,7 @@ PLATFORM_MACROS = {
     "ZENOH_ZEPHYR",
     "ZENOH_THREADX",
     "ZENOH_FREERTOS_LWIP",
+    "ZENOH_ORIN_SPE",
     "ZENOH_ESPIDF",
     "ZENOH_MBED",
     "ZENOH_ARDUINO",
@@ -57,7 +58,12 @@ OWN_MACRO = {
     "nuttx": {"ZENOH_NUTTX"},
     "zephyr": {"ZENOH_ZEPHYR"},
     "threadx": {"ZENOH_THREADX"},
-    "freertos": {"ZENOH_FREERTOS_LWIP"},
+    # issue 1143 -- the freertos port claims BOTH FreeRTOS arms. Which one a
+    # given image gets is a BOARD fact (`capabilities.ip_stack`), selected by
+    # `[build.zenoh] defines_conditional`, so the port is entitled to name
+    # either and `check-capability-conditionals` is what checks it names the
+    # right one for the right value.
+    "freertos": {"ZENOH_FREERTOS_LWIP", "ZENOH_ORIN_SPE"},
 }
 
 

@@ -9,10 +9,18 @@
 //! needs: SDK env vars (with help text + validation), conditional
 //! include paths (interpolated `{env:VAR}` / `{nros}` / `{out}` /
 //! `{src}` tokens; `when.target_match` / `when.target_not` /
-//! `when.if_env` gates), extra source files (with `if_env` and
-//! `with_define` modifiers), debug-env-driven defines, and an
-//! `[arch.*]` table for reusable target-arch compiler-flag
-//! profiles.
+//! `when.if_env` / `when.capability` gates), extra source files
+//! (with `if_env`, `when` and `with_define` modifiers),
+//! debug-env-driven defines, conditional defines
+//! (`defines_conditional`), and an `[arch.*]` table for reusable
+//! target-arch compiler-flag profiles.
+//!
+//! issue 1143 — `when.capability` is the RFC-0086 fact vocabulary,
+//! resolved through the RFC-0049 ladder (platform, then the
+//! board's `[board.capabilities]`, board winning). It is the one
+//! gate whose answer differs between two BOARDS of one platform,
+//! which is what the FreeRTOS family needed and what the
+//! target/env gates cannot express.
 //!
 //! Use from `build.rs`:
 //! ```ignore
@@ -60,6 +68,18 @@ pub struct PlatformEntry {
     /// (`cc::Build::define(name, None)`).
     #[serde(default)]
     pub defines: Vec<String>,
+    /// Defines gated by a `when` matcher — the `X` / `X_conditional` pair this
+    /// schema already uses for `include_paths` (issue 1143).
+    ///
+    /// The case that needed it: zenoh-pico picks its `_z_sys_net_socket_t` from
+    /// ONE `ZENOH_<platform>` define, and on FreeRTOS the choice is a board
+    /// FACT, not a platform one — `freertos/lwip.h` `#include`s
+    /// `lwip/sockets.h`, so a board with no lwIP cannot even parse the type
+    /// header, let alone link the 63 `lwip_*` symbols it pulls. Nothing in the
+    /// schema could branch a define, so the lwIP one was unconditional and
+    /// every FreeRTOS board got it.
+    #[serde(default)]
+    pub defines_conditional: Vec<ConditionalDefine>,
     /// Key=value defines (`cc::Build::define(name, Some(value))`).
     #[serde(default)]
     pub defines_kv: BTreeMap<String, String>,
@@ -222,6 +242,21 @@ pub struct ExtraSource {
     /// this source is included.
     #[serde(default)]
     pub with_define: Option<Vec<String>>,
+    /// issue 1143 — the same `when` gate `include_paths_conditional` and
+    /// `defines_conditional` carry. Composes with `if_env` (both must pass);
+    /// an empty matcher is always true, which is every existing row.
+    #[serde(default)]
+    pub when: WhenMatcher,
+}
+
+/// One conditional preprocessor define (issue 1143). Mirrors
+/// [`ConditionalPath`], one field over: a NAME instead of a path.
+#[derive(Debug, Deserialize, Clone)]
+pub struct ConditionalDefine {
+    /// Define name, passed to `cc::Build::define(name, None)`.
+    pub name: String,
+    /// Matcher table; see [`WhenMatcher`].
+    pub when: WhenMatcher,
 }
 
 /// One required env var.
@@ -233,6 +268,14 @@ pub struct RequiredEnv {
     /// value for the build to proceed (loud panic otherwise).
     #[serde(default)]
     pub validate_subdir: Option<String>,
+    /// issue 1143 — the same `when` gate the conditional defines, sources and
+    /// include paths carry. An SDK is required only where the build uses it:
+    /// `LWIP_DIR` is a hard requirement of a FreeRTOS board that HAS lwIP and
+    /// meaningless to one that cannot reach a netstack, and without this the
+    /// netstack-less board still had to invent a directory to point at before
+    /// its build would start.
+    #[serde(default)]
+    pub when: WhenMatcher,
 }
 
 /// One conditional include path.
@@ -260,6 +303,18 @@ pub struct WhenMatcher {
     /// Env var that must be set (any value).
     #[serde(default)]
     pub if_env: Option<String>,
+    /// issue 1143 — RFC-0086 `[capabilities]` facts that must be DECLARED with
+    /// the given value, resolved through the RFC-0049 ladder (platform, then
+    /// the board's own `[capabilities]` rung, board winning).
+    ///
+    /// **Absent is not false**, the rule `resolve_transport` already applies to
+    /// the same table: an UNDECLARED capability matches neither `true` nor
+    /// `false`, so a matcher naming one is inert on a platform nobody has
+    /// described. That is what keeps `capability = { ip_stack = true }` from
+    /// silently dropping a source on a platform that simply says nothing —
+    /// the ladder's own answer has to be an answer.
+    #[serde(default)]
+    pub capability: BTreeMap<String, bool>,
 }
 
 /// Optimization level for the cc-rs build. Accepts either a numeric
@@ -289,6 +344,8 @@ pub struct CompileSettings {
 pub struct ResolvedPlatform {
     pub name: String,
     pub defines: Vec<String>,
+    /// issue 1143 — `when`-gated defines; see [`ConditionalDefine`].
+    pub defines_conditional: Vec<ConditionalDefine>,
     pub defines_kv: BTreeMap<String, String>,
     pub defines_env: BTreeMap<String, EnvDefault>,
     pub include: Vec<String>,
@@ -333,6 +390,7 @@ impl PlatformManifest {
         Ok(ResolvedPlatform {
             name: name.to_string(),
             defines: entry.defines,
+            defines_conditional: entry.defines_conditional,
             defines_kv: entry.defines_kv,
             defines_env: entry.defines_env,
             include: entry.include,
@@ -386,6 +444,8 @@ fn merge(parent: Option<PlatformEntry>, mut child: PlatformEntry) -> PlatformEnt
 
     let mut defines = parent.defines;
     defines.append(&mut child.defines);
+    let mut defines_conditional = parent.defines_conditional;
+    defines_conditional.append(&mut child.defines_conditional);
     let mut defines_kv = parent.defines_kv;
     defines_kv.extend(std::mem::take(&mut child.defines_kv));
     let mut defines_env = parent.defines_env;
@@ -432,6 +492,7 @@ fn merge(parent: Option<PlatformEntry>, mut child: PlatformEntry) -> PlatformEnt
     PlatformEntry {
         inherits: None,
         defines,
+        defines_conditional,
         defines_kv,
         defines_env,
         include,
@@ -570,11 +631,28 @@ impl std::fmt::Display for InterpError {
 impl std::error::Error for InterpError {}
 
 /// Returns `true` when every populated field in `m` matches the
-/// current target / env state. Empty matcher = always true.
+/// current target / env / capability state. Empty matcher = always true.
 /// `target_not == "embedded"` is the special-case "target_os is
 /// one of the known RTOSes" gate; build-script supplies the
 /// `is_embedded` flag pre-computed.
-pub fn matches(m: &WhenMatcher, target: &str, is_embedded: bool) -> bool {
+///
+/// `caps` is the RFC-0086 capability map the RFC-0049 ladder resolved for this
+/// build (platform rung merged with the board's, board winning) — see
+/// `PlatformsTree::capabilities_with_board`. Pass an empty map when no ladder
+/// was resolved; a `capability` matcher is then inert, which is the
+/// absent-is-not-false rule and the reason an undescribed platform keeps
+/// building exactly as before.
+pub fn matches(
+    m: &WhenMatcher,
+    target: &str,
+    is_embedded: bool,
+    caps: &BTreeMap<String, bool>,
+) -> bool {
+    for (name, want) in &m.capability {
+        if caps.get(name) != Some(want) {
+            return false;
+        }
+    }
     if let Some(needle) = m.target_match.as_deref()
         && !match_target(target, needle)
     {
@@ -614,3 +692,207 @@ fn match_target(target: &str, needle: &str) -> bool {
 // surfaces as a build-script panic. There is no separate
 // `#[test]`-style suite because `cargo test` doesn't link build
 // scripts; the build-time invariant is the real gate.
+
+// …that argument covers the fields a build-script panic would surface. It does
+// NOT cover `when.capability` (issue 1143): a matcher that silently ignores the
+// capability table does not panic, it compiles the OTHER arm, and the build
+// succeeds holding a socket type nobody chose. So this one is pinned here.
+#[cfg(test)]
+mod capability_matcher_tests {
+    use super::*;
+
+    fn caps(pairs: &[(&str, bool)]) -> BTreeMap<String, bool> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    fn matcher(toml_body: &str) -> WhenMatcher {
+        toml::from_str(toml_body).expect("matcher")
+    }
+
+    #[test]
+    fn a_capability_matcher_compares_the_value_not_the_presence() {
+        let want_true = matcher("capability = { ip_stack = true }");
+        let want_false = matcher("capability = { ip_stack = false }");
+        let on = caps(&[("ip_stack", true)]);
+        let off = caps(&[("ip_stack", false)]);
+
+        assert!(matches(&want_true, "thumbv7m-none-eabi", true, &on));
+        assert!(!matches(&want_true, "thumbv7m-none-eabi", true, &off));
+        assert!(matches(&want_false, "thumbv7m-none-eabi", true, &off));
+        assert!(!matches(&want_false, "thumbv7m-none-eabi", true, &on));
+    }
+
+    /// Absent is not false — the rule `resolve_transport` already applies to
+    /// the same table. An undeclared capability matches NEITHER arm, so a
+    /// platform nobody has described keeps building exactly as it did.
+    #[test]
+    fn an_undeclared_capability_matches_neither_value() {
+        let empty = BTreeMap::new();
+        assert!(!matches(
+            &matcher("capability = { ip_stack = true }"),
+            "x86_64-unknown-linux-gnu",
+            false,
+            &empty
+        ));
+        assert!(!matches(
+            &matcher("capability = { ip_stack = false }"),
+            "x86_64-unknown-linux-gnu",
+            false,
+            &empty
+        ));
+    }
+
+    /// The gates compose: a row is included only when EVERY populated field
+    /// agrees. A capability match must not rescue a target mismatch.
+    #[test]
+    fn capability_composes_with_the_target_gates() {
+        let m = matcher("target_match = \"thumbv7m\"\ncapability = { ip_stack = true }");
+        let on = caps(&[("ip_stack", true)]);
+        assert!(matches(&m, "thumbv7m-none-eabi", true, &on));
+        assert!(!matches(&m, "armv7r-none-eabi", true, &on));
+        assert!(!matches(
+            &m,
+            "thumbv7m-none-eabi",
+            true,
+            &caps(&[("ip_stack", false)])
+        ));
+    }
+
+    /// Every row that predates the field is an empty matcher, and an empty
+    /// matcher is unconditionally true — the whole compatibility claim.
+    #[test]
+    fn an_empty_matcher_is_still_always_true() {
+        assert!(matches(
+            &WhenMatcher::default(),
+            "x86_64-unknown-linux-gnu",
+            false,
+            &BTreeMap::new()
+        ));
+    }
+
+    /// `defines_conditional` and `extra_sources.when` parse, and an
+    /// `extra_sources` row written before the field still parses without it.
+    #[test]
+    fn the_new_schema_rows_parse() {
+        let m: PlatformManifest = toml::from_str(
+            "[platform.p]\n\
+             defines = [\"ZENOH_GENERIC\"]\n\
+             defines_conditional = [\n\
+               { name = \"ZENOH_ORIN_SPE\", when = { capability = { ip_stack = false } } },\n\
+             ]\n\
+             extra_sources = [\n\
+               { path = \"{src}/a.c\" },\n\
+               { path = \"{src}/b.c\", when = { capability = { ip_stack = true } } },\n\
+             ]\n",
+        )
+        .expect("parse");
+        let r = m.for_platform("p").expect("resolve");
+        assert_eq!(r.defines_conditional.len(), 1);
+        assert_eq!(r.defines_conditional[0].name, "ZENOH_ORIN_SPE");
+        let no_caps = BTreeMap::new();
+        // The legacy row has no `when`, so it survives with no capabilities;
+        // the gated one does not.
+        assert!(matches(&r.extra_sources[0].when, "t", true, &no_caps));
+        assert!(!matches(&r.extra_sources[1].when, "t", true, &no_caps));
+    }
+
+    /// The FreeRTOS shape issue 1143 exists for, end to end through the
+    /// resolver: one manifest, two capability states, and the three things
+    /// that have to move together — the platform DEFINE (and so the socket
+    /// type), the netstack TU, and the SDK the netstack needs.
+    ///
+    /// Pinned here because they are three separate fields and nothing else
+    /// makes them agree; a fix that dropped `network.c` and left
+    /// `ZENOH_FREERTOS_LWIP` defined would compile `lwip/sockets.h` on a board
+    /// with no lwIP, and one that dropped the define and left `LWIP_DIR`
+    /// required would refuse to start.
+    #[test]
+    fn the_freertos_arms_move_together() {
+        let m: PlatformManifest = toml::from_str(
+            "[platform.freertos]\n\
+             defines = [\"ZENOH_GENERIC\"]\n\
+             defines_conditional = [\n\
+               { name = \"ZENOH_FREERTOS_LWIP\", when = { capability = { ip_stack = true } } },\n\
+               { name = \"ZENOH_ORIN_SPE\", when = { capability = { ip_stack = false } } },\n\
+             ]\n\
+             extra_sources = [\n\
+               { path = \"{src}/system/freertos/system.c\" },\n\
+               { path = \"{src}/system/freertos/lwip/network.c\", when = { capability = { ip_stack = true } } },\n\
+             ]\n\
+             required_env = [\n\
+               { name = \"FREERTOS_DIR\", help = \"k\" },\n\
+               { name = \"LWIP_DIR\", help = \"n\", when = { capability = { ip_stack = true } } },\n\
+             ]\n",
+        )
+        .expect("parse");
+        let r = m.for_platform("freertos").expect("resolve");
+        let target = "armv7r-none-eabi";
+
+        let view = |caps: &BTreeMap<String, bool>| {
+            (
+                r.defines_conditional
+                    .iter()
+                    .filter(|d| matches(&d.when, target, true, caps))
+                    .map(|d| d.name.as_str())
+                    .collect::<Vec<_>>(),
+                r.extra_sources
+                    .iter()
+                    .filter(|s| matches(&s.when, target, true, caps))
+                    .map(|s| s.path.as_str())
+                    .collect::<Vec<_>>(),
+                r.required_env
+                    .iter()
+                    .filter(|e| matches(&e.when, target, true, caps))
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let on = view(&caps(&[("ip_stack", true)]));
+        assert_eq!(on.0, vec!["ZENOH_FREERTOS_LWIP"]);
+        assert_eq!(
+            on.1,
+            vec![
+                "{src}/system/freertos/system.c",
+                "{src}/system/freertos/lwip/network.c"
+            ]
+        );
+        assert_eq!(on.2, vec!["FREERTOS_DIR", "LWIP_DIR"]);
+
+        let off = view(&caps(&[("ip_stack", false)]));
+        assert_eq!(off.0, vec!["ZENOH_ORIN_SPE"]);
+        assert_eq!(
+            off.1,
+            vec!["{src}/system/freertos/system.c"],
+            "the netstack TU is the 80,846 bytes of bss issue 1143 measured"
+        );
+        assert_eq!(off.2, vec!["FREERTOS_DIR"]);
+
+        // And the state every build without a board rung is in: neither arm,
+        // which is why `ZENOH_GENERIC` alone is not enough and the real block
+        // keeps the platform declaring `ip_stack = true`.
+        let undeclared = view(&BTreeMap::new());
+        assert!(undeclared.0.is_empty());
+    }
+
+    /// The `inherits` merge has to carry the new list, parent first — the
+    /// shape every other list field in this schema uses.
+    #[test]
+    fn defines_conditional_merges_down_the_inherits_chain() {
+        let m: PlatformManifest = toml::from_str(
+            "[platform.base]\n\
+             defines_conditional = [{ name = \"A\", when = { capability = { x = true } } }]\n\
+             [platform.child]\n\
+             inherits = \"base\"\n\
+             defines_conditional = [{ name = \"B\", when = { capability = { x = false } } }]\n",
+        )
+        .expect("parse");
+        let r = m.for_platform("child").expect("resolve");
+        let names: Vec<_> = r
+            .defines_conditional
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+}

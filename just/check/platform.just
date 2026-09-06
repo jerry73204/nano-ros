@@ -194,6 +194,32 @@ board-tiers:
 board-vocabulary:
     @python3 scripts/check-board-vocabulary.py
 
+# issue 1143 — a `when.capability` row must DECIDE something, and decide it the
+# right way. Six rules over the platform manifests plus the two Rust wires:
+#
+#   1. the capability a `when` names must be DECLARED, or RFC-0086's
+#      absent-is-not-false rule drops BOTH arms and the build gets neither;
+#   2. `defines_conditional` arms on one capability must partition — exactly
+#      one platform header, never two and never none;
+#   3. the string `LinkPolicy::for_board` keys on (`policy::IP_STACK`) must be
+#      a capability some platform actually declares;
+#   4. the arms must not be CROSSED. Read out of zenoh-pico's own headers, not
+#      a table written here: the define chosen when a board says it has no IP
+#      stack must resolve to a placeholder `_z_sys_net_socket_t`, and the one
+#      chosen when it has an IP stack must not. Swapping the two `when` values
+#      parses, links, and hands `_z_open_tcp` a one-byte struct — issue 0135,
+#      reached by an edit that looks like a rename;
+#   5. a block that compiles a netstack `system/**/network.c` must declare the
+#      fact, so a board that cannot reach one has somewhere to say so;
+#   6. something must CALL the board rung. 1143's actual finding was not a
+#      missing policy — `ivc_only()` was written, correct, and carried
+#      `#[allow(dead_code)]` because no caller existed.
+#
+# Buildless, and its negative control runs first on every invocation.
+[group("check")]
+capability-conditionals:
+    @python3 scripts/check-capability-conditionals.py
+
 # issue 0942 — the C++ twin of the rule above. `std::fprintf` in a TU that is
 # cross-compiled for a board's own toolchain depends on a guarantee freestanding
 # libstdc++ does not make; it built on every hosted target and failed only on

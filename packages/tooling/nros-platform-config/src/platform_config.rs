@@ -1152,6 +1152,14 @@ pub struct PlatformsTree {
 /// parser's error type for the `[build.zenoh]` payload.
 #[derive(Debug)]
 pub enum ConfigError {
+    /// issue 1143 — a descriptor file declares several boards, they disagree
+    /// about a capability, and nothing named which one this build is. Refused
+    /// rather than resolved by file order: a directory is not a board (issue
+    /// 0606), and the wrong answer here picks a socket ABI.
+    AmbiguousBoardCapability {
+        capability: String,
+        boards: String,
+    },
     /// phase-400 W3 — `transport.kind` outside the `exactly-one-of` group.
     UnknownTransport {
         platform: String,
@@ -1200,6 +1208,12 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ConfigError::AmbiguousBoardCapability { capability, boards } => write!(
+                f,
+                "nros-board.toml declares several boards ({boards}) that disagree about \
+                 `[board.capabilities] {capability}`, and no NROS_BOARD names one. \
+                 Set NROS_BOARD, or make the entries agree."
+            ),
             ConfigError::UnknownTransport {
                 platform,
                 kind,
@@ -1513,6 +1527,58 @@ impl PlatformsTree {
         for file in chain.iter().rev() {
             for (k, v) in &file.capabilities {
                 caps.insert(k.clone(), *v);
+            }
+        }
+        Ok(caps)
+    }
+
+    /// issue 1143 — the RFC-0086 capability map with the BOARD rung applied.
+    ///
+    /// The RFC-0049 ladder is builtin < platform < board < env, and
+    /// `[capabilities]` had only ever read the platform rung — so a fact that
+    /// is TRUE of a family and FALSE of one of its boards had nowhere to be
+    /// written. `ip_stack` is exactly that shape: `nros-platform-freertos`
+    /// declares `ip_stack = true` because lwIP and FreeRTOS-Plus-TCP are both
+    /// named in its `[build]` block, and a mailbox-only board in the same
+    /// family (no MAC, no PHY, no socket layer) has to be able to say
+    /// otherwise. Without the rung the only board-level netstack fact was
+    /// `supported_netstacks`, which cannot carry it — see
+    /// `LinkPolicy::for_board`.
+    ///
+    /// The board's rung is its `[board.capabilities]` block — one table per
+    /// LAYER, the platform's `[capabilities]` and the board's, and the same
+    /// word for the same kind of fact.
+    ///
+    /// **Not** a top-level `[capabilities]` in `nros-board.toml`, which is
+    /// where this first went and which does not work: the CLI's `BoardFile`
+    /// carries `deny_unknown_fields` and knows only `board`, so a descriptor
+    /// with a top-level table stops loading for every consumer — a
+    /// board-breaking change to add a fact about the board. `[board.*]`
+    /// sub-tables are the only place a board file has room. `BoardCapabilities`
+    /// on the CLI side does NOT deny unknown fields, so it reads the RFC-0042
+    /// D2 trio it cares about (`heap` / `atomics` / `threads`) and ignores the
+    /// rest, which is what lets one table serve both readers.
+    ///
+    /// `board` names WHICH entry, because a descriptor file may declare
+    /// several (`nros-board-nuttx` declares two boards that differ in ISA).
+    /// With one entry the name is unnecessary; with several and no name, only
+    /// keys every entry AGREES on are taken and a disagreement is an error —
+    /// picking one silently is issue 0606's collapse, where a file-level
+    /// answer stood in for a board-level one.
+    ///
+    /// Board wins, per key. A key the board does not mention keeps the
+    /// platform's answer, and a key NEITHER declares stays absent — which is
+    /// not `false` (`resolve_transport`'s rule, and `manifest::matches`').
+    pub fn capabilities_with_board(
+        &self,
+        name: &str,
+        board: Option<&BoardKnobsFile>,
+        board_name: Option<&str>,
+    ) -> Result<BTreeMap<String, bool>, ConfigError> {
+        let mut caps = self.capabilities(name)?;
+        if let Some(board) = board {
+            for (k, v) in board.board_capabilities(board_name)? {
+                caps.insert(k, v);
             }
         }
         Ok(caps)
@@ -2429,8 +2495,24 @@ impl PlatformsTree {
 /// concern, so this parse is deliberately tolerant of sibling tables).
 #[derive(Debug, Default, Deserialize)]
 pub struct BoardKnobsFile {
+    /// A top-level `[capabilities]` table, for symmetry with the platform
+    /// files. **No shipped board descriptor may use it** — the CLI's
+    /// `BoardFile` denies unknown fields at this level, so a board that
+    /// declared one would stop loading. Kept because it parses either way and
+    /// removing it would be a silent behaviour change for an out-of-tree file
+    /// that is not read by the CLI; the rung a board actually writes is
+    /// `[board.capabilities]`, below.
     #[serde(default)]
     pub capabilities: BTreeMap<String, bool>,
+    /// issue 1143 — the `[[board]]` entries, for their `[board.capabilities]`
+    /// blocks. The BOARD rung of the RFC-0086 fact vocabulary, resolved by
+    /// [`PlatformsTree::capabilities_with_board`].
+    ///
+    /// A partial view on purpose: the descriptor proper is the CLI's
+    /// `BoardDescriptor`, and duplicating its fields here would be a second
+    /// parser for one file. Only what a BUILD SCRIPT has to know is named.
+    #[serde(default, rename = "board")]
+    pub boards: Vec<BoardEntryFacts>,
     #[serde(default)]
     pub knobs: Knobs,
     // The rest of nros-board.toml (board descriptor tables) is ignored
@@ -2439,7 +2521,69 @@ pub struct BoardKnobsFile {
     _rest: BTreeMap<String, toml::Value>,
 }
 
+/// The slice of one `[[board]]` entry a build script reads (issue 1143).
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct BoardEntryFacts {
+    /// The names this entry answers to — how `NROS_BOARD` selects it.
+    #[serde(default)]
+    pub names: Vec<String>,
+    /// `[board.capabilities]`. Read as an open `bool` map rather than the
+    /// CLI's fixed `heap`/`atomics`/`threads` struct: the RFC-0086 vocabulary
+    /// is open and a build script must not have to grow a field to read a
+    /// fact somebody declared.
+    #[serde(default)]
+    pub capabilities: BTreeMap<String, bool>,
+    #[serde(flatten)]
+    _rest: BTreeMap<String, toml::Value>,
+}
+
 impl BoardKnobsFile {
+    /// `[board.capabilities]` for the named board — see
+    /// [`PlatformsTree::capabilities_with_board`] for the selection rule.
+    pub fn board_capabilities(
+        &self,
+        board: Option<&str>,
+    ) -> Result<BTreeMap<String, bool>, ConfigError> {
+        if self.boards.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        if let Some(want) = board
+            && let Some(entry) = self
+                .boards
+                .iter()
+                .find(|b| b.names.iter().any(|n| n == want))
+        {
+            return Ok(entry.capabilities.clone());
+        }
+        if let [only] = self.boards.as_slice() {
+            return Ok(only.capabilities.clone());
+        }
+        // Several entries and nothing naming one: take what they agree on and
+        // refuse to guess at the rest.
+        let mut merged: BTreeMap<String, bool> = BTreeMap::new();
+        for entry in &self.boards {
+            for (k, v) in &entry.capabilities {
+                match merged.get(k) {
+                    Some(prev) if prev != v => {
+                        return Err(ConfigError::AmbiguousBoardCapability {
+                            capability: k.clone(),
+                            boards: self
+                                .boards
+                                .iter()
+                                .map(|b| b.names.join("/"))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        });
+                    }
+                    _ => {
+                        merged.insert(k.clone(), *v);
+                    }
+                }
+            }
+        }
+        Ok(merged)
+    }
+
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let text = fs::read_to_string(path).map_err(|e| ConfigError::Io {
             path: path.display().to_string(),
@@ -2449,6 +2593,91 @@ impl BoardKnobsFile {
             path: path.display().to_string(),
             source: e,
         })
+    }
+}
+
+#[cfg(test)]
+mod board_capability_tests {
+    use super::*;
+
+    fn file(text: &str) -> BoardKnobsFile {
+        toml::from_str(text).expect("parse board file")
+    }
+
+    /// issue 1143 — the rung a board actually writes: `[board.capabilities]`,
+    /// not a top-level table (the CLI's `BoardFile` denies unknown fields at
+    /// that level, so a top-level one makes the descriptor unloadable).
+    #[test]
+    fn the_rung_is_the_board_capabilities_block() {
+        let f = file(
+            "[[board]]\nnames = [\"m\"]\n\n[board.capabilities]\n\
+             heap = true\nip_stack = false\n",
+        );
+        let caps = f.board_capabilities(None).expect("caps");
+        assert_eq!(caps.get("ip_stack"), Some(&false));
+        assert_eq!(caps.get("heap"), Some(&true));
+        // Reading the top-level table instead would find nothing.
+        assert!(f.capabilities.is_empty());
+    }
+
+    /// A file with no `[board.capabilities]` contributes nothing, so the
+    /// platform rung stands — every shipped board is in this state today.
+    #[test]
+    fn a_board_that_declares_nothing_contributes_nothing() {
+        let f = file("[[board]]\nnames = [\"m\"]\nplatform = \"freertos\"\n");
+        assert!(f.board_capabilities(None).expect("caps").is_empty());
+        assert!(f.board_capabilities(Some("m")).expect("caps").is_empty());
+    }
+
+    /// `NROS_BOARD` picks the entry. `nros-board-nuttx` declares two boards
+    /// that differ in ISA in one file; answering at file level is issue 0606.
+    #[test]
+    fn several_boards_are_selected_by_name() {
+        let f = file(
+            "[[board]]\nnames = [\"a\"]\n[board.capabilities]\nip_stack = true\n\n\
+             [[board]]\nnames = [\"b\"]\n[board.capabilities]\nip_stack = false\n",
+        );
+        assert_eq!(
+            f.board_capabilities(Some("a")).expect("a").get("ip_stack"),
+            Some(&true)
+        );
+        assert_eq!(
+            f.board_capabilities(Some("b")).expect("b").get("ip_stack"),
+            Some(&false)
+        );
+    }
+
+    /// Disagreement with nothing naming a board is REFUSED, not resolved by
+    /// file order. Picking the first would have chosen a socket ABI by
+    /// authoring accident.
+    #[test]
+    fn an_unnamed_disagreement_is_refused() {
+        let f = file(
+            "[[board]]\nnames = [\"a\"]\n[board.capabilities]\nip_stack = true\n\n\
+             [[board]]\nnames = [\"b\"]\n[board.capabilities]\nip_stack = false\n",
+        );
+        let err = f.board_capabilities(None).expect_err("must refuse");
+        assert!(
+            err.to_string().contains("ip_stack"),
+            "the message must name the capability: {err}"
+        );
+        // An unknown name falls through to the same refusal rather than
+        // silently taking the first entry.
+        assert!(f.board_capabilities(Some("nope")).is_err());
+    }
+
+    /// Entries that AGREE need no name — two boards in one file sharing a
+    /// fact is not an ambiguity.
+    #[test]
+    fn agreeing_entries_need_no_name() {
+        let f = file(
+            "[[board]]\nnames = [\"a\"]\n[board.capabilities]\nip_stack = true\n\n\
+             [[board]]\nnames = [\"b\"]\n[board.capabilities]\nip_stack = true\n",
+        );
+        assert_eq!(
+            f.board_capabilities(None).expect("caps").get("ip_stack"),
+            Some(&true)
+        );
     }
 }
 
