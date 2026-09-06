@@ -178,18 +178,108 @@ pub fn init() -> Result<Context, InitError> {
     read_env_context(ContextSource::Env)
 }
 
-/// Pattern 3 — like [`init`] but accepts a `[--arg=value, ...]`-style argv
-/// iterator. Currently a thin wrapper over [`init`] that ignores the args;
-/// the structured argv parse (`--ros-args -p foo:=42`, etc.) lands with the
-/// runtime-overlay wave.
+/// The refusal `init_with_args` emits when it is handed `--ros-args`. The
+/// same text `NROS_RCLCPP_REFUSE_INIT_ARGV` carries for the C++ twin
+/// (`packages/api/nros-cpp/include/nros/log.hpp`), with the Rust spellings.
 #[cfg(feature = "env")]
-pub fn init_with_args<I, S>(_args: I) -> Result<Context, InitError>
+pub const REFUSE_INIT_ARGS: &str = "nros::init_with_args was given --ros-args, which nano-ros cannot honour \
+(RFC-0089, phase-417 W3.b). Proceeding would DISCARD it, so `-r chatter:=/other` would \
+silently become a wrong-topic bug at runtime -- the 'compiles and differs' the rule \
+forbids. Nothing in this process parses --ros-args yet, and honouring them is remap \
+resolution -- RFC-0020 violation class 4 -- so the parser belongs beside nros::resolve_name, \
+not in this wrapper. Today remaps and parameter overrides come from the LAUNCHER, which \
+projects them into the environment before exec. Call nros::init(), or \
+nros::init_with_launch_auto() for the launch-aware entry point.";
+
+/// The refusal's predicate, separately checkable (RFC-0089 §"where the
+/// refusal fires": an abort inlined into `init` can only be observed by a
+/// process that then dies, which is the shape of a check nothing runs).
+///
+/// Exact match only. `--ros-args-extra` is not the flag, and a prefix match
+/// would refuse an argument nano-ros never drops — the mutation the C++
+/// predicate's `static_assert`s pin, pinned here by a unit test.
+#[cfg(feature = "env")]
+pub fn args_have_ros_args<I, S>(args: I) -> bool
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    // TODO (Phase 212.L.5 follow-up): parse `--ros-args` style flags.
+    args.into_iter().any(|a| a.as_ref() == "--ros-args")
+}
+
+/// Pattern 3 — like [`init`] but accepts a `[--arg=value, ...]`-style argv
+/// iterator.
+///
+/// **What it does with the arguments:** it does NOT parse them, and it does
+/// not silently ignore them either. The structured argv parse (`--ros-args -p
+/// foo:=42`, remaps) is remap resolution, which belongs beside
+/// `nros::resolve_name` and lands with the runtime-overlay wave. Until it
+/// does, an argument vector that carries `--ros-args` is REFUSED LOUDLY at the
+/// call: the refusal is logged through `nros_log` (never `std::println!`,
+/// issue 0589) and the process panics naming the flag — the same shape
+/// `rclcpp::init(argc, argv)` has in `nros.hpp`. A vector with no ROS
+/// arguments is unaffected, because nothing was dropped.
+///
+/// RFC-0089: only the VALUE carries the defect, so the call is the earliest
+/// point it is knowable; silence there is the "compiles and differs" the
+/// compile-or-conform rule forbids.
+#[cfg(feature = "env")]
+pub fn init_with_args<I, S>(args: I) -> Result<Context, InitError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    if args_have_ros_args(args) {
+        nros_log::log_error!(nros_log::get_logger("nros"), "{}", REFUSE_INIT_ARGS);
+        panic!("{}", REFUSE_INIT_ARGS);
+    }
     init()
+}
+
+#[cfg(all(test, feature = "env"))]
+mod ros_args_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn predicate_matches_the_flag_exactly() {
+        assert!(args_have_ros_args(["node", "--ros-args", "-p", "x:=1"]));
+        assert!(args_have_ros_args(["--ros-args"]));
+        // A prefix match would refuse an argument nano-ros never drops.
+        assert!(!args_have_ros_args(["--ros-args-extra"]));
+        assert!(!args_have_ros_args(["--ros-arg"]));
+        assert!(!args_have_ros_args(["node", "--verbose"]));
+        assert!(!args_have_ros_args(core::iter::empty::<&str>()));
+    }
+
+    #[test]
+    #[should_panic(expected = "--ros-args")]
+    fn ros_args_are_refused_loudly() {
+        let _ = init_with_args(["--ros-args"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "--ros-args")]
+    fn ros_args_are_refused_loudly_anywhere_in_argv() {
+        let _ = init_with_args(["/usr/bin/talker", "--ros-args", "-r", "chatter:=/other"]);
+    }
+
+    #[test]
+    fn plain_args_pass_through_to_init() {
+        // Same answer as `init()` — the arguments are not consulted, and no
+        // refusal fires. Both read the same environment, so compare the
+        // resolved knobs rather than asserting a particular value.
+        let via_args = init_with_args(["/usr/bin/talker", "--verbose", "positional"]);
+        let plain = init();
+        match (via_args, plain) {
+            (Ok(a), Ok(b)) => {
+                assert_eq!(a.domain_id, b.domain_id);
+                assert_eq!(a.locator, b.locator);
+                assert_eq!(a.rmw, b.rmw);
+            }
+            (Err(a), Err(b)) => assert_eq!(a, b),
+            (a, b) => panic!("init_with_args and init disagree: {a:?} vs {b:?}"),
+        }
+    }
 }
 
 /// Pattern 2 — launch-aware init.

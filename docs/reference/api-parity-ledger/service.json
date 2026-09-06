@@ -37,8 +37,8 @@
   },
   "c:client_init_default": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "rclc's default-QoS wrapper; `nros_client_init` IS the default form. See `c:publisher_init_default`."
+    "disposition": "adopt-bounded",
+    "why": "rclc's default-QoS wrapper; `nros_client_init` IS the default form. See `c:publisher_init_default`.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt-bounded. `rclc_client_init_default` EXISTS at rclc's arity (`packages/api/nros-c/src/service.rs:1164`) and correlates `same`. The compiler points at argument 3 exactly as for `c:service_init_default`: `const struct nros_service_type_t*` where rclc takes `const rosidl_service_type_support_t*`, an incompatible-pointer diagnostic at the call. The response callback is supplied at registration (`nros_executor_add_client*`), as rclc's is at `rclc_executor_add_client`. See `c:service_init_default` for the envelope."
   },
   "c:client_init_polling": {
     "verdict": "extension",
@@ -143,13 +143,13 @@
   },
   "c:get_zero_initialized_client": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "rcl's free-function spelling; see `c:get_zero_initialized_publisher`."
+    "disposition": "adopt",
+    "why": "rcl's free-function spelling; see `c:get_zero_initialized_publisher`.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt, a VERDICT BUG. `rcl_get_zero_initialized_client` is exported under rcl's own name (`packages/api/nros-c/src/service.rs:1142`), returns a default `nros_client_t`, and the correlator files it `same`. Nothing refuses; the row promised a diagnostic no compiler emits. RFC-0089's own rule for a `declined` row that correlates `same` is `adopt` — the decline was the error."
   },
   "c:get_zero_initialized_service": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "see `c:get_zero_initialized_client`."
+    "disposition": "adopt",
+    "why": "see `c:get_zero_initialized_client`.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt, a VERDICT BUG. `rcl_get_zero_initialized_service` is exported under rcl's own name (`packages/api/nros-c/src/service.rs:220`), returns a default `nros_service_t`, and the correlator files it `same`. Nothing refuses. See `c:get_zero_initialized_client`."
   },
   "c:response_callback_t": {
     "verdict": "divergence",
@@ -210,8 +210,8 @@
   },
   "c:service_init_default": {
     "verdict": "declined",
-    "disposition": "refuse-loud",
-    "why": "see `c:client_init_default`."
+    "disposition": "adopt-bounded",
+    "why": "see `c:client_init_default`.\n\nphase-428 Q1 (2026-09-06) — refuse-loud -> adopt-bounded. `rclc_service_init_default` EXISTS at rclc's arity (`packages/api/nros-c/src/service.rs:325`: service, node, type, name) and the correlator files it `same`; the old row promised a refusal nothing emits.\n\nWHAT THE COMPILER POINTS AT: argument 3. rclc takes `const rosidl_service_type_support_t*` and a ported file passes `ROSIDL_GET_SRV_TYPE_SUPPORT(pkg, srv, Name)`; ours takes `const struct nros_service_type_t*` (the generated `<name>_type` descriptor, e.g. `&add_two_ints_type` in `examples/threadx-linux/c/service-server/src/main.c:138`). An rcl typesupport pointer at that position is an incompatible-pointer diagnostic on the call, naming both types. That is a mechanical edit, not a message with the migration attached, which is why this is adopt-bounded and not refuse-loud.\n\nTHE ENVELOPE: the callback is not on this call in either library — rclc supplies it at `rclc_executor_add_service`, ours at `nros_executor_add_service_raw` (`packages/api/nros-c/include/nros/nros_generated.h:4942`), so that half ports one-for-one. The service-name expansion caveat in `c:publisher_init` does not apply: services reach `resolve_entity_name` at registration."
   },
   "c:service_init_polling": {
     "verdict": "extension",
