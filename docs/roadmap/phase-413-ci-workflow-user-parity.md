@@ -325,11 +325,13 @@ true nor false.
 * **[#1040](../issues/1040-gating-lanes-that-report-nothing-accumulate-reds.md)**
   — `check-api-parity` runs in NO workflow and `check-build` only on dispatch.
   A lane that reports nothing accumulates reds nobody sees.
-* **[#1043](../issues/1043-pin-gate-cannot-verify-uninitialised-submodule.md)**
-  — `check-submodule-pins` fails CLOSED on any submodule CI does not initialise,
-  so a whole class of pin bump could never pass the required lane. The workflow
-  half is fixed; the gate's message still reads as author error in CI, and
-  `check-lane-contracts` covers fixture stamps but not submodule object stores.
+* **[#1043](../issues/archived/1043-pin-gate-cannot-verify-uninitialised-submodule.md)**
+  (RESOLVED 2026-09-06) — `check-submodule-pins` failed CLOSED on any submodule
+  CI does not initialise, so a whole class of pin bump could never pass the
+  required lane. Both halves are fixed now: the workflow initialises the pins
+  that moved, and the gate distinguishes NOT VERIFIED (a skip, reported through
+  the `nros_check_skip` ledger) from a measured non-fast-forward, with both
+  directions mutation-tested on its normal path.
 * **[#0930](../issues/0930-built-qemu-can-be-stale-against-its-pin.md)** — the
   built QEMU can be older than the commit `third-party/qemu/qemu` pins, and
   nothing says so. Provisioning that silently disagrees with the pin is the same

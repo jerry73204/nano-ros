@@ -209,6 +209,13 @@ to — `net/` `serial/` `ipc/` `sys/` — documented in `packages/drivers/README
   the `pre-push` hook — the hook because a rewind is usually INHERITED from a rebase
   rather than authored, which is exactly the window a pre-commit check misses.
   Deliberate rollback: `NROS_ALLOW_SUBMODULE_REWIND=1`, and say why.
+  **The gate has THREE outcomes, not two** (issue 1043): FAIL (ancestry MEASURED,
+  not a fast-forward), NOT VERIFIED (no object store here — a reported skip, via the
+  `nros_check_skip` ledger, because no lane checks out all 20 submodules) and OK. It
+  reads `.git/modules/<name>` when the worktree is empty, which is EVERY agent
+  worktree — before that, every pin move evaluated from one failed `CANNOT VERIFY`.
+  `NROS_SUBMODULE_PINS_STRICT=1` restores fail-closed for a lane that really provides
+  every submodule; setting it on a lane that provides a subset re-creates 1043.
   **`just setup-hooks` also sets the three git BUILTINS that make a pin move
   legible** — git has no setting that refuses a rewind, but it does know how to
   describe one, and by default it does not: `diff.submodule=log` prints
