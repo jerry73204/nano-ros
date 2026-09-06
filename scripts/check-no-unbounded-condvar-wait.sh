@@ -24,9 +24,14 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ALLOWED='packages/rmw/zenoh/zpico-sys/c/zpico/platform_aliases.c'
 
 # Match the call, never the bounded `_until` sibling and never a declaration.
-hits="$(grep -rn --include='*.rs' --include='*.c' --include='*.cpp' --include='*.h' --include='*.hpp' \
-    'nros_platform_condvar_wait[^_a-zA-Z]' \
-    packages/core packages/rmw packages/api 2>/dev/null \
+# `git grep` — an index lookup, not a filesystem walk (check-no-tracked-file-find).
+hits="$(git grep -n -e 'nros_platform_condvar_wait[^_a-zA-Z]' -- \
+    'packages/core/**/*.rs' 'packages/core/**/*.c' 'packages/core/**/*.cpp' \
+    'packages/core/**/*.h' 'packages/core/**/*.hpp' \
+    'packages/rmw/**/*.rs' 'packages/rmw/**/*.c' 'packages/rmw/**/*.cpp' \
+    'packages/rmw/**/*.h' 'packages/rmw/**/*.hpp' \
+    'packages/api/**/*.rs' 'packages/api/**/*.c' 'packages/api/**/*.cpp' \
+    'packages/api/**/*.h' 'packages/api/**/*.hpp' 2>/dev/null \
     | grep -v "^${ALLOWED}:" || true)"
 
 if [ -n "$hits" ]; then

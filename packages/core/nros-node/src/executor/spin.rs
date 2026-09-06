@@ -2420,6 +2420,14 @@ impl<'s> Executor<'s> {
     ///
     /// Distinct from issue 0515's audit, which warns that a period does not
     /// divide the spin grid. That takes the grid as given; this moves it.
+    ///
+    /// `#[cfg(test)]`-gated (matching `mod tests`'s own gate in `mod.rs`):
+    /// production code calls `next_wake_bound_attributed_us` directly to get
+    /// the source alongside the bound, so this `.0`-only convenience has no
+    /// caller outside the test module and is dead code in any build that
+    /// does not compile it (every `cargo check`/`cargo doc`, and `cargo test
+    /// --features rmw-cffi`, which excludes `mod tests` too).
+    #[cfg(all(test, feature = "alloc", not(feature = "rmw-cffi")))]
     pub(crate) fn next_wake_bound_us(&self, budget_us: u64) -> u64 {
         self.next_wake_bound_attributed_us(budget_us).0
     }
