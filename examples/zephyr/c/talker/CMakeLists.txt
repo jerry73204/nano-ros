@@ -3,7 +3,7 @@
 #
 # Instead of a hand-written imperative `main.c`, the node is a stateful C
 # component (`NROS_C_COMPONENT(talker_t, talker_configure)`); the Zephyr typed
-# carrier (`zephyr_entry_main_c_typed.cpp.in`) generates the entry + composes it
+# carrier (the shared entry pack) generates the entry + composes it
 # into `app`. The generated typed C bindings (std_msgs) provide the message
 # struct + serializer (phase-277 W4; was hand-rolled CDR).
 
@@ -36,7 +36,7 @@ if(CONFIG_NROS_RMW_CYCLONEDDS)
 endif()
 
 # The Zephyr typed carrier branch (LANGUAGE C) configure_files
-# `zephyr_entry_main_c_typed.cpp.in` + compiles src/Talker.c with
+# the shared entry pack (`nros codegen entry-node`) + compiles src/Talker.c with
 # -DNROS_PKG_NAME=<pkg sym> so its NROS_C_COMPONENT seam links against the
 # generated entry, all into the global `app`. No second executable.
 find_package(nano_ros REQUIRED)

@@ -4,7 +4,7 @@
 ///
 /// `talker_configure` creates a raw publisher on `/chatter` + a 1 Hz timer that
 /// publishes a CDR-encoded Int32 counter. `NROS_C_COMPONENT` emits the C-ABI
-/// factory/configure the native typed Entry carrier (`native_entry_main_c_typed.cpp.in`)
+/// factory/configure the native typed Entry carrier (the shared entry pack)
 /// calls; the carrier runs it on the real executor (NativeBoard::run_components) —
 /// no hand-written `nros_app_main`, no `nros_support_init`/`node_init`/
 /// `executor_init`/spin-loop boilerplate (issue-0049 P1/P7).

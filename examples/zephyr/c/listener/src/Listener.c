@@ -7,7 +7,7 @@
 /// (`nros_find_interfaces(LANGUAGE C)` in CMakeLists — phase-277 W4; was
 /// hand-rolled CDR) and logging the official ROS 2 demo line
 /// (`I heard: [Hello World: N]`). `NROS_C_COMPONENT` emits the C-ABI factory +
-/// configure the Zephyr typed Entry carrier (`zephyr_entry_main_c_typed.cpp.in`)
+/// configure the Zephyr typed Entry carrier (the shared entry pack)
 /// calls. No declarative descriptor, no synthesizing interpreter, no callback
 /// name.
 

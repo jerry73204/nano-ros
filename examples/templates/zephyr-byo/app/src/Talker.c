@@ -5,7 +5,7 @@
 /// `talker_configure` creates a raw publisher on `/chatter` + a timer that
 /// publishes a CDR-encoded Int32 counter each tick. Copy this app, edit the
 /// topic / message / logic. `NROS_C_COMPONENT` emits the C-ABI factory/configure
-/// the Zephyr typed Entry carrier (`zephyr_entry_main_c_typed.cpp.in`) calls;
+/// the Zephyr typed Entry carrier (the shared entry pack) calls;
 /// the carrier runs it on the real executor (ZephyrBoard::run_components) — no
 /// hand-written `nros_app_main`. Booting needs a zenoh router at
 /// CONFIG_NROS_ZENOH_LOCATOR (e.g. `ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7456`)."];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd

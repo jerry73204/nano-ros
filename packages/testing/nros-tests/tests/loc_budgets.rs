@@ -34,7 +34,9 @@
 //! |------------|--------------------------------------------------------|
 //! | Zephyr     | `zephyr/cmake/nros_system_generate.cmake`              |
 //! | NuttX      | `integrations/nuttx/` (dir sum — Makefile/CMake/glue)  |
-//! | ThreadX    | `cmake/templates/threadx_entry_main_typed.cpp.in`     |
+//! | ThreadX    | SKIPPED — phase-432 W2.6 removed the per-RTOS entry     |
+//! |            | template; the entry TU comes from the shared pack, so   |
+//! |            | ThreadX ships no adapter shim of its own (see `SHIMS`). |
 //! | ESP-IDF    | `integrations/nano-ros/CMakeLists.txt` (esp-idf component) |
 //! | PlatformIO | `integrations/platformio/nros_codegen.py` (extra_script) |
 //! | PX4        | `integrations/px4/module-template/` (dir sum)          |
@@ -60,9 +62,26 @@ const BUDGET_ADAPTER_SHIM: u64 = 200;
 const SHIMS: &[(&str, &str)] = &[
     ("zephyr", "zephyr/cmake/nros_system_generate.cmake"),
     ("nuttx", "integrations/nuttx"),
-    // Phase 246 — the H.4 NULL-context baker is retired; the ThreadX adapter
-    // shim is now the TYPED-carrier entry template (RFC-0043 real-callback path).
-    ("threadx", "cmake/templates/threadx_entry_main_typed.cpp.in"),
+    // ThreadX has no row, and the absence is the measurement.
+    //
+    // Phase 246 pointed this at `cmake/templates/threadx_entry_main_typed.cpp.in`
+    // — the TYPED-carrier entry template. Issue 1003's fix (8fa26022e) merged
+    // the six per-family entry templates into one, deleting that exact path,
+    // and this row was not updated. `tokei_code_loc` hard-asserts
+    // `path.exists()`, so this test has been RED since that commit; nothing
+    // noticed, because no merge-gating lane runs it.
+    //
+    // phase-432 W2.6 then removed the merged template too:
+    // `nano_ros_node_register()` renders the entry TU through the SHARED pack
+    // (`nros codegen entry-node`), so there is no per-RTOS entry shim left to
+    // measure for ANY family — which is the outcome this budget existed to
+    // push toward, reached rather than evaded.
+    //
+    // The row is not repointed at `cmake/platform/nano-ros-threadx.cmake`
+    // (391 LoC): that is a PLATFORM module, not an adapter shim, and the nuttx
+    // row's analog is `integrations/nuttx`, an integration directory ThreadX
+    // does not have. Repointing would swap a missing-path red for a
+    // budget-violation red while measuring a different thing.
     ("esp-idf", "integrations/nano-ros/CMakeLists.txt"),
     ("platformio", "integrations/platformio/nros_codegen.py"),
     ("px4", "integrations/px4/module-template"),

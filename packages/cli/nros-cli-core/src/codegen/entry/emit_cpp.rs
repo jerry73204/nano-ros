@@ -351,7 +351,17 @@ fn node_view(n: &super::PlanNode, i: usize, tiered: bool) -> CppNodeView {
 
 pub fn emit_typed_with_tail(plan: &Plan, tail: &EntryTail<'_>) -> Result<String, String> {
     for n in &plan.nodes {
-        if n.class_name.is_none() {
+        // phase-432 W2.6 — the exemption is the SAME one the `class_header`
+        // guard below already applies, and it was missing here alone.
+        //
+        // A C or Rust node has no C++ class: `storage` sets `class: None` for a
+        // C node explicitly, and a Rust node contributes no storage at all. So
+        // this required cmake to have filled in a field the emitter then
+        // discards — checkable only because the launch path happens to carry
+        // metadata for every node. `nano_ros_node_register`'s C components do
+        // not, and inventing a class name to satisfy a guard that throws it
+        // away would be a fact with no referent.
+        if n.class_name.is_none() && !is_c_node(n) && !is_rust_node(n) {
             return Err(format!(
                 "typed entry emit: node pkg `{}` exec `{}` is missing class_name (cmake metadata)",
                 n.pkg, n.exec
