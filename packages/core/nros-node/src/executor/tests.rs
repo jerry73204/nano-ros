@@ -6624,6 +6624,59 @@ fn a_zero_timeout_spin_claims_no_cadence() {
     );
 }
 
+/// `spin_once`'s argument is a blocking BOUND, not a cadence. nros-cpp's tier
+/// loops pass a fixed 10 ms and then pace themselves with `platform_sleep_us`,
+/// so the rule was judging every tier against 10 ms whatever period the
+/// contract declared. A declared cadence must win.
+#[test]
+fn a_declared_cadence_wins_over_the_spin_timeout() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(1_000);
+    executor.spin_once(core::time::Duration::from_millis(10));
+    assert_eq!(
+        executor.spin_nominal_us, 1_000,
+        "the declared 1 ms cadence must be the yardstick, not the 10 ms bound"
+    );
+}
+
+/// ... and with nothing declared the timeout still stands in, so every caller
+/// that never learns about the setter keeps the behaviour it had.
+#[test]
+fn an_undeclared_cadence_falls_back_to_the_timeout() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.spin_once(core::time::Duration::from_millis(10));
+    assert_eq!(
+        executor.spin_nominal_us, 10_000,
+        "with no declaration the timeout is the only cadence on offer"
+    );
+}
+
+/// The bug this fixes, end to end: a 1 kHz tier that actually wakes every
+/// 10 ms is nine periods late every time, and against the old 10 ms yardstick
+/// it looked perfectly on time.
+#[test]
+#[cfg(feature = "std")] // sleeps to make the wake genuinely late
+fn a_tier_slower_than_its_declared_cadence_is_late() {
+    let mut executor: Executor = executor_with_clock(MockSession::new());
+    executor.set_spin_nominal_us(1_000);
+    for _ in 0..3 {
+        executor.spin_once(core::time::Duration::ZERO);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    executor.spin_once(core::time::Duration::ZERO);
+
+    let (max_us, late, total) = executor.release_jitter();
+    assert!(total >= 3, "four spins must count at least three intervals");
+    assert!(
+        late >= 3,
+        "every 10 ms interval overruns a declared 1 ms cadence, got {late} late of {total}"
+    );
+    assert!(
+        max_us >= 5_000,
+        "a 10 ms wake against a 1 ms cadence is ~9 ms late, got {max_us} us"
+    );
+}
+
 /// `spin_period` must actually COUNT its wakes. Before this, `next_us` and
 /// `now_us()` were both in hand every cycle and the difference was discarded,
 /// so a loop that never met its period looked identical to one that always did.

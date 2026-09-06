@@ -3178,7 +3178,6 @@ pub unsafe extern "C" fn nros_cpp_bind_group_sched(
 /// `node_name`, `from`, `to` must be valid null-terminated UTF-8 strings.
 /// `node_namespace` may be NULL (defaults to `"/"`), otherwise must be a valid
 /// null-terminated UTF-8 string.
-#[cfg(feature = "rmw-cffi")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nros_cpp_declare_remap(
     handle: *mut c_void,
@@ -3485,6 +3484,29 @@ pub struct NativeTierSpecC {
 /// valid for the duration of the call. `session_name` is NULL or a valid
 /// null-terminated string.
 #[cfg(all(feature = "rmw-cffi", feature = "env"))]
+#[cfg(feature = "rmw-cffi")]
+/// Declare how often this executor's loop intends to come round, in
+/// microseconds. `0` (the default) falls back to the `spin_once` timeout.
+///
+/// The pacing and the blocking bound are separate numbers. A tier loop sleeps
+/// `spin_period_us` between spins but passes a fixed 10 ms timeout to
+/// `spin_once`, so without this the release-jitter rule judged every tier
+/// against 10 ms whatever the contract declared.
+///
+/// # Safety
+/// `handle` must be a live executor handle from this ABI, or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_cpp_executor_set_spin_nominal_us(
+    handle: *mut c_void,
+    us: u64,
+) -> nros_cpp_ret_t {
+    let Some(ctx) = (unsafe { cpp_ctx_checked(handle) }) else {
+        return NROS_CPP_RET_INVALID_ARGUMENT;
+    };
+    ctx.executor.set_spin_nominal_us(us);
+    NROS_CPP_RET_OK
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nros_board_native_run_tiers(
     session_name: *const c_char,
@@ -3628,6 +3650,10 @@ pub unsafe extern "C" fn nros_board_native_run_tiers(
     let bound_ms: u64 = entry_spin_ms();
     let start_ns = nros_cpp_time_ns();
     let boot_period_us = boot_tier.spin_period_us.max(1_000);
+    // The loop paces on `boot_period_us` below; `spin_once`'s argument is a
+    // blocking bound, not a cadence. Say which is which, or the jitter rule
+    // judges this tier against the timeout.
+    unsafe { nros_cpp_executor_set_spin_nominal_us(sptr, boot_period_us) };
     let mut ret = 0i32;
     loop {
         let last = unsafe { nros_cpp_spin_once(sptr, 10) };
@@ -3724,6 +3750,9 @@ unsafe extern "C" fn native_tier_trampoline(arg: *mut c_void) -> *mut c_void {
 
     // Spin at the tier's period until the shutdown flag is set.
     let period_us = ctx.period_us.max(1_000);
+    // Same as the boot thread: the sleep below is the cadence, `spin_once`'s
+    // argument is a blocking bound.
+    unsafe { nros_cpp_executor_set_spin_nominal_us(tptr, period_us) };
     while !ctx.shutdown.load(Ordering::Relaxed) {
         let rc = unsafe { nros_cpp_spin_once(tptr, 10) };
         if rc != NROS_CPP_RET_OK {
