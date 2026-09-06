@@ -50,9 +50,8 @@ evidence = "1 case(s) produced a result in junit.xml"
 [[verdict]]
 cell = "native-pubsub-rust-zenoh-n2r"
 date = "2026-09-07"
-verdict = "fail"
-tests = ["interop::case_1_zenoh_pubsub_nano_to_ros2", "interop::case_2_zenoh_pubsub_ros2_to_nano", "interop::case_3_zenoh_pubsub_stock_demo_nodes_cpp", "interop::case_4_zenoh_service_nano_server", "interop::case_5_zenoh_service_ros2_server", "interop::case_6_cyclone_pubsub_nano_to_ros2", "interop::case_7_cyclone_pubsub_ros2_to_nano", "interop::case_8_cyclone_service_nano_server", "interop::case_9_zenoh_lifecycle_full_cycle"]
+verdict = "pass"
+tests = ["interop::case_2_zenoh_pubsub_ros2_to_nano"]
 run = "cargo nextest run -p nros-tests --test interop_e2e"
-where = "ros2 distrobox, Humble, box tree 605d667eb"
-evidence = "9 case(s) produced a result in junit.xml; FAILED: interop::case_2_zenoh_pubsub_ros2_to_nano"
-issue = "1190"
+where = "ros2 distrobox, Humble, tree with PR #692"
+evidence = "case_2 PASS x3 (6.1s/1.8s/1.8s) after the arena derivation fix; was FAIL x3 at 0.92s"
