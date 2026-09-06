@@ -179,9 +179,10 @@ macro_rules! log_fatal {
 // The clock-reading form REFUSES TO COMPILE without the `platform-clock`
 // feature, rather than compiling into a throttle with no time base. Without a
 // clock `__timestamp_ns()` is a constant `0`, and a window measured against a
-// constant does not rate-limit — it admits every record, forever, while
-// reading at the call site exactly like a working throttle. RFC-0089: never
-// compile and differ.
+// constant never elapses — the site emits its first record and then nothing,
+// forever (issue 1152; before it, the same constant admitted EVERY record),
+// while reading at the call site exactly like a working throttle. RFC-0089:
+// never compile and differ.
 //
 // WHY THIS FAMILY KEEPS THE `nros_` PREFIX WHILE THE FIVE SEVERITY MACROS TOOK
 // rclrs's (phase-417, 2026-09-04). rclrs has no `log_info_throttle!` to follow.

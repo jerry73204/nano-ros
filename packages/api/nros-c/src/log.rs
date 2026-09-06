@@ -499,9 +499,11 @@ pub unsafe extern "C" fn nros_log_add_sink(
 /// than a handle into a Rust-side pool because a pool needs a bound, and a
 /// throttled call site is not a resource anyone should have to budget.
 ///
-/// The RULE is `nros_log::throttle_admits` — the same function
-/// `nros_log::ThrottleState` and the Rust `nros_*_throttle!` macros use. Only
-/// the storage differs.
+/// The RULE — and the ENCODING of the word — is `nros_log::throttle_decide`,
+/// the same function `nros_log::ThrottleState` and the Rust `nros_*_throttle!`
+/// macros use. Only the storage differs. This shim never interprets the word:
+/// issue 1152 was a second spelling of "last emitted" living here (`0 -> 1`),
+/// and the rule then measured `u64::MAX` of elapsed time against it.
 ///
 /// Returns `true` when the record should be emitted. NULL `last_ns` returns
 /// `true`: a broken caller gets every record, never silence.
@@ -516,14 +518,13 @@ pub unsafe extern "C" fn nros_log_throttle_admit(last_ns: *mut u64, interval_ms:
     }
     warn_once_if_no_clock();
     let now = nros_log::__timestamp_ns();
-    let last = last_ns.read();
-    if nros_log::throttle_admits(last, now, nros_log::interval_ms_to_ns(interval_ms)) {
-        // `max(1)`: `0` is the "never emitted" sentinel the facade uses, so a
-        // clock that legitimately reads 0 must not re-arm the window forever.
-        last_ns.write(if now == 0 { 1 } else { now });
-        true
-    } else {
-        false
+    let word = last_ns.read();
+    match nros_log::throttle_decide(word, now, nros_log::interval_ms_to_ns(interval_ms)) {
+        Some(next) => {
+            last_ns.write(next);
+            true
+        }
+        None => false,
     }
 }
 
@@ -532,10 +533,11 @@ static NO_CLOCK_REPORTED: AtomicBool = AtomicBool::new(false);
 /// Say it once, out loud, rather than degrading quietly.
 ///
 /// Without `nros-log/platform-clock` every timestamp is a constant `0`, so
-/// `throttle_admits` sees an elapsed time that never grows and admits every
-/// record. That is the safe direction to fail — a throttle that silences is
-/// worse than one that does not throttle — but it is still not what the call
-/// site says, and RFC-0089 puts the burden on us to say so.
+/// `throttle_decide` sees an elapsed time that never grows: each throttled
+/// site emits its FIRST record and then nothing (issue 1152 — a clock that
+/// does not move must read as a window that never elapses, because a broken
+/// clock is when a log flood is most likely). That is not what the call site
+/// says, and RFC-0089 puts the burden on us to say so, once, out loud.
 fn warn_once_if_no_clock() {
     if nros_log::timestamp_available() {
         return;
@@ -547,8 +549,9 @@ fn warn_once_if_no_clock() {
         nros_log::log_warn!(
             &nros_log::DEFAULT_LOGGER,
             "NROS_LOG_*_THROTTLE has no monotonic clock (nros-log's `platform-clock` feature is \
-             off), so every timestamp is 0 and the window can never elapse: throttled sites will \
-             emit EVERY record. Enable `nros-log/platform-clock` on the nros-c dependency."
+             off), so every timestamp is 0 and the window can never elapse: each throttled site \
+             will emit its FIRST record and then NOTHING. Enable `nros-log/platform-clock` on \
+             the nros-c dependency."
         );
     }
 }

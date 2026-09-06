@@ -60,7 +60,7 @@ pub use buffer::{FormatBuffer, format_buffer_capacity};
 pub use pool::{
     MAX_LOGGER_NAME_LEN, dynamic_logger_capacity, dynamic_logger_name_arena, dynamic_loggers_in_use,
 };
-pub use throttle::{ThrottleState, interval_ms_to_ns, throttle_admits};
+pub use throttle::{ThrottleState, interval_ms_to_ns, throttle_decide};
 
 /// REP-2012 severity levels, mirroring `rcutils_log_severity_t`.
 ///
@@ -625,10 +625,12 @@ fn deliver_to_added(record: &Record<'_>) -> usize {
 /// Whether [`__timestamp_ns`] can answer with a real clock.
 ///
 /// `false` means every `Record::timestamp_ns` is `0` and anything DERIVED from
-/// the timestamp — the throttle windows above all of them — has no time base.
-/// Exposed so a wrapper can say so out loud instead of degrading quietly:
-/// without this, a throttled C call site looks identical whether it is
-/// rate-limiting or not.
+/// the timestamp — the throttle windows above all of them — has no time base:
+/// a throttled site then emits its FIRST record and nothing after it (a clock
+/// that never moves is a window that never elapses — issue 1152). Exposed so a
+/// wrapper can say so out loud instead of degrading quietly: without this, a
+/// throttled C call site looks identical whether it is rate-limiting or
+/// permanently shut.
 #[must_use]
 pub const fn timestamp_available() -> bool {
     cfg!(feature = "platform-clock")

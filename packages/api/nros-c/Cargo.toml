@@ -163,8 +163,10 @@ critical-section = ["dep:critical-section"]
 # phase-417 W4.d — every platform arm activates `nros-log/platform-clock`,
 # because a linked port is exactly the condition under which
 # `nros_platform_clock_ns` resolves. Without it `nros_log_*` records carry
-# `timestamp_ns: 0` and `nros_log_throttle_admit` has no time base, so a 200 ms
-# window admits EVERY record: measured 40 of 40 without, 5 of 40 with.
+# `timestamp_ns: 0` and `nros_log_throttle_admit` has no time base — a stuck
+# clock is a window that never elapses, so a 200 ms window admits the FIRST
+# record and then none (issue 1152; before it the same constant admitted EVERY
+# record: measured 40 of 40 without, 5 of 40 with).
 platform-posix = [
     "nros-log/platform-clock",
     "nros-platform/platform-posix",
