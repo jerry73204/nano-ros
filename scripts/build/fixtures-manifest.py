@@ -1421,7 +1421,8 @@ def main():
         #
         #   <board>\x1f<lang>\x1f<lang_tag>\x1f<rmw>\x1f<role>\x1f<dir>
         #   \x1f<build_name>\x1f<id>\x1f<zenoh_locator>\x1f<xrce_port>
-        #   \x1f<cyclone_domain>\x1f<conf_files>
+        #   \x1f<cyclone_domain>\x1f<conf_files>\x1f<reserved>\x1f<ws_dir>
+        #   \x1f<nros_image>\x1f<coord>
         #
         # IDENTITY only. The isolation triple (locator / xrce port / cyclone
         # domain) is emitted EMPTY for the six role leaves, because those derive
@@ -1517,6 +1518,22 @@ def main():
                             if e.get("image") and e.get("bringup")
                             else ""
                         ),
+                        # issue 1016 — the leaf's COORDINATE, from `row_coord`,
+                        # the same function `--coords-from` filters this record
+                        # on three lines above.
+                        #
+                        # It is emitted rather than left to the reader because
+                        # the reader was deriving it: `fixtures::lane::
+                        # west_leaves` rebuilt the triple from `board` and the
+                        # rmw LABEL with its own two special cases
+                        # (`mps2_an385` -> `zephyr-cortex-m`, `default` ->
+                        # `zenoh`). Two derivations of one coordinate is the
+                        # defect `row_coord` exists to remove, and here the two
+                        # sides are the BUILD's skip predicate and the RUN's --
+                        # so a disagreement is a leaf the lane omits and the run
+                        # demands, which is issue 0828's shape for this table.
+                        # They agreed when measured; nothing made them.
+                        ",".join(row_coord(e)),
                     )
                 )
                 + "\n"
