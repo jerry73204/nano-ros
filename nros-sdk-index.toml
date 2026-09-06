@@ -32,6 +32,37 @@ build_sources = [
     "nuttx-libc",             # build-test-fixtures metadata refresh path-deps it
 ]
 
+# --- build types -> the host tools that BUILDER shells out to ---
+#
+# RFC-0062 amendment 4 (phase-435 W2). `<build_type>` is the honest declaration
+# of HOW a package is built, and these are the rows it resolves into.
+#
+# Consulted only where `Resolution::SelfBuildtool` cannot answer. That rung rests
+# on "if that builder is building it, the buildtool is present", which phase-431
+# makes false for the nano-ros build types: before it, holding `nros` implied
+# having cargo, because you built the CLI from source. Once `nros` ships
+# prebuilt, a user holds the builder and may have neither cargo nor cmake — and
+# `nros_cargo` / `nros_cmake` are 375 of the 406 package.xml files in this tree.
+#
+# NOT the `[prereq.ament_cargo]` option amendment 3 rejected as fiction: no apt
+# package provides `ament_cargo`, while every name below is a real `[prereq.*]`
+# key that `SdkIndex::validate` checks exists.
+#
+# `ament_cmake` and `ament_cargo` get NO row on purpose. The first is served by
+# an ambient ROS and the second by this repo's own colcon extension
+# (`packages/cli/colcon-cargo-ros2`), so for both, `SelfBuildtool` is the true
+# answer and an index row would be the fiction.
+
+[build_type.nros_cargo]
+why = "the nros cargo builder shells out to cargo, which a prebuilt `nros` does not bring"
+packages = ["cargo"]
+
+[build_type.nros_cmake]
+# `clang` rather than a generic compiler key: it is what the index already
+# declares, and what `nros-c`'s bindgen path needs anyway.
+why = "the nros cmake builder shells out to cmake, and the C/C++ lanes to a compiler"
+packages = ["cmake", "clang"]
+
 # --- prebuilt host tools (target-agnostic) ---
 
 # The `nros` CLI itself (phase-431). This entry was REMOVED by phase-288 D1/D2
@@ -1128,8 +1159,23 @@ platform = "bare-metal"
 packages = ["arm-fvp"]
 
 [board.zephyr]
-platform = "zephyr" # west + zephyr-sdk toolchain, provisioned outside the index
-packages = []
+platform = "zephyr"
+# phase-435 W4 — this row said "provisioned outside the index" and resolved to
+# NOTHING, so `nros setup zephyr` provisioned nothing and the `just zephyr`
+# module did the work instead. That is the second provisioning path phase-422
+# spent four work items removing elsewhere, and RFC-0062 amendment 4 recorded it
+# as the one hole its four axes left.
+#
+# `zephyr-sdk` is the toolchain, and it is a `[tool.*]` with four host dists.
+# `west` is NOT here: it is a `[python.*]` class, because it is a pip package
+# into the interpreter the Zephyr lanes use, and `nros setup --tool` does not
+# install into a venv. `_setup-common` already reports the python closure, so
+# the split is between two mechanisms that each do what they are for.
+#
+# The Zephyr SOURCES (the `zephyr` repo + the modules west pins) stay outside:
+# they are fetched by `scripts/zephyr/setup.sh` into a west-shaped workspace,
+# which is not a `[source.*]` submodule and would be a fiction as one.
+packages = ["zephyr-sdk"]
 
 # --- the CMAKE board vocabulary, as index keys (phase-422 W7) ---------------
 #
@@ -1240,8 +1286,8 @@ check = { cmd = "libgcrypt-config", pkg_config = "libgcrypt" }
 
 [prereq.ros-rmw-zenoh-cpp]
 role = "package"
-why = "the zenoh ROS interop lanes: the peer runs `source /opt/ros/<distro>/setup.bash && export RMW_IMPLEMENTATION=rmw_zenoh_cpp`, so the RMW must resolve in the ROS prefix. Without it those lanes report `[SKIPPED:capability]`, which reads as green rather than as absent coverage (2026-08-17: three issues closed unverifiable that way). The apt name is DISTRO-PARAMETRIC, and `{ros_distro}` is how the index says so (issue 1128): it expands from $ROS_DISTRO, defaulting to humble. Before that placeholder existed this row could only spell one distro, so it pinned humble and every consumer that cared composed `ros-${DISTRO}-...` itself — two spellings of one package, agreeing only on humble."
-apt = ["ros-{ros_distro}-rmw-zenoh-cpp"]
+why = "the zenoh ROS interop lanes: the peer runs `source /opt/ros/<distro>/setup.bash && export RMW_IMPLEMENTATION=rmw_zenoh_cpp`, so the RMW must resolve in the ROS prefix. Without it those lanes report `[SKIPPED:capability]`, which reads as green rather than as absent coverage (2026-08-17: three issues closed unverifiable that way). The apt name is DISTRO-PARAMETRIC and DERIVED, never spelled: `ros_package` states the ROS name and the CLI applies bloom's rule, `ros-<distro>-<pkg with _ -> ->`, from $ROS_DISTRO (default humble). phase-435 W3. It replaced `{ros_distro}` (issue 1128), which was the same fix with the literal still written out — expressible for apt alone, and repeating the derivable prefix in every row. Before either, this row could spell only one distro, so it pinned humble while every consumer that cared composed `ros-${DISTRO}-...` itself."
+ros_package = "rmw_zenoh_cpp"
 # No dnf/pacman: ROS 2 is not packaged there, and docs/development/ros2-on-non-ubuntu.md
 # routes those hosts through an Ubuntu distrobox, whose setup script installs this.
 #
@@ -1306,7 +1352,7 @@ brew = ["arm-none-eabi-gcc"]
 check = { cmd = "arm-none-eabi-gcc" }
 
 [prereq.cmake]
-role = "package"
+role = "buildtool"
 why = "every C/C++ configure step"
 apt = ["cmake"]
 dnf = ["cmake"]
@@ -1413,7 +1459,7 @@ brew = ["mbedtls"]
 check = { header = "mbedtls/entropy.h" }
 
 [prereq.clang]
-role = "package"
+role = "buildtool"
 why = "bindgen + C toolchain probes"
 apt = ["clang"]
 dnf = ["clang"]
@@ -1422,7 +1468,7 @@ brew = ["llvm"]
 check = { cmd = "clang" }
 
 [prereq.libclang-dev]
-role = "package"
+role = "buildtool"
 why = "bindgen (z3-sys via ros-launch-manifest-check -> nros-launch-resolve build; issue 0368 F5)"
 apt = ["libclang-dev"]
 dnf = ["clang-devel"]
@@ -1451,7 +1497,7 @@ brew = ["z3"]
 check = { header = "z3.h" }
 
 [prereq.python3-dev]
-role = "package"
+role = "buildtool"
 why = "pyo3 source builds (play_launch_parser, nros-launch-resolve; issue 0368 F5)"
 apt = ["python3-dev"]
 dnf = ["python3-devel"]
@@ -1460,7 +1506,7 @@ brew = ["python"]
 check = { pkg_config = "python3" }
 
 [prereq.python3-venv]
-role = "package"
+role = "buildtool"
 why = "ESP-IDF install + tool venvs (issue 0368 F7)"
 apt = ["python3-venv"]
 dnf = ["python3"]
@@ -1468,7 +1514,7 @@ pacman = ["python"]
 brew = ["python"]
 
 [prereq.python3-pip]
-role = "package"
+role = "buildtool"
 why = "pip-layer installs (west, colcon, clang-format wheel)"
 apt = ["python3-pip"]
 dnf = ["python3-pip"]
@@ -1695,7 +1741,7 @@ check = { path = "CMakeLists.txt" }
 # resolved to nothing, silently, for as long as that file has existed.
 
 [prereq.cargo]
-role = "package"
+role = "buildtool"
 why = "Rust builds; the real provider is rustup, which [rust.toolchain.*] pins"
 # apt/dnf/pacman ship a `cargo`, but a distro cargo is NOT the pinned toolchain
 # and using one is its own failure class — so the mapping exists for a host with

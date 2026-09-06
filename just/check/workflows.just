@@ -199,22 +199,21 @@ preconditions-provisioned:
 one-producer-per-tool:
     @python3 scripts/check-one-producer-per-tool.py
 
-# Issue 1128 — a `[prereq.*]` package name may carry ONE placeholder,
-# `{ros_distro}`, and this gate is what stops that becoming a template language.
+# phase-435 W5 — a board alias that is not a deploy FAMILY names one board.
 #
-# The expansion has two implementations in two languages that cannot call each
-# other (`PrereqContext::expand` in the CLI; `expand()` in
-# `scripts/sdk/prereq-packages.py`, which exists so a job needing two package
-# names does not have to build the CLI first). Two implementations of one rule
-# is this repo's recurring drift — what makes it survivable is that the rule is
-# one line long in each, which is only true while the vocabulary is one name.
+# A name selects a board implementation, and the implementation decides the
+# toolchain: `threadx-linux` builds for the host while `threadx-qemu-riscv64`
+# needs `riscv-none-elf-gcc` and an emulator. An ambiguous alias would pick
+# whichever descriptor the scan read first.
 #
-# Both are checked by being EXERCISED, not grepped: the first version grepped,
-# and a Python `expand` mutated to return its input unchanged still passed,
-# because the name sat in a comment three lines away.
+# Running it the first time answered its own question: the only real clash was
+# `threadx`, which is a deploy FAMILY (RFC-0087 D3 — `deploy=` names a
+# `[deploy.*]` block, and the `board=` beside it selects). Families are exempt by
+# DERIVATION, read from the same package.xml exports that use them, so the
+# exemption cannot go stale the way a list would.
 [group("checks")]
-prereq-placeholders:
-    @python3 scripts/check-prereq-placeholders.py
+board-alias-unique:
+    @python3 scripts/check-board-alias-unique.py
 
 [group("checks")]
 prereq-roles:
