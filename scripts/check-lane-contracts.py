@@ -40,6 +40,7 @@ Usage::
 
 import os
 import re
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -418,24 +419,84 @@ def parse_justfile():
     justfile already spells them.
     """
     recipes = {}
-    sources = [(None, JUSTFILE)]
-    # Beside the justfile being parsed, NOT under ROOT: the self-tests redirect
-    # `JUSTFILE` to a temp tree, and a module dir pinned to ROOT made them read
-    # the real repo's modules while claiming to test a synthetic justfile. Same
-    # answer in production (the root justfile IS in ROOT), honest under test.
-    mod_dir = os.path.join(os.path.dirname(os.path.abspath(JUSTFILE)), "just")
-    if os.path.isdir(mod_dir):
-        sources += [
-            (fn[:-5], os.path.join(mod_dir, fn))
-            for fn in sorted(os.listdir(mod_dir)) if fn.endswith(".just")
-        ]
-    for mod, path in sources:
+    for mod, path in _just_sources():
         try:
             with open(path, encoding="utf8", errors="replace") as fh:
                 recipes.update(_parse_one(fh.read().split("\n"), mod))
         except OSError:
             continue
     return recipes
+
+
+IMPORT = re.compile(r"^import\??\s+['\"]([^'\"]+)['\"]", re.M)
+
+
+def _just_sources():
+    """[(module or None, path)]: the root justfile, every `just/*.just` module,
+    and every file any of them `import`s — keyed to the IMPORTING module.
+
+    Issue 1163 — the gates were invisible. Phase-399 split the 200 gate recipes
+    out of `just/check.just` into `just/check/*.just` behind `import`, which
+    MERGES definitions (a `mod` namespaces them). The walk below stopped at
+    `just/*.just`, so `check::compile-smoke`, `check::c`, `check::build` and
+    every other gate were not recipes to this file: a lane invocation of
+    `just check compile-smoke` resolved to nothing, and the closure of
+    `check::fast` was its two forwarders. The tier rules reported OK over a
+    tree they could not see, which is the vacuous shape this file already
+    carries three cases against.
+
+    Beside the justfile being parsed, NOT under ROOT: the self-tests redirect
+    `JUSTFILE` to a temp tree, and a module dir pinned to ROOT made them read
+    the real repo's modules while claiming to test a synthetic justfile. Same
+    answer in production (the root justfile IS in ROOT), honest under test.
+    """
+    mod_dir = os.path.join(os.path.dirname(os.path.abspath(JUSTFILE)), "just")
+    roots = [(None, os.path.abspath(JUSTFILE))]
+    if os.path.isdir(mod_dir):
+        roots += [
+            (fn[:-5], os.path.join(mod_dir, fn))
+            for fn in sorted(os.listdir(mod_dir)) if fn.endswith(".just")
+        ]
+    out, seen = [], set()
+    for mod, path in roots:
+        # Depth-first from each root so a file the ROOT justfile imports
+        # (`just/sdk-env.just`) is keyed bare, as `just` keys it — not as the
+        # module the directory listing would otherwise make of it.
+        stack = [path]
+        while stack:
+            cur = stack.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            out.append((mod, cur))
+            try:
+                with open(cur, encoding="utf8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            for m in IMPORT.finditer(text):
+                stack.append(os.path.normpath(
+                    os.path.join(os.path.dirname(cur), m.group(1))))
+    return out
+
+
+VARIABLE = re.compile(r'^([A-Za-z_][A-Za-z0-9_-]*)\s*:=\s*"([^"]*)"\s*$', re.M)
+
+
+def just_variables():
+    """{name: {values}} for every string-literal `NAME := "..."` across the
+    justfile, its modules and their imports. A SET of values, because the
+    point of reading one is to find out whether it has one spelling."""
+    out = {}
+    for _mod, path in _just_sources():
+        try:
+            with open(path, encoding="utf8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for m in VARIABLE.finditer(text):
+            out.setdefault(m.group(1), set()).add(m.group(2))
+    return out
 
 
 def _parse_one(lines, mod):
@@ -600,6 +661,239 @@ def resolvers_used(test_name):
     with open(path, encoding="utf8", errors="replace") as fh:
         text = fh.read()
     return {r for r in RUNTIME_RESOLVERS + COMPILE_RESOLVERS if r in text}, True
+
+
+# ---- issue 1163 — a crate that SHIPS in a non-default shape must be compiled
+# in that shape by a merge-gating lane ----------------------------------------
+#
+# `nros-c`'s default feature is `panic-platform`, which compiles almost none of
+# the C surface; what ships is `std,rmw-cffi,platform-posix,ros-humble`, and
+# every consumer says so with `default-features = false`. PR #329 landed a
+# second `#[no_mangle] nros_node_get_fully_qualified_name` inside an
+# `rmw-cffi` region: `cargo check -p nros-c` green, the shipped shape E0428.
+# `compile-smoke` (the PR gate) checked defaults; `check-c` compiles the
+# shipped set but runs on schedule; `test-unit` on the merge group compiles
+# defaults again. Green with no signal capacity, on every lane that gates.
+#
+# The subject set is DERIVED, not authored: any crate under `packages/` with a
+# non-empty default feature set that EVERY consumer takes `default-features =
+# false` is a crate whose default is not what ships. What the shipped shape IS
+# has to be authored, and the one place it may be authored is a `just`
+# variable, because the lanes read that variable and a second spelling drifts.
+
+# crate -> the justfile variable holding its shipped feature list.
+SHIPPED_SHAPES = {
+    "nros-c": "C_API_SHIPPED_FEATURES",
+    "nros-cpp": "C_API_SHIPPED_FEATURES",
+}
+
+# A subject with no host shape at all, and why. A reason, not a bare name:
+# an exemption without one is a rule with a hole nobody can re-check.
+SHIPPED_EXEMPT = {
+    "nros-board-nuttx": (
+        "cross-only — a NuttX board crate has no host shape; its one consumer "
+        "is the QEMU board family, built by the nuttx fixture lane, a runtime "
+        "tier no merge-gating job runs"
+    ),
+}
+
+# Where a crate's dependency tables live in a manifest, `target.*` included.
+_DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+_MANIFEST_SKIP = {"third-party", ".git", ".claude", "node_modules", "build",
+                  "generated", "tmp"}
+
+
+def _toml():
+    try:
+        import tomllib
+        return tomllib
+    except ModuleNotFoundError:  # python < 3.11
+        try:
+            import tomli as tomllib
+            return tomllib
+        except ModuleNotFoundError:
+            return None
+
+
+def _manifests(root):
+    """Every tracked `Cargo.toml` under `root`, from the INDEX — a walk over
+    `examples/` pays for every build tree beneath it (issue 0721: >300 s
+    against 0.002 s for the same paths). Vendored trees are gitlinks, so they
+    are not listed; `third-party/` is skipped for the one that is not."""
+    r = subprocess.run(["git", "-C", root, "ls-files", "--", "Cargo.toml",
+                        "*/Cargo.toml"], capture_output=True, text=True)
+    if r.returncode == 0:
+        for rel in r.stdout.split():
+            if not rel.startswith("third-party/") and "/third-party/" not in rel:
+                yield os.path.join(root, rel)
+        return
+    # walk-ok: the self-test's temp tree is not a repository, so there is no
+    # index to consult and the tree is a handful of files it wrote itself.
+    for dp, dn, fn in os.walk(root):
+        dn[:] = sorted(d for d in dn
+                       if d not in _MANIFEST_SKIP and not d.startswith("target"))
+        if "Cargo.toml" in fn:
+            yield os.path.join(dp, "Cargo.toml")
+
+
+def _dep_specs(manifest):
+    """[(crate name, spec dict-or-str)] over every dependency table."""
+    out = []
+    tables = [manifest.get(t, {}) for t in _DEP_TABLES]
+    for tgt in manifest.get("target", {}).values():
+        tables += [tgt.get(t, {}) for t in _DEP_TABLES]
+    for table in tables:
+        for key, spec in table.items():
+            name = spec.get("package", key) if isinstance(spec, dict) else key
+            out.append((name, spec))
+    return out
+
+
+def shipped_shape_subjects(root=None, subject_dir="packages"):
+    """{crate: {"default": [...], "consumers": [manifest paths]}} for every
+    crate under `<root>/<subject_dir>` with a non-empty default feature set that
+    EVERY consumer (anywhere under root) takes with `default-features = false`.
+
+    A self-dependency (`nros-c`'s dev-dep on `path = "."`) is not a consumer.
+    A `workspace = true` entry inherits its spec from the nearest ancestor
+    `[workspace.dependencies]`, which is where `default-features` would be.
+    """
+    root = root or ROOT
+    toml = _toml()
+    if toml is None:
+        raise SystemExit("check-lane-contracts: no TOML parser (python >= 3.11 "
+                         "or `tomli`) — the shipped-shape rule cannot run, "
+                         "and a rule that cannot run must not report OK")
+    loaded = {}
+    for path in _manifests(root):
+        try:
+            with open(path, "rb") as fh:
+                loaded[path] = toml.load(fh)
+        except (OSError, ValueError):
+            continue
+    subject_root = os.path.join(root, subject_dir)
+    crates = {}
+    for path, m in loaded.items():
+        name = m.get("package", {}).get("name")
+        if name and path.startswith(subject_root + os.sep):
+            crates[name] = {"default": m.get("features", {}).get("default", []),
+                            "consumers": [], "path": path}
+
+    def inherited(path, name):
+        d = os.path.dirname(path)
+        while True:
+            parent = os.path.dirname(d)
+            cand = os.path.join(parent, "Cargo.toml")
+            spec = loaded.get(cand, {}).get("workspace", {}).get("dependencies", {})
+            for key, val in spec.items():
+                if (val.get("package", key) if isinstance(val, dict) else key) == name:
+                    return val
+            if parent == d or not parent.startswith(root):
+                return None
+            d = parent
+
+    takes_defaults = {}
+    for path, m in loaded.items():
+        me = m.get("package", {}).get("name")
+        for name, spec in _dep_specs(m):
+            if name not in crates or name == me:
+                continue
+            if isinstance(spec, dict) and spec.get("workspace") is True:
+                spec = inherited(path, name) or {}
+            dff = isinstance(spec, dict) and spec.get("default-features") is False
+            crates[name]["consumers"].append(path)
+            takes_defaults.setdefault(name, False)
+            takes_defaults[name] = takes_defaults[name] or not dff
+    return {
+        n: c for n, c in crates.items()
+        if c["default"] and c["consumers"] and not takes_defaults.get(n, True)
+    }
+
+
+CARGO_LINE = re.compile(r"\bcargo\s+(?:\+\S+\s+)?(?:check|build|clippy)\b(.*)$")
+_PKG = re.compile(r"(?:^|\s)(?:-p|--package)[\s=]+([A-Za-z0-9_-]+)")
+_FEATS = re.compile(r"--features[\s=]+(?:\"([^\"]*)\"|'([^']*)'|(\S+))")
+
+
+def _cargo_shapes(line):
+    """[(package, {features}, no_default)] for one cargo check/build/clippy."""
+    m = CARGO_LINE.search(line)
+    if not m:
+        return []
+    args = m.group(1)
+    pkgs = _PKG.findall(args)
+    fm = _FEATS.search(args)
+    raw = next((g for g in fm.groups() if g is not None), "") if fm else ""
+    feats = {f for f in re.split(r"[,\s]+", raw) if f}
+    return [(pkg, feats, "--no-default-features" in args) for pkg in pkgs]
+
+
+def gating_lanes(recipes_map):
+    """Every recipe a workflow job runs on a merge-gating event. Producer jobs
+    INCLUDED — the artifact rule exempts those because they may resolve what
+    they build; this rule asks a different question of them."""
+    out = set()
+    for _wf, _job, recs, _p in workflow_jobs():
+        for recipe, events in lane_invocations(recs, recipes_map):
+            if set(events) & GATING_EVENTS:
+                out.add(recipe)
+    return out
+
+
+def shipped_shape_gaps(recipes, variables, gating, subjects):
+    """([(crate, message)], {crate: [recipes that cover it]}). A gap is a
+    subject NOT compiled in its shipped shape by any recipe reachable from a
+    merge-gating lane."""
+    reached = set()
+    for lane in gating:
+        reached |= closure(recipes, lane)
+    gaps, covered = [], {}
+    for crate in sorted(subjects):
+        if crate in SHIPPED_EXEMPT:
+            continue
+        var = SHIPPED_SHAPES.get(crate)
+        n = len(subjects[crate]["consumers"])
+        if var is None:
+            gaps.append((crate, (
+                f"`{crate}` defaults to {subjects[crate]['default']}, and all {n} of "
+                f"its consumers take it `default-features = false` — so its default "
+                f"is not what ships, and nothing says what does. Name the shipped "
+                f"feature list as a `just` variable and add `{crate}` to "
+                f"SHIPPED_SHAPES in this script (or SHIPPED_EXEMPT, with a reason)."
+            )))
+            continue
+        values = variables.get(var, set())
+        if len(values) != 1:
+            gaps.append((crate, (
+                f"`{crate}`'s shipped shape is the justfile variable `{var}`, which "
+                + ("is not defined as a string literal anywhere." if not values else
+                   f"has {len(values)} spellings: {sorted(values)}. One spelling.")
+            )))
+            continue
+        want = {f for f in next(iter(values)).split(",") if f}
+        hits = []
+        for r in sorted(reached):
+            for line in _join_continuations(recipes.get(r, {}).get("body", [])):
+                for pkg, feats, no_default in _cargo_shapes(line):
+                    if pkg != crate or not no_default:
+                        continue
+                    if feats == {"{{" + var + "}}"} or feats == want:
+                        hits.append(r)
+        if hits:
+            covered[crate] = sorted(set(hits))
+        else:
+            gaps.append((crate, (
+                f"`{crate}` ships as `--no-default-features --features "
+                f"\"{{{{{var}}}}}\"` (= {','.join(sorted(want))}) — all {n} consumers "
+                f"take it `default-features = false` — but NO merge-gating lane "
+                f"({'/'.join(sorted(GATING_EVENTS))}) compiles it in that shape. "
+                f"Its default compiles a different crate, so a green gate says "
+                f"nothing about the one that ships (issue 1163: a duplicate "
+                f"`#[no_mangle]` in an `rmw-cffi` region reached main green). "
+                f"Add `cargo check -p {crate} --no-default-features --features "
+                f"\"{{{{{var}}}}}\"` to a recipe a gating job runs (`compile-smoke`)."
+            )))
+    return gaps, covered
 
 
 def main():
@@ -814,6 +1108,14 @@ def main():
             f"        python3 scripts/check-lane-contracts.py --update"
         )
 
+    # ---- issue 1163 — shipped shapes. A HARD rule, not a ratchet: the subject
+    # set is three crates and every one is either covered or exempt today.
+    subjects = shipped_shape_subjects()
+    shape_gaps, shape_covered = shipped_shape_gaps(
+        recipes_map, just_variables(), gating_lanes(recipes_map), subjects)
+    for _crate, msg in shape_gaps:
+        errs.append(msg)
+
     if errs:
         print(f"check-lane-contracts: {len(errs)} tier violation(s):\n", file=sys.stderr)
         for e in errs:
@@ -854,9 +1156,17 @@ def main():
         f"({gating} merge-gating, {scanned - gating} report-only); none resolves "
         f"an artifact its job does not build. "
         f"{covered} step invocation(s) on any event carry a justfile-ordered "
-        f"`setup-*` precondition; each runs where its producer does."
+        f"`setup-*` precondition; each runs where its producer does. "
+        f"{len(shape_covered)} crate(s) whose default is not what ships "
+        f"({shape_desc(shape_covered)}) are compiled in their shipped shape "
+        f"by a merge-gating lane; "
+        f"{len([c for c in subjects if c in SHIPPED_EXEMPT])} exempt with a reason."
     )
     return 0
+
+
+def shape_desc(covered):
+    return ", ".join(f"{c} via {'/'.join(v)}" for c, v in sorted(covered.items()))
 
 
 def selftest(verbose=False):
@@ -1042,6 +1352,119 @@ def selftest(verbose=False):
     chk("`github.event_name == 'x'` selects exactly x",
         _events_of("if: ${{ github.event_name == 'pull_request' }}", allev)
         == {"pull_request"})
+
+    # ---- issue 1163 — the shipped-shape rule, end to end on a temp tree ----
+    real_wf = WORKFLOW_DIR
+    with tempfile.TemporaryDirectory() as d:
+        jf = os.path.join(d, "justfile")
+        wf = os.path.join(d, "workflows")
+        os.makedirs(os.path.join(d, "just", "check"))
+        os.makedirs(wf)
+        globals()["JUSTFILE"], globals()["WORKFLOW_DIR"] = jf, wf
+        with open(jf, "w", encoding="utf8") as fh:
+            fh.write("mod check 'just/check.just'\n")
+        with open(os.path.join(d, "just", "check.just"), "w", encoding="utf8") as fh:
+            fh.write('SHIPPED := "a,b"\n\nimport \'check/lanes.just\'\n\nfast:\n    echo\n')
+        smoke = ("compile-smoke:\n    cargo check --workspace\n"
+                 "    cargo check -p nros-c --no-default-features "
+                 "--features \"{{SHIPPED}}\" --quiet\n")
+        lanes = os.path.join(d, "just", "check", "lanes.just")
+
+        def write_lanes(text):
+            with open(lanes, "w", encoding="utf8") as fh:
+                fh.write(text)
+            return parse_justfile()
+
+        with open(os.path.join(wf, "gate.yml"), "w", encoding="utf8") as fh:
+            fh.write("on:\n  pull_request:\n  schedule:\njobs:\n  check:\n    steps:\n"
+                     "      - run: just check fast\n"
+                     "      - if: ${{ github.event_name == 'pull_request' }}\n"
+                     "        run: just check compile-smoke\n")
+        subj = {"nros-c": {"default": ["panic-platform"], "consumers": ["x", "y"]}}
+        saved = dict(SHIPPED_SHAPES)
+        SHIPPED_SHAPES.clear()
+        SHIPPED_SHAPES["nros-c"] = "SHIPPED"
+        r = write_lanes(smoke)
+        chk("a recipe in an `import`ed file is keyed to the importing module",
+            "check::compile-smoke" in r)
+        chk("a string-literal `NAME := \"...\"` in a module is read",
+            just_variables().get("SHIPPED") == {"a,b"})
+        gating = gating_lanes(r)
+        chk("a `just check <gate>` on pull_request is a gating lane",
+            "check::compile-smoke" in gating)
+        gaps, cov = shipped_shape_gaps(r, just_variables(), gating, subj)
+        chk("a gating lane compiling the crate as `{{VAR}}` covers it",
+            gaps == [] and cov == {"nros-c": ["check::compile-smoke"]})
+        # THE negative control: the line `compile-smoke` gained for 1163,
+        # removed. This is the state main was in when PR #329 landed.
+        r = write_lanes("compile-smoke:\n    cargo check --workspace\n")
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("REMOVING the shipped-shape line from the gating lane is a violation",
+            [c for c, _m in gaps] == ["nros-c"])
+        chk("...and the message names the variable and the fix",
+            "SHIPPED" in gaps[0][1] and "compile-smoke" in gaps[0][1])
+        # A literal spelling equal to the variable is accepted (order-free)...
+        r = write_lanes("compile-smoke:\n    cargo check -p nros-c "
+                        "--no-default-features --features \"b,a\"\n")
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("a literal spelling equal to the variable's value covers it", gaps == [])
+        # ...a DIFFERENT literal is drift, which is the reason the variable exists.
+        r = write_lanes("compile-smoke:\n    cargo check -p nros-c "
+                        "--no-default-features --features \"a\"\n")
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("a literal that DIFFERS from the variable does not cover it",
+            [c for c, _m in gaps] == ["nros-c"])
+        # The right line on a lane only the nightly runs is the exact shape
+        # `check-c` has today — and it is not coverage.
+        r = write_lanes(smoke.replace("compile-smoke:", "c:"))
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("the shipped shape on a lane NO gating job runs is a violation",
+            [c for c, _m in gaps] == ["nros-c"])
+        r = write_lanes(smoke.replace("--no-default-features ", ""))
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("the feature list WITHOUT --no-default-features is not the shipped shape",
+            [c for c, _m in gaps] == ["nros-c"])
+        r = write_lanes(smoke)
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r),
+                                     {"other": subj["nros-c"]})
+        chk("a subject with NO declared shipped shape is a violation, not a skip",
+            [c for c, _m in gaps] == ["other"] and "SHIPPED_SHAPES" in gaps[0][1])
+        r = write_lanes(smoke + '\nSHIPPED := "a,c"\n')
+        gaps, _ = shipped_shape_gaps(r, just_variables(), gating_lanes(r), subj)
+        chk("TWO spellings of the shipped variable is a violation",
+            [c for c, _m in gaps] == ["nros-c"] and "2 spellings" in gaps[0][1])
+        SHIPPED_SHAPES.clear()
+        SHIPPED_SHAPES.update(saved)
+
+        # Subject derivation on a synthetic cargo tree.
+        pk = os.path.join(d, "packages")
+        for name, body in (
+            ("lib", 'name = "lib"\n[features]\ndefault = ["p"]\np = []\n'
+                    '[dev-dependencies]\nlib = { path = "." }\n'),
+            ("lib2", 'name = "lib2"\n[features]\ndefault = ["p"]\np = []\n'),
+            ("nodef", 'name = "nodef"\n'),
+            ("a", 'name = "a"\n[dependencies]\nlib = { path = "../lib", '
+                  'default-features = false }\nnodef = { path = "../nodef", '
+                  'default-features = false }\n'
+                  'lib2 = { path = "../lib2", default-features = false }\n'),
+        ):
+            os.makedirs(os.path.join(pk, name))
+            with open(os.path.join(pk, name, "Cargo.toml"), "w", encoding="utf8") as fh:
+                fh.write("[package]\n" + body)
+        os.makedirs(os.path.join(d, "examples", "b"))
+        with open(os.path.join(d, "examples", "b", "Cargo.toml"), "w",
+                  encoding="utf8") as fh:
+            fh.write('[package]\nname = "b"\n[dependencies]\nlib2 = { path = "x" }\n')
+        subs = shipped_shape_subjects(d)
+        chk("a crate every consumer takes default-features=false is a subject",
+            "lib" in subs and subs["lib"]["consumers"] == [
+                os.path.join(pk, "a", "Cargo.toml")])
+        chk("a self dev-dependency is not a consumer",
+            len(subs["lib"]["consumers"]) == 1)
+        chk("a crate with NO default features is not a subject", "nodef" not in subs)
+        chk("one consumer taking the defaults (even outside packages/) disqualifies",
+            "lib2" not in subs)
+    globals()["JUSTFILE"], globals()["WORKFLOW_DIR"] = real[0], real_wf
 
     if verbose:
         print(f"\n{ok} passed, {fail} failed")
