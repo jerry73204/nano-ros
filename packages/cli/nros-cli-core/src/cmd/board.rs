@@ -10,22 +10,27 @@ use clap::{Args as ClapArgs, Subcommand};
 use eyre::{Result, WrapErr, eyre};
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::orchestration::board_metadata::{
-    BoardMetadata, DriftEntry, compute_drift, parse_board_cmake, parse_board_metadata,
+use crate::orchestration::{
+    board_descriptor::{BoardCatalog, BoardDescriptor},
+    board_projection,
 };
 
 #[derive(Debug, Subcommand)]
 pub enum Args {
     /// List every supported board crate
     List(ListArgs),
-    /// Print a board crate's Cargo.toml + board.cmake views side-by-side
-    /// (Phase 215.C.3).
+    /// Print a board's resolved descriptor as JSON.
     Info(InfoArgs),
+    /// Project a board descriptor into cmake variables (RFC-0064 R5 D4).
+    ///
+    /// Written per configure into the build directory by
+    /// `nano_ros_use_board()`; never committed. The descriptor is the single
+    /// authored source, and this is the mechanical projection of it.
+    CmakeVars(CmakeVarsArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -49,18 +54,27 @@ pub struct InfoArgs {
     /// `NROS_WORKSPACE_ROOT`.
     #[arg(long)]
     pub workspace: Option<PathBuf>,
-    /// Exit with status 1 if drift is detected between the Cargo.toml
-    /// view and the board.cmake view. When only one source is present
-    /// (e.g. a bare board with no board.cmake), exits 0 — there is
-    /// nothing to drift against.
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct CmakeVarsArgs {
+    /// Board key, as `nano_ros_use_board(<key>)` spells it.
+    pub name: String,
+    /// Path to the nano-ros workspace root (auto-detected by walking upward
+    /// from cwd if omitted).
     #[arg(long)]
-    pub check_drift: bool,
+    pub workspace: Option<PathBuf>,
+    /// Where to write the projection. Its directory also receives the
+    /// generated Rust-support Kconfig module when the board needs one.
+    #[arg(long)]
+    pub out: PathBuf,
 }
 
 pub fn run(args: Args) -> Result<()> {
     match args {
         Args::List(args) => list(args),
         Args::Info(args) => info(args),
+        Args::CmakeVars(args) => cmake_vars(args),
     }
 }
 
@@ -154,13 +168,68 @@ fn read_board(cargo_toml: &Path) -> Result<BoardEntry> {
 // -----------------------------------------------------------------------
 
 /// JSON envelope produced by `nros board info`.
+///
+/// RFC-0064 R5 D4 removed the second face. This used to print a Cargo.toml
+/// view beside a `board.cmake` view with a computed `drift` list; there is now
+/// one authored file, so there is nothing to print twice and nothing to drift.
 #[derive(Debug, Serialize)]
 struct BoardInfo {
     name: String,
-    crate_dir: PathBuf,
-    cargo_metadata: Option<BoardMetadata>,
-    board_cmake: Option<BTreeMap<String, String>>,
-    drift: Vec<DriftEntry>,
+    board_dir: PathBuf,
+    descriptor: PathBuf,
+    /// The projection this board would produce for a Zephyr build, or `null`
+    /// for a board with no `[board.zephyr]` block. Printed because "what does
+    /// cmake actually see?" is the question `board info` was invented to
+    /// answer, and it is now derivable rather than authored.
+    cmake_vars: Option<String>,
+}
+
+/// Resolve `name` to its descriptor through the board CATALOG.
+///
+/// Not by a path convention. `locate_board_crate` below still exists for the
+/// consumers that need a directory, but resolution by NAME must go through the
+/// catalog, or `nros board info <alias>` and a build of the same alias answer
+/// differently — which is what a board resolving only as an alias on another
+/// board's descriptor used to guarantee.
+fn resolve(root: &Path, name: &str) -> Result<(BoardDescriptor, PathBuf)> {
+    let catalog = BoardCatalog::load(root).map_err(|e| eyre!("load board catalog: {e}"))?;
+    let board = catalog
+        .descriptors()
+        .iter()
+        .find(|d| d.names.iter().any(|n| n == name))
+        .ok_or_else(|| {
+            let mut known: Vec<&str> = catalog
+                .descriptors()
+                .iter()
+                .flat_map(|d| d.names.iter().map(String::as_str))
+                .collect();
+            known.sort_unstable();
+            known.dedup();
+            eyre!(
+                "no board named `{name}`.\n  Known: {}\n  \
+                 For an out-of-tree board, put its package directory on \
+                 $NROS_EXTRA_BOARD_PATH.",
+                known.join(", ")
+            )
+        })?
+        .clone();
+    let descriptor = board
+        .source
+        .as_deref()
+        .map(|rel| {
+            let p = Path::new(rel);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                root.join(rel)
+            }
+        })
+        .ok_or_else(|| eyre!("board `{name}` has no recorded descriptor path"))?;
+    let dir = descriptor
+        .parent()
+        .ok_or_else(|| eyre!("descriptor {} has no parent", descriptor.display()))?
+        .to_path_buf();
+    Ok((board, dir))
 }
 
 fn info(args: InfoArgs) -> Result<()> {
@@ -168,110 +237,52 @@ fn info(args: InfoArgs) -> Result<()> {
         Some(p) => p,
         None => find_workspace_root()?,
     };
-    let crate_dir = locate_board_crate(&root, &args.name)?;
-    let cargo_toml = crate_dir.join("Cargo.toml");
-    let board_cmake_path = crate_dir.join("board.cmake");
-
-    let cargo_metadata = if cargo_toml.is_file() {
-        match parse_board_metadata(&cargo_toml) {
-            Ok(m) => Some(m),
-            Err(e) => {
-                // Surface the diagnostic on stderr so users see WHY the
-                // Cargo.toml face was skipped, but keep the info dump
-                // useful when only board.cmake is authored yet.
-                eprintln!("warning: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    let board_cmake = if board_cmake_path.is_file() {
-        let raw = fs::read_to_string(&board_cmake_path)
-            .wrap_err_with(|| format!("read {}", board_cmake_path.display()))?;
-        Some(parse_board_cmake(&raw))
-    } else {
-        None
-    };
-
-    let drift = match (&cargo_metadata, &board_cmake) {
-        (Some(c), Some(k)) => compute_drift(c, k),
-        _ => Vec::new(),
-    };
+    let (board, board_dir) = resolve(&root, &args.name)?;
+    // A module dir is needed to project, but `info` writes nothing — name the
+    // path the build WOULD use rather than inventing a second spelling.
+    let module_dir = board_dir.join("<build-dir>/nros-board-rust-support");
+    let cmake_vars = board_projection::project(&board, &board_dir, &module_dir).ok();
 
     let info = BoardInfo {
         name: args.name.clone(),
-        crate_dir: crate_dir.clone(),
-        cargo_metadata,
-        board_cmake,
-        drift,
+        descriptor: board_dir.join("nros-board.toml"),
+        board_dir,
+        cmake_vars,
     };
     let json = serde_json::to_string_pretty(&info).wrap_err("serialise BoardInfo as JSON")?;
     println!("{json}");
-
-    if args.check_drift && !info.drift.is_empty() {
-        return Err(eyre!(
-            "drift detected between Cargo.toml and board.cmake for `{}` \
-             ({} field(s))",
-            args.name,
-            info.drift.len()
-        ));
-    }
     Ok(())
 }
 
-/// Resolve a board key to the directory holding its `board.cmake`.
-///
-/// Two shapes, tried in this order — phase-337 W9.a added the second, and
-/// RFC-0064 expects it to become the common one:
-///
-/// 1. a board CRATE — `packages/boards/nros-board-<name>/`
-/// 2. a CONF BUNDLE under a family crate —
-///    `packages/boards/nros-board-<family>/boards/<name>/`
-///
-/// A per-board crate for a Zephyr board is duplication: Zephyr owns boot, MMU,
-/// net stack and drivers, so the "crate" held a `prj.conf`, a DTS overlay and a
-/// manifest — a config bundle wearing a `Cargo.toml`. Shape 1 stays first and
-/// stays supported for boards that carry real Rust.
-///
-/// This MUST match `nano_ros_use_board()`'s lookup order
-/// (`zephyr/cmake/nano_ros_use_board.cmake`). Two languages, so no shared
-/// implementation is possible — the pair is kept honest by the fact that
-/// `nros board info <name>` and a Zephyr build of the same board must agree.
-pub(crate) fn locate_board_crate(workspace_root: &Path, name: &str) -> Result<PathBuf> {
-    let boards = workspace_root.join("packages").join("boards");
+fn cmake_vars(args: CmakeVarsArgs) -> Result<()> {
+    let root = match args.workspace {
+        Some(p) => p,
+        None => find_workspace_root()?,
+    };
+    let (board, board_dir) = resolve(&root, &args.name)?;
 
-    let dir_name = format!("nros-board-{name}");
-    let crate_dir = boards.join(&dir_name);
-    if crate_dir.is_dir() {
-        return Ok(crate_dir);
+    let out_dir = args
+        .out
+        .parent()
+        .ok_or_else(|| eyre!("--out {} has no parent directory", args.out.display()))?;
+    fs::create_dir_all(out_dir).wrap_err_with(|| format!("create {}", out_dir.display()))?;
+
+    let module_dir = out_dir.join(format!("nros-board-{}-rust-support", args.name));
+    let text = board_projection::project(&board, &board_dir, &module_dir)?;
+
+    // Generate the Rust-support module only for a board that asked for Rust —
+    // the projection references it under exactly the same condition, so the two
+    // read the same field rather than agreeing by accident.
+    let wants_rust = board
+        .provisioning
+        .as_ref()
+        .is_some_and(|p| !p.rust_targets.is_empty());
+    if wants_rust && let Some(z) = board.zephyr.as_ref() {
+        board_projection::write_rust_support_module(&module_dir, &args.name, &z.west_board)?;
     }
 
-    // Board keys are global, so more than one match is a naming collision
-    // rather than something to disambiguate by search order.
-    let mut bundles: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&boards) {
-        for entry in entries.flatten() {
-            let candidate = entry.path().join("boards").join(name);
-            if candidate.join("board.cmake").is_file() {
-                bundles.push(candidate);
-            }
-        }
-    }
-    bundles.sort();
-    match bundles.len() {
-        1 => Ok(bundles.remove(0)),
-        0 => Err(eyre!(
-            "no board `{name}` under `{}/packages/boards/`: looked for a board \
-             crate `{dir_name}/` and for a conf bundle `*/boards/{name}/`",
-            workspace_root.display(),
-        )),
-        _ => Err(eyre!(
-            "board `{name}` is ambiguous — it is a conf bundle under more than \
-             one family crate: {bundles:?}. Board keys are global; rename one."
-        )),
-    }
+    fs::write(&args.out, &text).wrap_err_with(|| format!("write {}", args.out.display()))?;
+    Ok(())
 }
 
 /// Walk upward from cwd until a directory containing `packages/boards/`

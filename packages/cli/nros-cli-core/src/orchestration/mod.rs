@@ -6,7 +6,7 @@
 
 pub mod ament;
 pub mod board_descriptor;
-pub mod board_metadata;
+pub mod board_projection;
 pub mod bridge_gen;
 pub mod cargo_metadata_schema;
 pub mod cmake_preset;

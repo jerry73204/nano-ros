@@ -58,8 +58,10 @@ manifest:
     # nros is the manifest repository
     path: nros
     # phase-298 W2 (issue 0232) — register the nano-ros west extension
-    # commands (`west fvp`: resolve the license-gated Arm FVP via
-    # resolve-fvp-bin.sh, then delegate to `west build -t run`). Without
-    # this line the extension never loads and `west fvp` fails
+    # commands (`west nros`: run the nano-ros CLI against this workspace).
+    # Without this line the extension never loads and the command fails
     # "unknown command".
+    #
+    # `west fvp` was the other one until RFC-0064 R5 D4; see
+    # scripts/west-commands.yml for why it went.
     west-commands: scripts/west-commands.yml

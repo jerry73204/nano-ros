@@ -17,7 +17,7 @@ name: nros
 # Or users can run `west config --global commands.allow_extensions true`
 # and pick up `scripts/west-commands.yml` from this checkout via
 # `west config manifest.path`. See `scripts/west-commands.yml` +
-# `scripts/west_commands/fvp.py`.
+# the `west nros` extension it registers.
 
 build:
   cmake: zephyr

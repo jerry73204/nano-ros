@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nros_board_fvp_aemv8r_smp</name>
+  <version>0.0.0</version>
+  <description>
+    Arm Fast Models AEMv8-R FVP board support for nano-ros — Zephyr on
+    `fvp_baser_aemv8r/fvp_aemv8r_aarch64/smp`, Cortex-A AArch64 SMP.
+
+    This package is a CONFIG BUNDLE: prj.conf, a per-board Kconfig fragment, a
+    DTS overlay, a west manifest fragment and a Kconfig module, with no Rust of
+    its own. phase-337 W9.a folded the former `nros-board-fvp-aemv8r-smp` crate
+    into this directory after measuring that its Rust half had zero consumers.
+
+    phase-215.K.2 — this file exists so the provider is DISCOVERABLE. Until
+    RFC-0064 R5 the board announced nothing and had no descriptor: it resolved
+    only as an ALIAS on the `zephyr` board, attached by a walk that read its
+    `board.cmake`. That file is gone, so the announcement is now the only thing
+    that makes this board a board.
+  </description>
+  <maintainer email="dev@example.com">Developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <export>
+    <build_type>nros_cmake</build_type>
+    <!--
+      Provision, NOT consumption: this package IS a board, rather than
+      selecting one. Must equal the descriptor's declared names, canonical
+      first — `check-provider-announcements.py` compares them, because two
+      spellings of one fact drift.
+    -->
+    <nano_ros_provides kind="board" name="fvp-aemv8r-smp"/>
+  </export>
+</package>

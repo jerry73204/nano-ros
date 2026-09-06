@@ -1,15 +1,22 @@
-# Phase 215.D.2 — west command registration for the nano-ros module.
+# West command registration for the nano-ros module.
 #
-# Referenced from `zephyr/module.yml` (`west-commands:` key). Any west
-# workspace that lists nano-ros as a project automatically picks up
-# `west fvp` as a built-in subcommand — no manual `west config` step
-# required.
+# Referenced from the workspace `west.yml`'s `self.west-commands:` key, so any
+# west workspace listing nano-ros as a project picks these up with no manual
+# `west config` step.
+#
+# `west fvp` USED TO BE HERE and was deleted by RFC-0064 R5 D4 / phase-215.K.3.
+# It was 117 lines whose whole body was: read NROS_BOARD_RUNNER from
+# CMakeCache.txt, refuse unless it said `armfvp`, shell out to
+# `scripts/zephyr/resolve-fvp-bin.sh`, export ARMFVP_BIN_PATH, and then
+# `os.execvpe('west', ['west','build','-t','run'])`. A verb whose last statement
+# is the stock verb is env wiring, and env wiring belongs in the caller's
+# environment: the two `just zephyr run-fvp-*` recipes export the resolver's
+# output and invoke `west build -t run` directly.
+#
+# Worth stating because the reasoning that ADDED it was not wrong, only
+# misapplied: phase-215's note argued that `west` should own a run verb rather
+# than `nros`. Correct -- and `west` already owned it.
 west-commands:
-  - file: scripts/west_commands/fvp.py
-    commands:
-      - name: fvp
-        class: FvpRun
-        help: run a nano-ros FVP board in the Arm Fast Models simulator
   - file: scripts/west_commands/nros.py
     commands:
       - name: nros

@@ -38,8 +38,9 @@
 # lives in their nano-ros workspace, `nros build --zephyr-workspace` still is.
 #
 # Discovery: registered in `scripts/west-commands.yml`, referenced from the
-# nano-ros project entry in a workspace `west.yml` — the same route `west fvp`
-# takes.
+# nano-ros project entry in a workspace `west.yml`. This is now the ONLY
+# nano-ros west extension: `west fvp` shared the route until RFC-0064 R5 D4
+# retired it (its body was env wiring in front of stock `west build -t run`).
 import os
 import shutil
 import subprocess

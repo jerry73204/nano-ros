@@ -16,7 +16,6 @@ use eyre::{Result, WrapErr, bail};
 use crate::{
     cmd::board::find_workspace_root,
     orchestration::{
-        board_metadata::load_provisioning_contract,
         sdk_index::{SdkIndex, ToolPackage, host_key},
         sdk_store::{
             InstallAction, LOCK_FILE, SdkLock, SourceDisposition, execute, plan_install,
@@ -509,19 +508,49 @@ fn run_board(args: BoardSetupArgs) -> Result<()> {
         );
     }
 
-    // 3. Read the board's provisioning contract — through the same
-    //    bundle-aware resolver `nros board info` uses (issue 0729: this verb
-    //    hand-built `packages/boards/nros-board-<name>` and so could not see
-    //    any conf-bundle board, i.e. any in-tree Zephyr board post-337 W9.a).
-    let crate_dir = crate::cmd::board::locate_board_crate(&root, &args.name)
-        .wrap_err("nros setup board (`nros board list` enumerates the known boards)")?;
-    let meta = load_provisioning_contract(&crate_dir)
-        .wrap_err_with(|| format!("read provisioning contract from {}", crate_dir.display()))?;
+    // 3. Read the board's provisioning contract.
+    //
+    //    RFC-0064 R5 D6 — from the DESCRIPTOR, resolved through the board
+    //    catalog by name. It used to come from `load_provisioning_contract`,
+    //    which read `[package.metadata.nros.board]` if a Cargo.toml carried one
+    //    and fell back to parsing `board.cmake`: two faces of the same facts,
+    //    one of which had zero producers in the whole tree.
+    let catalog = crate::orchestration::board_descriptor::BoardCatalog::load(&root)
+        .map_err(|e| eyre::eyre!("load board catalog: {e}"))?;
+    let board = catalog
+        .descriptors()
+        .iter()
+        .find(|d| d.answers_to(&args.name))
+        .ok_or_else(|| {
+            eyre::eyre!(
+                "nros setup board: no board named `{}` (`nros board list` \
+                 enumerates the known boards)",
+                args.name
+            )
+        })?;
+    let meta = board.provisioning.clone().unwrap_or_default();
+    // The board's own directory, from the descriptor the catalog actually read
+    // — not rebuilt from a path convention. Issue 0729 was exactly that guess
+    // (`packages/boards/nros-board-<name>`), which could not see a conf-bundle
+    // board, i.e. any in-tree Zephyr board since phase-337 W9.a.
+    let crate_dir = board
+        .source
+        .as_deref()
+        .map(|rel| {
+            let p = Path::new(rel);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                root.join(rel)
+            }
+        })
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .ok_or_else(|| eyre::eyre!("board `{}` has no recorded descriptor path", args.name))?;
 
     let Some(zephyr_line) = meta.zephyr_line.as_deref() else {
         bail!(
-            "nros setup board: `{}` has no `zephyr_line` in its provisioning \
-             contract — it is not a Zephyr consumer board (nothing to provision). \
+            "nros setup board: `{}` has no `zephyr_line` in its `[board.provisioning]` \
+             block — it is not a Zephyr consumer board (nothing to provision). \
              Non-Zephyr boards are consumed via cargo path-deps, not `nros setup board`.",
             args.name
         );
@@ -540,7 +569,7 @@ fn run_board(args: BoardSetupArgs) -> Result<()> {
     );
     eprintln!(
         "  contract: zephyr_line={zephyr_line}, requires_rust={}, rmw_source={}, rust_targets=[{}]",
-        meta.requires_rust.unwrap_or(false),
+        !meta.rust_targets.is_empty(),
         meta.rmw_source.as_deref().unwrap_or("-"),
         meta.rust_targets.join(", "),
     );
@@ -604,7 +633,7 @@ fn run_board(args: BoardSetupArgs) -> Result<()> {
     }
 
     // (c) rustup target add (when the board requires Rust).
-    if meta.requires_rust.unwrap_or(false) && !meta.rust_targets.is_empty() {
+    if !meta.rust_targets.is_empty() {
         eprintln!(
             "  (c) rust targets: rustup target add {}",
             meta.rust_targets.join(" ")
@@ -626,7 +655,7 @@ fn run_board(args: BoardSetupArgs) -> Result<()> {
     //     module fetch itself is west-native (the board ships a
     //     `west-downstream.yml` `import:false` fragment — Phase 215.J.3); here
     //     we only verify + instruct, never edit the consumer's manifest.
-    if meta.requires_rust.unwrap_or(false) {
+    if !meta.rust_targets.is_empty() {
         ensure_lang_rust_module(&crate_dir, zephyr_ws);
     }
 
