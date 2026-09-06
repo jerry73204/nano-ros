@@ -1,12 +1,26 @@
 # Phase 436 — The poll/wake revision: a deadline-driven, platform-agnostic executor
 
-**Status (2026-09-07). OPEN, design stated, no work item started.** Opened from
-a review of the executor and the `spin*()` API surface against four properties:
-platform-agnostic core, per-platform wake sources, analyzable real-time bounds,
-no busy waiting. Three of the four are close to met; the fourth — analyzable
-bounds — is not, and the reason is a single modelling choice this phase
-reverses. Five issues were filed from the same review (1192–1196) and are this
-phase's work items.
+**Status (2026-09-07). ALL FIVE WORK ITEMS IMPLEMENTED.** W1–W5 landed
+test-first; the executor now computes a park deadline rather than accepting a
+timeout. Two things the work changed about the phase as written:
+
+* **W5's issue was wrong about its own evidence.** Issue 1196 said the
+  unbounded `condvar_wait` had no callers. It has two — the grep that produced
+  that claim searched `nros_platform_cond_wait`, and the symbol is
+  `nros_platform_condvar_wait`. W5's gate found them on its first run. Both are
+  correct as written (they bridge zenoh-pico's own unbounded primitive), so the
+  fix became "confine by path and mark the header" rather than "delete".
+* **The `wake_wait_ns` platform slot was NOT built.** Adding a required symbol
+  to five ports buys less than the rounding contract does: carrying µs through
+  the core and rounding UP at the boundary fixes issue 1193's actual harm — the
+  truncation to zero, and the 33 % short wait — without making every port grow
+  a slot. A port that gains a finer primitive can lower `park_granularity_us()`
+  and nothing above it changes. §1 below describes the ns slot as the eventual
+  shape; it is deferred, not done.
+
+Also unbuilt, and deliberately: making the wait loops in `handles.rs` wake off
+the backend's listener rather than a fixed grid. W4 fixes the overshoot half of
+issue 1195; the waker half is the larger change and stays open.
 
 ## The one change this phase is about
 
