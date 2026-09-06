@@ -10,9 +10,7 @@ names = ["threadx", "threadx-riscv64", "threadx-qemu-riscv64"]
 disambiguate_by_target = "riscv64"
 platform = "threadx-riscv64"
 toolchain = "stable"
-platform_feature = "platform-threadx"
 local_aliases = ["platform-threadx-riscv64"]
-link_kind = "none"
 entry_kind = "board-run"
 # phase-351 W4 — the stacks this board can be built with: the board boots NetX Duo over virtio-net.
 supported_netstacks = ["netxduo"]

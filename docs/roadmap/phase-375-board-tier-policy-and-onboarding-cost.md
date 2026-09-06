@@ -149,12 +149,53 @@ not use it.
 
 ## W4 — Smoke floor, witness-gated ceiling
 
-- [ ] Every supported platform earns exactly ONE Runtime cell (boots, delivers a
+- [x] **The floor is LANDED, and it was already met — that is the finding.**
+      Measured 2026-09-06 before implementing: Linux 72 Runtime cells,
+      ZephyrNativeSim 39, ThreadxLinux 18, FreertosMps2 16, NuttxArm 14,
+      ThreadxRiscv64 10, NuttxRiscv 4, ZephyrQemuCortexM 3, Esp32Qemu 2,
+      FreertosPosix 2, QemuBaremetal 1. **No platform had zero**, and the
+      minimum was already exactly the floor this wave asks for. So the rule
+      changes nothing today, which is the point: the distribution was
+      defensible and UNDECLARED, and an undeclared floor is one the next
+      platform lands beneath unnoticed.
+
+      Implemented as a direction added to `check-board-tiers`, not a second
+      gate: it already asserted "a platform CI runs must carry a tier promise",
+      and the floor is the converse — "a tier promise must have Runtime
+      evidence". `scaffold` and `infra` are exempt by TIER (scaffold promises
+      nothing, which is what `just board-new` starts every board at), and
+      `execution_class = "hardware"` is exempt by DECLARED PROPERTY — such a row
+      states that CI does not run it, so demanding a Runtime cell would demand
+      evidence the row says nobody collects, and the cheapest way to satisfy
+      that is to fake the cell.
+
+      **It found a real violation on its first run**: `nros-board-zephyr`'s FVP
+      row, tier 3, naming `matrix_platform = "Fvp"` — a PlatformId with ZERO
+      cells of any kind. It is exempt as `hardware`, correctly, but the row's
+      stated reason was wrong in two ways and is now fixed: the model is not
+      licence-gated (`nros setup --tool arm-fvp` fetches it), and the
+      board-import fixture was verified booting on it the same day. What keeps
+      CI out is cost and x86_64-only hosting, not permission.
+
+- [ ] ~~Every supported platform earns exactly ONE Runtime cell (boots, delivers a
       message) to sit in tier 2; full cells in nightly require a witness.
-- [ ] Today's spread is Linux 72 / ZephyrNativeSim 39 / … / QemuBaremetal 1 —
+      Today's spread is Linux 72 / ZephyrNativeSim 39 / … / QemuBaremetal 1 —
       defensible but undeclared. This makes it intentional and gives a new board
-      a known, bounded entry cost.
-- [ ] Do NOT replace the computed 1-wise/pairwise cover with declared per-test
+      a known, bounded entry cost.~~ _(the floor half is landed above; the
+      CEILING half is deliberately NOT done — see below)_
+
+**THE CEILING IS NOT IMPLEMENTED, and this is a judgement call to override if
+you disagree.** "Full cells in nightly require a witness" REMOVES coverage that
+exists today: a regression in Linux's 72 cells would surface a day later instead
+of at the merge queue. This phase's own Risks section flags it as needing
+agreement before implementation, and the measurement argues against it — the
+same measurement that opened this phase says the tier-2 BUILD dominates and
+scales with fixture ROWS, where `linux` is 46 %, not with cells. The ceiling
+would cut the thing that is not expensive.
+
+If tier-2 build time later becomes the binding constraint, re-open it against
+rows rather than cells.
+- [x] Do NOT replace the computed 1-wise/pairwise cover with declared per-test
       platform lists. Zephyr's equivalent (`integration_platforms`) is reported
       by their own issue #57595 as trial-and-error and untested; this tree's
       cover is gated by `documented_lane_table_is_live` and cannot drift.
@@ -163,6 +204,43 @@ not use it.
 platform's tier-2 entry cost is one cell.
 
 ## W5 — Decide S32Z270's home
+
+**DECISION (2026-09-06): RECOMMEND MOVING IT OUT OF TREE. Not executed — the
+move needs ASI to accept hosting it and to run the link check, which is a
+commitment this repo cannot make on their behalf.** Recording the reasoning so
+the decision is made once rather than defaulted to repeatedly, which is this
+wave's whole acceptance.
+
+**What changed since the wave was written.** Two things, both today:
+
+* `just board-new --out-of-tree <dir>` exists (W2/W9), so the move is one
+  command plus one `NROS_EXTRA_BOARD_PATH` line. Before, the out-of-tree seam
+  was built but nobody had walked it end to end; now
+  `a_scaffolded_out_of_tree_board_resolves_by_name` walks it in CI.
+* W4's smoke floor makes the in-tree cost explicit rather than notional.
+
+**The measurement.** `s32z270-freertos` contributes **0 Runtime cells**, ~2
+fixture rows, and **0 maintainers**. Its registry row deliberately carries no
+`matrix_platform` (reusing `FreertosMps2` would claim a platform whose cells
+assert running code — the defect phase-320 W1.a fixed one family over).
+
+**The trade, stated both ways:**
+
+| | in tree | out of tree |
+| --- | --- | --- |
+| evidence it still links | every `just ci` | ASI's CI only |
+| who is accountable | a named maintainer under W1 — currently NOBODY | ASI, by construction |
+| cost of the move | — | one command; the seam is tested |
+
+**Why the recommendation is "move".** The thing in-tree residence buys —
+"someone who is not ASI notices when it breaks" — is the CHEAP half, and ASI
+running it against their own consumer is strictly better evidence than us
+running it against a consumer we cannot see. What in-tree residence REQUIRES is
+a named maintainer, and there is none. So today it is an unowned promise in a
+shared tree, which is exactly the state W1 was written to stop.
+
+**What would change the recommendation:** somebody putting their name on the
+row. That is a person, not a patch.
 
 - [ ] It exists for `autoware-safety-island`. Zephyr's guidance is that a
       product board belongs in the product repo, and phase-346 landed the
@@ -212,9 +290,26 @@ descriptor and no announcement.
       `package.xml` is written, the gate now globs bundle depth too, and the
       gate gained the negative control it never had — mutation-tested by
       restoring the `continue`, which the control catches.)_
-- [ ] `qemu-cortex-a53` and the Zephyr `mps2_an385` flavour become real board
-      packages; their fixture rows name a board instead of a Zephyr id, and the
-      per-board `.conf` moves out of the example leaf so consumers share it.
+- [x] `qemu-cortex-a53` and the Zephyr `mps2_an385` flavour are real board
+      packages — scaffolded with `just board-new` (dogfooding W2), declared,
+      announced, and carrying registry rows at `tier = "scaffold"`. Gated
+      going forward by `check-fixture-boards-declared`: every Zephyr `board =`
+      in `examples/fixtures.toml` must equal some descriptor's
+      `[board.zephyr] west_board`.
+
+      **Two halves of this box were dropped on measurement, both because the
+      original wording assumed a defect that is not there:**
+
+      * *"their fixture rows name a board instead of a Zephyr id"* — the id is
+        what `west build -b` takes, and it is also a component of west ids and
+        artifact paths. Re-spelling it renames build outputs; it does not
+        improve a schema. Declaring the board was the part that was missing.
+      * *"the per-board `.conf` moves out of the example leaf"* — that file is
+        Zephyr's own app-level `boards/<board>.conf` convention, auto-included
+        for the app being built. It is in the right place already;
+        `examples/workspaces/realtime-c/src/zephyr_entry` does not call
+        `nano_ros_use_board()` at all, so there is no nano-ros duplication to
+        remove.
 
       **Deliberately not done in the W6 pass, and worth saying why rather than
       half-doing it.** The package half alone is cheap and useless: it would add
@@ -262,11 +357,27 @@ zero boards is gone rather than repaired.
 RFC-0064 R5 D6 carries the full audit over all 12 `[[board]]` rows. Landable
 field group by field group; each group is a gate plus a mechanical edit.
 
-- [ ] **Move to the platform descriptor:** `platform_feature` (3 of 12 are not
-      `platform-<platform>`), `link_kind` (11 `none`, and both NuttX rows carry
-      the exception), `[board.priority_plan]` (the two FreeRTOS QEMU boards hold
-      byte-identical blocks — that is `configMAX_PRIORITIES`). Board override
-      stays for a board that genuinely retunes one.
+- [x] **`platform_feature` and `link_kind` are the platform's now — but NOT via
+      a platform descriptor, and the difference is the finding.** 30 authored
+      values removed (15 + 15).
+
+      The wave said "move it to the platform descriptor". Attempting that
+      surfaced why that shape cannot work: there is no `config/esp32/`, and BOTH
+      ThreadX kinds map to one feature — so the mapping is keyed on the
+      `PlatformKind` ENUM, not on a directory, and a descriptor per platform
+      would have needed directories that do not exist for exactly the cases
+      that made the field worth moving. `PlatformKind::platform_feature()` and
+      `::link_kind()` carry it; the board fields default from them, and
+      `check-derived-descriptor-fields` refuses a stated value that disagrees.
+      Board override survives: `link_kind` is an `Option` with an accessor.
+
+- [ ] **`[board.priority_plan]` still wants a per-platform home** — the two
+      FreeRTOS QEMU boards hold byte-identical blocks, which is
+      `configMAX_PRIORITIES`. Unlike the two fields above it is per-RTOS DATA
+      (ranges, reserved bands, a resolver) rather than a mapping, so the enum
+      trick does not apply and a real platform descriptor IS the right home.
+      That needs `nros-platform.toml` to exist for five more platforms, which
+      is its own wave.
 - [x] **Derive:** ~~`entry_kind`~~ (the "zero exceptions" claim was WRONG —
       `freertos-posix` and `mps2-an385-freertos` are both `platform = "freertos"`
       with different `entry_kind`; it stays authored), `local_aliases`

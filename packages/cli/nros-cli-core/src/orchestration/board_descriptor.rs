@@ -47,6 +47,50 @@ impl PlatformKind {
     /// an exhaustive match rather than a serde round-trip so adding a variant
     /// is a compile error here instead of a silently unmatched board;
     /// `platform_kebab_round_trips` proves the two spellings agree.
+    /// The `nros/<feature>` this platform selects.
+    ///
+    /// RFC-0064 R5 D6 / phase-375 W8. Every board stated this, and 3 of 12
+    /// stated something that is NOT `platform-<platform>`: esp32 selects
+    /// `platform-bare-metal`, and BOTH ThreadX variants select
+    /// `platform-threadx`. That is not three exceptions to a rule — it is the
+    /// rule, which is a property of the PLATFORM and was being copied onto
+    /// every board that uses it, where it could be got wrong.
+    ///
+    /// Deliberately NOT moved into a `config/<platform>/nros-platform.toml`,
+    /// which is where the wave's original wording put it. There is no
+    /// `config/esp32/`, and both ThreadX kinds map to one feature, so the
+    /// mapping is keyed on this ENUM rather than on a directory. A descriptor
+    /// per platform would have needed a directory that does not exist for the
+    /// exact cases that made the field worth moving.
+    pub fn platform_feature(self) -> &'static str {
+        match self {
+            PlatformKind::Posix => "platform-posix",
+            PlatformKind::Freertos => "platform-freertos",
+            // Stm32 and OrinSpe are out-of-tree platform kinds with no in-tree
+            // board; they take the bare-metal feature like every other
+            // no-RTOS target. Listed EXPLICITLY rather than via a `_` arm, so
+            // the next kind added has to make this choice on purpose.
+            PlatformKind::BareMetal
+            | PlatformKind::Esp32
+            | PlatformKind::Stm32
+            | PlatformKind::OrinSpe => "platform-bare-metal",
+            PlatformKind::Nuttx => "platform-nuttx",
+            PlatformKind::Zephyr => "platform-zephyr",
+            PlatformKind::ThreadxLinux | PlatformKind::ThreadxRiscv64 => "platform-threadx",
+        }
+    }
+
+    /// How this platform's images are linked.
+    ///
+    /// 13 of 15 rows said `none` and the two that said `nuttx-staging` are the
+    /// two NuttX rows — a platform fact stated fifteen times.
+    pub fn link_kind(self) -> LinkKind {
+        match self {
+            PlatformKind::Nuttx => LinkKind::NuttxStaging,
+            _ => LinkKind::None,
+        }
+    }
+
     pub fn kebab(self) -> &'static str {
         match self {
             PlatformKind::Posix => "posix",
@@ -252,11 +296,22 @@ pub struct BoardDescriptor {
     pub target: Option<String>,
     pub toolchain: Toolchain,
     /// The `nros/<feature>` selected (e.g. `platform-posix`).
+    ///
+    /// DERIVED from `platform` when omitted — see
+    /// [`PlatformKind::platform_feature`]. A stated value that disagrees with
+    /// the derivation is refused by `check-derived-descriptor-fields`.
+    #[serde(default)]
     pub platform_feature: String,
     /// Extra local default-feature aliases beyond `nros/<feature>`.
     #[serde(default)]
     pub local_aliases: Vec<String>,
-    pub link_kind: LinkKind,
+    /// DERIVED from `platform` when omitted — see [`PlatformKind::link_kind`].
+    ///
+    /// `Option` rather than a serde default, because the default is the
+    /// PLATFORM's and serde cannot see a sibling field. `link_kind()` below is
+    /// the accessor; the raw field is never read directly.
+    #[serde(default, rename = "link_kind")]
+    pub link_kind_stated: Option<LinkKind>,
     pub entry_kind: EntryKind,
     /// phase-351 W4 — the network stacks this board can actually be built with,
     /// in preference order; the first is the default when a deploy names none.
@@ -496,6 +551,11 @@ impl BoardDescriptor {
     ///   are an out-of-tree extension point with no in-tree user rather than
     ///   fields to delete.
     fn apply_conventions(&mut self) {
+        // Platform facts first: `local_aliases` below defaults to the feature,
+        // so it has to be filled in before that reads it.
+        if self.platform_feature.is_empty() {
+            self.platform_feature = self.platform.platform_feature().to_string();
+        }
         // `local_aliases` defaults to the platform feature. 8 of 10 stated
         // exactly that; the two real overrides (`platform-esp32-qemu`,
         // `platform-threadx-riscv64`) still say so and still win.
@@ -518,6 +578,12 @@ impl BoardDescriptor {
                 entry.signature = "#[unsafe(no_mangle)]\nextern \"C\" fn main() -> !".to_string();
             }
         }
+    }
+
+    /// How this board's images are linked — its own answer, or its platform's.
+    pub fn link_kind(&self) -> LinkKind {
+        self.link_kind_stated
+            .unwrap_or_else(|| self.platform.link_kind())
     }
 
     /// Does this board answer to `key`?
@@ -1746,7 +1812,7 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             toolchain: Toolchain::Stable,
             platform_feature: "platform-threadx".into(),
             local_aliases: vec![],
-            link_kind: LinkKind::None,
+            link_kind_stated: Some(LinkKind::None),
             entry_kind: EntryKind::BoardRun,
             supported_netstacks: Vec::new(),
             chip: None,
@@ -1970,7 +2036,7 @@ signature = "#[nros_board_stm32f4::entry]\nfn main() -> !"
             toolchain: Toolchain::Stable,
             platform_feature: "platform-posix".into(),
             local_aliases: vec![],
-            link_kind: LinkKind::None,
+            link_kind_stated: Some(LinkKind::None),
             entry_kind: EntryKind::HostedMain,
             supported_netstacks: Vec::new(),
             chip: None,

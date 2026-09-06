@@ -10,8 +10,6 @@
 names = ["baremetal", "bare-metal", "qemu-mps2-an385", "rtic-mps2-an385"]
 platform = "bare-metal"
 toolchain = "stable"
-platform_feature = "platform-bare-metal"
-link_kind = "none"
 entry_kind = "board-run"
 # phase-351 W4 — the stacks this board can be built with: `src/network.rs` drives smoltcp over the LAN9118.
 supported_netstacks = ["smoltcp"]

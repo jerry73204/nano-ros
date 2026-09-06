@@ -148,6 +148,41 @@ def entry_crate_name(entry):
     return bc.replace("-", "_") if isinstance(bc, str) else None
 
 
+# phase-375 W8 — the PLATFORM's facts, stated on a board.
+#
+# `platform_feature` was stated by all 15 rows and 3 of them stated something
+# that is not `platform-<platform>`: esp32 selects `platform-bare-metal`, and
+# BOTH ThreadX kinds select `platform-threadx`. That is the rule, not three
+# exceptions, and it is a property of the platform being copied onto every
+# board that uses it — where it can be got wrong.
+_PLATFORM_FEATURE = {
+    "posix": "platform-posix",
+    "freertos": "platform-freertos",
+    "bare-metal": "platform-bare-metal",
+    "esp32": "platform-bare-metal",
+    "nuttx": "platform-nuttx",
+    "zephyr": "platform-zephyr",
+    "threadx-linux": "platform-threadx",
+    "threadx-riscv64": "platform-threadx",
+    "stm32": "platform-bare-metal",
+    "orin-spe": "platform-bare-metal",
+}
+
+# 13 of 15 said `none`; the two that said `nuttx-staging` are the two NuttX
+# rows. A platform fact stated fifteen times.
+_LINK_KIND = {"nuttx": "nuttx-staging"}
+
+
+def entry_platform_feature(entry):
+    plat = entry.get("platform")
+    return _PLATFORM_FEATURE.get(plat) if isinstance(plat, str) else None
+
+
+def entry_link_kind(entry):
+    plat = entry.get("platform")
+    return _LINK_KIND.get(plat, "none") if isinstance(plat, str) else None
+
+
 def entry_local_aliases(entry):
     """`[platform_feature]` — 8 of 10 stated exactly that.
 
@@ -163,6 +198,8 @@ def entry_local_aliases(entry):
 ENTRY_DERIVED = {
     "crate_name": entry_crate_name,
     "local_aliases": entry_local_aliases,
+    "platform_feature": entry_platform_feature,
+    "link_kind": entry_link_kind,
 }
 
 # ---------------------------------------------------------------------------
@@ -242,6 +279,9 @@ FAMILIES = {
             # RFC-0064 R5 D6.
             "local_aliases": None,
             "crate_name": None,
+            # phase-375 W8 — the platform's, not the board's.
+            "platform_feature": None,
+            "link_kind": None,
             # The board's own crate. Every board that states one states its own
             # package name; the three crate-less boards (linux, zephyr,
             # freertos-posix) state nothing, which is the right answer.

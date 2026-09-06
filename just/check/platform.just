@@ -118,6 +118,21 @@ board-facts-delivery:
 board-descriptor-single-source:
     @python3 scripts/check-board-descriptor-single-source.py
 
+# phase-375 W6 — every Zephyr board this tree BUILDS is one it DECLARES.
+#
+# The fourth board-addition route, and the one with no record at all: a raw
+# Zephyr board id as a string in `examples/fixtures.toml`, with no package,
+# descriptor, announcement or registry row. Three ids were built on 2026-09-06
+# and one was declared — and that one only because its id had been wedged into
+# the `zephyr` descriptor's `names` array for want of anywhere else to put it.
+#
+# An undeclared board cannot be given a tier, an owner or a demotion, and
+# `check-board-tiers` cannot see it. `qemu_cortex_a53` took this route for
+# months.
+[private]
+fixture-boards-declared:
+    @python3 scripts/check-fixture-boards-declared.py
+
 # built (the packages/cli phase215_f integration test still covers it).
 [private]
 board-manifest-drift:

@@ -20,8 +20,6 @@
 names = ["freertos-posix"]
 platform = "freertos"
 toolchain = "stable"
-platform_feature = "platform-freertos"
-link_kind = "none"
 # `hosted-main` and not the mps2 board's `board-run`: the image IS a host
 # process, and its `main` is an ordinary one that starts the scheduler. The
 # entry is `c/freertos_posix_entry.c`.
