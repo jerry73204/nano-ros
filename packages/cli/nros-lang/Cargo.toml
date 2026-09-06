@@ -12,5 +12,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["std"]
+# NO default feature. `check-feature-contract` clause (b): a `no_std`-capable
+# crate that defaults to `std` splits itself into two compile identities in one
+# build — the consumer that names it and the consumer that does not get
+# different crates. `std` here only adds the `std::error::Error` impl on
+# `UnknownLanguage`; the type, its parsing and its serde repr are all
+# `core`+`alloc`.
 std = ["serde/std"]

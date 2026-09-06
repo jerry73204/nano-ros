@@ -121,6 +121,8 @@ impl std::error::Error for UnknownLanguage {}
 
 #[cfg(test)]
 mod tests {
+    use alloc::{format, string::ToString};
+
     use super::*;
 
     /// The on-disk contract. `SourceMetadata.language` is serialized into
