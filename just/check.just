@@ -35,6 +35,18 @@ NIGHTLY := `awk '/^channel/ {gsub(/"/, "", $3); print $3; exit}' tools/rust-tool
 # here now — the root had no other user.
 HOST_UNCHECKABLE := "--exclude nros-c --exclude nros-cpp --exclude nros-rmw-zenoh-staticlib --exclude nros-rmw-xrce-cffi --exclude nros-rmw-xrce-cffi-staticlib --exclude nros-build-helpers --exclude nros-zpico-build --exclude nros-build-paths"
 
+# The feature set `nros-c` / `nros-cpp` SHIP in on the host — what every
+# consumer selects with `default-features = false` and what cmake's
+# `nros_feature_set(CRATE c|cpp RMW none PLATFORM posix …)` assembles. Their
+# DEFAULT (`panic-platform`) compiles almost none of the C surface, so a crate
+# checked under defaults is not the crate that ships. Issue 1163: a duplicate
+# `#[no_mangle]` in an `rmw-cffi` region reached main green because
+# `compile-smoke` checked the default shape and `check-c` (the lane that reads
+# this set) runs on schedule only. ONE spelling, read by `check-c`,
+# `check-cpp`, the clippy combos and `compile-smoke`; `check-lane-contracts`
+# verifies a merge-gating lane compiles both crates with it.
+C_API_SHIPPED_FEATURES := "std,rmw-cffi,platform-posix,ros-humble"
+
 
 # The gates themselves, by topic. `import` and not `mod`: it MERGES
 # definitions, so every gate keeps the flat name it is invoked and
