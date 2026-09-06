@@ -449,12 +449,18 @@ this class should NOT exist.
 * The `polling_subscription` inversion did NOT recur — stated because a clean
   result is also a finding.
 
-### What W5 still owes
+### W5 — DONE (2026-09-06)
 
-Each row above needs a ledger entry with a `disposition`. That is the authoring
-step, and it is deliberately separate from this record: recording the finding
-protects it from loss, ledgering it is what makes `--check` enforce it.
+The authoring half landed: 82 ledger rows across 13 shards (32 new, 50
+amended), each with a verdict and a disposition or an explicit statement of why
+none applies. Six of the recorded findings above did not survive
+re-verification and their rows say so. W6's gates landed on top:
+`check-ledger-orphan-refs`, the correlator's return-type comparison (promoted
+to verdict `same:ret`, 20 rows authored), `[[nodiscard]]` on `Result` (a signal
+in this tree, not an enforced gate — no C++ lane uses bare `-Werror`), and
+`#[must_use]` on the three `bool` returns that report failure.
 
+Remainder-sweep findings filed as issues 1099, 1148, 1149, 1150, 1151, 1152.
 
 ## CORRECTION 2026-09-06 — this document overstated CI coverage
 
