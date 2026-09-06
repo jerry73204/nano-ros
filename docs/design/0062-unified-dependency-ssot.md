@@ -512,6 +512,153 @@ nothing asserting they agree.
   that path has two pins again, so it should be decided, not defaulted into.
 
 
+## Amendment 4 (2026-09-06) — the four axes, and the two rungs a shipped binary breaks
+
+Amendment 3 settled who may NAME a key. This settles **where the answer comes
+from when no package names one**, which is the majority case: 375 of 406
+`package.xml` files declare a `<build_type>` and their content depends on no
+system library at all.
+
+Opened by phase-413 W6, which asked for rosdep parity and required an RFC first.
+The answer is that most of it already exists, in three places that had not been
+stated together.
+
+### The four axes
+
+A system dependency arrives on exactly one of four axes, and **`package.xml` is
+the only input** — never a `CMakeLists.txt`, never a `Cargo.toml`
+`[package.metadata.nros.entry]`. Those are build-system facts, they take several
+shapes across the example trees, and a resolver that read them would inherit
+every shape.
+
+| axis | question | declared as | resolves into |
+| --- | --- | --- | --- |
+| build_type | how is it built? | `<build_type>` | `Resolution::SelfBuildtool`, below |
+| depend | what does the content need? | `<depend>` | `[prereq.*]` via the ladder |
+| board | where does it deploy? | `<nano_ros_uses kind="board">` (RFC-0087 D3), sugar `board="…"` | `[board.*]` |
+| rmw | which transport? | `<nano_ros_uses kind="rmw">`, sugar `rmw="…"` | `[rmw.*]` |
+
+The first two are properties of the package. The last two are **selections the
+workspace has made** — which is why they are an export tag rather than a
+`<depend>`, and why an RMW is never a `<depend>` here or in ROS 2.
+
+Measured 2026-09-06: 91 `package.xml` files carry the export tag, and every value
+resolves — `board=` 50 (`riscv64-qemu` 13, `mps2-an385-freertos` 12,
+`nuttx-qemu-arm` 12, `threadx-linux` 12, `nuttx-qemu-riscv` 1), all `[board.*]`
+keys; `rmw=` 51, all `zenoh`. `check-board-vocabulary` already gates the pair in
+both directions.
+
+**No new field is needed for the board axis**, and an earlier draft of this
+amendment proposed one. It reached for a bridge from an entry's `Cargo.toml`
+`deploy =` to a `[board.*]` row, having measured that 37 of 67 such entries name
+no index key. They name a board DESCRIPTOR alias instead — 10 of 10 resolve
+there — because `deploy=` selects a board implementation and, per RFC-0087 D3, is
+not a provider kind at all: it names a `[deploy.*]` block in `system.toml`. Two
+vocabularies, each internally consistent, answering different questions. The
+lesson is the one this tree keeps relearning: when two vocabularies appear to
+disagree, find which question each answers before proposing to unify them.
+
+### The two rungs a shipped `nros` breaks
+
+`Resolution::SelfBuildtool` rests on "if that builder is building it, the
+buildtool is present". Phase-431 makes that false for the nano-ros build types.
+Before it, having `nros` implied having cargo — you built the CLI from source.
+Once `nros` ships as a prebuilt binary, a user can hold the builder and have no
+`cargo` and no `cmake`, and `nros_cargo` / `nros_cmake` are 375 of 406 packages.
+
+This does NOT reopen the `[prereq.ament_cargo]` option Amendment 3 rejected:
+that was fiction because no apt package provides `ament_cargo`. `cargo` and
+`cmake` are real packages already in `[prereq.*]`, and the missing part is only
+that nothing reaches them from a `<build_type>` — measured, zero of the eleven
+`role=package` keys is named by any `[board.*]` or `[rmw.*]` row, so today they
+are reachable only by `--role package --role workspace`, a bulk list rather than
+a resolution.
+
+**DECIDED — a build type may name the host tools its builder shells out to**,
+consulted only when `SelfBuildtool` cannot answer because the builder is not the
+one that provides them:
+
+```toml
+[build_type.nros_cargo]  packages = ["cargo"]
+[build_type.nros_cmake]  packages = ["cmake", "clang"]
+```
+
+**And a fifth role, `buildtool`.** Amendment 3's own table already groups 16 keys
+as "build tooling", but `PrereqRole` has `Package`, `Workspace`, `Infra`,
+`Vendor` and `Unclassified` — nothing for "comes from how you build". So seven
+build tools (`cargo`, `cmake`, `clang`, `libclang-dev`, `python3-{dev,pip,venv}`)
+are filed `role = "package"` and `nros setup --workspace` reports `cargo` under
+*"SYSTEM PREREQUISITES this workspace names"*, which is not what a `<depend>`
+means.
+
+### ROS package dependencies resolve by derivation
+
+Amendment 3's table ends with one row: *ROS binary package | 1 |
+`ros-rmw-zenoh-cpp` | plain `<depend>`*. Today such a name takes the
+`Resolution::RosPackage` rung — the ambient ament index — and falls to `Unknown`
+when ROS is not sourced, which is the normal state for an embedded contributor.
+
+The OS package name is derivable. All nine ROS names this tree composes by hand
+follow one rule with no exceptions: `ros-<distro>-<pkg with _ → ->`.
+
+```toml
+[prereq.rmw-zenoh-cpp]
+role = "package"
+ros_package = "rmw_zenoh_cpp"     # the ROS name; the OS name is DERIVED
+```
+
+| manager | pattern | status |
+| --- | --- | --- |
+| apt | `ros-{distro}-{pkg _→-}` | verified — bloom's convention; all nine match |
+| pacman | `ros2-{distro}-{pkg _→-}` | **UNVERIFIED** — check against a real package list before shipping |
+| dnf, brew | unmapped | ROS is not packaged this way; "unmapped" is already an answer |
+
+An explicit `apt = [...]` overrides the derivation for one key, so a rename or a
+split between distros is expressible without a migration.
+
+**Rejected: deriving with no index row at all.** rosdep can, because it validates
+against the rosdistro index — a network fetch of a large YAML. We have no such
+oracle, so a typo would stop being a gate failure and become an `apt` failure on
+a user's machine.
+
+**This supersedes the `{ros_distro}` placeholder** (issue 1128, landed
+2026-09-06 as the interim). It leaves the placeholder with zero users, at which
+point `check-prereq-placeholders` fails by design — it refuses a vocabulary entry
+the index does not use — and the two expanders it guards are deleted with it.
+
+### What this does not fix
+
+* `[board.native]`, `[board.posix]` and `[board.zephyr]` resolve to nothing. For
+  native and posix that is defensible; **for zephyr it is a hole** — the SDK,
+  west and the python classes all exist, and provisioning reaches them through
+  the `just zephyr` module instead, which is the second path phase-422 spent
+  four work items removing elsewhere.
+* 40 of the 91 export tags carry no `board=` (28 `deploy="native"`, 12
+  `deploy="zephyr"`) — harmless for native, the same zephyr hole from the
+  manifest side.
+* `threadx` is an ambiguous alias, claimed by two descriptors
+  (`nros-board-threadx-linux`, `nros-board-threadx-qemu-riscv64`). No entry uses
+  the bare name today; a gate should refuse it before one does.
+* The example `CMakeLists.txt` files take several shapes — 15 call
+  `nano_ros_entry`, 83 `nano_ros_add_executable`, 68 `nano_ros_auto_add_library`.
+  Resolution does not read them, so this blocks nothing here; it is a separate
+  consolidation, worth doing before anything starts treating a build file as a
+  declaration.
+* A build-system fact can disagree with the manifest and nothing notices: an
+  entry's `deploy =` and its package's export tag are never compared.
+
+### Acceptance
+
+1. `[build_type.*]` exists and is consulted only where `SelfBuildtool` cannot
+   answer; `nros setup --workspace` reports buildtools under their own heading.
+2. `role = "buildtool"` classifies the seven keys; `check-prereq-roles` enforces.
+3. `ros_package` derives apt names; `{ros_distro}` and both expanders are deleted.
+4. `[board.zephyr]` names what a Zephyr build needs, reached through the index.
+
+*(RFC id 0092 was reserved for this and released unused: the decisions belong to
+the RFC that already owns the question, and a new number citing two others is
+worse than an amendment.)*
+
 ## Problem
 
 nano-ros's dependencies live in five places with five owners:
