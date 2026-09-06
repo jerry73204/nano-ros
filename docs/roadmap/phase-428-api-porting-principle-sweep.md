@@ -648,8 +648,9 @@ with the promotion absent — same six, and only those six. They are not in the
 > **Written independently of the section above, against the same base commit,
 > by an author who had not seen it.** Both halves found and fixed the SAME
 > `_ret_of` bug (it read `item["ret"]`; `flatten` stores return types one level
-> down under `overloads`). The section above landed first, in `fe807a999`, and
-> ITS fix is the one that ships — it is the superset: it applies `canon_type`
+> down under `overloads`). The section above landed first — the W6 commit
+> that promotes the correlator's return-type check to a verdict — and ITS
+> fix is the one that ships — it is the superset: it applies `canon_type`
 > inside `_ret_of` and additionally normalises `rcl_{time_point,duration}_value_t`
 > to `int64_t`, which the version here does not. What survives from this half is
 > what it was actually for: `same_shaped_divergences`, the `--require-disposition`
@@ -679,8 +680,9 @@ not have seen.
 | `divergence` rows whose subject correlates `same:ret` | 2, both by inheritance |
 | `divergence` rows in every other bucket — NOT gated | 819 |
 
-**Re-measured after the merge** (`839f69b5c` + this half), because the other
-half authored 20 `divergence` rows on subjects that correlate `same` and they
+**Re-measured after the merge** — the W6 commit that merges the second,
+independent `_ret_of` fix in, plus this half — because the other half
+authored 20 `divergence` rows on subjects that correlate `same` and they
 land in exactly this set — the two halves compound, they do not overlap:
 
 | set | before merge | after merge |
@@ -881,7 +883,7 @@ refusal is a declaration: once a name refuses it correlates `same` or
 
 ### Census
 
-| disposition | before (`9c492403d`) | after |
+| disposition | before (pre-Q1 branch state) | after |
 | --- | ---: | ---: |
 | refuse-loud | 144 | 20 |
 | absent | 518 | 652 |
@@ -904,7 +906,8 @@ measured is stated apart from what was reasoned.
 1. **The `env` surface is measured.** `env` joined `extract_rust.NROS_FEATURES`
    (it requires `std`, already in the set). Measured with
    `scripts/api-parity.py --lang rust --show all` before and after, on
-   `e82830bb6`: `same 88 → 89`, `theirs-only 503 → 502`, `ours-only 1225 → 1238`.
+   the branch state at the time: `same 88 → 89`, `theirs-only 503 → 502`,
+   `ours-only 1225 → 1238`.
    `rust:Context` moved `theirs-only` → `same`, as predicted. What appeared was
    **19 report lines, not the 12 the earlier estimate said**: 16 UNLEDGERED (the
    six rclrs `Context::` members, which stop inheriting once their type is
@@ -948,11 +951,13 @@ measured is stated apart from what was reasoned.
    `gate-selftests` and `api-parity` (ending "every divergence carries a
    ledger entry") all green; every shard re-parsed through a
    duplicate-key-raising `object_pairs_hook` and round-trips byte-for-byte.
-   `api-parity`'s C extractor needed PR #612's `7b3bab8e9` (the duplicate
-   `nros_node_get_fully_qualified_name`) cherry-picked as a temporary aid; it is
-   not in this branch.
+   `api-parity`'s C extractor needed the duplicate
+   `nros_node_get_fully_qualified_name` fixed. That was cherry-picked as a
+   temporary aid when this was written, and attributed to PR #612 — which never
+   carried it. The fix is `add92bfcf` (PR #630, issue #1162), it is on `main`,
+   and this branch is rebased onto it, so no aid is needed any more.
 
-| disposition | before (`e82830bb6`) | after |
+| disposition | before (the Q1 leftovers baseline) | after |
 | --- | ---: | ---: |
 | refuse-loud | 20 | 20 |
 | absent | 650 | 656 |
@@ -1000,7 +1005,8 @@ was deleted (green), an existing basename with a line (green), a label
 (green), a nested `rename.resolution` orphan (red), and the "deleted" word in
 the NEXT sentence (red — the scoping control).
 
-**Run on the ledger it found 29 rows, all real, fixed in `ca70b9f6c`:**
+**Run on the ledger it found 29 rows, all real, fixed in the same change that
+widened the gate to bare filenames:**
 
 | what | rows | fix |
 | --- | ---: | --- |
