@@ -729,8 +729,13 @@ unsafe fn write_fqn(
     if bytes.len() + 1 > buf_len {
         return NROS_RET_FULL;
     }
-    ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, bytes.len());
-    *(buf as *mut u8).add(bytes.len()) = 0;
+    // `c_char` is `u8` on ARM/aarch64 and `i8` on x86, so `buf as *mut u8` is a
+    // no-op on one and a real reinterpret on the other, and
+    // `clippy::unnecessary_cast` fires under `-D warnings` on ARM hosts only.
+    // `.cast::<u8>()` compiles identically on both and is never linted — the
+    // repo idiom, spelled out at `nros-rmw-zenoh/src/shim/service.rs`.
+    ptr::copy_nonoverlapping(bytes.as_ptr(), buf.cast::<u8>(), bytes.len());
+    *buf.cast::<u8>().add(bytes.len()) = 0;
     NROS_RET_OK
 }
 

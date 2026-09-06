@@ -2035,8 +2035,12 @@ pub unsafe extern "C" fn nros_cpp_node_get_fully_qualified_name(
         return NROS_CPP_RET_FULL;
     }
     unsafe {
-        core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, bytes.len());
-        *(buf as *mut u8).add(bytes.len()) = 0;
+        // `c_char` is `u8` on ARM/aarch64 and `i8` on x86 — `.cast::<u8>()` is
+        // the repo idiom for the pair (see `nros-c/src/node.rs`), because an
+        // `as` cast here is a no-op clippy rejects on one arch and required on
+        // the other.
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.cast::<u8>(), bytes.len());
+        *buf.cast::<u8>().add(bytes.len()) = 0;
     }
     NROS_CPP_RET_OK
 }
