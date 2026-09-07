@@ -1831,6 +1831,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nros-executor-layout"
+version = "0.5.0"
+
+[[package]]
 name = "nros-ghost-types"
 version = "0.5.0"
 
@@ -1880,6 +1884,7 @@ dependencies = [
  "nros-board-common",
  "nros-build-paths",
  "nros-core",
+ "nros-executor-layout",
  "nros-ghost-types",
  "nros-lifecycle-msgs",
  "nros-log",

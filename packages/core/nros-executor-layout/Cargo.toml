@@ -1,0 +1,16 @@
+[package]
+name        = "nros-executor-layout"
+version.workspace = true
+edition     = "2024"
+publish     = false
+description = "The executor backing's placement arithmetic, evaluated against a supplied unit table."
+license     = "MIT OR Apache-2.0"
+
+# Deliberately NOT `host-only`: this is the one crate both sides of issue 1197
+# reach. `nros-node` calls it while compiling FOR the target (so it must be
+# `no_std` and dependency-free), and a build script calls it ON THE HOST with
+# units probed for some other target. A host-only marker would exclude it from
+# the embedded lane it has to survive.
+
+[lib]
+path = "src/lib.rs"

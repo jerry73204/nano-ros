@@ -180,6 +180,7 @@ param-services = ["dep:nros-rcl-interfaces"]
 lifecycle-services = ["dep:nros-lifecycle-msgs"]
 
 [dependencies]
+nros-executor-layout = { path = "../nros-executor-layout" }
 nros-core = { workspace = true, default-features = false }
 nros-rmw = { workspace = true, default-features = false }
 # Phase 110.D — `Executor::open_threaded` consumes the `SchedPolicy`

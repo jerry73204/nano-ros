@@ -253,170 +253,94 @@ struct FieldOffsets {
     align: usize,
 }
 
-const fn align_up(off: usize, align: usize) -> usize {
-    off.div_ceil(align) * align
-}
+/// The placement arithmetic and its data types live in `nros-executor-layout`
+/// (issue 1197) so a HOST build script can evaluate them for a target it is not
+/// compiling. Re-exported here because this is where every consumer already
+/// looks, and because `NATIVE` — the only part that names the types — has to
+/// live in the crate that owns them.
+pub use nros_executor_layout::{Counts as RegionCounts, RegionUnit, RegionUnits};
 
-/// Size and alignment of ONE region's element type.
+/// What THIS compiler says, for the target it is compiling.
 ///
-/// issue 1197 — the backing size is `arena + tables`, and the table half is a
-/// function of these facts plus the counts. The facts are `repr(Rust)` layout,
-/// which the compiler owns and may change between versions, so they can never be
-/// re-derived outside it (that is the sizes-header mirror class, 0088 -> 0268).
-/// Making them a PARAMETER means the one arithmetic below can be evaluated
-/// against layouts obtained from the compiler for a target that is not this one
-/// — a build script probing an rlib, the way `nros-c` already recovers
-/// `EXECUTOR_OPAQUE_U64S` — without a second implementation of the arithmetic.
-#[derive(Clone, Copy)]
-pub struct RegionUnit {
-    /// `size_of::<T>()`.
-    pub size: usize,
-    /// `align_of::<T>()`.
-    pub align: usize,
-}
+/// The one thing the shared crate cannot provide: it would have to name the
+/// types, and they live here.
+pub const NATIVE_UNITS: RegionUnits = RegionUnits {
+    callback_meta: unit_of::<Option<CallbackMeta>>(),
+    sched_context: unit_of::<Option<SchedContext>>(),
+    sched_context_id: unit_of::<SchedContextId>(),
+    sporadic_state: unit_of::<Option<SporadicState>>(),
+    #[cfg(feature = "alloc")]
+    sporadic_atomic: unit_of::<Option<SporadicAtomic>>(),
+    #[cfg(not(feature = "alloc"))]
+    sporadic_atomic: RegionUnit { size: 0, align: 1 },
+    remap_rule: unit_of::<Option<RemapRule>>(),
+    node_record: unit_of::<NodeRecord>(),
+    concrete_session: unit_of::<ConcreteSession>(),
+    extra_session_id: unit_of::<ExtraSessionId>(),
+    node_sched_entry: unit_of::<NodeSchedEntry>(),
+    dispatch_slot: unit_of::<DispatchSlot>(),
+    component_slot: unit_of::<ComponentSlot>(),
+    group_name: unit_of::<GroupName>(),
+    group_sched_entry: unit_of::<GroupSchedEntry>(),
+    violation: unit_of::<Violation>(),
+};
 
-impl RegionUnit {
-    /// The compiler's answer for `T`, on the target being compiled.
-    pub const fn of<T>() -> Self {
-        Self {
-            size: size_of::<T>(),
-            align: align_of::<T>(),
-        }
+const fn unit_of<T>() -> RegionUnit {
+    RegionUnit {
+        size: size_of::<T>(),
+        align: align_of::<T>(),
     }
 }
 
-/// Every element type the backing carves a table of, in declaration order.
-///
-/// `arena` is absent on purpose: it is `[MaybeUninit<u8>]`, size 1 align 1 by
-/// definition, and its LENGTH is a count rather than a unit.
-#[derive(Clone, Copy)]
-pub struct RegionUnits {
-    pub callback_meta: RegionUnit,
-    pub sched_context: RegionUnit,
-    pub sched_context_id: RegionUnit,
-    pub sporadic_state: RegionUnit,
-    /// `alloc` only; ignored when [`ExecutorSizing`] is evaluated without it.
-    pub sporadic_atomic: RegionUnit,
-    pub remap_rule: RegionUnit,
-    pub node_record: RegionUnit,
-    pub concrete_session: RegionUnit,
-    pub extra_session_id: RegionUnit,
-    pub node_sched_entry: RegionUnit,
-    pub dispatch_slot: RegionUnit,
-    pub component_slot: RegionUnit,
-    pub group_name: RegionUnit,
-    pub group_sched_entry: RegionUnit,
-    pub violation: RegionUnit,
-}
-
-impl RegionUnits {
-    /// What this compiler says, for the target it is compiling.
-    pub const NATIVE: Self = Self {
-        callback_meta: RegionUnit::of::<Option<CallbackMeta>>(),
-        sched_context: RegionUnit::of::<Option<SchedContext>>(),
-        sched_context_id: RegionUnit::of::<SchedContextId>(),
-        sporadic_state: RegionUnit::of::<Option<SporadicState>>(),
-        #[cfg(feature = "alloc")]
-        sporadic_atomic: RegionUnit::of::<Option<SporadicAtomic>>(),
-        #[cfg(not(feature = "alloc"))]
-        sporadic_atomic: RegionUnit { size: 0, align: 1 },
-        remap_rule: RegionUnit::of::<Option<RemapRule>>(),
-        node_record: RegionUnit::of::<NodeRecord>(),
-        concrete_session: RegionUnit::of::<ConcreteSession>(),
-        extra_session_id: RegionUnit::of::<ExtraSessionId>(),
-        node_sched_entry: RegionUnit::of::<NodeSchedEntry>(),
-        dispatch_slot: RegionUnit::of::<DispatchSlot>(),
-        component_slot: RegionUnit::of::<ComponentSlot>(),
-        group_name: RegionUnit::of::<GroupName>(),
-        group_sched_entry: RegionUnit::of::<GroupSchedEntry>(),
-        violation: RegionUnit::of::<Violation>(),
-    };
+/// The counts this build was configured with, for `sizing`.
+const fn counts_for(sizing: ExecutorSizing) -> RegionCounts {
+    RegionCounts {
+        cbs: sizing.cbs,
+        sc: sizing.sc,
+        nodes: sizing.nodes,
+        arena: sizing.arena,
+        remaps: MAX_REMAPS,
+        violations: MAX_VIOLATIONS,
+        alloc: cfg!(feature = "alloc"),
+    }
 }
 
 const fn compute_offsets(sizing: ExecutorSizing) -> FieldOffsets {
-    compute_offsets_with(sizing, RegionUnits::NATIVE)
+    compute_offsets_with(sizing, NATIVE_UNITS)
 }
 
-/// The ONE placement arithmetic, evaluated against a supplied unit table.
-///
-/// `compute_offsets` is this with [`RegionUnits::NATIVE`]. Keeping one function
-/// is the point: an external consumer supplies probed units and gets the same
-/// answer by construction rather than by a second implementation agreeing.
+/// Adapter over the shared arithmetic: same numbers, named the way `carve`
+/// wants them. The placement itself is `nros_executor_layout::offsets` — one
+/// implementation, so an external evaluation cannot drift from this one.
 const fn compute_offsets_with(sizing: ExecutorSizing, units: RegionUnits) -> FieldOffsets {
-    let ExecutorSizing {
-        cbs,
-        sc,
-        arena,
-        nodes: node_slots,
-    } = sizing;
-    let mut off = 0usize;
-    let mut max_align = 1usize;
-
-    // arena: [MaybeUninit<u8>; arena] — align 1, at offset 0.
-    let arena_off = 0usize;
-    off += arena;
-
-    // Reads its facts from `units` rather than `size_of::<T>()` so the SAME
-    // arithmetic can be evaluated for a target this compiler is not building
-    // (issue 1197). `RegionUnits::NATIVE` restores the old behaviour exactly.
-    macro_rules! place {
-        ($n:expr, $u:expr) => {{
-            let RegionUnit { size, align: a } = $u;
-            if a > max_align {
-                max_align = a;
-            }
-            off = align_up(off, a);
-            let at = off;
-            off += $n * size;
-            at
-        }};
-    }
-
-    let entries = place!(cbs, units.callback_meta);
-    let sched_contexts = place!(sc, units.sched_context);
-    let sched_context_bindings = place!(cbs, units.sched_context_id);
-    let sporadic_states = place!(sc, units.sporadic_state);
-    #[cfg(feature = "alloc")]
-    let sporadic_atomic_states = place!(sc, units.sporadic_atomic);
-    let remaps = place!(MAX_REMAPS, units.remap_rule);
-    let nodes = place!(node_slots, units.node_record);
-    let extra_sessions = place!(node_slots, units.concrete_session);
-    let extra_session_ids = place!(node_slots, units.extra_session_id);
-    let node_sched_table = place!(node_slots, units.node_sched_entry);
-    let dispatch_slots = place!(node_slots, units.dispatch_slot);
-    let component_slots = place!(node_slots, units.component_slot);
-    let active_groups = place!(node_slots, units.group_name);
-    let group_sched_table = place!(cbs, units.group_sched_entry);
-    let monitor_violations = place!(MAX_VIOLATIONS, units.violation);
-
-    let size = align_up(off, max_align);
+    let o = nros_executor_layout::offsets(counts_for(sizing), units);
     FieldOffsets {
-        arena: arena_off,
-        entries,
-        sched_contexts,
-        sched_context_bindings,
-        sporadic_states,
+        arena: o.arena,
+        entries: o.entries,
+        sched_contexts: o.sched_contexts,
+        sched_context_bindings: o.sched_context_bindings,
+        sporadic_states: o.sporadic_states,
         #[cfg(feature = "alloc")]
-        sporadic_atomic_states,
-        remaps,
-        nodes,
-        extra_sessions,
-        extra_session_ids,
-        node_sched_table,
-        dispatch_slots,
-        component_slots,
-        active_groups,
-        group_sched_table,
-        monitor_violations,
-        size,
-        align: max_align,
+        sporadic_atomic_states: o.sporadic_atomic_states,
+        remaps: o.remaps,
+        nodes: o.nodes,
+        extra_sessions: o.extra_sessions,
+        extra_session_ids: o.extra_session_ids,
+        node_sched_table: o.node_sched_table,
+        dispatch_slots: o.dispatch_slots,
+        component_slots: o.component_slots,
+        active_groups: o.active_groups,
+        group_sched_table: o.group_sched_table,
+        monitor_violations: o.monitor_violations,
+        size: o.size,
+        align: o.align,
     }
 }
 
 /// Byte [`Layout`] of the backing, evaluated against a SUPPLIED unit table.
 ///
 /// issue 1197 — the public half of the split. `executor_storage_layout` is this
-/// with [`RegionUnits::NATIVE`]; an external consumer that has recovered the
+/// with [`NATIVE_UNITS`]; an external consumer that has recovered the
 /// units for another target (a build script probing an rlib, the way `nros-c`
 /// recovers `EXECUTOR_OPAQUE_U64S`) gets the same arithmetic rather than a
 /// second implementation of it.
@@ -665,12 +589,12 @@ mod tests {
             arena: 0,
             nodes: 0,
         };
-        let native = executor_storage_layout_with(sizing, RegionUnits::NATIVE);
+        let native = executor_storage_layout_with(sizing, NATIVE_UNITS);
 
         // One region is scaled by `cbs`: `callback_meta`. Grow ONLY it, by a
         // multiple of its own alignment so no padding shifts, and the total must
         // grow by exactly one element's worth.
-        let mut fatter = RegionUnits::NATIVE;
+        let mut fatter = NATIVE_UNITS;
         let grown_by = fatter.callback_meta.align * 4;
         fatter.callback_meta.size += grown_by;
         let widened = executor_storage_layout_with(sizing, fatter);

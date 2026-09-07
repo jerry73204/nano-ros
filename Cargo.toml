@@ -19,6 +19,7 @@ members = [
     # firmware.
     "packages/rmw/metadata",
     "packages/core/nros-node",
+    "packages/core/nros-executor-layout",
     "packages/core/nros-log",
     # Shared per-tier orchestration schema + resolver (RFC-0015). Leaf crate
     # consumed by BOTH the nros CLI codegen and the nros::main! proc-macro so
