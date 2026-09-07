@@ -324,13 +324,30 @@ def ours_cpp(tmpdir):
 
 
 def ours_c(tmpdir):
+    # `rcl_` / `rclc_` are OURS here, and leaving them out made the report lie.
+    #
+    # phase-417 stage 6 step A ("the ROS 2 spellings are ours") adopted the
+    # upstream names directly for the surface where our contract matches:
+    # `nros/nros_generated.h` declares 39 `rcl_*` and 8 `rclc_*` entry points
+    # as NROS_PUBLIC. Harvesting only `nros_` made every one of them invisible
+    # on OUR side, so the correlator put them in `theirs-only` — 43 of the 48
+    # unledgered C rows were symbols we ship, under the very name the ledger
+    # would have recorded us as lacking.
+    #
+    # That is the expensive direction of wrong: a ledger row is AUTHORED and
+    # nobody re-derives it, so writing "gap: rcl has it, we do not" for a
+    # function we export would have been permanent, and every later reader
+    # would have believed it.
+    #
+    # This preprocesses OUR header, so a `rcl_*` name found here is ours by
+    # construction — upstream's headers are never on this include path.
     return extract_cxx.extract(
         '#include "nros/nros.h"\n',
         "c",
         extract_cxx.nros_c_include_args(),
         {""},
         tmpdir,
-        prefixes={"nros_", "NROS_"},
+        prefixes={"nros_", "NROS_", "rcl_", "rclc_"},
     )
 
 

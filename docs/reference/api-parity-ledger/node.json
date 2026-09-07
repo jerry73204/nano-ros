@@ -531,5 +531,9 @@
     "disposition": "absent",
     "verdict": "declined",
     "why": "phase-417 stage 0 — visible only because `rclcpp_compat.hpp` is now a translation unit (issue 1020). The shim ships this TYPE as a name, so its members stop inheriting \"we do not have this type\" and become their own claim. Not a new gap: a gap INSIDE a type we ship is a different statement from one about a type we do not. These specific ones are REFUSED LOUDLY (RFC-0089 W3.f): each stored its argument in a private field that nothing read and returned `*this`, so the idiomatic chained call compiled and configured nothing. They are `= delete` overloads now, sharing one diagnostic -- a refusal is per-CONCEPT, not per-symbol."
+  },
+  "c:node_init": {
+    "verdict": "rename",
+    "why": "Same capability, our name. `rcl_node_init` takes an options struct built by `rcl_node_get_default_options()` — both of which we DO export (they correlate `same`); what we do not have is the plain `init` that consumes them. Ours is `nros_node_init_ex` — not the `_with_options` / `_with_qos` pair the four entity rows name, which is its own small inconsistency — plus the adopted `rclc_node_init_default`. There is no platform reason for the suffix: `nros_node_init_ex` takes `nros_node_options_t*` exactly as `rcl_node_init` takes `rcl_node_options_t*`, so the shape is the same and only the name differs. Ours is the name that should change. The other half of this statement is `c:node_init_ex`, the ours-only row for the same function."
   }
 }

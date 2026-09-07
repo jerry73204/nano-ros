@@ -554,5 +554,13 @@
   "c:lifecycle_callback_t": {
     "verdict": "extension",
     "why": "`uint8_t (*nros_lifecycle_callback_t)(void *context)` -- the named typedef for a lifecycle transition callback, added by issue 0792. rclc has no counterpart because it spells its callback inline as `int (*)(void)` at each of its four `rclc_lifecycle_register_on_*` declarations and never names the type. We name it for two reasons: it is the shape ALL TWELVE of our entry points share (the six standalone and the six executor-scoped), and naming it is what makes it expressible in C at all -- the unnamed cross-crate `Option<LifecycleCallbackFnCtx>` it replaced reached the header as an opaque struct passed by value. Same convention as `nros_timer_callback_t` and `nros_guard_condition_callback_t`. The `void *context` parameter itself is the `callback-bound-at-creation` divergence recorded on `c:lifecycle_register_on_configure`."
+  },
+  "cpp:LifecycleTransition": {
+    "verdict": "extension",
+    "why": "An ENUM naming the lifecycle transition ids, which the C ABI carries as a `uint8_t` across `nros_executor_lifecycle_change_state`. rclcpp models a transition as a `Transition` OBJECT (constructed, carrying label and id) — a different shape, and its absence here is recorded separately as `cpp:Transition` (gap). This is not that object under another name: it is the id vocabulary an embedded caller passes by value, with no allocation and no lifetime."
+  },
+  "cpp:shutdown_transition_for": {
+    "verdict": "extension",
+    "why": "Maps a lifecycle state onto the shutdown transition legal FROM that state. rclcpp has no such helper: its `LifecycleNode::shutdown()` resolves the same thing inside the state machine, which is reachable because the node owns it. Ours is a free function because the state machine lives behind the C ABI and a caller holding only the current state cannot ask it."
   }
 }

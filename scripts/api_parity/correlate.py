@@ -90,8 +90,25 @@ TYPE_SYNONYMS = {
 
 # Longest first: `rclc_` must be stripped before `rcl_`, or every rclc symbol
 # normalises to a stray leading `c_`.
+# The vendor prefixes stripped to get a language-neutral key, per side.
+#
+# OURS carries `rcl_` / `rclc_` as well as `nros_`, and that is not a typo:
+# phase-417 stage 6 step A ("the ROS 2 spellings are ours") adopted the
+# upstream names directly wherever our contract matches, so
+# `nros/nros_generated.h` declares 39 `rcl_*` and 8 `rclc_*` entry points as
+# NROS_PUBLIC. Stripping only `nros_` here left ours keyed as
+# `rcl_client_is_valid` while theirs keyed as `client_is_valid`, so 43 symbols
+# WE SHIP were reported `theirs-only` — the report said the API lacked
+# functions it exports.
+#
+# Both halves of that had to move together: the extractor's `prefixes` filter
+# (api-parity.py `ours_c`) decides what is HARVESTED, this decides what it is
+# KEYED as. Fixing either alone leaves the same 43 rows.
 LIB_PREFIXES = {
-    "c": (("nros_", "NROS_"), ("rclc_", "RCLC_", "rcl_", "RCL_")),
+    "c": (
+        ("nros_", "NROS_", "rclc_", "RCLC_", "rcl_", "RCL_"),
+        ("rclc_", "RCLC_", "rcl_", "RCL_"),
+    ),
 }
 
 

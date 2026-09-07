@@ -1226,5 +1226,13 @@
   "c:executor_add_service_raw": {
     "verdict": "divergence",
     "why": "phase-417 stage 6 — the callback moved OFF `*_init` and onto registration, so `rclc_{subscription,service}_init_default` now matches rclc's four-argument shape and the callback arrives here, exactly as rclc supplies it at `rclc_executor_add_subscription`.\n\nIt keeps the `nros_` prefix DELIBERATELY, and that is the whole content of this row. rclc's same-named calls deliver a DESERIALISED message into caller-owned storage; these deliver CDR BYTES. Taking rclc's spelling for a byte-oriented entry point would be a name whose contract differs -- the `PollingSubscription::take()` failure, which had rclcpp's name, rclcpp's signature and the opposite contract, and cost a spinning loop with no compile error.\n\nThe faithful rclc-shaped entry point exists beside it and DOES take the name: `nros_executor_add_subscription_typed` (W5.a), reached per-message as `<Msg>_executor_add_subscription(exec, sub, &msg, cb, ctx, invocation)` -- rclc's six arguments in rclc's order. So the two shapes are distinguished by NAME rather than by a reader noticing which one deserialises, which is what RFC-0089 asks for."
+  },
+  "c:client_init": {
+    "verdict": "rename",
+    "why": "Same capability, our name. `rcl_client_init` takes an options struct built by `rcl_client_get_default_options()` — both of which we DO export (they correlate `same`); what we do not have is the plain `init` that consumes them. Ours is `nros_client_init_with_options`, plus `_with_qos` and the adopted `rclc_client_init_default`. There is no platform reason for the suffix: the options are not more mandatory here than upstream, the struct is the same shape, and spelling it out costs the drop-in claim for nothing. Ours is the name that should change."
+  },
+  "c:service_init": {
+    "verdict": "rename",
+    "why": "Same capability, our name. `rcl_service_init` takes an options struct built by `rcl_service_get_default_options()` — both of which we DO export (they correlate `same`); what we do not have is the plain `init` that consumes them. Ours is `nros_service_init_with_options`, plus `_with_qos` and the adopted `rclc_service_init_default`. There is no platform reason for the suffix: the options are not more mandatory here than upstream, the struct is the same shape, and spelling it out costs the drop-in claim for nothing. Ours is the name that should change."
   }
 }

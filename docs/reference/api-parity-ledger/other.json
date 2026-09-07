@@ -1392,5 +1392,9 @@
   "rust:timestamp_available": {
     "verdict": "extension",
     "why": "phase-417 W4.d — asks whether the platform clock is available, so a caller can tell \"this record has no timestamp\" from \"this record happened at time zero\". ROS 2 has no counterpart because rcutils always has a clock; on a target built without `nros-log/platform-clock` ours does not, and the honest answer is a query rather than a zero that reads as a time. It is also what makes the C throttle's failure mode legible: with no clock a window admits every record, and `nros_log_timestamp_available()` is how a caller finds out before trusting a rate."
+  },
+  "rust:throttle_decide": {
+    "verdict": "extension",
+    "why": "The shared predicate behind `nros_warn_throttle` / `nros_trace_throttle` and their `_at` variants (already ledgered): given the last-emit instant and a period, should this record be emitted. Exposed rather than kept private because the macros are `no_std` and expand in the CALLER's crate, so the decision has to be a callable item there. rclrs throttles inside its logging macros and exposes no predicate."
   }
 }
