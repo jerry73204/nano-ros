@@ -84,8 +84,25 @@ jobs:
       - name: Checkout nano-ros
         uses: actions/checkout@v4
 
-      - name: Cache CLI build (Phase 218)
-        uses: actions/cache@v4
+      # RESTORE here, SAVE right after the build below — deliberately split.
+      #
+      # `actions/cache` saves in a POST step, at job end. By then this job has
+      # run `just setup native`, built fixtures and run `just ci tier1`, and all
+      # of them write into `packages/cli/target` too. So the entry stored is not
+      # "the CLI build" but "whatever the whole job left behind".
+      #
+      # Measured on the live cache: eight `nros-cli-*` entries at 138 MB and ONE
+      # at 5 571 MB, the big one on `refs/heads/main` — the branch where the job
+      # runs to completion instead of being cancelled early. That single entry
+      # was 56 % of the repository's 10 GB Actions cache limit, which is why
+      # `gate.yml`'s sccache (1 GB, and the required PR check depends on it) had
+      # no headroom.
+      #
+      # Splitting restore from save bounds the entry to what the CLI build
+      # actually produces, which is the 138 MB the cancelled jobs already show.
+      - name: Restore CLI build cache (Phase 218)
+        id: cli-cache
+        uses: actions/cache/restore@v4
         with:
           path: packages/cli/target
           key: nros-cli-${{ runner.os }}-${{ hashFiles('packages/cli/Cargo.lock', 'packages/cli/**/Cargo.toml', 'packages/cli/**/*.rs') }}
@@ -105,6 +122,17 @@ jobs:
           # code the runtime did not expect is what RFC-0090 exists to stop.
           "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
           echo "$GITHUB_WORKSPACE/packages/cli/target/release" >> "$GITHUB_PATH"
+
+      # SAVE NOW, before anything else writes into this directory. See the
+      # restore step above for the measurement. `if: always()` is deliberately
+      # NOT set: a failed CLI build leaves a target dir that should not become
+      # the entry every later run restores from.
+      - name: Save CLI build cache (Phase 218)
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/cli/target
+          key: nros-cli-${{ runner.os }}-${{ hashFiles('packages/cli/Cargo.lock', 'packages/cli/**/Cargo.toml', 'packages/cli/**/*.rs') }}
 
       # phase-413 W5 — the scope verb, same as the integration job below.
       # `just setup native` expands to `nros setup --build-sources` and
@@ -147,8 +175,25 @@ jobs:
       - name: Checkout nano-ros
         uses: actions/checkout@v4
 
-      - name: Cache CLI build (Phase 218)
-        uses: actions/cache@v4
+      # RESTORE here, SAVE right after the build below — deliberately split.
+      #
+      # `actions/cache` saves in a POST step, at job end. By then this job has
+      # run `just setup native`, built fixtures and run `just ci tier1`, and all
+      # of them write into `packages/cli/target` too. So the entry stored is not
+      # "the CLI build" but "whatever the whole job left behind".
+      #
+      # Measured on the live cache: eight `nros-cli-*` entries at 138 MB and ONE
+      # at 5 571 MB, the big one on `refs/heads/main` — the branch where the job
+      # runs to completion instead of being cancelled early. That single entry
+      # was 56 % of the repository's 10 GB Actions cache limit, which is why
+      # `gate.yml`'s sccache (1 GB, and the required PR check depends on it) had
+      # no headroom.
+      #
+      # Splitting restore from save bounds the entry to what the CLI build
+      # actually produces, which is the 138 MB the cancelled jobs already show.
+      - name: Restore CLI build cache (Phase 218)
+        id: cli-cache
+        uses: actions/cache/restore@v4
         with:
           path: packages/cli/target
           key: nros-cli-${{ runner.os }}-${{ hashFiles('packages/cli/Cargo.lock', 'packages/cli/**/Cargo.toml', 'packages/cli/**/*.rs') }}
@@ -168,6 +213,17 @@ jobs:
           # code the runtime did not expect is what RFC-0090 exists to stop.
           "$GITHUB_WORKSPACE/packages/cli/target/release/nros" source-stamp >/dev/null
           echo "$GITHUB_WORKSPACE/packages/cli/target/release" >> "$GITHUB_PATH"
+
+      # SAVE NOW, before anything else writes into this directory. See the
+      # restore step above for the measurement. `if: always()` is deliberately
+      # NOT set: a failed CLI build leaves a target dir that should not become
+      # the entry every later run restores from.
+      - name: Save CLI build cache (Phase 218)
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/cli/target
+          key: nros-cli-${{ runner.os }}-${{ hashFiles('packages/cli/Cargo.lock', 'packages/cli/**/Cargo.toml', 'packages/cli/**/*.rs') }}
 
       # phase-437 — the fixture builders' rustc fan-out, DERIVED.
       #
