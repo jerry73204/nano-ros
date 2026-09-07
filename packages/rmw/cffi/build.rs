@@ -17,6 +17,7 @@
 use nros_board_common::platform_config::{BuildRungs, RmwKnobs};
 
 fn main() {
+    watch_declared_facts();
     // phase-400 W6 — the platform/board rungs for `[knobs.rmw]`, resolved once.
     // `None` when no lane named a platform, which is every out-of-tree consumer
     // and every plain `cargo build` here; the builtins then stand.
@@ -47,8 +48,25 @@ fn main() {
 /// it sits between the Kconfig rung and the crate builtin. Passing it as
 /// `knob_usize`'s default is what places it there: env and `$DOTCONFIG` still
 /// win above it, and the builtin only applies when no descriptor said anything.
+// issue 1199 — see the note in `nros-zpico-build`'s `watch_declared_facts`:
+// spelled literally so the wire is greppable, alongside the dynamic emission.
+fn watch_declared_facts() {
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_RMW_SUBSCRIBER_SLOTS");
+}
+
 fn knob(name: &str, rung: Option<usize>, default: usize) -> usize {
     nros_zephyr_build::knob_usize(name, &format!("CONFIG_{name}"), rung.unwrap_or(default))
+}
+
+/// issue 1199 — a `NROS_DECLARED_*` count cmake derived for THIS image.
+///
+/// `None` when cmake made no claim: the carrier is written only when the entity
+/// inventory's status is `derived`, so absent means "no answer" and never
+/// "zero". Zero is a legal answer for this knob, which is exactly why the two
+/// cannot share a spelling.
+fn declared_usize(name: &str) -> Option<usize> {
+    println!("cargo:rerun-if-env-changed={name}");
+    std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
 }
 
 fn emit_max_backends(rungs: &RmwKnobs) {
@@ -88,7 +106,17 @@ fn emit_subscriber_slots() {
     // entity inventory (`COUNT_SUBSCRIPTION`). Two campaigns resolving one
     // knob is the drift issue 0938 cost, so this one keeps env -> Kconfig ->
     // builtin and takes its platform answer from the derivation instead.
-    let parsed = knob("NROS_RMW_SUBSCRIBER_SLOTS", None, 8);
+    // issue 1199 — the rung is the DECLARED count cmake derived for this image.
+    // It was `None` because phase-412 W1 delivered this knob through the Zephyr
+    // resolver only; the DECLARED road carries the same number on the lanes
+    // that have no Kconfig. NOT floored: zero is legal here and measured --
+    // `[T; 0]` is ordinary Rust, the only access is `for index in
+    // 0..SLOT_COUNT`, and issue 1033 retracted the clamp that rounded it to 1.
+    let parsed = knob(
+        "NROS_RMW_SUBSCRIBER_SLOTS",
+        declared_usize("NROS_DECLARED_RMW_SUBSCRIBER_SLOTS"),
+        8,
+    );
 
     // issue 1033 — ZERO is in range. A pub-only image derives 0 subscriptions
     // from the entity inventory, and 0 slots is the honest answer: `[T; 0]` is

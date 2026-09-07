@@ -16,6 +16,8 @@ fn main() {
     // else forces a rebuild, and the sizing then reads as applied while being
     // stale.
     println!("cargo:rerun-if-env-changed=NROS_DECLARED_LARGE_SUBSCRIBERS");
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_SUBSCRIBER_BUFFER_SIZE");
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_SUBSCRIBER_LARGE_SIZE");
     println!("cargo:rerun-if-env-changed=NROS_EXECUTOR_MAX_NODES");
     println!("cargo:rerun-if-env-changed=ZPICO_PUBLISHER_TX_BUFFER_SIZE");
 
@@ -24,7 +26,15 @@ fn main() {
     // (also 1024). If you change one, change the other — they share the
     // wire-format expectation. Both can be overridden independently via
     // their respective env vars.
-    let sub_size: usize = env_usize("NROS_SUBSCRIBER_BUFFER_SIZE", 1024);
+    // issue 1199 — the derived SMALL class, on the same DECLARED road as the
+    // large count below. The derivation publishes it only when something
+    // received actually fits under the ceiling, so an absent variable is "no
+    // answer" and the crate default stands.
+    let sub_size: usize = env_usize_rung(
+        "NROS_SUBSCRIBER_BUFFER_SIZE",
+        declared_usize("NROS_DECLARED_SUBSCRIBER_BUFFER_SIZE"),
+        1024,
+    );
     let svc_size: usize = env_usize("ZPICO_SERVICE_BUFFER_SIZE", 1024);
     // Phase 160.C.2 — bumped 10_000 → 30_000. The original 10 s default
     // was too short for slow zenoh-pico flushes on Zephyr/NSOS where
@@ -64,7 +74,15 @@ fn main() {
     // messages (images, point clouds). A subscription routes to `large` when its
     // `rx_buffer_hint` exceeds the threshold. `large` is capped at a small count
     // so the big slots don't multiply across every subscriber.
-    let large_size: usize = env_usize("ZPICO_SUBSCRIBER_LARGE_SIZE", 16384);
+    // issue 1199 — the derived LARGE class size. Published only when the large
+    // COUNT is non-zero: a size for a class with no blocks would be inventing a
+    // number, which is the rule `_nros_bounds_publish_payload_classes` states
+    // and `DERIVED_PAYLOAD_ENV_KEYS` repeats for the leaf road.
+    let large_size: usize = env_usize_rung(
+        "ZPICO_SUBSCRIBER_LARGE_SIZE",
+        declared_usize("NROS_DECLARED_SUBSCRIBER_LARGE_SIZE"),
+        16384,
+    );
     let size_threshold: usize = env_usize("ZPICO_SUBSCRIBER_SIZE_THRESHOLD", 2048);
     // Phase 403 W4 — the count of LARGE-class blocks, and 0 is legal.
     //
@@ -96,7 +114,7 @@ fn main() {
     // unreachable, silently.
     let max_large: usize = env_usize_rung(
         "ZPICO_MAX_LARGE_SUBSCRIBERS",
-        declared_large_subscribers(),
+        declared_usize("NROS_DECLARED_LARGE_SUBSCRIBERS"),
         2,
     );
     // Phase 268 — per-session per-node NN liveliness token cap. One zenoh
@@ -233,7 +251,7 @@ fn env_usize_rung(name: &str, rung: Option<usize>, default: usize) -> usize {
     env_usize(name, rung.unwrap_or(default))
 }
 
-/// issue 1122 — the large-payload class count cmake derived for THIS image.
+/// issue 1122 / 1199 — a `NROS_DECLARED_*` fact cmake derived for THIS image.
 ///
 /// `None` when cmake made no claim, which is every build that is not driven by
 /// our CMake lanes (a bare `cargo build`, a Rust leaf) and every configure
@@ -245,8 +263,6 @@ fn env_usize_rung(name: &str, rung: Option<usize>, default: usize) -> usize {
 /// That distinction is the whole point: `0` is a legal and meaningful value
 /// here -- it says this image's types all fit the small class -- so it cannot
 /// share a spelling with "nobody told me".
-fn declared_large_subscribers() -> Option<usize> {
-    std::env::var("NROS_DECLARED_LARGE_SUBSCRIBERS")
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
+fn declared_usize(name: &str) -> Option<usize> {
+    std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
 }

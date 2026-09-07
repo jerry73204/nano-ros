@@ -42,6 +42,7 @@ const fn buffered_region(depth: usize, slot: usize) -> usize {
 }
 
 fn main() {
+    watch_declared_facts();
     let out_dir = env::var("OUT_DIR").unwrap();
 
     println!("cargo:rustc-check-cfg=cfg(has_rmw)");
@@ -102,7 +103,9 @@ fn main() {
     }
 
     // --- Primary user-facing knobs ---
-    let max_cbs = env_usize("NROS_EXECUTOR_MAX_CBS", 4);
+    // issue 1199 — the executor callback budget cmake derived for this image,
+    // on the DECLARED road. Mirrors `DERIVED_ENV_KEYS` on the cargo-leaf road.
+    let max_cbs = env_usize_declared("NROS_EXECUTOR_MAX_CBS", "NROS_DECLARED_EXECUTOR_MAX_CBS", 4);
     let max_sc = env_usize("NROS_EXECUTOR_MAX_SC", 8);
     // Phase 214.C.3 — default coordinated with
     // `packages/rmw/zenoh/nros-rmw-zenoh/build.rs::ZPICO_SUBSCRIBER_BUFFER_SIZE`
@@ -149,7 +152,15 @@ fn main() {
     // Too small fails at REGISTRATION (`NodeError::BufferTooSmall`), not at
     // link — same caveat `NROS_EXECUTOR_ARENA_SIZE` carries, and the reason
     // `Executor::arena_used()` plus the first-spin advisory landed first.
-    let action_clients = env_usize("NROS_EXECUTOR_ACTION_CLIENTS", max_cbs).min(max_cbs);
+    // issue 1199 — same road. Zero is the point here rather than a hazard: a
+    // pub/sub-only image takes 74,240 bytes of arena down to 16,384, and the
+    // `.min(max_cbs)` ceiling below is unchanged.
+    let action_clients = env_usize_declared(
+        "NROS_EXECUTOR_ACTION_CLIENTS",
+        "NROS_DECLARED_EXECUTOR_ACTION_CLIENTS",
+        max_cbs,
+    )
+    .min(max_cbs);
 
     // --- Derived arena size ---
     // Arena must hold MAX_CBS entries. Worst-case entry is an
@@ -646,4 +657,42 @@ fn env_usize(name: &str, default: usize) -> usize {
     knob_for_env(name)
         .and_then(|k| rung_value(rungs, k))
         .unwrap_or(default)
+}
+
+/// issue 1199 — [`env_usize`] with the DECLARED rung spliced in.
+///
+/// The extra rung sits BELOW the board/platform descriptor and ABOVE the crate
+/// builtin, which is where the tree's stated precedence puts it: env >
+/// Kconfig/board > derived > crate default
+/// (`_nros_resolve_derivable_knob`). A board rung is a person's statement in
+/// the tree; the DECLARED value is what this image's own entity inventory
+/// derived. So an authored number still wins, and the derivation only replaces
+/// the literal nobody chose.
+///
+/// `None` when cmake made no claim: the carrier is written only when the
+/// inventory's status is `derived`, so absent means "no answer", never "zero".
+// issue 1199 — spelled literally so the wire is greppable; `env_usize_declared`
+// emits the same lines for whatever it is handed.
+fn watch_declared_facts() {
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_EXECUTOR_MAX_CBS");
+    println!("cargo:rerun-if-env-changed=NROS_DECLARED_EXECUTOR_ACTION_CLIENTS");
+}
+
+fn env_usize_declared(name: &str, declared: &str, default: usize) -> usize {
+    println!("cargo:rerun-if-env-changed={declared}");
+    let from_cmake = || {
+        std::env::var(declared)
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+    };
+    // Re-uses `env_usize`'s three upper rungs by asking it for a sentinel it
+    // cannot produce: if every rung above the builtin is silent it returns the
+    // default we passed, and only then does the declared value apply. Written
+    // this way so the ladder has ONE implementation -- a second copy of the
+    // env/dotconfig/rung order is how the two would drift.
+    let probe = usize::MAX;
+    match env_usize(name, probe) {
+        v if v == probe => from_cmake().unwrap_or(default),
+        v => v,
+    }
 }

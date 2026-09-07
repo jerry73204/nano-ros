@@ -1059,6 +1059,8 @@ payload_env() {
             printf 'set(NROS_MESSAGE_BOUNDS_PAYLOAD_STATUS "%s")\n' "$1"
             printf 'set(NROS_MESSAGE_BOUNDS_BASIS "%s")\n' "$2"
             [ -n "${3:-}" ] && printf 'set(NROS_DERIVED_MAX_LARGE_SUBSCRIBERS %s)\n' "$3"
+            [ -n "${4:-}" ] && printf 'set(NROS_DERIVED_SUBSCRIBER_BUFFER_SIZE %s)\n' "$4"
+            [ -n "${5:-}" ] && printf 'set(NROS_DERIVED_SUBSCRIBER_LARGE_SIZE %s)\n' "$5"
         } > "$dir/nros/message_bound_knobs.cmake"
     fi
     cat > "$dir/run.cmake" <<EOF
@@ -1104,6 +1106,25 @@ check
 _got="$(payload_env NOFILE)"
 if [ "$_got" != "" ]; then
     fail "Q: no knobs file at all carries nothing -- wanted \"\", got ${_got:-<empty>}"
+fi
+check
+
+# issue 1199 — all THREE payload keys travel, and each of the two SIZES only
+# when its own derivation published it. The set mirrors `DERIVED_PAYLOAD_ENV_KEYS`
+# in `leaf_entity_env.rs`; two roads carrying different key sets is how an
+# image's sizing comes to depend on which lane built it.
+_got="$(payload_env derived subscribed 2 880 4096)"
+_want="NROS_DECLARED_LARGE_SUBSCRIBERS=2;NROS_DECLARED_SUBSCRIBER_BUFFER_SIZE=880;NROS_DECLARED_SUBSCRIBER_LARGE_SIZE=4096"
+if [ "$_got" != "$_want" ]; then
+    fail "Q: the three payload keys -- wanted $_want, got ${_got:-<empty>}"
+fi
+check
+# A small class of 0 is not published (nothing received fits under the ceiling),
+# and a large SIZE is not published when the class has no blocks. Absent here
+# must stay absent rather than becoming a zero.
+_got="$(payload_env derived subscribed 0)"
+if [ "$_got" != "NROS_DECLARED_LARGE_SUBSCRIBERS=0" ]; then
+    fail "Q: an unpublished SIZE must not be invented -- got ${_got:-<empty>}"
 fi
 check
 

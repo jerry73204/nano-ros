@@ -144,6 +144,17 @@ KNOB_CLASS = {
     # with no Kconfig. Not a knob: `ZPICO_MAX_LARGE_SUBSCRIBERS` is the knob and
     # still outranks it.
     "NROS_DECLARED_LARGE_SUBSCRIBERS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    # issue 1199 — the rest of the DECLARED road, same category as the two
+    # above: each is a number cmake DERIVED for this image and hands to a build
+    # script as a DEFAULT. The knob is the `ZPICO_*` / `NROS_*` name beside it,
+    # which still outranks the declared value.
+    "NROS_DECLARED_MAX_PUBLISHERS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    "NROS_DECLARED_MAX_SUBSCRIBERS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    "NROS_DECLARED_RMW_SUBSCRIBER_SLOTS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    "NROS_DECLARED_SUBSCRIBER_BUFFER_SIZE": ("infra", "a SIZE the resolver passes down, not a knob"),
+    "NROS_DECLARED_SUBSCRIBER_LARGE_SIZE": ("infra", "a SIZE the resolver passes down, not a knob"),
+    "NROS_DECLARED_EXECUTOR_MAX_CBS": ("infra", "a COUNT the resolver passes down, not a knob"),
+    "NROS_DECLARED_EXECUTOR_ACTION_CLIENTS": ("infra", "a COUNT the resolver passes down, not a knob"),
     "NROS_PICOLIBC_SYSROOT": ("infra", "path"),
     "NROS_RISCV64_PREFIX": ("infra", "toolchain prefix"),
     "NROS_SDK_STORE": ("infra", "path"),
@@ -363,6 +374,12 @@ READ_CALLEES = {
     # phase-400 W6. `env_usize` with a ladder rung between the env and the
     # builtin.
     "env_usize_rung",
+    # issue 1199 — the DECLARED road's readers. Each takes the env NAME as a
+    # parameter, so the census sees the literal at the call site rather than
+    # inside the helper.
+    "env_usize_declared",
+    "declared_usize",
+    "declared_floored",
     "env", "env_get", "env_bool", "env_usize", "env_usize_min",
     "env_usize_compat", "env_or_repo_path", "env_path_or", "flag", "knob",
     "knob_usize", "knob_bool", "req", "list", "var", "var_os",
