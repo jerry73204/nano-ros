@@ -1,43 +1,45 @@
 # Mixed-language workspace
 
-nano-ros Node pkgs are linked through a C ABI register trampoline, so
-one Entry pkg can host Node pkgs written in different languages. The
-native reference shape is:
+nano-ros Node pkgs are linked through a C ABI register trampoline, so one
+image can compose Node pkgs written in different languages. The native
+reference shape is:
 
-- C Node pkg for C code you want to keep in C.
-- C++ Entry pkg for the boot harness and generated launch wiring.
-- Optional C++ Node pkgs in the same workspace.
-- One Bringup pkg with the normal ROS 2 launch XML.
+- C Node pkgs for C code you want to keep in C.
+- C++ and Rust Node pkgs beside them, in the same workspace.
+- One Bringup pkg with the normal ROS 2 launch XML and the `[image.*]` rows.
 
 The mixed workspace is in
 [`examples/workspaces/mixed/`](https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/mixed).
-For a pure-C Entry host, use
+For a pure-C workspace, use
 [`examples/workspaces/c/`](https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/c).
 
 ## Layout
 
 ```text
 my_ws/
-├── CMakeLists.txt
+├── .colcon_workspace             # tracked marker; the root CMakeLists.txt is GENERATED
 └── src/
     ├── c_talker_pkg/             # C Node pkg
     ├── cpp_listener_pkg/         # C++ Node pkg
-    ├── demo_bringup/             # launch XML + system.toml
-    └── native_entry/             # C++ Entry pkg
+    ├── rust_heartbeat_pkg/       # Rust Node pkg
+    └── demo_bringup/             # launch XML + system.toml (+ [image.*])
 ```
 
-The root uses the same CMake workspace helper as the C++ track:
+Mixed is not a special case. The driver is chosen by the **board**, and cmake
+wins whenever the package graph crosses languages — corrosion makes cargo
+consumable from cmake, and nothing makes cmake consumable from cargo (RFC-0024
+§6.3). So a mixed workspace builds exactly like the C++ one:
 
-```cmake
-include(<nano-ros>/cmake/NanoRosWorkspace.cmake)
-
-nano_ros_workspace(
-    BACKEND  zenoh
-    PLATFORM posix
-    SUBDIRS  src/c_talker_pkg
-             src/cpp_listener_pkg
-             src/native_entry)
+```console
+$ cd examples/workspaces/mixed
+$ nros build native
 ```
+
+`nros build` writes the root `CMakeLists.txt` — a `nano_ros_workspace(…)` call
+listing the discovered packages, plus one `nano_ros_add_executable(…)` per
+image on that coordinate — into `build/<coordinate>/`, configures it into
+`build/<coordinate>/cmake/`, and builds. Neither the root nor the entry is
+yours to write.
 
 ## C Node pkg
 
@@ -94,21 +96,20 @@ NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
 seam the typed Entry calls — interoperable with C++ `configure(Node&)` and Rust
 `nros::node!` components in one launch graph.
 
-## Entry pkg
+## The image
 
-Use a C++ or Rust Entry pkg as the usual host for migration work. In the
-C++ template:
+Nothing about the language mix reaches the image declaration. One row per
+program, in `src/demo_bringup/system.toml`:
 
-```cmake
-nano_ros_entry(
-    NAME    native_entry
-    SOURCES src/main.cpp
-    BOARD   native
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup/config/system_model.yaml"
-    DEPLOY  native)
+```toml
+[image_defaults]
+rmw = "zenoh"
+
+[image.native]
+board = "native"
 ```
 
-The launch file names both Node pkgs:
+The launch file names the Node pkgs, whatever they are written in:
 
 ```xml
 <launch>
@@ -117,24 +118,31 @@ The launch file names both Node pkgs:
 </launch>
 ```
 
-The generated Entry translation unit calls each package's
-`__nros_component_<pkg>_register` symbol and the CMake sidecar links
-the matching static libraries. The symbol keeps the legacy
-`component` spelling for ABI compatibility; the user-facing package
-role is still Node pkg.
-
-For a pure-C workspace, the Entry pkg uses the same launch-driven shape
-with `LANG c`:
+From that pair, `nros build` emits this into the generated root. `LANG` follows
+the workspace's own sources; `BOARD` and `DEPLOY` come from the resolved image,
+so a generated entry cannot disagree with the board it was generated for. There
+is no `SOURCES`, because the verb generates the translation unit carrying
+`main`:
 
 ```cmake
-nano_ros_entry(
-    NAME    native_entry
-    SOURCES src/main.c
+nano_ros_add_executable(native_entry
     BOARD   native
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup/config/system_model.yaml"
-    LANG    c
+    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../../src/demo_bringup"
+    LAUNCH  default
+    LANG    cpp
+    TYPED
     DEPLOY  native)
 ```
+
+The generated entry translation unit calls each package's
+`__nros_component_<pkg>_register` symbol and the CMake sidecar links the
+matching static libraries. The symbol keeps the legacy `component` spelling for
+ABI compatibility; the user-facing package role is still Node pkg.
+
+Note there is no `MODEL` here. The SystemModel is a build artifact resolved
+from the launch file by `nros sync`; naming it in a build file is the
+deprecated expert override, and a *committed* one is banned outright (gate
+`check-no-tracked-models`).
 
 ## Scaffolding
 

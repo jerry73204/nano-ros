@@ -71,7 +71,7 @@ west build -b native_sim/native/64 src/zephyr_entry \
 west build -t run            # native_sim; `west flash` for hardware
 ```
 
-See the book's [Entry packages → Running on Zephyr](../../book/src/getting-started/workspace-entry-pkg.md)
+See the book's [Images → Running on Zephyr](../../book/src/getting-started/workspace-entry-pkg.md)
 for the full flow.
 
 ## FVP board-crate Entry (ws-realtime-cpp-fvp)

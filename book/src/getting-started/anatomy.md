@@ -66,8 +66,8 @@ even carries a per-topic QoS override to show the plumbing:
 ```
 
 When you later target hardware, you add an `[image.<id>]` block per
-board — the code and topology stay put. That is the growth rule:
-**configuration is a new block, never a restructure.**
+board — the code and topology stay put, and no new directory appears. That is
+the growth rule: **configuration is a new block, never a restructure.**
 
 ## The entry package — the deliverable
 
@@ -79,8 +79,13 @@ overrides, and runs them on one executor — the launch product *is* the
 binary. There is no separate `ros2 launch` step; running the entry is
 launching the system.
 
-One entry per deployable image. A robot with a perception image and a
-control image is one workspace, two entry packages, one bringup.
+One binary per deployable image — but *image* is a row, not a directory. A
+robot with a perception image and a control image is one workspace, one
+bringup, and two `[image.*]` blocks in its `system.toml`; `nros build` derives
+each entry from `(launch, args, board)` and generates it under `build/`. The
+scaffold ships this one as a package so you can read it; deleting the directory
+is what makes the next build generate it instead. See
+[Images](workspace-entry-pkg.md).
 
 ## What was generated vs. what is yours
 
@@ -105,4 +110,4 @@ inside CMake.
 - Add a second talker or your own node: [Node packages](workspace-node-pkgs.md)
 - Point it at real hardware: [How Integration Works](how-integration-works.md)
 - The full role reference: [Bringup packages](workspace-bringup.md) ·
-  [Entry packages](workspace-entry-pkg.md)
+  [Images](workspace-entry-pkg.md)
