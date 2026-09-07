@@ -1,10 +1,23 @@
 # Installation
 
-nano-ros is distributed as **source**, vendored into the consumer's
+The **library** is distributed as source, vendored into the consumer's
 project tree (git submodule, `west` manifest, ESP-IDF component, etc.)
 and built in-tree via `add_subdirectory(nano-ros)`. There is no binary
-tarball, no system-wide install step, no `find_package(NanoRos)`, and
-no prebuilt `nros` CLI.
+tarball, no system-wide install step and no `find_package(NanoRos)`.
+
+The **`nros` CLI** is a separate question with a separate answer, and
+which one you want depends on who you are:
+
+| you are… | you get `nros` by… |
+| --- | --- |
+| **using** nano-ros to build your own project | installing a release — `scripts/install.sh`, below |
+| **developing** nano-ros itself | building it from the checkout — `./scripts/bootstrap.sh` |
+
+That is not a preference. Inside a nano-ros checkout the tree's own
+build is the only correct binary: a released `nros` run against a
+checkout is refused outright, because it emits *its own* generated code
+and this tree's runtime is the one that has to compile it
+([RFC-0090](https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0090-codegen-version-is-the-compatibility-token.md)).
 
 ## Host prerequisites
 
@@ -76,19 +89,24 @@ first: they are what it takes to clone the repo and build the CLI.
 Four steps take a bare machine to a building project; each is detailed
 in a section below.
 
-> **Why step 2 builds the CLI instead of downloading it.** nano-ros is a source
-> distribution today: there is no prebuilt `nros` to fetch, so obtaining the tool
-> requires the repository and its toolchain. That is backwards — `nros`
-> provisions dependencies and builds workspaces, so it is meant to be the thing
-> you get *first*, and the thing that makes cloning this repository unnecessary.
+> **Why step 2 builds the CLI here.** These four steps are the *contributor*
+> flow — they start by cloning the repository, so step 2 is the checkout's own
+> build, which is the only binary that may be used against it.
 >
 > Prebuilt binaries were shipped early and withdrawn, because a released binary
 > emitted code that had drifted from the runtime — and drifted generated code
-> *compiles*, so the failure was silent. Restoring the download is blocked on one
-> question having a checkable answer: *can this binary's output work with this
-> runtime?* [RFC-0090](https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0090-codegen-version-is-the-compatibility-token.md)
+> *compiles*, so the failure was silent. Restoring the download needed one
+> question to have a checkable answer: *can this binary's output work with this
+> runtime?*
+> [RFC-0090](https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0090-codegen-version-is-the-compatibility-token.md)
 > answers it with a codegen version that every generated artifact carries and
-> every runtime asserts. Until that ships in a release, step 2 stays.
+> every runtime asserts, and every arm of it refuses at compile time.
+>
+> **No release has been cut yet.** The machinery is in place (`scripts/install.sh`
+> and a manual release workflow), and cutting one is a deliberate act rather
+> than a consequence of a version bump — so until the first one exists, building
+> from the checkout is how everyone gets `nros`. `install.sh` says so itself if
+> you run it early, and points you back here.
 
 ```sh probe=20
 # 1. Pull the source at a pinned version (or `main` for latest):
@@ -294,9 +312,24 @@ both vendored submodules) and no daemon at all.
 
 ### 1. Get the `nros` CLI onto PATH
 
-nano-ros is a **source distribution** — there is no prebuilt `nros`
-download. One front door from a fresh checkout (`just` is NOT a
-prereq; rustup is installed on demand):
+**If you only want to use nano-ros**, install a release — no checkout,
+no cargo, no `just`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+```
+
+It verifies the download's sha256 (and refuses an asset it cannot
+verify), installs into `~/.nros/sdk/nros/<version>/` and points
+`~/.nros/bin/nros` at the newest version installed — so however many
+versions accumulate, `nros` means one command. Put `~/.nros/bin` on
+your PATH. Until the first release is cut it will tell you so and send
+you to the source build below.
+
+**If you are working on nano-ros itself**, build the CLI from the
+checkout — that binary is the only one this tree accepts. One front
+door from a fresh checkout (`just` is NOT a prereq; rustup is installed
+on demand):
 
 > Sourcing `activate.sh` on a host without `just` prints one line about
 > RTOS SDK path defaults (`FREERTOS_DIR`, `NUTTX_DIR`, `IDF_PATH`, …)

@@ -43,7 +43,7 @@ pub struct Args {
 }
 
 pub fn run(args: Args) -> Result<()> {
-    let index = SdkIndex::load(&args.index)?;
+    let index = SdkIndex::load(&crate::cmd::setup::resolve_index(&args.index))?;
 
     let Some(dir) = sdk_store::tool_dir(&index, &args.tool) else {
         // Name what IS pinned: a typo and an unprovisioned tool look identical

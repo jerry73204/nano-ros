@@ -1,6 +1,7 @@
 # Phase 431 — ship the `nros` binary
 
-**Status (2026-09-06).** **W1, W2 and W3 landed.** W4–W6 open — the distribution
+**Status (2026-09-06). Every work item is landed.** No release has been cut:
+W5 is manual dispatch, and cutting one is a decision, not a consequence — the distribution
 mechanics proper. [Phase-429](phase-429-the-codegen-version-is-enforced-everywhere.md)
 removed the correctness blocker; what remains is distribution mechanics plus one
 hazard that shipping CREATES and that is worth fixing before the first release
@@ -241,12 +242,80 @@ install an OLDER one, front -> unchanged                 (no silent downgrade)
 $NROS_HOME/bin/nros --codegen-version -> 1
 ```
 
-### W4 — `bootstrap.sh` downloads, and still builds from source
+### W4 — the download front door, and it is NOT `bootstrap.sh`
 
 The paradox-breaker. Fetch `nros-<host>.tar.zst` + verify sha256, install through
-W3, and keep the source build as the fallback for an unsupported host and as the
-contributor path (`--from-source`). The book's step 2 stops being "build the CLI"
-for a user and stays exactly that for a contributor.
+W3, and keep the source build for an unsupported host and for contributors. The
+book's step 2 stops being "build the CLI" for a user and stays exactly that for a
+contributor.
+
+**Landed 2026-09-06, with the shape changed.** This item was written as
+"`bootstrap.sh` downloads by default, `--from-source` opts out". That is not
+implementable, and the reason is structural rather than a preference:
+
+* `bootstrap.sh` lives IN a checkout, so its download would put a released
+  binary on a contributor's PATH beside that checkout's sources;
+* a released binary run against a nano-ros checkout is refused by W1 and
+  reported as a `[FAIL]` by W2 — both deliberately;
+* and it cannot BE the checkout's binary either: `nros source-stamp` compares
+  against the sources it was built from, so a release from another commit reads
+  stale the moment it is copied into `packages/cli/target/`.
+
+That is RFC-0090's thesis, not an inconvenience: the release is for people
+building THEIR workspace, and inside nano-ros the tree's own build is the only
+correct binary. It also matches the standing constraint that the checkout must
+win locally. So the two front doors **split by audience**:
+
+| | who | what |
+| --- | --- | --- |
+| `scripts/bootstrap.sh` | contributors, in a checkout | builds from source (unchanged) |
+| `scripts/install.sh` | users, anywhere | downloads a release into the store |
+
+```
+curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+```
+
+POSIX `sh`, because it runs from a curl pipe on a machine with nothing
+provisioned — and with no `nros`, which is the bootstrap paradox it exists to
+break. It never touches a checkout: it installs into `<store>/nros/<version>/`
+and calls the binary it just placed with
+`nros sdk-front nros --front bin/nros`, so "which version does `nros` mean" has
+exactly one implementation (W3's `front_newest`) and the shell does not get a
+second opinion. `--front` exists for precisely this caller: a user outside a
+checkout has no `nros-sdk-index.toml` until the install finishes.
+
+**The checksum is mandatory, not best-effort.** An asset served over a hijacked
+CDN and an asset that arrived intact look identical to `tar`, and the person
+running this cannot inspect what was fetched. A missing `.sha256` is a refusal,
+not a fallback. `zstd`'s absence is probed BEFORE the download, the same rule
+`sdk_store::execute` follows (issue 0385): otherwise it fails deep inside `tar`
+with `zstd: Cannot exec`, after the bytes are already down.
+
+**The store version comes from the asset**, at `share/nros/VERSION`, not from
+`nros --version`: those differ by the `-nrosN` repackaging counter
+(`0.5.0` vs `0.5.0-nros1`), and the wrong one means a later
+`nros setup --tool nros` installs a SECOND copy of the same binary under the
+other name. W5's release job writes that file from the index. A pre-W5 asset
+falls back to `--version` and says so.
+
+`tests/nros-installer-tests.sh` (`just check nros-installer`, on the fast lane)
+serves a tarball built from the checkout's own `nros` over loopback, so it needs
+no release to exist and reaches no network. Five arms, and the refusals are the
+interesting half — an asset that installs anyway leaves a binary emitting code
+into someone's workspace:
+
+```
+happy path        -> installed at <store>/nros/9.9.9-nros7, fronted, runs
+version pinning   -> the prefix is the ASSET's version, and the only one
+bad checksum      -> refuses, and installs NOTHING
+absent .sha256    -> refuses (unverified is not a fallback)
+no asset at all   -> refuses, naming the source build as the way forward
+```
+
+W2's gate moved with the decision: it flagged `bootstrap.sh` without
+`--from-source` as the release path, which is now false. It flags
+`scripts/install.sh` instead — bootstrap building from source is exactly what
+the gate wants.
 
 ### W5 — the release workflow
 
@@ -258,6 +327,71 @@ convention, and the reason is reproducibility rather than convenience.
 `--codegen-version` against the tree it was built from, so a release cannot go
 out claiming a compatibility it does not have.
 
+Two more requirements, discovered by W4 and recorded here rather than left to be
+rediscovered:
+
+* **the asset carries `share/nros/VERSION`**, written from `[tool.nros].version`
+  in the index, because the store prefix must be the version the index pins and
+  `nros --version` prints a different string;
+* **the asset ships a `.sha256` beside it**, because `install.sh` refuses an
+  asset it cannot verify — a release without one is un-installable, by design;
+* and the asset must be **prefix-rooted** (`bin/nros`, `share/…`), the mirror
+  shape every other dist in the index uses, so it lands in the store unchanged.
+
+**Landed 2026-09-06** as `.github/workflows/release-nros.yml`. Nothing is
+scheduled and nothing triggers on a tag: the tag is created BY the workflow,
+from the version you type, and `publish` defaults to **false** so a dispatch
+builds and verifies without releasing anything.
+
+*What it asserts*, each because it is a property a user cannot check for
+themselves:
+
+| check | what it catches |
+| --- | --- |
+| `nros source-stamp` | the binary does not match the checkout it was built from |
+| `--codegen-version` vs `NROS_CODEGEN_VERSION` in the same tree | a release claiming a compatibility it does not have — the failure that withdrew the last one |
+| `[tool.nros].version` == the dispatched version | an asset whose store prefix is not the one the index pins |
+| the version is `<crate>-nrosN` | releasing `0.6.0-nros1` off a 0.5.0 tree |
+
+*And it installs its own asset before publishing it.* The installer's refusals
+are gated against a synthetic tarball (W4); only this catches an asset that is
+well-formed and **wrong** — a missing `VERSION`, a prefix rooted one directory
+too deep, a binary that does not run on a clean runner. It serves the tarball
+over loopback and asserts the fronted binary runs `--codegen-version` and
+`setup --list` **from a directory that is not a checkout**.
+
+That last assertion found a real gap. **A released `nros` could not run
+`nros setup <board>` at all**: `locate_index` looked in the cwd and in a
+workspace, both of which assume a checkout, and the whole point of shipping a
+binary is that there is no checkout. So the asset carries
+`share/nros/nros-sdk-index.toml` and `setup::shipped_index` resolves it from the
+running executable — from the executable rather than `$NROS_HOME`, so two
+versions in the store each answer with their own and stay independently
+installable. `resolve_index` falls back only for the DEFAULT: a `--index` the
+user typed names a file they chose, and silently reading another one is how a
+build gets provisioned from a table nobody looked at.
+
+*Runner and reach.* `ubuntu-22.04`, pinned rather than `latest`: the binary
+links the runner's glibc, and a newer one will not run on the LTS the book's
+install instructions target — the floor is a property of the release. Linux
+x86_64 only; `linux-arm64` is one matrix row whenever a runner is decided on,
+and the index already carries the host key.
+
+*The gate exempts it, in one direction only.* `check-ci-cli-from-source`'s arm A
+does not apply to a workflow that PRODUCES the release — it names the asset a
+dozen times because it builds one, and it runs `scripts/install.sh` on purpose.
+Arm B still applies, and that is what keeps the exemption from being a hole:
+mutation-verified by deleting the `source-stamp` line, which turns the gate red.
+
+`check-workflow-indexed-apt` caught the workflow restating `zstd` as an apt
+package name; it now asks `scripts/sdk/prereq-packages.py`, since the index
+carries the per-manager spellings and a workflow copy is the one that goes
+stale.
+
+Rehearsed locally end to end — build, verify, stage, serve, install, front, run
+outside a checkout — before the workflow was committed, because a release
+workflow's first real run should not be its first run.
+
 ### W6 — the docs stop describing a source-only distribution
 
 `book/src/getting-started/installation.md` currently carries a note explaining
@@ -266,6 +400,35 @@ wrong on the first release and should be replaced, not deleted — the reason
 prebuilt binaries were withdrawn is worth keeping, with the answer now attached.
 `AGENTS.md` and `scripts/bootstrap.sh`'s header (*"there is no prebuilt `nros`
 download"*) likewise.
+
+**Landed 2026-09-06.**
+
+The claim that needed replacing was **"there is no prebuilt `nros`"**, in 12
+places across 11 files. That sentence is a fact with an expiry date, and the
+replacement deliberately is not: the durable statement is about **audience**, not
+existence — a checkout builds its own binary because that is the only one it
+accepts, and a user installs a release because they have no checkout. That reads
+correctly before the first release and after it.
+
+The four-step quick start stays a *contributor* flow (it opens with `git clone`),
+with the user path stated above it as a table. `installation.md` and
+`reference/cli.md` lead with `install.sh`; the seven getting-started pages carried
+the same parenthetical and were rewritten together rather than one at a time.
+`CONTRIBUTING.md` gains the sentence a contributor actually needs — *do not
+install a release here, `just doctor` fails on it, and here is why* — since a
+contributor who has both is the person this phase's hazard is aimed at.
+
+One thing is said once and not eleven times: **no release is cut yet.** It sits
+in `installation.md`, and `install.sh` says the same thing itself when run early,
+so a user who skips the book still lands somewhere useful.
+
+**Filed while verifying:** [#1110](../issues/1110-rustdoc-broken-intra-doc-link-in-clienttrait.md)
+— `just book` and the docs deploy have been red since 2026-09-03. `3941b569a`
+deleted `ClientTrait::is_server_ready`; the paragraph beside it still links to it,
+rustdoc's broken-link lint is deny-level, and nothing on a merge-gating lane runs
+rustdoc. Not this phase's change (`mdbook build` alone is green, and `just book`
+was red before the edit and after it), and the class is 0319/0896 again: a correct
+check on a path nothing traverses.
 
 ## What this phase must not do
 

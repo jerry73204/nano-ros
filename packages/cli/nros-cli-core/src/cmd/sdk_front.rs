@@ -29,21 +29,38 @@ pub struct Args {
     /// Path to the SDK index.
     #[arg(long, default_value = "nros-sdk-index.toml")]
     pub index: PathBuf,
+
+    /// Prefix-relative paths to front, instead of reading the index's `front`.
+    ///
+    /// For `scripts/install.sh`, which has a binary and no index: a user
+    /// installing `nros` outside a checkout has no `nros-sdk-index.toml` until
+    /// this very install finishes. The alternative was for the installer to
+    /// write the symlink itself, which would be a SECOND answer to "which
+    /// version does `nros` mean" — living in shell, in the one place that
+    /// cannot see the store accumulate. This keeps `front_newest` the only
+    /// answer and lets the caller supply the one input it is missing.
+    #[arg(long = "front", value_name = "REL")]
+    pub front: Vec<String>,
 }
 
 pub fn run(args: Args) -> Result<()> {
-    let index = SdkIndex::load(&args.index)?;
-    let Some(tool) = index.tool.get(&args.tool) else {
-        let known: Vec<&str> = index.tool.keys().map(String::as_str).collect();
-        bail!(
-            "no `[tool.{}]` in {} — the index pins: {}",
-            args.tool,
-            args.index.display(),
-            known.join(", ")
-        );
+    let front = if args.front.is_empty() {
+        let index = SdkIndex::load(&crate::cmd::setup::resolve_index(&args.index))?;
+        let Some(tool) = index.tool.get(&args.tool) else {
+            let known: Vec<&str> = index.tool.keys().map(String::as_str).collect();
+            bail!(
+                "no `[tool.{}]` in {} — the index pins: {}",
+                args.tool,
+                args.index.display(),
+                known.join(", ")
+            );
+        };
+        tool.front.clone()
+    } else {
+        args.front.clone()
     };
 
-    if tool.front.is_empty() {
+    if front.is_empty() {
         bail!(
             "`[tool.{}]` declares no `front`, so nothing about it belongs in {}. \
              Resolve it with `nros sdk-path {}` instead — the store is on PATH \
@@ -56,7 +73,7 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let root = sdk_store::store_root();
-    let linked = sdk_store::front_newest(&root, &args.tool, &tool.front)?;
+    let linked = sdk_store::front_newest(&root, &args.tool, &front)?;
     if linked.is_empty() {
         // Not an error at the library layer (an install may simply not have
         // happened yet), but here the user ASKED, so say what is missing.

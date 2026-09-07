@@ -475,3 +475,12 @@ workflow-setup-spelling:
 [private]
 hook-repo-side-effects:
     @bash scripts/check-hook-repo-side-effects.sh
+
+# phase-431 W4 — the user installer installs, and REFUSES. A corrupted or
+# unsigned asset that installs anyway is worse than one that fails: the binary
+# it leaves behind emits code into someone's workspace. Serves a tarball built
+# from the checkout's own `nros` over loopback, so it needs no release to exist
+# and reaches no network.
+[group("checks")]
+nros-installer:
+    @bash tests/nros-installer-tests.sh

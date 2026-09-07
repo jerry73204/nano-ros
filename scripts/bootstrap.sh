@@ -42,10 +42,20 @@ Flags:
   --no-prompt                never ask (CI mode); overrides --prompt
   -h, --help                 this message
 
-nano-ros is a SOURCE distribution (phase-288 D1/D2): there is no prebuilt
-`nros` download. The front door builds `packages/cli/` with cargo and
-leaves the binary at packages/cli/target/release/nros; `just setup-cli`
-is the internal alias for the same build.
+This is the CONTRIBUTOR front door, and it builds from source on purpose.
+Inside a checkout the tree's own build is the only correct binary: a released
+`nros` run against a nano-ros checkout is refused (RFC-0090 / phase-431 W1)
+and reported by `just doctor` as a shadow (W2), and it cannot stand in for the
+checkout's binary either, since `nros source-stamp` compares against the
+sources it was built from. It leaves the binary at
+packages/cli/target/release/nros; `just setup-cli` is the internal alias for
+the same build.
+
+USERS who only want the tool need no checkout and no cargo (phase-431 W4):
+
+  curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh | sh
+
+That installs a released binary into ~/.nros and fronts it at ~/.nros/bin/nros.
 
 After a successful front-door / `base` run the script offers to append a
 `source <repo>/activate.sh` line to your shell rc (auto-detected from

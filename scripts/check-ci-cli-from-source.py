@@ -48,10 +48,18 @@ STAMP_RE = re.compile(r"\bsource-stamp\b")
 # downloads OTHER projects' releases, and `docs.yml` fetching `mdbook-mermaid`
 # from a GitHub release URL was this gate's first false positive.
 #
-# `bootstrap.sh` is here because phase-431 W4 makes DOWNLOAD its default: the
-# user front door stops building from source, and `--from-source` is the
-# contributor opt-in. A workflow invoking it without that flag is the release
-# path spelled differently.
+# `scripts/install.sh` is here because it IS the release path: phase-431 W4 made
+# it the user front door, downloading a release into the SDK store. A workflow
+# running it is a workflow testing the last release instead of this tree.
+#
+# `scripts/bootstrap.sh` is deliberately NOT here. W4 first planned to make
+# download ITS default with a `--from-source` opt-out, and that turned out not
+# to be implementable: bootstrap runs inside a checkout, and a released binary
+# cannot serve a checkout — `refuse_if_foreign_to_workspace` refuses it (W1),
+# `just doctor` fails on it (W2), and copying it into `packages/cli/target/`
+# does not help either, because `nros source-stamp` compares against the
+# sources it was built from. So the two front doors split by AUDIENCE, and
+# bootstrap building from source is exactly what this gate wants.
 RELEASE_ACQUISITION = [
     (
         re.compile(r"gh release download"),
@@ -69,18 +77,38 @@ RELEASE_ACQUISITION = [
         re.compile(r"--tool[= ]nros\b"),
         "installs the CLI through the SDK store",
     ),
+    (
+        re.compile(r"scripts/install\.sh"),
+        "runs the user installer, which downloads a release",
+    ),
 ]
-BOOTSTRAP_RE = re.compile(r"bootstrap\.sh")
-FROM_SOURCE_RE = re.compile(r"--from-source\b")
 
 # (workflow, exact stripped line) -> reason. Checked in BOTH directions: an
 # exemption matching nothing is a stale allow-list, which is how a gate quietly
 # stops covering what it names.
 #
-# EMPTY. A future entry needs a reason that is a property of the LANE -- "this
-# job tests the release itself" is the only shape that qualifies, and W5's
-# release workflow will be that entry when it lands.
+# EMPTY. A per-line entry needs a reason that is a property of the LANE.
 EXEMPT = {}
+
+# Workflows that PRODUCE the release rather than acquire it -- arm A does not
+# apply to them, arm B still does.
+#
+# The distinction is this gate's whole subject. `release-nros.yml` names the
+# asset a dozen times because it BUILDS one, and it runs `scripts/install.sh`
+# against what it just built -- the strongest check the release has, since the
+# installer's own refusals are gated against a synthetic tarball and only this
+# catches an asset that is well-formed and wrong. Banning that removes a check
+# rather than adding one.
+#
+# Arm B is what keeps this from being a hole: a producer must still build the
+# CLI from source and assert its source stamp, which matters most for the one
+# artifact nobody downstream can re-check.
+RELEASE_WORKFLOWS = {
+    "release-nros.yml": (
+        "phase-431 W5 -- it BUILDS the release, and installs its own asset as "
+        "a pre-publish check"
+    ),
+}
 
 
 def run_blocks(text):
@@ -134,6 +162,7 @@ def build_sites(text):
 
 
 NROS_RE = re.compile(r"\bnros\b")
+INSTALLER_RE = re.compile(r"scripts/install\.sh")
 
 
 def logical_lines(text):
@@ -167,19 +196,14 @@ def release_sites(text):
     for i, line in logical_lines(text):
         if not line or line.startswith("#"):
             continue
-        # `bootstrap.sh` is exempt from the name filter: it IS the nros front
-        # door, and it spells the binary nowhere on its own invocation line.
-        if not NROS_RE.search(line) and not BOOTSTRAP_RE.search(line):
+        # `scripts/install.sh` is exempt from the name filter: it is the nros
+        # installer and spells the binary nowhere on its own invocation line.
+        if not NROS_RE.search(line) and not INSTALLER_RE.search(line):
             continue
         for pattern, what in RELEASE_ACQUISITION:
             if pattern.search(line):
                 out.append((i, line, what))
                 break
-        else:
-            if BOOTSTRAP_RE.search(line) and not FROM_SOURCE_RE.search(line):
-                out.append(
-                    (i, line, "runs bootstrap.sh, whose default is the download")
-                )
     return out
 
 
@@ -241,13 +265,17 @@ def self_test():
             "          curl -L https://example/releases/download/v1/nros.tar.zst",
             "          tar xf nros-x86_64-linux.tar.zst",
             "          nros setup --tool nros",
-            "          ./scripts/bootstrap.sh",
+            "          sh scripts/install.sh",
             "          # gh release download in a comment is prose",
         ]
     )
     hits = release_sites(bad)
     assert [h[0] for h in hits] == [2, 3, 4, 5, 6], hits
-    assert "bootstrap.sh" in hits[4][2], hits[4]
+    assert "installer" in hits[4][2], hits[4]
+
+    # bootstrap builds from source, which is the point — never an offender.
+    boot = "        run: ./scripts/bootstrap.sh"
+    assert release_sites(boot) == [], release_sites(boot)
 
     # Another project's release is not ours. `docs.yml` fetching mdbook-mermaid
     # from a `releases/download/` URL was this gate's first false positive.
@@ -274,11 +302,23 @@ def self_test():
     ok = "\n".join(
         [
             "        run: |",
-            "          ./scripts/bootstrap.sh --from-source",
+            "          ./scripts/bootstrap.sh",
             "          cargo build --release --bin nros",
         ]
     )
     assert release_sites(ok) == [], release_sites(ok)
+
+    # A producer is exempt from arm A and NOT from arm B -- the half that keeps
+    # the exemption from being a hole.
+    prod = "\n".join(
+        [
+            "        run: |",
+            "          gh release create v1 nros-linux-x86_64.tar.zst",
+            "          cargo build --release --bin nros",
+        ]
+    )
+    assert len(release_sites(prod)) == 1, release_sites(prod)
+    assert build_sites(prod)[0][2] is False, build_sites(prod)
 
     sys.stdout.write("check-ci-cli-from-source self-test: OK\n")
 
@@ -293,11 +333,20 @@ def main():
     seen_exempt = set()
     total_builds = 0
 
+    known = set(workflow_files())
+    for name, reason in RELEASE_WORKFLOWS.items():
+        if name not in known:
+            problems.append(
+                "STALE producer exemption %r (%s) -- no such workflow.\n"
+                "    Delete it; an allow-list checked one way stops covering\n"
+                "    what it claims to." % (name, reason)
+            )
+
     for fn in workflow_files():
         with open(os.path.join(WORKFLOWS, fn), encoding="utf8") as fh:
             text = fh.read()
 
-        for lineno, line, what in release_sites(text):
+        for lineno, line, what in ([] if fn in RELEASE_WORKFLOWS else release_sites(text)):
             if (fn, line) in EXEMPT:
                 seen_exempt.add((fn, line))
                 continue
