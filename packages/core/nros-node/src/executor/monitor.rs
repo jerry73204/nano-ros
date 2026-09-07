@@ -180,8 +180,7 @@ pub const MAX_VIOLATIONS: usize = 8;
 pub struct Violation {
     /// `"rate-hierarchy-runtime"` | `"max-age-runtime"` |
     /// `"max-latency-runtime"` | `"deadline-miss-runtime"` |
-    /// `"timer-overrun-runtime"` | `"release-jitter-runtime"` |
-    /// `"stack-headroom-runtime"`.
+    /// `"stack-headroom-runtime"` | `"alive-supervision-runtime"`.
     pub rule: &'static str,
     /// Violating endpoint ref (from the spec's `fqn`; the SC name for
     /// deadline misses).
@@ -716,6 +715,160 @@ mod publish_stamp_tests {
             0,
             "no stamp means no observation, not an enormous age"
         );
+    }
+}
+
+/// Per-SchedContext liveness accounting, one per SC slot.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AliveState {
+    pub opened: bool,
+    pub window_start_us: u64,
+    pub count_at_window_start: u32,
+    /// Report-once-until-recovery, matching the rate rule.
+    pub violated_last_window: bool,
+}
+
+impl Default for AliveState {
+    fn default() -> Self {
+        Self {
+            opened: false,
+            window_start_us: 0,
+            count_at_window_start: 0,
+            violated_last_window: false,
+        }
+    }
+}
+
+/// Report a SchedContext that has not dispatched AT ALL over a full window
+/// while declaring a period that says it should have.
+///
+/// AUTOSAR's Watchdog Manager separates ALIVE supervision -- did it run at
+/// all, at roughly the right rate -- from DEADLINE supervision, did it finish
+/// in time. Every rule here is the second kind or a variant of it: they fire
+/// when something happens and is wrong. Nothing fires when a callback stops
+/// happening altogether.
+///
+/// `rate-hierarchy-runtime` does not cover it. That rule counts PUBLISHES on
+/// a contracted publisher, so a timer callback that silently stops firing
+/// while its topic is published from elsewhere -- another tier, a bridge, a
+/// republisher -- leaves it satisfied. The gap is a callback, not an
+/// endpoint.
+///
+/// The bound needs no declaration: `period_us` is already on the SC, and a
+/// context claiming a period that produced no activation in a window many
+/// times longer than it is a contract failure for any period. `period_us ==
+/// 0` declares no cadence, so nothing is judged.
+///
+/// ZERO, not a fraction. A throttled-but-alive context is a different fault
+/// with different evidence -- `SporadicState` already counts window skips and
+/// dispatches for exactly that -- and picking a percentage here would invent
+/// a tolerance nobody declared. Zero activations against a declared period is
+/// unambiguous.
+pub(crate) fn check_alive(
+    period_us: u64,
+    dispatches: u32,
+    state: &mut AliveState,
+    now_us: u64,
+) -> Option<Violation> {
+    if period_us == 0 {
+        return None;
+    }
+    if !state.opened {
+        state.opened = true;
+        state.window_start_us = now_us;
+        state.count_at_window_start = dispatches;
+        return None;
+    }
+    let window_us = now_us.saturating_sub(state.window_start_us);
+    if window_us < RATE_CHECK_INTERVAL_US {
+        return None;
+    }
+    let fired = dispatches.wrapping_sub(state.count_at_window_start);
+    state.window_start_us = now_us;
+    state.count_at_window_start = dispatches;
+
+    // Only judge a window long enough to have contained an activation. A
+    // period longer than the check interval is not late merely for not having
+    // fired yet.
+    if window_us < period_us {
+        return None;
+    }
+    if fired > 0 {
+        state.violated_last_window = false;
+        return None;
+    }
+    if state.violated_last_window {
+        return None; // still silent — already reported
+    }
+    state.violated_last_window = true;
+    Some(Violation {
+        rule: "alive-supervision-runtime",
+        // SCs carry no name at this altitude; same stand-in as the deadline
+        // rule, which reports against the SC too.
+        fqn: "sched-context",
+        measured: 0,
+        declared: (window_us / period_us).min(u32::MAX as u64) as u32,
+    })
+}
+
+#[cfg(test)]
+mod alive_supervision_tests {
+    use super::*;
+
+    const W: u64 = RATE_CHECK_INTERVAL_US;
+
+    #[test]
+    fn a_zero_period_declares_no_cadence() {
+        let mut st = AliveState::default();
+        assert!(check_alive(0, 0, &mut st, 0).is_none());
+        assert!(check_alive(0, 0, &mut st, W * 4).is_none());
+    }
+
+    /// The first observation opens the window; there is no verdict yet.
+    #[test]
+    fn the_first_window_only_opens() {
+        let mut st = AliveState::default();
+        assert!(check_alive(1_000, 0, &mut st, 0).is_none());
+        assert!(st.opened);
+    }
+
+    #[test]
+    fn silence_across_a_full_window_reports() {
+        let mut st = AliveState::default();
+        check_alive(1_000, 0, &mut st, 0);
+        let v = check_alive(1_000, 0, &mut st, W).expect("no dispatch in a full window");
+        assert_eq!(v.rule, "alive-supervision-runtime");
+        assert_eq!(v.measured, 0);
+        assert_eq!(v.declared, (W / 1_000) as u32);
+    }
+
+    /// Any activation at all clears it -- this rule asks whether the context
+    /// is alive, not whether it is keeping up.
+    #[test]
+    fn a_single_dispatch_is_enough() {
+        let mut st = AliveState::default();
+        check_alive(1_000, 0, &mut st, 0);
+        assert!(check_alive(1_000, 1, &mut st, W).is_none());
+    }
+
+    /// Report once, then stay quiet until it recovers, like the rate rule.
+    #[test]
+    fn continued_silence_is_not_a_new_fault() {
+        let mut st = AliveState::default();
+        check_alive(1_000, 0, &mut st, 0);
+        assert!(check_alive(1_000, 0, &mut st, W).is_some());
+        assert!(check_alive(1_000, 0, &mut st, W * 2).is_none());
+        // Recovery, then silence again, reports afresh.
+        assert!(check_alive(1_000, 5, &mut st, W * 3).is_none());
+        assert!(check_alive(1_000, 5, &mut st, W * 4).is_some());
+    }
+
+    /// A period longer than the window has not had its chance yet.
+    #[test]
+    fn a_period_longer_than_the_window_is_not_judged() {
+        let mut st = AliveState::default();
+        check_alive(W * 10, 0, &mut st, 0);
+        assert!(check_alive(W * 10, 0, &mut st, W).is_none());
     }
 }
 
