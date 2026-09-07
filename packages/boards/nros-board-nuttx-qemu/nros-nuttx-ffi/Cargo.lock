@@ -303,6 +303,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nros-executor-layout"
+version = "0.5.0"
+
+[[package]]
 name = "nros-log"
 version = "0.5.0"
 dependencies = [
@@ -334,6 +338,7 @@ dependencies = [
  "nros-board-common",
  "nros-build-paths",
  "nros-core",
+ "nros-executor-layout",
  "nros-log",
  "nros-params",
  "nros-platform-api",
